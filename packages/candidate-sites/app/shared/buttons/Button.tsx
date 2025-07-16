@@ -6,58 +6,59 @@ import { forwardRef, ReactNode, MouseEventHandler } from 'react'
 
 export const COLOR_CLASSES = {
   primary:
-    'text-white bg-blue-600 hover:[&:not([disabled])]:bg-blue-700 focus-visible:outline-blue-600/30 active:outline-blue-600/30',
+    'text-primary-contrast bg-primary-main hover:[&:not([disabled])]:bg-primary-dark focus-visible:outline-primary-main/30 active:outline-primary-main/30',
   secondary:
-    'text-white bg-gray-600 hover:[&:not([disabled])]:bg-gray-700 focus-visible:outline-gray-600/40 active:outline-gray-600/40',
+    'text-secondary-contrast bg-secondary-main hover:[&:not([disabled])]:bg-secondary-dark focus-visible:outline-secondary-dark/40 active:outline-secondary-dark/40',
   tertiary:
-    'text-white bg-purple-600 hover:[&:not([disabled])]:bg-purple-700 focus-visible:outline-purple-600/30 active:outline-purple-600/30',
+    'text-tertiary-contrast bg-tertiary-main hover:[&:not([disabled])]:bg-tertiary-dark focus-visible:outline-tertiary-dark/30 active:outline-tertiary-dark/30',
   error:
-    'text-white bg-red-600 hover:[&:not([disabled])]:bg-red-700 focus-visible:outline-red-600/30 active:outline-red-600/30',
+    'text-error-contrast bg-error-main hover:[&:not([disabled])]:bg-error-dark focus-visible:outline-error-main/30 active:outline-error-main/30',
   warning:
-    'text-black bg-yellow-400 hover:[&:not([disabled])]:bg-yellow-500 focus-visible:outline-yellow-400/30 active:outline-yellow-400/30',
-  info: 'text-white bg-cyan-600 hover:[&:not([disabled])]:bg-cyan-700 focus-visible:outline-cyan-600/30 active:outline-cyan-600/30',
+    'text-warning-contrast bg-warning-main hover:[&:not([disabled])]:bg-warning-dark focus-visible:outline-warning-main/30 active:outline-warning-main/30',
+  info: 'text-info-contrast bg-info-main hover:[&:not([disabled])]:bg-info-dark focus-visible:outline-info-main/30 active:outline-info-main/30',
   success:
-    'text-white bg-green-600 hover:[&:not([disabled])]:bg-green-700 focus-visible:outline-green-600/30 active:outline-green-600/30',
+    'text-success-contrast bg-success-main hover:[&:not([disabled])]:bg-success-dark focus-visible:outline-success-main/30 active:outline-success-main/30',
   neutral:
-    'text-gray-700 bg-gray-200 hover:[&:not([disabled])]:bg-gray-300 focus-visible:outline-gray-300/40 active:outline-gray-300/40',
+    'text-neutral-contrast bg-neutral-light hover:[&:not([disabled])]:bg-neutral-main focus-visible:outline-neutral-main/40 active:outline-neutral-main/40',
+  // WIP: only contained style for now
   white:
-    'text-black bg-white hover:[&:not([disabled])]:bg-gray-100 focus-visible:outline-white/40 active:outline-white/40 border border-gray-300',
+    'text-black bg-white hover:[&:not([disabled])]:bg-[#d6d6d6] focus-visible:outline-white/40 active:outline-white/40',
 }
 
 const OUTLINED_COLOR_CLASSES = {
   primary:
-    'text-blue-600 !border-blue-600/50 hover:[&:not([disabled])]:bg-blue-600/[0.08] focus-visible:!bg-blue-600/[0.12] active:!bg-blue-600/[0.12]',
+    'text-primary-dark !border-primary-main/50 hover:[&:not([disabled])]:bg-primary-main/[0.08] focus-visible:!bg-primary-main/[0.12] active:!bg-primary-main/[0.12]',
   secondary:
-    'text-gray-600 !border-gray-600/50 hover:[&:not([disabled])]:bg-gray-600/[0.16] focus-visible:bg-gray-600/[0.24] active:!bg-gray-600/[0.24]',
+    'text-lime-900 !border-secondary-dark/50 hover:[&:not([disabled])]:bg-secondary-main/[0.16] focus-visible:bg-secondary-main/[0.24] active:!bg-secondary-main/[0.24]',
   tertiary:
-    'text-purple-600 !border-purple-600/50 hover:[&:not([disabled])]:bg-purple-600/[0.08] focus-visible:!bg-purple-600/[0.12] active:!bg-purple-600/[0.12]',
+    'text-tertiary-dark !border-tertiary-main/50 hover:[&:not([disabled])]:bg-tertiary-main/[0.08] focus-visible:!bg-tertiary-main/[0.12] active:!bg-tertiary-main/[0.12]',
   error:
-    'text-red-600 !border-red-600/50 hover:[&:not([disabled])]:bg-red-600/[0.08] focus-visible:!bg-red-600/[0.12] active:!bg-red-600/[0.12]',
+    'text-error-dark !border-error-main/50 hover:[&:not([disabled])]:bg-error-main/[0.08] focus-visible:!bg-error-main/[0.12] active:!bg-error-main/[0.12]',
   warning:
-    'text-yellow-600 !border-yellow-600/50 hover:[&:not([disabled])]:bg-yellow-600/[0.08] focus-visible:!bg-yellow-600/[0.12] active:!bg-yellow-600/[0.12]',
-  info: 'text-cyan-600 !border-cyan-600/50 hover:[&:not([disabled])]:bg-cyan-600/[0.08] focus-visible:!bg-cyan-600/[0.12] active:!bg-cyan-600/[0.12]',
+    'text-orange-700 !border-warning-main/50 hover:[&:not([disabled])]:bg-warning-main/[0.08] focus-visible:!bg-warning-main/[0.12] active:!bg-warning-main/[0.12]',
+  info: 'text-info-dark !border-info-main/50 hover:[&:not([disabled])]:bg-info-main/[0.08] focus-visible:!bg-info-main/[0.12] active:!bg-info-main/[0.12]',
   success:
-    'text-green-600 !border-green-600/50 hover:[&:not([disabled])]:bg-green-600/[0.08] focus-visible:!bg-green-600/[0.12] active:!bg-green-600/[0.12]',
+    'text-success-dark !border-success-main/50 hover:[&:not([disabled])]:bg-success-main/[0.08] focus-visible:!bg-success-main/[0.12] active:!bg-success-main/[0.12]',
   neutral:
-    'text-gray-600 !border-gray-600/60 hover:[&:not([disabled])]:bg-gray-600/[0.16] focus-visible:!bg-gray-600/[0.24] active:!bg-gray-600/[0.24]',
+    'text-neutral-dark !border-neutral-main/60 hover:[&:not([disabled])]:bg-neutral-main/[0.16] focus-visible:!bg-neutral-main/[0.24] active:!bg-neutral-main/[0.24]',
 }
 
 const TEXT_COLOR_CLASSES = {
   primary:
-    'text-blue-600 hover:[&:not([disabled])]:bg-blue-600/[0.08] focus-visible:!bg-blue-600/[0.12] active:!bg-blue-600/[0.12]',
+    'text-primary-dark hover:[&:not([disabled])]:bg-primary-main/[0.08] focus-visible:!bg-primary-main/[0.12] active:!bg-primary-main/[0.12]',
   secondary:
-    'text-gray-600 hover:[&:not([disabled])]:bg-gray-600/[0.16] focus-visible:!bg-gray-600/[0.24] active:!bg-gray-600/[0.24]',
+    'text-lime-900 hover:[&:not([disabled])]:bg-secondary-main/[0.16] focus-visible:!bg-secondary-main/[0.24] active:!bg-secondary-main/[0.24]',
   tertiary:
-    'text-purple-600 hover:[&:not([disabled])]:bg-purple-600/[0.08] focus-visible:!bg-purple-600/[0.12] active:!bg-purple-600/[0.12]',
+    'text-tertiary-dark hover:[&:not([disabled])]:bg-tertiary-main/[0.08] focus-visible:!bg-tertiary-main/[0.12] active:!bg-tertiary-main/[0.12]',
   error:
-    'text-red-600 hover:[&:not([disabled])]:bg-red-600/[0.08] focus-visible:!bg-red-600/[0.12] active:!bg-red-600/[0.12]',
+    'text-error-dark hover:[&:not([disabled])]:bg-error-main/[0.08] focus-visible:!bg-error-main/[0.12] active:!bg-error-main/[0.12]',
   warning:
-    'text-yellow-600 hover:[&:not([disabled])]:bg-yellow-600/[0.08] focus-visible:!bg-yellow-600/[0.12] active:!bg-yellow-600/[0.12]',
-  info: 'text-cyan-600 hover:[&:not([disabled])]:bg-cyan-600/[0.08] focus-visible:!bg-cyan-600/[0.12] active:!bg-cyan-600/[0.12]',
+    'text-orange-700 hover:[&:not([disabled])]:bg-warning-main/[0.08] focus-visible:!bg-warning-main/[0.12] active:!bg-warning-main/[0.12]',
+  info: 'text-info-dark hover:[&:not([disabled])]:bg-info-main/[0.08] focus-visible:!bg-info-main/[0.12] active:!bg-info-main/[0.12]',
   success:
-    'text-green-600 hover:[&:not([disabled])]:bg-green-600/[0.08] focus-visible:!bg-green-600/[0.12] active:!bg-green-600/[0.12]',
+    'text-success-dark hover:[&:not([disabled])]:bg-success-main/[0.08] focus-visible:!bg-success-main/[0.12] active:!bg-success-main/[0.12]',
   neutral:
-    'text-gray-600 hover:[&:not([disabled])]:bg-gray-600/[0.16] focus-visible:!bg-gray-600/[0.24] active:!bg-gray-600/[0.24]',
+    'text-neutral-dark hover:[&:not([disabled])]:bg-neutral-main/[0.16] focus-visible:!bg-neutral-main/[0.24] active:!bg-neutral-main/[0.24]',
 }
 
 export const VARIANT_CLASSES = {
