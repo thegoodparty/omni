@@ -5,11 +5,9 @@ import { Website } from '../types/website.type'
 import WebsiteHeader from './WebsiteHeader'
 import HeroSection from './HeroSection'
 import AboutSection from './AboutSection'
-// import PrivacyPolicyModal from './PrivacyPolicyModal'
-// import WebsiteFooter from './WebsiteFooter'
-// import ContactSection from './ContactSection'
-// import AboutSection from './AboutSection'
-// import HeroSection from './HeroSection'
+import PrivacyPolicyModal from './PrivacyPolicyModal'
+import WebsiteFooter from './WebsiteFooter'
+import ContactSection from './ContactSection'
 
 export default function WebsitePage({ website, scale = 1 }: { website: Website, scale?: number }) {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
@@ -26,7 +24,6 @@ export default function WebsitePage({ website, scale = 1 }: { website: Website, 
       <WebsiteHeader activeTheme={activeTheme} website={website} />
       <HeroSection activeTheme={activeTheme} content={content} />
        <AboutSection activeTheme={activeTheme} content={content} />
-       {/*
       <ContactSection
         activeTheme={activeTheme}
         content={content}
@@ -41,7 +38,7 @@ export default function WebsitePage({ website, scale = 1 }: { website: Website, 
         open={showPrivacyPolicy}
         onClose={() => setShowPrivacyPolicy(false)}
         content={content}
-      /> */}
+      />
     </div>
   )
 }

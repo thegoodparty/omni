@@ -1,3 +1,13 @@
+export type WebsiteTheme = {
+  bg: string
+  text: string
+  accent: string
+  accentText: string
+  secondary: string
+  border: string
+  muiColor: string
+}
+
 export type Website = {
   id: number
   createdAt: string
