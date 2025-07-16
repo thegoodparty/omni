@@ -3,6 +3,10 @@ import { fetchHelper } from '@/helpers/fetchHelper'
 import WebsitePage from './components/WebsitePage'
 import { Website } from './types/website.type'
 
+interface PageProps {
+  params: Promise<{ vanityPath: string }>
+}
+
 async function getWebsite({ vanityPath }: { vanityPath: string }): Promise<Website | null> {
   return await fetchHelper<Website>(`websites/${vanityPath}/view`)
 }
@@ -10,7 +14,7 @@ async function getWebsite({ vanityPath }: { vanityPath: string }): Promise<Websi
 export const revalidate = 3600
 export const dynamic = 'force-dynamic'
 
-export async function generateMetadata({ params }: { params: { vanityPath: string } }) {
+export async function generateMetadata({ params }: PageProps) {
   const website = await getWebsite(await params)
 
   if (!website) {
@@ -26,7 +30,7 @@ export async function generateMetadata({ params }: { params: { vanityPath: strin
   }
 }
 
-export default async function CandidateWebsitePage({ params }: { params: { vanityPath: string } }) {
+export default async function CandidateWebsitePage({ params }: PageProps) {
   const website = await getWebsite(await params)
 
   if (!website) {
