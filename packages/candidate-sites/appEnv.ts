@@ -14,7 +14,7 @@ export const IS_LOCAL =
   )
 
 export const API_ROOT =
-  process.env.NEXT_PUBLIC_API_BASE || 'https://gp-api-qa.goodparty.org/v1'
+  process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3000/v1'
 
 
 
