@@ -39,7 +39,8 @@ export default async function CandidateWebsitePage({ params }: PageProps) {
 
   return (
     <>
-      {/* <WebsiteViewTracker vanityPath={website.vanityPath} />
+      {/* 
+      <WebsiteViewTracker vanityPath={website.vanityPath} />
      */}
       <WebsitePage website={website} />
     </>
