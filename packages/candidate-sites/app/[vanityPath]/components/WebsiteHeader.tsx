@@ -17,6 +17,7 @@ export default function WebsiteHeader({ activeTheme, website }: { activeTheme: a
               height={80} 
               width={200}
               className="h-8 max-w-[200px] object-contain object-left"
+              priority
             />
           ) : candidate ? (
             <h1 className={`text-2xl font-bold truncate`}>
@@ -29,6 +30,7 @@ export default function WebsiteHeader({ activeTheme, website }: { activeTheme: a
               height={80}
               width={200}
               className="h-8 max-w-[200px] object-contain object-left"
+              priority
             />
           )}
         </div>
