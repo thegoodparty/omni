@@ -28,6 +28,7 @@ export type Website = {
         title: string
         description: string
       }[]
+      committee: string
     }
     theme: string
     status: string
