@@ -8,17 +8,16 @@ import PhoneInput from '../../shared/inputs/PhoneInput'
 import Checkbox from '../../shared/inputs/Checkbox'
 import Button from '../../shared/buttons/Button'
 import { Website, WebsiteTheme } from '../types/website.type'
+import { fetchHelper } from '@/helpers/fetchHelper'
 
-// API calls commented out for now
-// import { clientFetch } from 'gpApi/clientFetch'
-// import { apiRoutes } from 'gpApi/routes'
 
-// function submitContactForm(vanityPath: string, formData: any) {
-//   return clientFetch(apiRoutes.website.submitContactForm, {
-//     ...formData,
-//     vanityPath,
-//   })
-// }
+
+async function submitContactForm(vanityPath: string, formData: any) {
+  await fetchHelper(`websites/${vanityPath}/contact-form`, {
+    method: 'POST',
+    body: formData,
+  })
+}
 
 interface ContactSectionProps {
   activeTheme: WebsiteTheme
@@ -65,9 +64,7 @@ export default function ContactSection({
     e.preventDefault()
     setLoading(true)
     try {
-      // API call commented out as requested
-      // await submitContactForm(vanityPath, formData)
-      console.log('Form submission:', { vanityPath, formData })
+      await submitContactForm(vanityPath, formData)
       setSubmitted(true)
     } catch (error) {
       console.error('Failed to submit contact form:', error)
@@ -181,7 +178,7 @@ export default function ContactSection({
             <div className='mt-4'>
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || !formData.name || !formData.email || !formData.phone || !formData.message || !formData.smsConsent}
               loading={loading}
               color="primary"
               >
