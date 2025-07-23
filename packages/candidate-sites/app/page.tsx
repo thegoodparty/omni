@@ -9,6 +9,28 @@ async function getWebsiteByDomain({ domain }: { domain: string }): Promise<Websi
   return await fetchHelper<Website>(`websites/by-domain/${domain}`)
 }
 
+export async function generateMetadata() {
+  const headersList = await headers()
+  const host = headersList.get('host') || 'localhost'
+  const website = await getWebsiteByDomain({ domain: host })
+
+  if (!website) {
+    return {
+      title: 'GoodParty.org Candidate Sites',
+      description: 'GoodParty.org Candidate Sites',  
+    }
+  }
+
+  const mainContent = website.content?.main
+
+  return {
+    title: `${mainContent?.title || 'GoodParty.org Candidate Sites'}`,
+    description: mainContent?.tagline || 'GoodParty.org Candidate Sites',
+    image: mainContent?.image ? mainContent?.image : null,
+
+  }
+}
+
 export default async function Home() {
   const headersList = await headers()
   const host = headersList.get('host') || 'localhost'

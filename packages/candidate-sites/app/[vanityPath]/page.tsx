@@ -24,9 +24,7 @@ export async function generateMetadata({ params }: PageProps) {
   return {
     title: `${website.content?.main?.title}`,
     description: website.content?.main?.tagline,
-    other: {
-      isCandidateWebsite: true,
-    },
+
   }
 }
 
