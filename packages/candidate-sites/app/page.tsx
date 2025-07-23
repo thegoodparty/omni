@@ -2,6 +2,7 @@ import WebsitePage from './[vanityPath]/components/WebsitePage';
 import { Website } from './[vanityPath]/types/website.type'
 import { fetchHelper } from '@/helpers/fetchHelper'
 import { headers } from 'next/headers'
+import { getCandidateMetaData } from './shared/utils/candidateMetaData';
 
 export const dynamic = 'force-dynamic'
 
@@ -21,20 +22,7 @@ export async function generateMetadata() {
     }
   }
 
-  const mainContent = website.content?.main
-  const title = mainContent?.title || 'GoodParty.org Candidate Sites'
-  const description = mainContent?.tagline || 'GoodParty.org Candidate Sites'
-
-  return {
-    title,
-    description,
-    openGraph: {
-      images: mainContent?.image ? mainContent?.image : null,
-      title: title,
-      description: description,
-    },
-
-  }
+  return getCandidateMetaData(website)
 }
 
 export default async function Home() {
