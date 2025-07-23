@@ -22,11 +22,17 @@ export async function generateMetadata() {
   }
 
   const mainContent = website.content?.main
+  const title = mainContent?.title || 'GoodParty.org Candidate Sites'
+  const description = mainContent?.tagline || 'GoodParty.org Candidate Sites'
 
   return {
-    title: `${mainContent?.title || 'GoodParty.org Candidate Sites'}`,
-    description: mainContent?.tagline || 'GoodParty.org Candidate Sites',
-    image: mainContent?.image ? mainContent?.image : null,
+    title,
+    description,
+    openGraph: {
+      images: mainContent?.image ? mainContent?.image : null,
+      title: title,
+      description: description,
+    },
 
   }
 }
