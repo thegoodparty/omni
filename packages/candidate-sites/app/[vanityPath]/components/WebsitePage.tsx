@@ -11,7 +11,7 @@ import ContactSection from './ContactSection'
 import { getUserFullName } from '@/app/shared/utils/getUserFullName'
 import WebsiteViewTracker from './WebsiteViewTracker'
 
-export default function WebsitePage({ website, scale = 1 }: { website: Website, scale?: number }) {
+export default function WebsitePage({ website, scale = 1, isPreview = false }: { website: Website, scale?: number, isPreview?: boolean }) {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
   const content = website?.content || {}
   const activeTheme = WEBSITE_THEMES[content?.theme as keyof typeof WEBSITE_THEMES] || WEBSITE_THEMES.light
@@ -20,7 +20,7 @@ export default function WebsitePage({ website, scale = 1 }: { website: Website, 
 
   return (
     <div
-      className={`${activeTheme.bg} ${activeTheme.text}`}
+      className={`${activeTheme.bg} ${activeTheme.text} ${isPreview ? 'pointer-events-none' : '' }`}
       style={{
         zoom: scale,
       }}
