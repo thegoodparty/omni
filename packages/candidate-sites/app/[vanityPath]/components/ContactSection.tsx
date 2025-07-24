@@ -8,15 +8,23 @@ import PhoneInput from '../../shared/inputs/PhoneInput'
 import Checkbox from '../../shared/inputs/Checkbox'
 import Button from '../../shared/buttons/Button'
 import { Website, WebsiteTheme } from '../types/website.type'
-import { fetchHelper } from '@/helpers/fetchHelper'
 
 
 
 async function submitContactForm(vanityPath: string, formData: any) {
-  await fetchHelper(`websites/${vanityPath}/contact-form`, {
+  const response = await fetch(`/api/contact-form/${vanityPath}`, {
     method: 'POST',
-    body: formData,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(formData),
   })
+  
+  if (!response.ok) {
+    throw new Error('Failed to submit contact form')
+  }
+  
+  return response.json()
 }
 
 interface ContactSectionProps {

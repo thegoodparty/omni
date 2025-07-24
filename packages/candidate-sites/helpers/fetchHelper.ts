@@ -11,5 +11,21 @@ export async function fetchHelper<T>(url: string, options: any = {}): Promise<T 
       ...options.headers,
     },
   })
-  return resp.ok ? (await resp.json()) as T : null
+  
+  if (!resp.ok) {
+    return null
+  }
+  
+  // Check if response has content before trying to parse JSON
+  const text = await resp.text()
+  if (!text) {
+    return null
+  }
+  
+  try {
+    return JSON.parse(text) as T
+  } catch (error) {
+    console.warn('Failed to parse JSON response:', error)
+    return null
+  }
 }

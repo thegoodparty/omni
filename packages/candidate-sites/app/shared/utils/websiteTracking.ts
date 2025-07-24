@@ -1,5 +1,3 @@
-import { fetchHelper } from "@/helpers/fetchHelper"
-
 export const getVisitorId = () => {
   let visitorId = localStorage.getItem('visitor_id')
   if (!visitorId) {
@@ -15,13 +13,19 @@ export const trackWebsiteView = async (vanityPath: string) => {
 
   if (!hasViewed) {
     try {
-      await fetchHelper(`websites/${vanityPath}/track-view`, {
+      const response = await fetch(`/api/websites/${vanityPath}/track-view`, {
         method: 'POST',
-        body: {
-          visitorId: getVisitorId(),
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          visitorId: getVisitorId(),
+        }),
       })
-      sessionStorage.setItem(sessionKey, 'true')
+      
+      if (response.ok) {
+        sessionStorage.setItem(sessionKey, 'true')
+      }
     } catch (error) {
       console.warn('Failed to track view:', error)
     }
