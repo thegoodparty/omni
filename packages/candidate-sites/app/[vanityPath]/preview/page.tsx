@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import WebsitePage from '../components/WebsitePage'
 import { Website } from '../types/website.type'
+import LZString from 'lz-string'
 
 interface PageProps {
   params: Promise<{ vanityPath: string }>
@@ -9,8 +10,8 @@ interface PageProps {
 
 function decodeWebsiteHash(hash: string): Website | null {
   try {
-    const jsonString = decodeURIComponent(escape(atob(hash)))
-    return JSON.parse(jsonString)
+    const jsonString = LZString.decompressFromEncodedURIComponent(hash)
+    return jsonString ? JSON.parse(jsonString) : null
   } catch (error) {
     console.error('Failed to decode website hash:', error)
     return null
