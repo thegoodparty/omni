@@ -8,6 +8,7 @@ import PhoneInput from '../../shared/inputs/PhoneInput'
 import Checkbox from '../../shared/inputs/Checkbox'
 import Button from '../../shared/buttons/Button'
 import { Website, WebsiteTheme } from '../types/website.type'
+import { Element } from 'react-scroll'
 
 async function submitContactForm(vanityPath: string, formData: any) {
   const response = await fetch(`/api/contact-form/${vanityPath}`, {
@@ -88,9 +89,9 @@ export default function ContactSection({
 
   return (
     <section
-      id="contact"
       className={`mx-auto max-w-4xl py-10 px-4 ${activeTheme.bg} scroll-mt-16`}
     >
+      <Element name="contact">
       <H2 className="mb-4">Send a Message</H2>
       <p className="mb-6">
         Have questions or suggestions? We&apos;d love to hear from you!
@@ -207,6 +208,7 @@ export default function ContactSection({
         <p className="mt-1">{content?.contact?.email || ''}</p>
         <p className="mt-1">{content?.contact?.phone || ''}</p>
       </div>
+      </Element>
     </section>
   )
 }

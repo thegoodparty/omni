@@ -42,12 +42,17 @@ export default function WebsiteHeader({
         </div>
         <ul className="flex space-x-6 list-none">
           <li>
-            <Link to="about" className="hover:opacity-80">
+            <Link to="about"  smooth duration={500} className="hover:opacity-80 cursor-pointer">
               About
             </Link>
           </li>
           <li>
-            <Link to="contact" className="hover:opacity-80">
+            <Link
+              to="contact"
+              smooth
+              duration={500}
+              className="hover:opacity-80 cursor-pointer"
+            >
               Contact
             </Link>
           </li>
