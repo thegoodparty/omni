@@ -1,43 +1,15 @@
-import { notFound } from 'next/navigation'
-import WebsitePage from '../components/WebsitePage'
-import { Website } from '../types/website.type'
-import LZString from 'lz-string'
+import PreviewPageClient from './PreviewPageClient'
 
 interface PageProps {
   params: Promise<{ vanityPath: string }>
-  searchParams: Promise<{ hash?: string }>
-}
-
-function decodeWebsiteHash(hash: string): Website | null {
-  try {
-    const jsonString = LZString.decompressFromEncodedURIComponent(hash)
-    return jsonString ? JSON.parse(jsonString) : null
-  } catch (error) {
-    console.error('Failed to decode website hash:', error)
-    return null
-  }
+  searchParams: Promise<{ id?: string }>
 }
 
 export const revalidate = 3600
 export const dynamic = 'force-dynamic'
 
 export default async function CandidateWebsitePage({ params, searchParams }: PageProps) {
-  const search = await searchParams
-  const hash = search.hash
-  
-  if (!hash) {
-    notFound()
-  }
+  const { vanityPath } = await params
 
-  const website = decodeWebsiteHash(hash)
-
-  if (!website) {
-    notFound()
-  }
-
-  return (
-    <>
-      <WebsitePage website={website} isPreview/>
-    </>
-  )
+  return <PreviewPageClient vanityPath={vanityPath} />
 }
