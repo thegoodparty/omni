@@ -5,20 +5,18 @@ import { notFound } from 'next/navigation'
 import WebsitePage from '../components/WebsitePage'
 import { Website } from '../types/website.type'
 
-interface PreviewPageClientProps {
-  vanityPath: string
-}
 
-export default function PreviewPageClient({
-  vanityPath,
-}: PreviewPageClientProps) {
+
+export default function PreviewPageClient() {
   const [website, setWebsite] = useState<Website | null>(null)
+  const [step, setStep] = useState<number | null>(null)
   const [hasReceivedData, setHasReceivedData] = useState(false)
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'WEBSITE_DATA') {
         setWebsite(event.data.data)
+        setStep(event.data.step || null)
         setHasReceivedData(true)
       }
     }
@@ -49,5 +47,5 @@ export default function PreviewPageClient({
     notFound()
   }
 
-  return <WebsitePage website={website} isPreview />
+  return <WebsitePage website={website} isPreview step={step} />
 }

@@ -1,6 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { animateScroll as scroll, scroller } from 'react-scroll'
 import { WEBSITE_THEMES } from '../constants/websiteContent.const'
+import { WEBSITE_SECTIONS, WEBSITE_STEPS } from '../constants/websiteNavigation.const'
 import { Website } from '../types/website.type'
 import WebsiteHeader from './WebsiteHeader'
 import HeroSection from './HeroSection'
@@ -15,10 +17,12 @@ export default function WebsitePage({
   website,
   scale = 1,
   isPreview = false,
+  step,
 }: {
   website: Website
   scale?: number
   isPreview?: boolean
+  step?: number | null
 }) {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
   const content = website?.content || {}
@@ -27,6 +31,36 @@ export default function WebsitePage({
     WEBSITE_THEMES.light
 
   const candidateName = getUserFullName(website.campaign?.user)
+
+  useEffect(() => {
+    console.log('step', step)
+    if (!isPreview || step === null || step === undefined) return
+
+    const scrollToSection = () => {
+      if (step === WEBSITE_STEPS.ABOUT_COMPLETE || step === WEBSITE_STEPS.CONTACT_INTRO) {
+        scroller.scrollTo(WEBSITE_SECTIONS.ABOUT, {
+          duration: 800,
+          delay: 0,
+          smooth: 'easeInOutQuart',
+        })
+      } else if (step === WEBSITE_STEPS.CONTACT_INFO) {
+        scroller.scrollTo(WEBSITE_SECTIONS.CONTACT_INFO, {
+          duration: 800,
+          delay: 0,
+          smooth: 'easeInOutQuart',
+        })
+      } else {
+        scroll.scrollToTop({
+          duration: 800,
+          delay: 0,
+          smooth: 'easeInOutQuart',
+        })
+      }
+    }
+
+    const timer = setTimeout(scrollToSection, 200)
+    return () => clearTimeout(timer)
+  }, [step, isPreview])
 
   return (
     <div
