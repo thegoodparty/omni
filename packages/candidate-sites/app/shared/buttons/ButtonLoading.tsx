@@ -13,7 +13,10 @@ interface ButtonLoadingProps {
   className?: string
 }
 
-export default function ButtonLoading({ size = 'medium', className = '' }: ButtonLoadingProps) {
+export default function ButtonLoading({
+  size = 'medium',
+  className = '',
+}: ButtonLoadingProps) {
   return (
     <CircularProgress
       size={SIZES[size] || SIZES.medium}
@@ -21,4 +24,4 @@ export default function ButtonLoading({ size = 'medium', className = '' }: Butto
       color="inherit"
     />
   )
-} 
+}

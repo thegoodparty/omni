@@ -8,7 +8,11 @@ interface PageProps {
   params: Promise<{ vanityPath: string }>
 }
 
-async function getWebsite({ vanityPath }: { vanityPath: string }): Promise<Website | null> {
+async function getWebsite({
+  vanityPath,
+}: {
+  vanityPath: string
+}): Promise<Website | null> {
   return await fetchHelper<Website>(`websites/${vanityPath}/view`)
 }
 

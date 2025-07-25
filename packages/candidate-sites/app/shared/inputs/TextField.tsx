@@ -19,20 +19,21 @@ interface TextFieldProps extends Omit<MuiTextFieldProps, 'endAdornments'> {
 /**
  * Wrapper around MuiTextField component
  */
-export default function TextField({ endAdornments, ...restProps }: TextFieldProps) {
+export default function TextField({
+  endAdornments,
+  ...restProps
+}: TextFieldProps) {
   return (
     <MuiTextField
       variant="outlined"
       InputProps={{
         endAdornment: endAdornments?.length && endAdornments.length > 0 && (
           <InputAdornment position="end">
-            {endAdornments.map(
-              (adornment, index) => (
-                <span key={index}>
-                  {ADORNMENTS[adornment as keyof typeof ADORNMENTS] ?? adornment}
-                </span>
-              )
-            )}
+            {endAdornments.map((adornment, index) => (
+              <span key={index}>
+                {ADORNMENTS[adornment as keyof typeof ADORNMENTS] ?? adornment}
+              </span>
+            ))}
           </InputAdornment>
         ),
         ...restProps?.InputProps, // ensure adornment shorthand doesn't override any other InputProps
@@ -40,4 +41,4 @@ export default function TextField({ endAdornments, ...restProps }: TextFieldProp
       {...restProps}
     />
   )
-} 
+}

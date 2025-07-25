@@ -9,14 +9,18 @@ interface PrivacyPolicyModalProps {
   content: Website['content']
 }
 
-export default function PrivacyPolicyModal({ open, onClose, content }: PrivacyPolicyModalProps) {
+export default function PrivacyPolicyModal({
+  open,
+  onClose,
+  content,
+}: PrivacyPolicyModalProps) {
   const campaignName = content?.main?.title || ''
   const currentDate = new Date().toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   })
-  
+
   return (
     <ResponsiveModal
       open={open}
@@ -91,4 +95,4 @@ export default function PrivacyPolicyModal({ open, onClose, content }: PrivacyPo
       </div>
     </ResponsiveModal>
   )
-} 
+}

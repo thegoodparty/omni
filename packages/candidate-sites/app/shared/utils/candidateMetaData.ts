@@ -1,5 +1,5 @@
-import { Website } from "@/app/[vanityPath]/types/website.type"
-import { Metadata } from "next"
+import { Website } from '@/app/[vanityPath]/types/website.type'
+import { Metadata } from 'next'
 
 export const getCandidateMetaData = (website: Website): Metadata => {
   const mainContent = website.content?.main
@@ -10,9 +10,9 @@ export const getCandidateMetaData = (website: Website): Metadata => {
     title,
     description,
     openGraph: {
-        images: mainContent?.image,
-        title: title,
-        description: description,
-      },
+      images: mainContent?.image,
+      title: title,
+      description: description,
+    },
   }
 }

@@ -1,11 +1,17 @@
-import { getUserFullName } from "@/app/shared/utils/getUserFullName";
-import { Website } from "../types/website.type";
-import Image from "next/image";
-// import { WEBSITE_STATUS } from "app/(candidate)/dashboard/website/util/website.util";
+import { getUserFullName } from '@/app/shared/utils/getUserFullName'
+import { Website } from '../types/website.type'
+import Image from 'next/image'
+import { Link } from 'react-scroll'
 
-export default function WebsiteHeader({ activeTheme, website }: { activeTheme: any, website: Website }) {
-  const content = website.content || {};
-  const candidate = website.campaign?.user;
+export default function WebsiteHeader({
+  activeTheme,
+  website,
+}: {
+  activeTheme: any
+  website: Website
+}) {
+  const content = website.content || {}
+  const candidate = website.campaign?.user
   return (
     <header className={`p-4 border-b ${activeTheme.border} ${activeTheme.bg}`}>
       <nav className="px-8 flex justify-between items-center">
@@ -14,7 +20,7 @@ export default function WebsiteHeader({ activeTheme, website }: { activeTheme: a
             <Image
               src={content.logo}
               alt="Campaign Logo"
-              height={80} 
+              height={80}
               width={200}
               className="h-8 max-w-[200px] object-contain object-left"
               priority
@@ -25,7 +31,7 @@ export default function WebsiteHeader({ activeTheme, website }: { activeTheme: a
             </h1>
           ) : (
             <Image
-              src={"/images/logo/heart.svg"}
+              src={'/images/logo/heart.svg'}
               alt="Campaign Logo"
               height={80}
               width={200}
@@ -36,17 +42,17 @@ export default function WebsiteHeader({ activeTheme, website }: { activeTheme: a
         </div>
         <ul className="flex space-x-6 list-none">
           <li>
-            <a href="#about" className="hover:opacity-80">
+            <Link to="about" className="hover:opacity-80">
               About
-            </a>
+            </Link>
           </li>
           <li>
-            <a href="#contact" className="hover:opacity-80">
+            <Link to="contact" className="hover:opacity-80">
               Contact
-            </a>
+            </Link>
           </li>
         </ul>
       </nav>
     </header>
-  );
+  )
 }

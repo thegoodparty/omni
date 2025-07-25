@@ -9,7 +9,9 @@ interface PreviewPageClientProps {
   vanityPath: string
 }
 
-export default function PreviewPageClient({ vanityPath }: PreviewPageClientProps) {
+export default function PreviewPageClient({
+  vanityPath,
+}: PreviewPageClientProps) {
   const [website, setWebsite] = useState<Website | null>(null)
   const [hasReceivedData, setHasReceivedData] = useState(false)
 
@@ -48,4 +50,4 @@ export default function PreviewPageClient({ vanityPath }: PreviewPageClientProps
   }
 
   return <WebsitePage website={website} isPreview />
-} 
+}

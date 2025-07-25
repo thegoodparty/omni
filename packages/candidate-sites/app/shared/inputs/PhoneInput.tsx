@@ -61,7 +61,7 @@ function PhoneInput({
     const inputValue = event.target.value
     const asYouType = new AsYouType('US')
     const formatted = asYouType.input(inputValue)
-    
+
     setDisplayValue(formatted)
     setValidPhone(isValidPhone(inputValue))
     onChangeCallback(formatted)
@@ -114,4 +114,4 @@ function PhoneInput({
   )
 }
 
-export default PhoneInput 
+export default PhoneInput

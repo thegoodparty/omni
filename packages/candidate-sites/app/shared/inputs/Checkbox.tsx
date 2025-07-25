@@ -1,7 +1,9 @@
 'use client'
 
 import FormControlLabel from '@mui/material/FormControlLabel'
-import MuiCheckbox, { CheckboxProps as MuiCheckboxProps } from '@mui/material/Checkbox'
+import MuiCheckbox, {
+  CheckboxProps as MuiCheckboxProps,
+} from '@mui/material/Checkbox'
 
 interface CheckboxProps extends MuiCheckboxProps {
   label?: string
@@ -19,4 +21,4 @@ const Checkbox = ({ label, name, ...restProps }: CheckboxProps) => {
   )
 }
 
-export default Checkbox 
+export default Checkbox

@@ -117,9 +117,14 @@ const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
     if (variant === 'contained')
       baseClasses += ' outline outline-4 outline-transparent'
 
-    const variantClasses = VARIANT_CLASSES[variant as keyof typeof VARIANT_CLASSES] || VARIANT_CLASSES.contained
-    const colorClasses = variantClasses[color as keyof typeof variantClasses] || variantClasses.primary
-    const sizeClasses = SIZE_CLASSES[size as keyof typeof SIZE_CLASSES] || SIZE_CLASSES.medium
+    const variantClasses =
+      VARIANT_CLASSES[variant as keyof typeof VARIANT_CLASSES] ||
+      VARIANT_CLASSES.contained
+    const colorClasses =
+      variantClasses[color as keyof typeof variantClasses] ||
+      variantClasses.primary
+    const sizeClasses =
+      SIZE_CLASSES[size as keyof typeof SIZE_CLASSES] || SIZE_CLASSES.medium
 
     const compiledClassName = `${baseClasses} ${sizeClasses} ${colorClasses} ${
       className || ''

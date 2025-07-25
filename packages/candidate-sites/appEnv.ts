@@ -16,7 +16,4 @@ export const IS_LOCAL =
 export const API_ROOT =
   process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3000/v1'
 
-
-
 export const API_VERSION_PREFIX = '/v1'
-

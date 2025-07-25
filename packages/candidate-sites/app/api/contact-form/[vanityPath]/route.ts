@@ -3,7 +3,7 @@ import { fetchHelper } from '@/helpers/fetchHelper'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ vanityPath: string }> }
+  { params }: { params: Promise<{ vanityPath: string }> },
 ) {
   try {
     const { vanityPath } = await params
@@ -20,7 +20,7 @@ export async function POST(
     console.error('Contact form submission error:', error)
     return NextResponse.json(
       { success: false, error: 'Failed to submit contact form' },
-      { status: 500 }
+      { status: 500 },
     )
   }
-} 
+}

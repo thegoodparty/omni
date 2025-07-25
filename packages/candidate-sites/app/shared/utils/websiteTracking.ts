@@ -22,7 +22,7 @@ export const trackWebsiteView = async (vanityPath: string) => {
           visitorId: getVisitorId(),
         }),
       })
-      
+
       if (response.ok) {
         sessionStorage.setItem(sessionKey, 'true')
       }
