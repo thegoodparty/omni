@@ -28,6 +28,7 @@ const eslintConfig = [
       'react/jsx-uses-vars': 'error',
       'unused-imports/no-unused-imports': 'error',
       '@stylistic/semi': ['error', 'never'],
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 ]
