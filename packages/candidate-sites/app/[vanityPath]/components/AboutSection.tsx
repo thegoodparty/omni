@@ -25,20 +25,7 @@ export default function AboutSection({
                 <p className="text-sm mt-1">{issue.description}</p>
               </div>
             ),
-          )}
-
-          {(!content?.about?.issues || content?.about?.issues?.length === 0) &&
-            Array(4)
-              .fill(0)
-              .map((_, index) => (
-                <div
-                  key={index}
-                  className={`p-4 rounded-lg ${activeTheme.secondary} text-center`}
-                >
-                  <h3 className="font-medium">Add Policy Issues</h3>
-                  <p className="text-sm mt-1">in the editor</p>
-                </div>
-              ))}
+          )}          
         </div>
       </Element>
     </section>
