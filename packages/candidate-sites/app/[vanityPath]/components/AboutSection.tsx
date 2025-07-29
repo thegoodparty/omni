@@ -14,7 +14,7 @@ export default function AboutSection({
     >
       <Element name={WEBSITE_SECTIONS.ABOUT}>
         <h2 className="font-semibold text-2xl mb-4">About</h2>
-        <p className="mb-6">{content?.about?.bio || ''}</p>
+        <p className="mb-6" dangerouslySetInnerHTML={{ __html: content?.about?.bio || '' }} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {content?.about?.issues?.map(
             (issue: { title: string; description: string }, index: number) => (

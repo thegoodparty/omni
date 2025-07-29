@@ -13,6 +13,12 @@ import ContactSection from './ContactSection'
 import { getUserFullName } from '@/app/shared/utils/getUserFullName'
 import WebsiteViewTracker from './WebsiteViewTracker'
 
+const scrollSettings = {
+  duration: 800,
+  delay: 0,
+  smooth: 'easeInOutQuart',
+}
+
 export default function WebsitePage({
   website,
   scale = 1,
@@ -37,23 +43,17 @@ export default function WebsitePage({
     if (!isPreview || step === null || step === undefined) return
 
     const scrollToSection = () => {
-      if (step === WEBSITE_STEPS.ABOUT_COMPLETE || step === WEBSITE_STEPS.CONTACT_INTRO) {
+      if ( step === WEBSITE_STEPS.CONTACT_INTRO) {
         scroller.scrollTo(WEBSITE_SECTIONS.ABOUT, {
-          duration: 800,
-          delay: 0,
-          smooth: 'easeInOutQuart',
+          ...scrollSettings,
         })
       } else if (step === WEBSITE_STEPS.CONTACT_INFO) {
         scroller.scrollTo(WEBSITE_SECTIONS.CONTACT_INFO, {
-          duration: 800,
-          delay: 0,
-          smooth: 'easeInOutQuart',
+          ...scrollSettings,
         })
       } else {
         scroll.scrollToTop({
-          duration: 800,
-          delay: 0,
-          smooth: 'easeInOutQuart',
+          ...scrollSettings,
         })
       }
     }
