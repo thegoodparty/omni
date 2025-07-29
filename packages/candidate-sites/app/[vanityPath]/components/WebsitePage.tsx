@@ -39,7 +39,6 @@ export default function WebsitePage({
   const candidateName = getUserFullName(website.campaign?.user)
 
   useEffect(() => {
-    console.log('step', step)
     if (!isPreview || step === null || step === undefined) return
 
     const scrollToSection = () => {
