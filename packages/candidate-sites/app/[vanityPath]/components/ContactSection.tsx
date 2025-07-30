@@ -10,6 +10,7 @@ import Button from '../../shared/buttons/Button'
 import { Website, WebsiteTheme } from '../types/website.type'
 import { Element } from 'react-scroll'
 import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
+import formatPhoneNumber, { phoneUri } from '../../shared/utils/phoneFormatter'
 
 async function submitContactForm(vanityPath: string, formData: any) {
   const response = await fetch(`/api/contact-form/${vanityPath}`, {
@@ -208,8 +209,20 @@ export default function ContactSection({
       <div className="mt-8 text-center">
         <p className="font-medium">Campaign Headquarters</p>
         <p className="mt-1">{content?.contact?.address || ''}</p>
-        <p className="mt-1">{content?.contact?.email || ''}</p>
-        <p className="mt-1">{content?.contact?.phone || ''}</p>
+        {content?.contact?.email && (
+        <p className="mt-1">
+          <a href={`mailto:${content.contact.email}`} className="hover:text-blue-600 underline ">
+            {content.contact.email}
+            </a>
+        </p>
+      )}
+        {content?.contact?.phone && (
+        <p className="mt-1">
+          <a href={phoneUri(content.contact.phone)} className="hover:text-blue-600 underline ">
+            {formatPhoneNumber(content.contact.phone)}
+            </a>
+        </p>
+        )}
       </div>
       </Element>
     </section>
