@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import H2 from '../../shared/typography/H2'
 import TextField from '../../shared/inputs/TextField'
 import EmailInput from '../../shared/inputs/EmailInput'
 import PhoneInput from '../../shared/inputs/PhoneInput'
