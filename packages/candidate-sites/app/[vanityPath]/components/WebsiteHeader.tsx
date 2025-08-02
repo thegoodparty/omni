@@ -2,6 +2,7 @@ import { getUserFullName } from '@/app/shared/utils/getUserFullName'
 import { Website } from '../types/website.type'
 import Image from 'next/image'
 import { Link } from 'react-scroll'
+import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
 
 export default function WebsiteHeader({
   activeTheme,
@@ -42,13 +43,13 @@ export default function WebsiteHeader({
         </div>
         <ul className="flex space-x-6 list-none">
           <li>
-            <Link to="about"  smooth duration={500} className="hover:opacity-80 cursor-pointer">
+            <Link to={WEBSITE_SECTIONS.ABOUT}  smooth duration={500} className="hover:opacity-80 cursor-pointer">
               About
             </Link>
           </li>
           <li>
             <Link
-              to="contact"
+              to={WEBSITE_SECTIONS.CONTACT}
               smooth
               duration={500}
               className="hover:opacity-80 cursor-pointer"

@@ -2,6 +2,8 @@
 
 import Image from 'next/image'
 import Button from '@/app/shared/buttons/Button'
+import { Link } from 'react-scroll'
+import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
 
 export default function HeroSection({
   activeTheme,
@@ -23,27 +25,29 @@ export default function HeroSection({
             {content?.main?.title || ''}
           </h1>
           <p className="text-xl mb-8">{content?.main?.tagline || ''}</p>
-          <Button
-            href="#contact"
-            className={`inline-block`}
-            color="primary"
-            size="large"
-            theme={{
-              accent: activeTheme.accent,
-              accentText: activeTheme.accentText
-            }}
-          >
-            Send a Message
-          </Button>
+          <Link to={WEBSITE_SECTIONS.CONTACT}  smooth duration={500}>
+            <Button
+              className={`inline-block`}
+              color="primary"
+              size="large"
+              theme={{
+                accent: activeTheme.accent,
+                accentText: activeTheme.accentText
+              }}
+            >
+              Send a Message
+            </Button>
+          </Link>
         </div>
         {hasImage && (
           <div className="w-full rounded-lg overflow-hidden shrink md:w-1/2">
             <Image
               src={content?.main?.image}
               alt="Campaign Hero"
-              className="w-full"
+              className="w-full object-contain"
               height={640}
               width={1280}
+              priority
             />
           </div>
         )}
