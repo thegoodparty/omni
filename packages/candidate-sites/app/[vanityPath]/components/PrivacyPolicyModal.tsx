@@ -1,18 +1,20 @@
 'use client'
 
 import ResponsiveModal from '../../shared/utils/ResponsiveModal'
-import { Website } from '../types/website.type'
+import { Website, WebsiteTheme } from '../types/website.type'
 
 interface PrivacyPolicyModalProps {
   open: boolean
   onClose: () => void
   content: Website['content']
+  activeTheme: WebsiteTheme
 }
 
 export default function PrivacyPolicyModal({
   open,
   onClose,
   content,
+  activeTheme,
 }: PrivacyPolicyModalProps) {
   const campaignName = content?.main?.title || ''
   const currentDate = new Date().toLocaleDateString('en-US', {
@@ -25,10 +27,18 @@ export default function PrivacyPolicyModal({
     <ResponsiveModal
       open={open}
       onClose={onClose}
-      title={`SMS Privacy Policy for ${content?.main?.title || ''}`}
+      title={`SMS Privacy Policy`}
+      theme={{
+        bg: activeTheme.bg,
+        text: activeTheme.text,
+        border: activeTheme.border
+      }}
     >
-      <div className="text-sm text-gray-500 mb-4">
-        Last Updated: {currentDate}
+      <div className="mb-4">
+        <h3 className="font-semibold text-lg mb-2">{content?.main?.title || ''}</h3>
+        <p className="text-sm mb-4">
+          Last Updated: {currentDate}
+        </p>
       </div>
       <div className="space-y-4 text-sm">
         <div>

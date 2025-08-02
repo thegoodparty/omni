@@ -14,7 +14,7 @@ export default function WebsiteHeader({
   const candidate = website.campaign?.user
   return (
     <header className={`p-4 border-b ${activeTheme.border} ${activeTheme.bg}`}>
-      <nav className="px-8 flex justify-between items-center">
+      <nav className="max-w-6xl mx-auto px-8 flex justify-between items-center">
         <div className="flex-1 min-w-0">
           {content.logo ? (
             <Image
@@ -26,9 +26,9 @@ export default function WebsiteHeader({
               priority
             />
           ) : candidate ? (
-            <h1 className={`text-2xl font-bold truncate`}>
+            <span className={`text-xl font-medium border ${activeTheme.border} rounded-md px-4 py-2 truncate`}>
               {getUserFullName(candidate)}
-            </h1>
+            </span>
           ) : (
             <Image
               src={'/images/logo/heart.svg'}

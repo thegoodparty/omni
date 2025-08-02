@@ -91,140 +91,148 @@ export default function ContactSection({
 
   return (
     <section
-      className={`mx-auto max-w-4xl py-10 px-4 ${activeTheme.bg} scroll-mt-16`}
+      className={`py-32 ${activeTheme.secondary} scroll-mt-16`}
       id="contact"
     >
-      <Element name={WEBSITE_SECTIONS.CONTACT}>
-      <H2 className="mb-4">Send a Message</H2>
-      <p className="mb-6">
-        Have questions or suggestions? We&apos;d love to hear from you!
-      </p>
+      <div className="max-w-2xl mx-auto px-8 text-center">
+        <Element name={WEBSITE_SECTIONS.CONTACT}>
+        <h2 className="font-semibold text-2xl mb-2">Send Me a Message</h2>
+        <p className="mb-6">
+          Have questions or suggestions? I would love to hear from you!
+        </p>
 
-      {submitted ? (
-        <div
-          className={`p-6 rounded-lg text-center ${activeTheme.secondary} ${activeTheme.text} ${activeTheme.border}`}
-        >
-          Thank you for your message!
-        </div>
-      ) : (
-        <form
-          className={`p-6 rounded-lg ${activeTheme.secondary} ${activeTheme.text} shadow-sm space-y-4`}
-          onSubmit={handleSubmit}
-        >
-          <div className="mb-4">
-            <TextField
-              value={formData.name || ''}
-              label="Your Name"
-              name="name"
-              fullWidth
-              required
-              placeholder="John Doe"
-              onChange={(e) => handleChange('name', e.target.value)}
-              sx={muiInputSx}
-              InputLabelProps={{ shrink: true }}
-            />
+        {submitted ? (
+          <div
+            className={`p-6 rounded-lg text-center ${activeTheme.secondary} ${activeTheme.text} ${activeTheme.border}`}
+          >
+            Thank you for your message!
           </div>
-          <div className="mb-4">
-            <EmailInput
-              value={formData.email || ''}
-              required
-              placeholder="john@example.com"
-              onChangeCallback={(e) => handleChange('email', e.target.value)}
-              sx={muiInputSx}
-              InputLabelProps={{ shrink: true }}
-            />
-          </div>
-          <div className="mb-4">
-            <PhoneInput
-              value={formData.phone || ''}
-              hideIcon
-              required
-              shrink
-              onChangeCallback={(phone) => handleChange('phone', phone)}
-              sx={muiInputSx}
-              InputLabelProps={{ shrink: true }}
-            />
-          </div>
-          <div className="mb-4">
-            <TextField
-              value={formData.message || ''}
-              label="Message"
-              name="message"
-              fullWidth
-              required
-              multiline
-              rows={4}
-              placeholder="How can we help you?"
-              onChange={(e) => handleChange('message', e.target.value)}
-              sx={muiInputSx}
-              InputLabelProps={{ shrink: true }}
-            />
-          </div>
-          <div className="flex items-start space-x-2">
-            <Checkbox
-              checked={formData.smsConsent}
-              onChange={(e) =>
-                handleChange('smsConsent', e.target.checked === true)
-              }
-            />
-            <label htmlFor="sms-consent" className="text-xs">
-              By providing your number, you consent to receive campaign texts
-              (msg freq varies, msg/data rates apply). Your data will not be
-              shared with third parties for marketing. Reply STOP to opt out,
-              HELP for help. See our{' '}
-              <button
-                type="button"
-                className="text-blue-600 underline hover:text-blue-700"
-                onClick={(e) => {
-                  e.preventDefault()
-                  onPrivacyPolicyClick()
+        ) : (
+          <form
+            className={`p-8 rounded-lg ${activeTheme.bg} ${activeTheme.text} shadow-sm space-y-6`}
+            onSubmit={handleSubmit}
+          >
+            <div className="mb-4">
+              <TextField
+                value={formData.name || ''}
+                label="Your Name"
+                name="name"
+                fullWidth
+                required
+                placeholder="John Doe"
+                onChange={(e) => handleChange('name', e.target.value)}
+                sx={muiInputSx}
+                InputLabelProps={{ shrink: true }}
+              />
+            </div>
+            <div className="mb-4">
+              <EmailInput
+                value={formData.email || ''}
+                required
+                placeholder="john@example.com"
+                onChangeCallback={(e) => handleChange('email', e.target.value)}
+                sx={muiInputSx}
+                InputLabelProps={{ shrink: true }}
+              />
+            </div>
+            <div className="mb-4">
+              <PhoneInput
+                value={formData.phone || ''}
+                hideIcon
+                shrink
+                onChangeCallback={(phone) => handleChange('phone', phone)}
+                sx={muiInputSx}
+                InputLabelProps={{ shrink: true }}
+              />
+            </div>
+            <div className="mb-4">
+              <TextField
+                value={formData.message || ''}
+                label="Message"
+                name="message"
+                fullWidth
+                required
+                multiline
+                rows={4}
+                placeholder="How can we help you?"
+                onChange={(e) => handleChange('message', e.target.value)}
+                sx={muiInputSx}
+                InputLabelProps={{ shrink: true }}
+              />
+            </div>
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                checked={formData.smsConsent}
+                onChange={(e) =>
+                  handleChange('smsConsent', e.target.checked === true)
+                }
+                theme={{
+                  muiColor: activeTheme.muiColor
+                }}
+              />
+              <label htmlFor="sms-consent" className="text-xs text-left">
+                By providing your number, you consent to receive campaign texts
+                (msg freq varies, msg/data rates apply). Your data will not be
+                shared with third parties for marketing. Reply STOP to opt out,
+                HELP for help. See our{' '}
+                <button
+                  type="button"
+                  className="text-blue-600 underline hover:text-blue-700"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    onPrivacyPolicyClick()
+                  }}
+                >
+                  Privacy Policy
+                </button>{' '}
+                for details.
+              </label>
+            </div>
+            <div className="mt-4">
+              <Button
+                type="submit"
+                disabled={
+                  loading ||
+                  !formData.name ||
+                  !formData.email ||
+                  !formData.message ||
+                  !formData.smsConsent
+                }
+                loading={loading}
+                color="primary"
+                size="large"
+                theme={{
+                  accent: activeTheme.accent,
+                  accentText: activeTheme.accentText
                 }}
               >
-                Privacy Policy
-              </button>{' '}
-              for details.
-            </label>
-          </div>
-          <div className="mt-4">
-            <Button
-              type="submit"
-              disabled={
-                loading ||
-                !formData.name ||
-                !formData.email ||
-                !formData.phone ||
-                !formData.message ||
-                !formData.smsConsent
-              }
-              loading={loading}
-              color="primary"
-            >
-              Send Message
-            </Button>
-          </div>
-        </form>
-      )}
- </Element>
- <Element name={WEBSITE_SECTIONS.CONTACT_INFO}>
-      <div className="mt-8 text-center">
-        <p className="font-medium">Campaign Headquarters</p>
-        <p className="mt-1">{content?.contact?.address || ''}</p>
-        {content?.contact?.email && (
-        <p className="mt-1">
-          <a href={`mailto:${content.contact.email}`} className="hover:text-blue-600 underline ">
-            {content.contact.email}
-            </a>
-        </p>
-      )}
-        {content?.contact?.phone && (
-        <p className="mt-1">
-          <a href={phoneUri(content.contact.phone)} className="hover:text-blue-600 underline ">
-            {formatPhoneNumber(content.contact.phone)}
-            </a>
-        </p>
+                Send Message
+              </Button>
+            </div>
+          </form>
         )}
+  </Element>
+  <Element name={WEBSITE_SECTIONS.CONTACT_INFO}>
+        <div className="mt-8 text-center">
+          <p className="font-medium">Campaign Headquarters</p>
+          <p className="mt-1">{content?.contact?.address || ''}</p>
+          {content?.contact?.email && (
+          <p className="mt-1">
+            <a href={`mailto:${content.contact.email}`} className="hover:text-blue-600 underline ">
+              {content.contact.email}
+              </a>
+          </p>
+        )}
+          {content?.contact?.phone && (
+          <p className="mt-1">
+            <a href={phoneUri(content.contact.phone)} className="hover:text-blue-600 underline ">
+              {formatPhoneNumber(content.contact.phone)}
+              </a>
+          </p>
+          )}
+        </div>
+        </Element>
       </div>
-      </Element>
     </section>
   )
 }
