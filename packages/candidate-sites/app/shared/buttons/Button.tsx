@@ -70,7 +70,7 @@ export const VARIANT_CLASSES = {
 export const SIZE_CLASSES = {
   small: 'text-xs py-2 px-3',
   medium: 'text-sm py-[10px] px-4',
-  large: 'text-base py-3 px-6 leading-6',
+  large: 'text-base font-semibold py-3 px-6 leading-6',
 }
 
 interface ButtonProps {
@@ -80,6 +80,10 @@ interface ButtonProps {
   size?: keyof typeof SIZE_CLASSES
   variant?: keyof typeof VARIANT_CLASSES
   color?: keyof typeof COLOR_CLASSES
+  theme?: {
+    accent?: string
+    accentText?: string
+  }
   children: ReactNode
   className?: string
   loading?: boolean
@@ -101,6 +105,7 @@ const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
       size = 'medium',
       variant = 'contained',
       color = 'primary',
+      theme,
       children,
       className,
       loading,
@@ -126,7 +131,12 @@ const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
     const sizeClasses =
       SIZE_CLASSES[size as keyof typeof SIZE_CLASSES] || SIZE_CLASSES.medium
 
-    const compiledClassName = `${baseClasses} ${sizeClasses} ${colorClasses} ${
+    // Use theme colors if provided, otherwise use default color classes
+    const finalColorClasses = theme?.accent && theme?.accentText 
+      ? `${theme.accent} ${theme.accentText} hover:opacity-80` 
+      : colorClasses
+
+    const compiledClassName = `${baseClasses} ${sizeClasses} ${finalColorClasses} ${
       className || ''
     }`
 

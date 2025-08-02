@@ -18,6 +18,11 @@ interface ResponsiveModalProps {
   preventEscClose?: boolean
   hideClose?: boolean
   fullSize?: boolean
+  theme?: {
+    bg?: string
+    text?: string
+    border?: string
+  }
 }
 
 /** A modal that becomes a bottom sheet on mobile sizes */
@@ -30,6 +35,7 @@ export default function ResponsiveModal({
   preventEscClose = false,
   hideClose = false,
   fullSize = false,
+  theme,
 }: ResponsiveModalProps) {
   const [showContent, setShowContent] = useState(open)
   const isDesktop = useMediaQuery('(min-width: 1024px)')
@@ -73,8 +79,9 @@ export default function ResponsiveModal({
           transition-[bottom] duration-${SLIDE_DURATION} ease-out
           flex flex-col
         `}
+        theme={theme}
       >
-        {title && <H5 className="absolute top-6 left-4">{title}</H5>}
+        {title && <H5 className="absolute top-6 left-4 lg:left-8 xl:left-16">{title}</H5>}
         {!hideClose && (
           <CloseRounded
             className="cursor-pointer absolute top-6 right-4"

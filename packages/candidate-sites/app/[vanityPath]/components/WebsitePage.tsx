@@ -89,6 +89,7 @@ export default function WebsitePage({
         open={showPrivacyPolicy}
         onClose={() => setShowPrivacyPolicy(false)}
         content={content}
+        activeTheme={activeTheme}
       />
     </div>
   )

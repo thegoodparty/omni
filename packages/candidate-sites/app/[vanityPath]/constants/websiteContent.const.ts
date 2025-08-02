@@ -2,7 +2,7 @@ export const WEBSITE_THEMES = {
   light: {
     bg: 'bg-white',
     text: 'text-gray-800',
-    accent: 'bg-campaign-blue-500',
+    accent: 'bg-blue-500',
     accentText: 'text-white',
     secondary: 'bg-gray-100',
     border: 'border-gray-200',
