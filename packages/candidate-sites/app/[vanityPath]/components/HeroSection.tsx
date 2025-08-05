@@ -48,11 +48,11 @@ export default function HeroSection({
           </Link>
         </div>
         {hasImage && (
-          <div className="w-full rounded-lg overflow-hidden shrink md:w-1/2">
+          <div className="w-full overflow-hidden shrink md:w-1/2">
             <Image
               src={content?.main?.image}
               alt="Campaign Hero"
-              className={`object-contain ${imageWidth > FULL_WIDTH_IMAGE_THRESHOLD ? 'w-full' : ''}`}
+              className={`max-w-full mx-auto rounded-lg`}
               height={imageHeight}
               width={imageWidth}
               priority
