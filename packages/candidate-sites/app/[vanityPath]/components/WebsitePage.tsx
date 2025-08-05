@@ -12,6 +12,7 @@ import WebsiteFooter from './WebsiteFooter'
 import ContactSection from './ContactSection'
 import { getUserFullName } from '@/app/shared/utils/getUserFullName'
 import WebsiteViewTracker from './WebsiteViewTracker'
+import { ImageDimensions } from '@/app/shared/utils/getImageDimensions'
 
 const scrollSettings = {
   duration: 800,
@@ -24,11 +25,13 @@ export default function WebsitePage({
   scale = 1,
   isPreview = false,
   step,
+  imageDimensions,
 }: {
   website: Website
   scale?: number
   isPreview?: boolean
   step?: number | null
+  imageDimensions?: ImageDimensions
 }) {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
   const content = website?.content || {}
@@ -72,7 +75,7 @@ export default function WebsitePage({
     >
       <WebsiteViewTracker vanityPath={website.vanityPath} />
       <WebsiteHeader activeTheme={activeTheme} website={website} />
-      <HeroSection activeTheme={activeTheme} content={content} />
+      <HeroSection activeTheme={activeTheme} content={content} imageDimensions={imageDimensions} />
       <AboutSection activeTheme={activeTheme} content={content} />
       <ContactSection
         activeTheme={activeTheme}

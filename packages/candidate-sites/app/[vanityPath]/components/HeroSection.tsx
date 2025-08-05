@@ -4,15 +4,21 @@ import Image from 'next/image'
 import Button from '@/app/shared/buttons/Button'
 import { Link } from 'react-scroll'
 import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
+import { ImageDimensions } from '@/app/shared/utils/getImageDimensions'
 
 export default function HeroSection({
   activeTheme,
   content,
+  imageDimensions,
 }: {
   activeTheme: any
   content: any
+  imageDimensions?: ImageDimensions
 }) {
   const hasImage = content?.main?.image
+  const imageWidth = imageDimensions?.width || 1280
+  const imageHeight = imageDimensions?.height || 640
+
   return (
     <section className={`py-16 ${activeTheme.secondary}`}>
       <div className="max-w-6xl mx-auto px-8 flex-col md:flex-row flex gap-16 justify-between items-stretch md:items-center">
@@ -45,8 +51,8 @@ export default function HeroSection({
               src={content?.main?.image}
               alt="Campaign Hero"
               className="w-full object-contain"
-              height={640}
-              width={1280}
+              height={imageHeight}
+              width={imageWidth}
               priority
             />
           </div>
