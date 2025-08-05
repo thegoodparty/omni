@@ -19,6 +19,8 @@ export default function HeroSection({
   const imageWidth = imageDimensions?.width || 1280
   const imageHeight = imageDimensions?.height || 640
 
+  const FULL_WIDTH_IMAGE_THRESHOLD = 300
+
   return (
     <section className={`py-16 ${activeTheme.secondary}`}>
       <div className="max-w-6xl mx-auto px-8 flex-col md:flex-row flex gap-16 justify-between items-stretch md:items-center">
@@ -50,7 +52,7 @@ export default function HeroSection({
             <Image
               src={content?.main?.image}
               alt="Campaign Hero"
-              className="w-full object-contain"
+              className={`object-contain ${imageWidth > FULL_WIDTH_IMAGE_THRESHOLD ? 'w-full' : ''}`}
               height={imageHeight}
               width={imageWidth}
               priority
