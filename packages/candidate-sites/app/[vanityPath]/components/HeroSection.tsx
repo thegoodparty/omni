@@ -52,7 +52,7 @@ export default function HeroSection({
             <Image
               src={content?.main?.image}
               alt="Campaign Hero"
-              className={`max-w-full mx-auto rounded-lg`}
+              className={`mx-auto rounded-lg`}
               height={imageHeight}
               width={imageWidth}
               priority
