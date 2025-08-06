@@ -42,12 +42,9 @@ export default async function CandidateWebsitePage({ params, searchParams }: Pag
   const image = website.content?.main?.image
   let imageDimensions: ImageDimensions | undefined = undefined
 
-  // Example: Get image dimensions on the server
-  // You can uncomment this to use the server-side dimension function
   if (image) {
     try {
       imageDimensions = await getImageDimensionsServer(image)
-      console.log('Image dimensions:', imageDimensions)
     } catch (error) {
       console.error('Failed to get image dimensions:', error)
     }
