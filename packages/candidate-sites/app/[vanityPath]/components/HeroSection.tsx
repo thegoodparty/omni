@@ -19,7 +19,6 @@ export default function HeroSection({
   const imageWidth = imageDimensions?.width || 1280
   const imageHeight = imageDimensions?.height || 640
 
-  const FULL_WIDTH_IMAGE_THRESHOLD = 300
 
   return (
     <section className={`py-16 ${activeTheme.secondary}`}>

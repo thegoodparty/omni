@@ -5,7 +5,7 @@ import { Website } from './types/website.type'
 import { getCandidateMetaData } from '../shared/utils/candidateMetaData'
 import { getImageDimensionsServer, ImageDimensions } from '../shared/utils/getImageDimensions'
 
-interface PageProps {
+export interface PageProps {
   params: Promise<{ vanityPath: string }>
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }

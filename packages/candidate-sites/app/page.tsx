@@ -29,7 +29,9 @@ export async function generateMetadata() {
   return getCandidateMetaData(website)
 }
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const { privacy } = await searchParams
+
   const headersList = await headers()
   const host = headersList.get('host') || 'localhost'
   const website = await getWebsiteByDomain({ domain: host })
@@ -44,5 +46,5 @@ export default async function Home() {
     )
   }
 
-  return <WebsitePage website={website} />
+  return <WebsitePage website={website} privacyPolicy={privacy==='true'} />
 }
