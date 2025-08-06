@@ -10,6 +10,7 @@ import { Website, WebsiteTheme } from '../types/website.type'
 import { Element } from 'react-scroll'
 import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
 import formatPhoneNumber, { phoneUri } from '../../shared/utils/phoneFormatter'
+import Link from 'next/link'
 
 async function submitContactForm(vanityPath: string, formData: any) {
   const response = await fetch(`/api/contact-form/${vanityPath}`, {
@@ -31,7 +32,6 @@ interface ContactSectionProps {
   activeTheme: WebsiteTheme
   content: Website['content']
   vanityPath: string
-  onPrivacyPolicyClick: () => void
 }
 
 interface FormData {
@@ -46,7 +46,6 @@ export default function ContactSection({
   activeTheme,
   content,
   vanityPath,
-  onPrivacyPolicyClick,
 }: ContactSectionProps) {
   const [formData, setFormData] = useState<FormData>({
     smsConsent: false,
@@ -170,21 +169,15 @@ export default function ContactSection({
                 }}
               />
               <label htmlFor="sms-consent" className="text-xs text-left">
-                By providing your number, you consent to receive campaign texts
-                (msg freq varies, msg/data rates apply). Your data will not be
-                shared with third parties for marketing. Reply STOP to opt out,
-                HELP for help. See our{' '}
-                <button
-                  type="button"
+              By providing your telephone number and checking this box, you consent to receive calls and text messages.<br/>
+              Msg & data rates may apply. Msg frequency may vary. Messaging may include requests for donations.  
+              Reply &quot;STOP&quot; to opt-out &quot;HELP&quot; for help. View &quot;
+                <Link href="?privacy=true"
                   className="text-blue-600 underline hover:text-blue-700"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    onPrivacyPolicyClick()
-                  }}
                 >
                   Privacy Policy
-                </button>{' '}
-                for details.
+                </Link>{' '}
+                for more info.
               </label>
             </div>
             <div className="mt-4">

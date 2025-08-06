@@ -1,16 +1,15 @@
 'use client'
 
+import Button from '@/app/shared/buttons/Button'
 import { WebsiteTheme } from '../types/website.type'
 
 interface WebsiteFooterProps {
   activeTheme: WebsiteTheme
-  onPrivacyPolicyClick: () => void
   committee: string
 }
 
 export default function WebsiteFooter({
   activeTheme,
-  onPrivacyPolicyClick,
   committee = '',
 }: WebsiteFooterProps) {
   return (
@@ -19,13 +18,13 @@ export default function WebsiteFooter({
         <p className="text-base mb-4">Paid for and authorized by {committee}</p>
         <p className="text-sm mb-4">
           &copy; {new Date().getFullYear()} • All Rights Reserved •{' '}
-          <button
-            type="button"
+          <Button
             className="text-sm hover:underline"
-            onClick={onPrivacyPolicyClick}
+            variant="text"
+            href="?privacy=true"
           >
             Privacy Policy
-          </button>
+          </Button>
         </p>
 
         <div className="flex items-center justify-center gap-2 text-xs text-gray-500 mt-2 pt-2 ">

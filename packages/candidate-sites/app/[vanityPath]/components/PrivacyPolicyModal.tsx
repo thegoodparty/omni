@@ -1,18 +1,17 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import ResponsiveModal from '../../shared/utils/ResponsiveModal'
 import { Website, WebsiteTheme } from '../types/website.type'
 
 interface PrivacyPolicyModalProps {
   open: boolean
-  onClose: () => void
   content: Website['content']
   activeTheme: WebsiteTheme
 }
 
 export default function PrivacyPolicyModal({
   open,
-  onClose,
   content,
   activeTheme,
 }: PrivacyPolicyModalProps) {
@@ -22,6 +21,11 @@ export default function PrivacyPolicyModal({
     day: 'numeric',
     year: 'numeric',
   })
+  const router = useRouter()
+
+  const onClose = () => {
+    router.push('?privacy=false')
+  }
 
   return (
     <ResponsiveModal

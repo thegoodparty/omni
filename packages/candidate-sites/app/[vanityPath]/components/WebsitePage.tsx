@@ -26,14 +26,16 @@ export default function WebsitePage({
   isPreview = false,
   step,
   imageDimensions,
+  privacyPolicy,
 }: {
   website: Website
   scale?: number
   isPreview?: boolean
   step?: number | null
   imageDimensions?: ImageDimensions
+  privacyPolicy?: boolean
 }) {
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(privacyPolicy || false)
   const content = website?.content || {}
   const activeTheme =
     WEBSITE_THEMES[content?.theme as keyof typeof WEBSITE_THEMES] ||
@@ -64,6 +66,10 @@ export default function WebsitePage({
     return () => clearTimeout(timer)
   }, [step, isPreview])
 
+  useEffect(() => {
+    setShowPrivacyPolicy(privacyPolicy || false)
+  }, [privacyPolicy])
+
   return (
     <div
       className={`${activeTheme.bg} ${activeTheme.text} ${
@@ -81,16 +87,13 @@ export default function WebsitePage({
         activeTheme={activeTheme}
         content={content}
         vanityPath={website.vanityPath}
-        onPrivacyPolicyClick={() => setShowPrivacyPolicy(true)}
       />
       <WebsiteFooter
         activeTheme={activeTheme}
-        onPrivacyPolicyClick={() => setShowPrivacyPolicy(true)}
         committee={content.about?.committee || candidateName}
       />
       <PrivacyPolicyModal
         open={showPrivacyPolicy}
-        onClose={() => setShowPrivacyPolicy(false)}
         content={content}
         activeTheme={activeTheme}
       />

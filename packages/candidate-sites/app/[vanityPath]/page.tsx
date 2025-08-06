@@ -7,6 +7,7 @@ import { getImageDimensionsServer, ImageDimensions } from '../shared/utils/getIm
 
 interface PageProps {
   params: Promise<{ vanityPath: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
 async function getWebsite({
@@ -30,8 +31,9 @@ export async function generateMetadata({ params }: PageProps) {
   return getCandidateMetaData(website)
 }
 
-export default async function CandidateWebsitePage({ params }: PageProps) {
+export default async function CandidateWebsitePage({ params, searchParams }: PageProps) {
   const website = await getWebsite(await params)
+  const { privacy } = await searchParams
 
   if (!website) {
     notFound()
@@ -56,7 +58,7 @@ export default async function CandidateWebsitePage({ params }: PageProps) {
       {/* 
       <WebsiteViewTracker vanityPath={website.vanityPath} />
      */}
-      <WebsitePage website={website} imageDimensions={imageDimensions} />
+      <WebsitePage website={website} imageDimensions={imageDimensions} privacyPolicy={privacy==='true'} />
     </>
   )
 }
