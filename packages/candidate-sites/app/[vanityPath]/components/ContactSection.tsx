@@ -172,7 +172,7 @@ export default function ContactSection({
               By providing your telephone number and checking this box, you consent to receive calls and text messages.<br/>
               Msg & data rates may apply. Msg frequency may vary. Messaging may include requests for donations.  
               Reply &quot;STOP&quot; to opt-out &quot;HELP&quot; for help. View{' '}
-                <Link href="?privacy=true"
+                <Link href="?privacy=true" scroll={false}
                   className="text-blue-600 underline hover:text-blue-700"
                 >
                   Privacy Policy

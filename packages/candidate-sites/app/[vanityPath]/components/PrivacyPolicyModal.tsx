@@ -24,7 +24,7 @@ export default function PrivacyPolicyModal({
   const router = useRouter()
 
   const onClose = () => {
-    router.push('?privacy=false')
+    router.push('?privacy=false', { scroll: false })
   }
 
   return (
