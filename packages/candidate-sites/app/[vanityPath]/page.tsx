@@ -35,7 +35,7 @@ export default async function CandidateWebsitePage({ params, searchParams }: Pag
   const website = await getWebsite(await params)
   const { privacy } = await searchParams
 
-  if (!website) {
+  if (!website || website.status !== 'published') {
     notFound()
   }
 
