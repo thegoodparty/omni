@@ -1,6 +1,8 @@
+![GP Admin](https://assets.goodparty.org/gp-admin.png)
+
 # GP Admin Web
 
-Next.js 15 frontend application for GP Admin.
+Next.js 16 frontend application for GP Admin.
 
 ## Getting Started
 
@@ -14,7 +16,7 @@ Open [http://localhost:3500](http://localhost:3500) with your browser to see the
 
 ## Features
 
-- Next.js 15 with App Router
+- Next.js 16 with App Router
 - TypeScript
 - Tailwind CSS
 - ESLint
@@ -25,4 +27,3 @@ To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Learn Next.js](https://nextjs.org/learn)
-
