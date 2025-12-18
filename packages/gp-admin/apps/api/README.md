@@ -1,3 +1,5 @@
+![GP Admin](https://assets.goodparty.org/gp-admin.png)
+
 # GP Admin API
 
 NestJS backend application for GP Admin.
@@ -44,4 +46,3 @@ npm run test:cov
 ## Learn More
 
 - [NestJS Documentation](https://docs.nestjs.com)
-

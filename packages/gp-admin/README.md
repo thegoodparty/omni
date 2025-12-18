@@ -1,3 +1,5 @@
+![GP Admin](https://assets.goodparty.org/gp-admin.png)
+
 # GP Admin
 
 A Turborepo monorepo with Next.js frontend and NestJS backend.
