@@ -1,6 +1,5 @@
 import { SignIn } from '@clerk/nextjs'
 import { Metadata } from 'next'
-import Image from 'next/image'
 
 export const metadata: Metadata = {
   title: 'Sign In | GP Admin',
