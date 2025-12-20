@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { Providers } from '@/shared/layout/providers'
+import { Header } from '@/shared/layout/Header'
 
 export const metadata: Metadata = {
   title: 'GP Admin',
@@ -12,9 +14,13 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
+    <Providers>
+      <html lang="en">
+        <body>
+          <Header />
+          {children}
+        </body>
+      </html>
+    </Providers>
   )
 }
-

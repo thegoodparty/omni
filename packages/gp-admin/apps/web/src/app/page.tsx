@@ -1,11 +1,17 @@
-export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm">
-        <h1 className="text-4xl font-bold mb-4">GP Admin</h1>
-        <p className="text-lg">Welcome to GP Admin Dashboard</p>
-      </div>
-    </main>
-  )
+import { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { currentUser } from '@clerk/nextjs/server'
+
+export const metadata: Metadata = {
+  title: 'GP Admin',
+  description: 'GP Admin',
 }
 
+export default async function Home() {
+  const user = await currentUser()
+  if (user) {
+    return redirect('/dashboard')
+  } else {
+    return redirect('/auth/sign-in')
+  }
+}
