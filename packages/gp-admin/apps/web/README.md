@@ -1,4 +1,4 @@
-![GP Admin](https://assets.goodparty.org/gp-admin.png)
+![GP Admin](https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/gp-admin.png)
 
 # GP Admin Web
 
