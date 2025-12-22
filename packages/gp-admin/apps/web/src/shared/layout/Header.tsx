@@ -7,7 +7,7 @@ export function Header() {
     <header className="flex justify-between items-center p-4 gap-4 h-16 border-b border-gray-200 dark:border-gray-800">
       <div>
         <Image
-          src="https://assets.goodparty.org/logo.svg"
+          src="https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/logo.svg"
           alt="logo"
           width={40}
           height={40}

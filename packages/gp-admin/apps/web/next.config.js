@@ -6,7 +6,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'assets.goodparty.org',
+        hostname: 's3.us-west-2.amazonaws.com',
       },
     ],
   },
