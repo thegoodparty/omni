@@ -69,6 +69,9 @@ export default function Sidebar() {
         bg-sidebar border-r border-sidebar-border
         h-screen flex flex-col
         transition-all duration-300 ease-in-out
+        bg-gray-100
+        dark:bg-background
+        dark:border-gray-800
         ${isOpen ? 'w-64' : 'w-16'}
       `}
     >
