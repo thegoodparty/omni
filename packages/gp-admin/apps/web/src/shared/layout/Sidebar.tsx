@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { HiUsers, HiStar, HiMenu } from 'react-icons/hi'
-
 const navItems = [
   {
     title: 'Users',
