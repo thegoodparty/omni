@@ -102,6 +102,7 @@ jobs:
         run: npx playwright test --project=chromium
         env:
           BASE_URL: ${{ env.BASE_URL }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
       - name: Upload test reports
         if: ${{ !cancelled() }}
