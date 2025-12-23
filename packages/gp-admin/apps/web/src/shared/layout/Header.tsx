@@ -16,6 +16,9 @@ const MockUserButton = () => (
   <div
     className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium"
     data-testid="mock-user-button"
+    role="button"
+    aria-label="Test user avatar"
+    tabIndex={0}
   >
     T
   </div>
@@ -40,7 +43,7 @@ export function Header() {
           width={40}
           height={40}
         />
-        {user && (
+        {user?.isSignedIn && (
           <div>
             <SidebarTrigger />
           </div>

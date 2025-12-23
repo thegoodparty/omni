@@ -1,15 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { setE2EBypassCookie } from './helpers/auth'
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ context }) => {
-    await context.addCookies([
-      {
-        name: '__e2e_bypass',
-        value: 'true',
-        domain: 'localhost',
-        path: '/',
-      },
-    ])
+    await setE2EBypassCookie(context)
   })
 
   test('authenticated user can view dashboard', async ({ page }) => {

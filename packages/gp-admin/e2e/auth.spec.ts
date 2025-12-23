@@ -1,15 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { setE2EBypassCookie } from './helpers/auth'
 
 test.describe('Authentication (mock mode)', () => {
   test.beforeEach(async ({ context }) => {
-    await context.addCookies([
-      {
-        name: '__e2e_bypass',
-        value: 'true',
-        domain: 'localhost',
-        path: '/',
-      },
-    ])
+    await setE2EBypassCookie(context)
   })
 
   test('root redirects to dashboard in test mode', async ({ page }) => {
