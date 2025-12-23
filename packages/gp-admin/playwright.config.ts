@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const baseURL = process.env.BASE_URL || 'http://localhost:3500'
+const vercelBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,6 +13,12 @@ export default defineConfig({
   use: {
     baseURL,
     trace: 'on-first-retry',
+    // Send Vercel bypass header with every request (for deployment protection)
+    ...(vercelBypassSecret && {
+      extraHTTPHeaders: {
+        'x-vercel-protection-bypass': vercelBypassSecret,
+      },
+    }),
   },
   projects: [
     {
