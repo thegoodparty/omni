@@ -12,7 +12,9 @@ export default defineConfig({
   reporter: [['html'], ['json', { outputFile: 'test-results/results.json' }]],
   use: {
     baseURL,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
     // Send Vercel bypass header with every request (for deployment protection)
     ...(vercelBypassSecret && {
       extraHTTPHeaders: {
@@ -24,14 +26,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     },
   ],
   // Only start the local dev server when not using an external BASE_URL

@@ -10,7 +10,7 @@ import {
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
-import { useE2ETesting } from '@/shared/hooks/useE2ETesting'
+import { isE2ETesting } from '@/shared/hooks/useE2ETesting'
 
 const MockUserButton = () => (
   <div
@@ -25,7 +25,7 @@ const MockUserButton = () => (
 )
 
 export function Header() {
-  const isE2ETesting = useE2ETesting()
+  const e2eTesting = isE2ETesting()
   const user = useUser()
 
   return (
@@ -37,7 +37,7 @@ export function Header() {
           width={40}
           height={40}
         />
-        {(user?.isSignedIn || isE2ETesting) && (
+        {(user?.isSignedIn || e2eTesting) && (
           <div>
             <SidebarTrigger />
           </div>
@@ -45,7 +45,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-4">
         <DarkLightToggle />
-        {isE2ETesting ? (
+        {e2eTesting ? (
           <MockUserButton />
         ) : (
           <>
