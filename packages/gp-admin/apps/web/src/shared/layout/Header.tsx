@@ -29,10 +29,11 @@ export function Header() {
   const user = useUser()
 
   useEffect(() => {
-    const isNonProduction = process.env.NODE_ENV !== 'production'
+    // E2E testing mode requires both the env flag AND the bypass cookie
+    // The env flag (NEXT_PUBLIC_E2E_TESTING) should only be set for preview/dev environments
     const hasEnvFlag = process.env.NEXT_PUBLIC_E2E_TESTING === 'true'
     const hasCookie = document.cookie.includes('__e2e_bypass=true')
-    setIsE2ETesting(isNonProduction && hasEnvFlag && hasCookie)
+    setIsE2ETesting(hasEnvFlag && hasCookie)
   }, [])
 
   return (

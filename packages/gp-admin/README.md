@@ -60,10 +60,31 @@ This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
 
 #### Running E2E Tests
 
-```bash
-# Run all e2e tests
-npm run test:e2e
+**Option 1: Let Playwright manage the server (simplest)**
 
+```bash
+npm run test:e2e
+```
+
+Playwright will automatically start the dev server with E2E testing enabled.
+
+**Option 2: Use your own dev server**
+
+If you want to run tests against an existing dev server (faster iteration):
+
+```bash
+# Terminal 1: Start dev server with E2E testing enabled
+npm run dev:test
+
+# Terminal 2: Run tests
+npm run test:e2e
+```
+
+> **Note:** You must use `npm run dev:test` (not `npm run dev`) to enable the authentication bypass for tests.
+
+#### Other Test Commands
+
+```bash
 # Run tests with UI mode (interactive)
 npm run test:e2e:ui
 
@@ -79,7 +100,19 @@ npm run test:e2e:report
 - Tests are located in the `e2e/` directory
 - Playwright config: `playwright.config.ts`
 - Tests run against chromium, firefox, and webkit browsers
-- The dev server starts automatically when running tests
+- The dev server starts automatically when running tests (unless already running)
+
+#### CI/CD
+
+E2E tests run automatically on Vercel preview deployments. The workflow:
+
+1. Vercel deploys a preview
+2. GitHub Actions runs Playwright tests against the preview URL
+3. Results are posted as a comment on the PR
+
+**Required Vercel Environment Variable (Preview only):**
+
+- `NEXT_PUBLIC_E2E_TESTING=true`
 
 ### Useful Commands
 
