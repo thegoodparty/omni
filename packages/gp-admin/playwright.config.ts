@@ -18,7 +18,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -w @gp-admin/web',
+    command: 'NEXT_PUBLIC_E2E_TESTING=true npm run dev -w @gp-admin/web',
     url: 'http://localhost:3500',
     reuseExistingServer: true,
     timeout: 120000,
