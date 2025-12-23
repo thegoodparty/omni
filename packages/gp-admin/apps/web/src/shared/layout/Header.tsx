@@ -29,9 +29,10 @@ export function Header() {
   const user = useUser()
 
   useEffect(() => {
+    const isNonProduction = process.env.NODE_ENV !== 'production'
     const hasEnvFlag = process.env.NEXT_PUBLIC_E2E_TESTING === 'true'
     const hasCookie = document.cookie.includes('__e2e_bypass=true')
-    setIsE2ETesting(hasEnvFlag || hasCookie)
+    setIsE2ETesting(isNonProduction && hasEnvFlag && hasCookie)
   }, [])
 
   return (

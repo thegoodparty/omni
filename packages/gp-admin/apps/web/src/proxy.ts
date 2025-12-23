@@ -5,7 +5,8 @@ const isPublicRoute = createRouteMatcher(['/auth(.*)'])
 
 export default clerkMiddleware(async (auth, req) => {
   const isE2ETesting =
-    process.env.NEXT_PUBLIC_E2E_TESTING === 'true' ||
+    process.env.NODE_ENV !== 'production' &&
+    process.env.NEXT_PUBLIC_E2E_TESTING === 'true' &&
     req.cookies.get('__e2e_bypass')?.value === 'true'
 
   if (isE2ETesting) {

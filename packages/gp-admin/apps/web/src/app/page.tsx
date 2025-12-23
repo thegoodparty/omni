@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 export default async function Home() {
   const cookieStore = await cookies()
   const isE2ETesting =
-    process.env.NEXT_PUBLIC_E2E_TESTING === 'true' ||
+    process.env.NODE_ENV !== 'production' &&
+    process.env.NEXT_PUBLIC_E2E_TESTING === 'true' &&
     cookieStore.get('__e2e_bypass')?.value === 'true'
 
   if (isE2ETesting) {
