@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { HiUsers, HiStar, HiMenu } from 'react-icons/hi'
-
 const navItems = [
   {
     title: 'Users',
@@ -18,7 +17,6 @@ const navItems = [
   },
 ]
 
-// Sidebar Context
 type SidebarContextType = {
   isOpen: boolean
   toggle: () => void
@@ -69,10 +67,12 @@ export default function Sidebar() {
         bg-sidebar border-r border-sidebar-border
         h-screen flex flex-col
         transition-all duration-300 ease-in-out
+        bg-gray-100
+        dark:bg-background
+        dark:border-gray-800
         ${isOpen ? 'w-64' : 'w-16'}
       `}
     >
-      {/* Navigation */}
       <nav className="flex-1 p-2">
         <ul className="space-y-1">
           {navItems.map((item) => {

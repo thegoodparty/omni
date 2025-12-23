@@ -3,13 +3,17 @@
 import { useEffect, useState } from 'react'
 import { MdDarkMode, MdLightMode } from 'react-icons/md'
 
+const THEME_STORAGE_KEY = 'theme'
+
 export function DarkLightToggle() {
   const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
-    const prefersDark = window.matchMedia(
-      '(prefers-color-scheme: dark)'
-    ).matches
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY)
+    const prefersDark = savedTheme
+      ? savedTheme === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches
+
     setIsDark(prefersDark)
     document.documentElement.classList.toggle('dark', prefersDark)
   }, [])
@@ -18,6 +22,7 @@ export function DarkLightToggle() {
     const newIsDark = !isDark
     setIsDark(newIsDark)
     document.documentElement.classList.toggle('dark', newIsDark)
+    localStorage.setItem(THEME_STORAGE_KEY, newIsDark ? 'dark' : 'light')
   }
 
   return (
