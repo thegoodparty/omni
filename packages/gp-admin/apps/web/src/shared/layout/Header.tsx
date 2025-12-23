@@ -10,7 +10,7 @@ import {
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
-import { useEffect, useState } from 'react'
+import { useE2ETesting } from '@/shared/hooks/useE2ETesting'
 
 const MockUserButton = () => (
   <div
@@ -25,16 +25,8 @@ const MockUserButton = () => (
 )
 
 export function Header() {
-  const [isE2ETesting, setIsE2ETesting] = useState(false)
+  const isE2ETesting = useE2ETesting()
   const user = useUser()
-
-  useEffect(() => {
-    // E2E testing mode requires both the env flag AND the bypass cookie
-    // The env flag (NEXT_PUBLIC_E2E_TESTING) should only be set for preview/dev environments
-    const hasEnvFlag = process.env.NEXT_PUBLIC_E2E_TESTING === 'true'
-    const hasCookie = document.cookie.includes('__e2e_bypass=true')
-    setIsE2ETesting(hasEnvFlag && hasCookie)
-  }, [])
 
   return (
     <header className="flex justify-between items-center p-4 gap-4 h-16 border-b border-gray-200 dark:border-gray-800">
@@ -45,7 +37,7 @@ export function Header() {
           width={40}
           height={40}
         />
-        {user?.isSignedIn && (
+        {(user?.isSignedIn || isE2ETesting) && (
           <div>
             <SidebarTrigger />
           </div>
