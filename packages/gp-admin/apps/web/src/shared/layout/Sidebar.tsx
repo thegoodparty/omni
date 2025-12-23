@@ -18,7 +18,6 @@ const navItems = [
   },
 ]
 
-// Sidebar Context
 type SidebarContextType = {
   isOpen: boolean
   toggle: () => void
@@ -75,7 +74,6 @@ export default function Sidebar() {
         ${isOpen ? 'w-64' : 'w-16'}
       `}
     >
-      {/* Navigation */}
       <nav className="flex-1 p-2">
         <ul className="space-y-1">
           {navItems.map((item) => {
