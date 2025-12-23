@@ -54,13 +54,45 @@ To build all apps and packages:
 npm run build
 ```
 
+### Testing
+
+This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
+
+#### Running E2E Tests
+
+```bash
+# Run all e2e tests
+npm run test:e2e
+
+# Run tests with UI mode (interactive)
+npm run test:e2e:ui
+
+# Run tests in headed browser mode
+npm run test:e2e:headed
+
+# View the HTML test report
+npm run test:e2e:report
+```
+
+#### Test Configuration
+
+- Tests are located in the `e2e/` directory
+- Playwright config: `playwright.config.ts`
+- Tests run against chromium, firefox, and webkit browsers
+- The dev server starts automatically when running tests
+
 ### Useful Commands
 
 - `npm run dev` - Start all apps in development mode
+- `npm run dev:test` - Start web app in e2e testing mode
 - `npm run build` - Build all apps and packages
 - `npm run lint` - Lint all apps and packages
 - `npm run format` - Format all files with Prettier
 - `npm run clean` - Clean all build artifacts and node_modules
+- `npm run test:e2e` - Run Playwright e2e tests
+- `npm run test:e2e:ui` - Run e2e tests with interactive UI
+- `npm run test:e2e:headed` - Run e2e tests in headed browser mode
+- `npm run test:e2e:report` - View HTML test report
 
 ## Tech Stack
 
@@ -75,6 +107,10 @@ npm run build
 - **Framework**: NestJS 11
 - **Language**: TypeScript
 - **Testing**: Jest
+
+### Testing
+
+- **E2E Testing**: Playwright (chromium, firefox, webkit)
 
 ### Monorepo
 
