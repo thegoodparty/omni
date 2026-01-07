@@ -60,27 +60,34 @@ This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
 
 #### Running E2E Tests
 
+**Prerequisites:**
+
+Set the following environment variables for test authentication:
+
+```bash
+export CLERK_TEST_USER_EMAIL="your-test-user@example.com"
+export CLERK_TEST_USER_PASSWORD="your-test-password"
+```
+
 **Option 1: Let Playwright manage the server (simplest)**
 
 ```bash
 npm run test:e2e
 ```
 
-Playwright will automatically start the dev server with E2E testing enabled.
+Playwright will automatically start the dev server.
 
 **Option 2: Use your own dev server**
 
 If you want to run tests against an existing dev server (faster iteration):
 
 ```bash
-# Terminal 1: Start dev server with E2E testing enabled
-npm run dev:test
+# Terminal 1: Start dev server
+npm run dev
 
 # Terminal 2: Run tests
 npm run test:e2e
 ```
-
-> **Note:** You must use `npm run dev:test` (not `npm run dev`) to enable the authentication bypass for tests.
 
 #### Other Test Commands
 
@@ -99,7 +106,7 @@ npm run test:e2e:report
 
 - Tests are located in the `e2e/` directory
 - Playwright config: `playwright.config.ts`
-- Tests run against chromium, firefox, and webkit browsers
+- Tests run against chromium browser
 - The dev server starts automatically when running tests (unless already running)
 
 #### CI/CD
@@ -110,14 +117,14 @@ E2E tests run automatically on Vercel preview deployments. The workflow:
 2. GitHub Actions runs Playwright tests against the preview URL
 3. Results are posted as a comment on the PR
 
-**Required Vercel Environment Variable (Preview only):**
+**Required GitHub Secrets:**
 
-- `NEXT_PUBLIC_E2E_TESTING=true`
+- `CLERK_TEST_USER_EMAIL` - Test user email address
+- `CLERK_TEST_USER_PASSWORD` - Test user password
 
 ### Useful Commands
 
 - `npm run dev` - Start all apps in development mode
-- `npm run dev:test` - Start web app in e2e testing mode
 - `npm run build` - Build all apps and packages
 - `npm run lint` - Lint all apps and packages
 - `npm run format` - Format all files with Prettier
@@ -143,7 +150,7 @@ E2E tests run automatically on Vercel preview deployments. The workflow:
 
 ### Testing
 
-- **E2E Testing**: Playwright (chromium, firefox, webkit)
+- **E2E Testing**: Playwright (chromium)
 
 ### Monorepo
 

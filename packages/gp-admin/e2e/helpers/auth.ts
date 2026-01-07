@@ -1,31 +1,27 @@
-import { BrowserContext } from '@playwright/test'
+import { Page } from '@playwright/test'
 
 /**
- * Extracts the domain from a URL for cookie setting
+ * Signs in a user using Clerk's email/password authentication.
  */
-const getDomainFromUrl = (url: string): string => {
-  try {
-    const urlObj = new URL(url)
-    return urlObj.hostname
-  } catch {
-    return 'localhost'
+export const signIn = async (page: Page) => {
+  const email = process.env.CLERK_TEST_USER_EMAIL
+  const password = process.env.CLERK_TEST_USER_PASSWORD
+
+  if (!email || !password) {
+    throw new Error(
+      'CLERK_TEST_USER_EMAIL and CLERK_TEST_USER_PASSWORD environment variables are required'
+    )
   }
-}
 
-/**
- * Sets the E2E bypass cookie to skip Clerk authentication during tests.
- * Note: Vercel deployment protection bypass is handled via extraHTTPHeaders in playwright.config.ts
- */
-export const setE2EBypassCookie = async (context: BrowserContext) => {
-  const baseURL = process.env.BASE_URL || 'http://localhost:3500'
-  const domain = getDomainFromUrl(baseURL)
+  await page.goto('/auth/sign-in')
 
-  await context.addCookies([
-    {
-      name: '__e2e_bypass',
-      value: 'true',
-      domain,
-      path: '/',
-    },
-  ])
+  await page.getByLabel('Email address').fill(email)
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+
+  await page.waitForURL(/factor-one/)
+
+  await page.getByLabel('Password', { exact: true }).fill(password)
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+
+  await page.waitForURL(/\/dashboard/)
 }

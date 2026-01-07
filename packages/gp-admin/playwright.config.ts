@@ -1,4 +1,14 @@
 import { defineConfig, devices } from '@playwright/test'
+import dotenv from 'dotenv'
+import path from 'path'
+
+dotenv.config({
+  path: [
+    path.resolve(__dirname, '.env.local'),
+    path.resolve(__dirname, '.env'),
+  ],
+  quiet: true,
+})
 
 const baseURL = process.env.BASE_URL || 'http://localhost:3500'
 const vercelBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
@@ -33,7 +43,7 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: 'NEXT_PUBLIC_E2E_TESTING=true npm run dev -w @gp-admin/web',
+          command: 'npm run dev -w @gp-admin/web',
           url: 'http://localhost:3500',
           reuseExistingServer: true,
           timeout: 120000,
