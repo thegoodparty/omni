@@ -46,7 +46,7 @@ export default defineConfig({
           command: 'npm run dev -w @gp-admin/web',
           url: 'http://localhost:3500',
           reuseExistingServer: true,
-          timeout: 120000,
+          timeout: 100000,
         },
       }),
 })
