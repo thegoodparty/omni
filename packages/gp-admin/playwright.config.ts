@@ -20,6 +20,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [['html'], ['json', { outputFile: 'test-results/results.json' }]],
+
+  timeout: process.env.CI ? 60000 : 30000,
   use: {
     baseURL,
     trace: 'retain-on-failure',
