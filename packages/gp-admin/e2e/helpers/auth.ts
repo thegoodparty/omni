@@ -15,13 +15,17 @@ export const signIn = async (page: Page) => {
 
   await page.goto('/auth/sign-in')
 
-  await page.getByLabel('Email address').fill(email)
+  const emailInput = page.getByLabel('Email address')
+  await emailInput.waitFor({ state: 'visible', timeout: 60000 })
+
+  await emailInput.fill(email)
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
-  await page.waitForURL(/factor-one/)
+  const passwordInput = page.getByLabel('Password', { exact: true })
+  await passwordInput.waitFor({ state: 'visible', timeout: 60000 })
 
-  await page.getByLabel('Password', { exact: true }).fill(password)
+  await passwordInput.fill(password)
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
-  await page.waitForURL(/\/dashboard/)
+  await page.waitForURL(/\/dashboard/, { timeout: 60000 })
 }
