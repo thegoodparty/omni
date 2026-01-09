@@ -158,7 +158,7 @@ jobs:
           script: |
             const testOutcome = '${{ steps.run-tests.outcome }}';
             const testStatus = testOutcome === 'success' ? '✅' : '❌';
-            const deploymentUrl = '${{ env.BASE_URL }}';
+            const deploymentUrl = '${{ github.event.deployment_status.target_url }}';
 
             // Find PR associated with this deployment
             const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({

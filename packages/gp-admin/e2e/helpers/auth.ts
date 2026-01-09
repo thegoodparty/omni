@@ -13,23 +13,31 @@ export const signIn = async (page: Page) => {
     )
   }
 
-  await page.goto('/auth/sign-in', { waitUntil: 'domcontentloaded' })
+  const failedRequests: string[] = []
+  page.on('requestfailed', (request) => {
+    failedRequests.push(`${request.url()} - ${request.failure()?.errorText}`)
+  })
 
-  // Wait for page to be interactive (JavaScript loaded)
-  await page.waitForLoadState('load')
+  await page.goto('/auth/sign-in', {
+    waitUntil: 'load',
+    timeout: 30000,
+  })
 
-  // Additional wait for Clerk's component to render
-  await page.waitForTimeout(3000)
-
-  // Wait for Clerk to load
   const emailInput = page.getByRole('textbox', { name: /email/i })
 
   try {
-    await emailInput.waitFor({ state: 'visible', timeout: 30000 })
-  } catch {
-    // If Clerk doesn't load, log for debugging
-    console.error('Clerk sign-in form did not load')
-    throw new Error('Clerk sign-in form did not load within 30 seconds')
+    await emailInput.waitFor({
+      state: 'visible',
+      timeout: process.env.CI ? 60000 : 30000,
+    })
+  } catch (error) {
+    console.error('Failed to find Clerk sign-in form')
+    console.error('Failed requests:', failedRequests)
+    console.error('Page URL:', page.url())
+    const html = await page.content()
+    console.error('Page HTML length:', html.length)
+    console.error('Has body content:', html.includes('<body'))
+    throw error
   }
 
   await emailInput.fill(email)
@@ -37,5 +45,5 @@ export const signIn = async (page: Page) => {
 
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
-  await page.waitForURL(/\/dashboard/)
+  await page.waitForURL(/\/dashboard/, { timeout: 30000 })
 }

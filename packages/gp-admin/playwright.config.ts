@@ -21,13 +21,15 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [['html'], ['json', { outputFile: 'test-results/results.json' }]],
 
-  timeout: process.env.CI ? 60000 : 30000,
+  timeout: 30000,
   use: {
     baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    // Send Vercel bypass header with every request (for deployment protection)
+    userAgent: process.env.CI
+      ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      : undefined,
     ...(vercelBypassSecret && {
       extraHTTPHeaders: {
         'x-vercel-protection-bypass': vercelBypassSecret,
@@ -41,7 +43,6 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         launchOptions: {
           args: [
-            // Bypass bot detection
             '--disable-blink-features=AutomationControlled',
             '--no-sandbox',
             '--disable-dev-shm-usage',
