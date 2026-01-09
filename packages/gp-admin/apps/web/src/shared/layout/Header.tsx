@@ -1,11 +1,19 @@
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+'use client'
+
+import {
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+  useUser,
+} from '@clerk/nextjs'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
-import { currentUser } from '@clerk/nextjs/server'
 
-export async function Header() {
-  const user = await currentUser()
+export function Header() {
+  const user = useUser()
+
   return (
     <header className="flex justify-between items-center p-4 gap-4 h-16 border-b border-gray-200 dark:border-gray-800">
       <div className="flex items-center gap-4">
@@ -15,7 +23,7 @@ export async function Header() {
           width={40}
           height={40}
         />
-        {user && (
+        {user?.isSignedIn && (
           <div>
             <SidebarTrigger />
           </div>

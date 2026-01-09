@@ -5,6 +5,9 @@ node_modules
 
 # Testing
 coverage
+playwright-report/
+test-results/
+e2e/.auth/
 
 # Next.js
 .next/

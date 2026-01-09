@@ -54,6 +54,74 @@ To build all apps and packages:
 npm run build
 ```
 
+### Testing
+
+This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
+
+#### Running E2E Tests
+
+**Prerequisites:**
+
+Set the following environment variables for test authentication:
+
+```bash
+export CLERK_TEST_USER_EMAIL="your-test-user@example.com"
+export CLERK_TEST_USER_PASSWORD="your-test-password"
+```
+
+**Option 1: Let Playwright manage the server (simplest)**
+
+```bash
+npm run test:e2e
+```
+
+Playwright will automatically start the dev server.
+
+**Option 2: Use your own dev server**
+
+If you want to run tests against an existing dev server (faster iteration):
+
+```bash
+# Terminal 1: Start dev server
+npm run dev
+
+# Terminal 2: Run tests
+npm run test:e2e
+```
+
+#### Other Test Commands
+
+```bash
+# Run tests with UI mode (interactive)
+npm run test:e2e:ui
+
+# Run tests in headed browser mode
+npm run test:e2e:headed
+
+# View the HTML test report
+npm run test:e2e:report
+```
+
+#### Test Configuration
+
+- Tests are located in the `e2e/` directory
+- Playwright config: `playwright.config.ts`
+- Tests run against chromium browser
+- The dev server starts automatically when running tests (unless already running)
+
+#### CI/CD
+
+E2E tests run automatically on Vercel preview deployments. The workflow:
+
+1. Vercel deploys a preview
+2. GitHub Actions runs Playwright tests against the preview URL
+3. Results are posted as a comment on the PR
+
+**Required GitHub Secrets:**
+
+- `CLERK_TEST_USER_EMAIL` - Test user email address
+- `CLERK_TEST_USER_PASSWORD` - Test user password
+
 ### Useful Commands
 
 - `npm run dev` - Start all apps in development mode
@@ -61,6 +129,10 @@ npm run build
 - `npm run lint` - Lint all apps and packages
 - `npm run format` - Format all files with Prettier
 - `npm run clean` - Clean all build artifacts and node_modules
+- `npm run test:e2e` - Run Playwright e2e tests
+- `npm run test:e2e:ui` - Run e2e tests with interactive UI
+- `npm run test:e2e:headed` - Run e2e tests in headed browser mode
+- `npm run test:e2e:report` - View HTML test report
 
 ## Tech Stack
 
@@ -75,6 +147,10 @@ npm run build
 - **Framework**: NestJS 11
 - **Language**: TypeScript
 - **Testing**: Jest
+
+### Testing
+
+- **E2E Testing**: Playwright (chromium)
 
 ### Monorepo
 
