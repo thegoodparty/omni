@@ -75,6 +75,13 @@ jobs:
           echo "Deployment URL: ${{ github.event.deployment_status.target_url }}"
           echo "Event name: ${{ github.event_name }}"
 
+      - name: Set deployment URL
+        id: deployment
+        run: |
+          DEPLOYMENT_URL="${{ github.event.deployment_status.target_url }}"
+          echo "Using deployment URL: $DEPLOYMENT_URL"
+          echo "BASE_URL=$DEPLOYMENT_URL" >> "$GITHUB_ENV"
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -90,21 +97,11 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      - name: Create .env.local for local dev server
-        run: |
-          cat > apps/web/.env.local << EOF
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }}
-          NEXT_PUBLIC_CLERK_SIGN_IN_URL="/auth/sign-in"
-          NEXT_PUBLIC_CLERK_SIGN_UP_URL="/auth/sign-up"
-          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL="/dashboard"
-          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL="/dashboard"
-          EOF
-
       - name: Run Playwright Tests
         id: run-tests
         run: npx playwright test --project=chromium
         env:
+          BASE_URL: ${{ env.BASE_URL }}
           CLERK_TEST_USER_EMAIL: ${{ secrets.CLERK_TEST_USER_EMAIL }}
           CLERK_TEST_USER_PASSWORD: ${{ secrets.CLERK_TEST_USER_PASSWORD }}
 
@@ -178,7 +175,6 @@ jobs:
 
             let body = `## ${testStatus} E2E Test Results\n\n`;
             body += `**Preview Deployment:** ${deploymentUrl}\n\n`;
-            body += `**Test Environment:** Local development server\n\n`;
             body += `**Status:** ${testOutcome === 'success' ? 'All tests passed' : 'Some tests failed'}\n\n`;
             body += `[View full test report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
 
@@ -199,7 +195,7 @@ jobs:
               text: '✅ E2E Tests Passed',
               attachments: [{
                 color: 'good',
-                text: `${{ github.repository }} - ${{ github.ref_name }} by ${{ github.actor }}\nDeployment: ${{ github.event.deployment_status.target_url }}\n\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>`
+                text: `${{ github.repository }} - ${{ github.ref_name }} by ${{ github.actor }}\nURL: ${{ env.BASE_URL }}\n\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>`
               }]
             }
         env:
@@ -215,7 +211,7 @@ jobs:
               "text": "❌ E2E Tests Failed",
               "attachments": [{
                 "color": "danger",
-                "text": "${{ github.repository }} - ${{ github.ref_name }} by ${{ github.actor }}\nDeployment: ${{ github.event.deployment_status.target_url }}\n\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
+                "text": "${{ github.repository }} - ${{ github.ref_name }} by ${{ github.actor }}\nURL: ${{ env.BASE_URL }}\n\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
               }]
             }
         env:

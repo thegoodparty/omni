@@ -32,12 +32,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: process.env.BASE_URL
-    ? undefined
+  ...(process.env.BASE_URL
+    ? {}
     : {
-        command: 'npm run dev -w @gp-admin/web',
-        url: 'http://localhost:3500',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120000,
-      },
+        webServer: {
+          command: 'npm run dev -w @gp-admin/web',
+          url: 'http://localhost:3500',
+          reuseExistingServer: true,
+          timeout: 120000,
+        },
+      }),
 })
