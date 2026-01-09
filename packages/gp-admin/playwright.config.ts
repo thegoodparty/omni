@@ -11,7 +11,6 @@ dotenv.config({
 })
 
 const baseURL = process.env.BASE_URL || 'http://localhost:3500'
-const vercelBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,46 +19,25 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [['html'], ['json', { outputFile: 'test-results/results.json' }]],
-
   timeout: 30000,
   use: {
     baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    userAgent: process.env.CI
-      ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-      : undefined,
-    ...(vercelBypassSecret && {
-      extraHTTPHeaders: {
-        'x-vercel-protection-bypass': vercelBypassSecret,
-      },
-    }),
   },
   projects: [
     {
       name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: [
-            '--disable-blink-features=AutomationControlled',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-          ],
-        },
-      },
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Only start the local dev server when not using an external BASE_URL
-  ...(process.env.BASE_URL
-    ? {}
+  webServer: process.env.BASE_URL
+    ? undefined
     : {
-        webServer: {
-          command: 'npm run dev -w @gp-admin/web',
-          url: 'http://localhost:3500',
-          reuseExistingServer: true,
-          timeout: 100000,
-        },
-      }),
+        command: 'npm run dev -w @gp-admin/web',
+        url: 'http://localhost:3500',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      },
 })

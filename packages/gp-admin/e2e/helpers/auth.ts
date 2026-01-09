@@ -13,37 +13,15 @@ export const signIn = async (page: Page) => {
     )
   }
 
-  const failedRequests: string[] = []
-  page.on('requestfailed', (request) => {
-    failedRequests.push(`${request.url()} - ${request.failure()?.errorText}`)
-  })
-
-  await page.goto('/auth/sign-in', {
-    waitUntil: 'load',
-    timeout: 30000,
-  })
+  await page.goto('/auth/sign-in')
 
   const emailInput = page.getByRole('textbox', { name: /email/i })
-
-  try {
-    await emailInput.waitFor({
-      state: 'visible',
-      timeout: process.env.CI ? 60000 : 30000,
-    })
-  } catch (error) {
-    console.error('Failed to find Clerk sign-in form')
-    console.error('Failed requests:', failedRequests)
-    console.error('Page URL:', page.url())
-    const html = await page.content()
-    console.error('Page HTML length:', html.length)
-    console.error('Has body content:', html.includes('<body'))
-    throw error
-  }
+  await emailInput.waitFor({ state: 'visible' })
 
   await emailInput.fill(email)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
 
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
-  await page.waitForURL(/\/dashboard/, { timeout: 30000 })
+  await page.waitForURL(/\/dashboard/)
 }
