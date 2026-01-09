@@ -14,6 +14,6 @@ test.describe('Dashboard', () => {
   })
 
   test('dashboard shows user button', async ({ page }) => {
-    await expect(page.locator('.cl-userButton-root')).toBeVisible()
+    await expect(page.getByRole('button', { name: /user/i })).toBeVisible()
   })
 })
