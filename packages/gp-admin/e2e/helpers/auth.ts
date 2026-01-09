@@ -13,24 +13,22 @@ export const signIn = async (page: Page) => {
     )
   }
 
-  await page.goto('/auth/sign-in')
+  await page.goto('/auth/sign-in', { waitUntil: 'domcontentloaded' })
 
-  // Wait for Clerk to load with debugging
+  // Wait for page to be interactive (JavaScript loaded)
+  await page.waitForLoadState('load')
+
+  // Additional wait for Clerk's component to render
+  await page.waitForTimeout(3000)
+
+  // Wait for Clerk to load
   const emailInput = page.getByRole('textbox', { name: /email/i })
 
   try {
     await emailInput.waitFor({ state: 'visible', timeout: 30000 })
   } catch {
-    // If Clerk doesn't load, capture page content for debugging
-    const html = await page.content()
-    console.log('Page HTML when Clerk failed to load:', html.slice(0, 2000))
-    const consoleMessages = await page.evaluate(() => {
-      return (
-        (window as unknown as { __playwright_console?: string[] })
-          .__playwright_console || []
-      )
-    })
-    console.log('Console messages:', consoleMessages)
+    // If Clerk doesn't load, log for debugging
+    console.error('Clerk sign-in form did not load')
     throw new Error('Clerk sign-in form did not load within 30 seconds')
   }
 
