@@ -7,13 +7,14 @@ import {
   UserButton,
   useUser,
 } from '@clerk/nextjs'
+import type { UseUserReturn } from '@clerk/types'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
 import { Flex } from '@radix-ui/themes'
 
 export function Header() {
-  const user = useUser()
+  const user: UseUserReturn = useUser()
 
   return (
     <Flex
