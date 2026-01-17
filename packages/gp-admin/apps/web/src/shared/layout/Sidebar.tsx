@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { HiUsers, HiStar, HiMenu } from 'react-icons/hi'
+import { Box, Flex, IconButton, Text } from '@radix-ui/themes'
 const navItems = [
   {
     title: 'Users',
@@ -47,13 +48,13 @@ export function SidebarTrigger() {
   const { toggle } = useSidebar()
 
   return (
-    <button
+    <IconButton
+      variant="ghost"
       onClick={toggle}
-      className="p-2 rounded-md hover:bg-sidebar-accent transition-colors"
       aria-label="Toggle Sidebar"
     >
-      <HiMenu className="size-5" />
-    </button>
+      <HiMenu style={{ width: 20, height: 20 }} />
+    </IconButton>
   )
 }
 
@@ -62,52 +63,68 @@ export default function Sidebar() {
   const { isOpen } = useSidebar()
 
   return (
-    <aside
-      className={`
-        bg-sidebar border-r border-sidebar-border
-        h-screen flex flex-col
-        transition-all duration-300 ease-in-out
-        bg-gray-100
-        dark:bg-background
-        dark:border-gray-800
-        ${isOpen ? 'w-64' : 'w-16'}
-      `}
+    <Box
+      asChild
+      style={{
+        width: isOpen ? '256px' : '64px',
+        height: '100vh',
+        borderRight: '1px solid var(--gray-5)',
+        backgroundColor: 'var(--gray-2)',
+        transition: 'all 0.3s ease-in-out',
+      }}
     >
-      <nav className="flex-1 p-2">
-        <ul className="space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname.startsWith(item.href)
-            return (
-              <li key={item.href}>
+      <aside>
+        <nav style={{ flex: 1, padding: '8px' }}>
+          <Flex direction="column" gap="1">
+            {navItems.map((item) => {
+              const isActive = pathname.startsWith(item.href)
+              return (
                 <Link
+                  key={item.href}
                   href={item.href}
-                  className={`
-                    flex items-center gap-3 px-3 py-2 rounded-md
-                    transition-colors duration-200
-                    ${
-                      isActive
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                    }
-                    ${isOpen ? '' : 'justify-center'}
-                  `}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-3)',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                    backgroundColor: isActive ? 'var(--accent-3)' : 'transparent',
+                    fontWeight: isActive ? 500 : 400,
+                    justifyContent: isOpen ? 'flex-start' : 'center',
+                  }}
                   title={!isOpen ? item.title : undefined}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = 'var(--gray-4)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = 'transparent'
+                    }
+                  }}
                 >
-                  <item.icon className="size-5 shrink-0" />
-                  <span
-                    className={`
-                      transition-all duration-300 overflow-hidden whitespace-nowrap
-                      ${isOpen ? 'opacity-100 w-auto' : 'opacity-0 w-0'}
-                    `}
+                  <item.icon style={{ width: 20, height: 20, flexShrink: 0 }} />
+                  <Text
+                    size="2"
+                    style={{
+                      overflow: 'hidden',
+                      whiteSpace: 'nowrap',
+                      opacity: isOpen ? 1 : 0,
+                      width: isOpen ? 'auto' : 0,
+                      transition: 'all 0.3s',
+                    }}
                   >
                     {item.title}
-                  </span>
+                  </Text>
                 </Link>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
-    </aside>
+              )
+            })}
+          </Flex>
+        </nav>
+      </aside>
+    </Box>
   )
 }

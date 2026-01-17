@@ -1,7 +1,9 @@
+import { Heading, Box } from '@radix-ui/themes'
+
 export default function DashboardPage() {
   return (
-    <div>
-      <h1>Dashboard Page</h1>
-    </div>
+    <Box>
+      <Heading size="6">Dashboard Page</Heading>
+    </Box>
   )
 }

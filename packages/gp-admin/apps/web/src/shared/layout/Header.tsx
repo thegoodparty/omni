@@ -10,34 +10,40 @@ import {
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
+import { Flex } from '@radix-ui/themes'
 
 export function Header() {
   const user = useUser()
 
   return (
-    <header className="flex justify-between items-center p-4 gap-4 h-16 border-b border-gray-200 dark:border-gray-800">
-      <div className="flex items-center gap-4">
-        <Image
-          src="https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/logo.svg"
-          alt="logo"
-          width={40}
-          height={40}
-        />
-        {user?.isSignedIn && (
-          <div>
-            <SidebarTrigger />
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-4">
-        <DarkLightToggle />
-        <SignedOut>
-          <SignInButton />
-        </SignedOut>
-        <SignedIn>
-          <UserButton />
-        </SignedIn>
-      </div>
-    </header>
+    <Flex
+      asChild
+      justify="between"
+      align="center"
+      p="4"
+      gap="4"
+      style={{ height: '64px', borderBottom: '1px solid var(--gray-5)' }}
+    >
+      <header>
+        <Flex align="center" gap="4">
+          <Image
+            src="https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/logo.svg"
+            alt="logo"
+            width={40}
+            height={40}
+          />
+          {user?.isSignedIn && <SidebarTrigger />}
+        </Flex>
+        <Flex align="center" gap="4">
+          <DarkLightToggle />
+          <SignedOut>
+            <SignInButton />
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
+        </Flex>
+      </header>
+    </Flex>
   )
 }
