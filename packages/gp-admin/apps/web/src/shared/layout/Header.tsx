@@ -40,6 +40,35 @@ export function Header() {
             <OrganizationSwitcher
               hidePersonal={true}
               afterSelectOrganizationUrl="/dashboard"
+              appearance={{
+                elements: {
+                  // Hide the "Create Organization" button
+                  organizationSwitcherPopoverActionButton__createOrganization: {
+                    display: 'none',
+                  },
+                  // Dark mode compatibility
+                  rootBox: {
+                    display: 'flex',
+                    alignItems: 'center',
+                  },
+                  organizationSwitcherTrigger: {
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-3)',
+                    border: '1px solid var(--gray-6)',
+                    backgroundColor: 'var(--gray-2)',
+                    color: 'var(--gray-12)',
+                    '&:hover': {
+                      backgroundColor: 'var(--gray-3)',
+                    },
+                  },
+                  organizationPreviewTextContainer: {
+                    color: 'var(--gray-12)',
+                  },
+                  organizationSwitcherTriggerIcon: {
+                    color: 'var(--gray-11)',
+                  },
+                },
+              }}
             />
           </SignedIn>
           <DarkLightToggle />
