@@ -34,8 +34,19 @@ export function MembersPage() {
               pageScrollBox: {
                 backgroundColor: 'var(--gray-1)',
               },
-              // Hide organization profile/settings options - only show members
+              // Hide General tab (contains delete/leave org options)
+              navbarButton__general: {
+                display: 'none',
+              },
+              // Hide settings tab
               navbarButton__settings: {
+                display: 'none',
+              },
+              // Hide any delete/leave organization buttons that might appear
+              'cl-profileSection__organizationDanger': {
+                display: 'none',
+              },
+              profileSection__organizationDanger: {
                 display: 'none',
               },
             },
