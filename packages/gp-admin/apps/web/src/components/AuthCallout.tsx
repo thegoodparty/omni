@@ -1,6 +1,6 @@
 'use client'
 
-import { Callout, Flex } from '@radix-ui/themes'
+import { Callout } from '@radix-ui/themes'
 import { HiExclamation } from 'react-icons/hi'
 
 type AuthCalloutColor = 'red' | 'amber'
@@ -29,11 +29,7 @@ export function AuthCallout({
   )
 
   if (centered) {
-    return (
-      <Flex align="center" justify="center" p="8">
-        {callout}
-      </Flex>
-    )
+    return <div className="flex items-center justify-center p-8">{callout}</div>
   }
 
   return callout

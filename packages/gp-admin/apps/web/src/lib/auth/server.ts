@@ -13,7 +13,9 @@ type AuthenticatedContext = {
   orgRole: string | null | undefined
   organization: Awaited<
     ReturnType<
-      Awaited<ReturnType<typeof clerkClient>>['organizations']['getOrganization']
+      Awaited<
+        ReturnType<typeof clerkClient>
+      >['organizations']['getOrganization']
     >
   > | null
   hasPermission: (permission: Permission) => boolean

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { HiUsers, HiStar, HiMenu, HiCog, HiUserGroup } from 'react-icons/hi'
-import { Box, Flex, IconButton, Text } from '@radix-ui/themes'
+import { IconButton, Text } from '@radix-ui/themes'
 import { useAuthorization } from '@/lib/hooks/useAuthorization'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -73,12 +73,8 @@ export function SidebarTrigger() {
   const { toggle } = useSidebar()
 
   return (
-    <IconButton
-      variant="ghost"
-      onClick={toggle}
-      aria-label="Toggle Sidebar"
-    >
-      <HiMenu style={{ width: 20, height: 20 }} />
+    <IconButton variant="ghost" onClick={toggle} aria-label="Toggle Sidebar">
+      <HiMenu className="w-5 h-5" />
     </IconButton>
   )
 }
@@ -95,80 +91,52 @@ export default function Sidebar() {
     : []
 
   return (
-    <Box
-      asChild
-      style={{
-        width: isOpen ? '256px' : '64px',
-        height: '100vh',
-        borderRight: '1px solid var(--gray-5)',
-        backgroundColor: 'var(--gray-2)',
-        transition: 'all 0.3s ease-in-out',
-      }}
+    <aside
+      className={`
+        ${isOpen ? 'w-64' : 'w-16'}
+        flex-shrink-0 sticky top-0 h-[calc(100vh-64px)]
+        border-r border-[var(--gray-5)] bg-[var(--gray-2)]
+        transition-[width] duration-300 ease-in-out overflow-y-auto
+      `}
     >
-      <aside>
-        <nav style={{ flex: 1, padding: '8px' }}>
-          <Flex direction="column" gap="1">
-            {navItems.length === 0 && hasActiveOrganization === false && (
-              <Text
-                size="2"
-                style={{
-                  padding: '8px 12px',
-                  color: 'var(--gray-9)',
-                  display: isOpen ? 'block' : 'none',
-                }}
+      <nav className="flex-1 p-2">
+        <div className="flex flex-col gap-1">
+          {navItems.length === 0 && hasActiveOrganization === false && (
+            <Text
+              size="2"
+              className={`px-3 py-2 text-[var(--gray-9)] ${isOpen ? 'block' : 'hidden'}`}
+            >
+              Select an organization
+            </Text>
+          )}
+          {navItems.map((item) => {
+            const isActive = pathname.startsWith(item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`
+                  flex items-center gap-3 px-3 py-2 rounded-lg no-underline
+                  ${isActive ? 'bg-[var(--accent-3)] font-medium' : 'hover:bg-[var(--gray-4)]'}
+                  ${isOpen ? 'justify-start' : 'justify-center'}
+                `}
+                title={!isOpen ? item.title : undefined}
               >
-                Select an organization
-              </Text>
-            )}
-            {navItems.map((item) => {
-              const isActive = pathname.startsWith(item.href)
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-3)',
-                    textDecoration: 'none',
-                    color: 'inherit',
-                    backgroundColor: isActive ? 'var(--accent-3)' : 'transparent',
-                    fontWeight: isActive ? 500 : 400,
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                  }}
-                  title={!isOpen ? item.title : undefined}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'var(--gray-4)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'transparent'
-                    }
-                  }}
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <Text
+                  size="2"
+                  className={`
+                    overflow-hidden whitespace-nowrap transition-all duration-300
+                    ${isOpen ? 'opacity-100 w-auto' : 'opacity-0 w-0'}
+                  `}
                 >
-                  <item.icon style={{ width: 20, height: 20, flexShrink: 0 }} />
-                  <Text
-                    size="2"
-                    style={{
-                      overflow: 'hidden',
-                      whiteSpace: 'nowrap',
-                      opacity: isOpen ? 1 : 0,
-                      width: isOpen ? 'auto' : 0,
-                      transition: 'all 0.3s',
-                    }}
-                  >
-                    {item.title}
-                  </Text>
-                </Link>
-              )
-            })}
-          </Flex>
-        </nav>
-      </aside>
-    </Box>
+                  {item.title}
+                </Text>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+    </aside>
   )
 }
