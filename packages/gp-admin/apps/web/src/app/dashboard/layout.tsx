@@ -3,6 +3,7 @@
 import { ReactNode } from 'react'
 import Sidebar from '@/shared/layout/Sidebar'
 import { Flex, Box } from '@radix-ui/themes'
+import { OrganizationRequired } from '@/components/OrganizationRequired'
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
@@ -16,7 +17,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         }}
       >
         <Box asChild p="4" style={{ flex: 1 }}>
-          <main>{children}</main>
+          <main>
+            <OrganizationRequired>{children}</OrganizationRequired>
+          </main>
         </Box>
       </Flex>
     </Flex>

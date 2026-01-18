@@ -3,18 +3,43 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
-import { HiUsers, HiStar, HiMenu } from 'react-icons/hi'
+import { HiUsers, HiStar, HiMenu, HiCog, HiUserGroup } from 'react-icons/hi'
 import { Box, Flex, IconButton, Text } from '@radix-ui/themes'
-const navItems = [
+import { useAuthorization } from '@/lib/hooks/useAuthorization'
+import { PERMISSIONS, Permission } from '@/lib/permissions'
+import { IconType } from 'react-icons'
+
+interface NavItem {
+  title: string
+  href: string
+  icon: IconType
+  permission: Permission
+}
+
+const allNavItems: NavItem[] = [
   {
     title: 'Users',
     href: '/dashboard/users',
     icon: HiUsers,
+    permission: PERMISSIONS.READ_USERS,
   },
   {
     title: 'Campaigns',
     href: '/dashboard/campaigns',
     icon: HiStar,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
+    title: 'Members',
+    href: '/dashboard/members',
+    icon: HiUserGroup,
+    permission: PERMISSIONS.INVITE_MEMBERS,
+  },
+  {
+    title: 'Settings',
+    href: '/dashboard/settings',
+    icon: HiCog,
+    permission: PERMISSIONS.MANAGE_SETTINGS,
   },
 ]
 
@@ -61,6 +86,13 @@ export function SidebarTrigger() {
 export default function Sidebar() {
   const pathname = usePathname()
   const { isOpen } = useSidebar()
+  const { hasPermission, hasActiveOrganization } = useAuthorization()
+
+  // Filter nav items based on user permissions
+  // Show no items if no organization is selected
+  const navItems = hasActiveOrganization
+    ? allNavItems.filter((item) => hasPermission(item.permission))
+    : []
 
   return (
     <Box
@@ -76,6 +108,18 @@ export default function Sidebar() {
       <aside>
         <nav style={{ flex: 1, padding: '8px' }}>
           <Flex direction="column" gap="1">
+            {navItems.length === 0 && hasActiveOrganization === false && (
+              <Text
+                size="2"
+                style={{
+                  padding: '8px 12px',
+                  color: 'var(--gray-9)',
+                  display: isOpen ? 'block' : 'none',
+                }}
+              >
+                Select an organization
+              </Text>
+            )}
             {navItems.map((item) => {
               const isActive = pathname.startsWith(item.href)
               return (

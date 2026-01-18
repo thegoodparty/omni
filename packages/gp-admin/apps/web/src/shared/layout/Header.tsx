@@ -5,16 +5,16 @@ import {
   SignedIn,
   SignedOut,
   UserButton,
+  OrganizationSwitcher,
   useUser,
 } from '@clerk/nextjs'
-import type { UseUserReturn } from '@clerk/types'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
 import { Flex } from '@radix-ui/themes'
 
 export function Header() {
-  const user: UseUserReturn = useUser()
+  const { isSignedIn } = useUser()
 
   return (
     <Flex
@@ -33,9 +33,15 @@ export function Header() {
             width={40}
             height={40}
           />
-          {user?.isSignedIn && <SidebarTrigger />}
+          {isSignedIn && <SidebarTrigger />}
         </Flex>
         <Flex align="center" gap="4">
+          <SignedIn>
+            <OrganizationSwitcher
+              hidePersonal={true}
+              afterSelectOrganizationUrl="/dashboard"
+            />
+          </SignedIn>
           <DarkLightToggle />
           <SignedOut>
             <SignInButton />

@@ -1,17 +1,15 @@
-import { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { currentUser } from '@clerk/nextjs/server'
-
-export const metadata: Metadata = {
-  title: 'GP Admin',
-  description: 'GP Admin',
-}
+import { auth } from '@clerk/nextjs/server'
 
 export default async function Home() {
-  const user = await currentUser()
-  if (user) {
-    return redirect('/dashboard')
+  const { userId } = await auth()
+
+  if (userId) {
+    // User is signed in - redirect to dashboard
+    // Organization selection is handled by Clerk if needed
+    redirect('/dashboard')
   } else {
-    return redirect('/auth/sign-in')
+    // User is not signed in - redirect to sign-in
+    redirect('/auth/sign-in')
   }
 }
