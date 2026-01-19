@@ -8,6 +8,8 @@ import {
   OrganizationSwitcher,
   useUser,
 } from '@clerk/nextjs'
+import { dark } from '@clerk/themes'
+import { useThemeContext } from '@radix-ui/themes'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
@@ -15,6 +17,8 @@ import Link from 'next/link'
 
 export function Header() {
   const { isSignedIn } = useUser()
+  const { appearance } = useThemeContext()
+  const isDarkMode = appearance === 'dark'
 
   return (
     <header className="flex justify-between items-center px-4 py-4 gap-4 h-16 border-b border-[var(--gray-5)]">
@@ -35,6 +39,7 @@ export function Header() {
             hidePersonal={true}
             afterSelectOrganizationUrl="/dashboard"
             appearance={{
+              baseTheme: isDarkMode ? dark : undefined,
               elements: {
                 organizationSwitcherPopoverActionButton__createOrganization: {
                   display: 'none',
@@ -42,22 +47,6 @@ export function Header() {
                 rootBox: {
                   display: 'flex',
                   alignItems: 'center',
-                },
-                organizationSwitcherTrigger: {
-                  padding: '6px 12px',
-                  borderRadius: 'var(--radius-3)',
-                  border: '1px solid var(--gray-6)',
-                  backgroundColor: 'var(--gray-2)',
-                  color: 'var(--gray-12)',
-                  '&:hover': {
-                    backgroundColor: 'var(--gray-3)',
-                  },
-                },
-                organizationPreviewTextContainer: {
-                  color: 'var(--gray-12)',
-                },
-                organizationSwitcherTriggerIcon: {
-                  color: 'var(--gray-11)',
                 },
               },
             }}
@@ -68,7 +57,11 @@ export function Header() {
           <SignInButton />
         </SignedOut>
         <SignedIn>
-          <UserButton />
+          <UserButton
+            appearance={{
+              baseTheme: isDarkMode ? dark : undefined,
+            }}
+          />
         </SignedIn>
       </div>
     </header>

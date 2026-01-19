@@ -1,13 +1,19 @@
 'use client'
 
 import { OrganizationProfile } from '@clerk/nextjs'
+import { dark } from '@clerk/themes'
+import { useThemeContext } from '@radix-ui/themes'
 
 export function MembersPage() {
+  const { appearance } = useThemeContext()
+  const isDarkMode = appearance === 'dark'
+
   return (
     <div className="flex items-center justify-center flex-1">
       <div>
         <OrganizationProfile
           appearance={{
+            baseTheme: isDarkMode ? dark : undefined,
             elements: {
               rootBox: {
                 width: '100%',
