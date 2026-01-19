@@ -5,12 +5,28 @@ import { JSX, ReactNode } from 'react'
 import { SidebarProvider } from './Sidebar'
 import { Theme } from '@radix-ui/themes'
 
-export function Providers({ children }: { children: ReactNode }): JSX.Element {
+/**
+ * ClerkProvider doesn't render DOM elements, safe to wrap <html>
+ */
+export function ClerkProviderWrapper({
+  children,
+}: {
+  children: ReactNode
+}): JSX.Element {
+  return <ClerkProvider>{children}</ClerkProvider>
+}
+
+/**
+ * Theme renders a <div class="radix-themes">, must be inside <body>
+ */
+export function ThemeProvider({
+  children,
+}: {
+  children: ReactNode
+}): JSX.Element {
   return (
-    <ClerkProvider>
-      <Theme accentColor="indigo" grayColor="slate" radius="large">      
-        <SidebarProvider>{children}</SidebarProvider>
-      </Theme>
-    </ClerkProvider>
+    <Theme accentColor="indigo" grayColor="slate" radius="large">
+      <SidebarProvider>{children}</SidebarProvider>
+    </Theme>
   )
 }

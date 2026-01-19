@@ -10,7 +10,10 @@ export function DarkLightToggle() {
   const { appearance, onAppearanceChange } = useThemeContext()
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as 'light' | 'dark' | null
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as
+      | 'light'
+      | 'dark'
+      | null
     const prefersDark = savedTheme
       ? savedTheme === 'dark'
       : window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -31,9 +34,9 @@ export function DarkLightToggle() {
       aria-label="Toggle dark mode"
     >
       {appearance === 'dark' ? (
-        <MdLightMode style={{ width: 20, height: 20 }} />
+        <MdLightMode className="w-5 h-5" />
       ) : (
-        <MdDarkMode style={{ width: 20, height: 20 }} />
+        <MdDarkMode className="w-5 h-5" />
       )}
     </IconButton>
   )

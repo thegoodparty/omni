@@ -54,6 +54,35 @@ To build all apps and packages:
 npm run build
 ```
 
+### Authentication & Authorization
+
+This app uses [Clerk](https://clerk.com/) for authentication with **Organizations** enabled.
+
+#### Organizations & Roles
+
+| Organization | Description |
+|--------------|-------------|
+| Development  | Dev environment access |
+| QA           | QA environment access |
+| Production   | Production environment access |
+
+| Role | Key | Permissions |
+|------|-----|-------------|
+| Admin | `org:admin` | Full access - manage users, settings, invite members |
+| Sales | `org:sales` | Read/write campaigns, read users |
+| Read Only | `org:read_only` | View only access |
+
+#### Permissions
+
+| Permission | Admin | Sales | Read Only |
+|------------|-------|-------|-----------|
+| `read_users` | ✓ | ✓ | ✓ |
+| `write_users` | ✓ | | |
+| `read_campaigns` | ✓ | ✓ | ✓ |
+| `write_campaigns` | ✓ | ✓ | |
+| `manage_settings` | ✓ | | |
+| `invite_members` | ✓ | | |
+
 ### Testing
 
 This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
@@ -62,12 +91,23 @@ This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
 
 **Prerequisites:**
 
-Set the following environment variables for test authentication:
+Set test user environment variables. The app uses role-based test users per organization:
 
 ```bash
-export CLERK_TEST_USER_EMAIL="your-test-user@example.com"
-export CLERK_TEST_USER_PASSWORD="your-test-password"
+# Development environment users
+export CLERK_TEST_DEV_ADMIN_EMAIL="your-dev-admin@example.com"
+export CLERK_TEST_DEV_ADMIN_PASSWORD="password"
+export CLERK_TEST_DEV_SALES_EMAIL="your-dev-sales@example.com"
+export CLERK_TEST_DEV_SALES_PASSWORD="password"
+export CLERK_TEST_DEV_READONLY_EMAIL="your-dev-readonly@example.com"
+export CLERK_TEST_DEV_READONLY_PASSWORD="password"
+
+# Multi-org user (for testing organization switching)
+export CLERK_TEST_MULTI_ORG_EMAIL="your-multi-org@example.com"
+export CLERK_TEST_MULTI_ORG_PASSWORD="password"
 ```
+
+See `env.example` for the full list of test user variables.
 
 **Option 1: Let Playwright manage the server (simplest)**
 
@@ -119,8 +159,7 @@ E2E tests run automatically on Vercel preview deployments. The workflow:
 
 **Required GitHub Secrets:**
 
-- `CLERK_TEST_USER_EMAIL` - Test user email address
-- `CLERK_TEST_USER_PASSWORD` - Test user password
+Test user credentials for each role and organization. See `env.example` for the full list.
 
 ### Useful Commands
 

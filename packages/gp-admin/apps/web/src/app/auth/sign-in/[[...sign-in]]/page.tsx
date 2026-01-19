@@ -1,6 +1,5 @@
 import { SignIn } from '@clerk/nextjs'
 import { Metadata } from 'next'
-import { Flex, Container } from '@radix-ui/themes'
 
 export const metadata: Metadata = {
   title: 'Sign In | GP Admin',
@@ -9,16 +8,12 @@ export const metadata: Metadata = {
 
 export default function SignInPage() {
   return (
-    <Flex
-      align="center"
-      justify="center"
-      style={{ minHeight: '100vh' }}
-    >
-      <Container size="1" p="8">
-        <Flex direction="column" align="center" justify="center">
+    <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
+      <div className="p-8">
+        <div className="flex flex-col items-center justify-center">
           <SignIn />
-        </Flex>
-      </Container>
-    </Flex>
+        </div>
+      </div>
+    </div>
   )
 }

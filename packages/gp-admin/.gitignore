@@ -19,6 +19,7 @@ dist/
 .DS_Store
 *.pem
 .vscode
+temp-docs/
 
 # Debug
 npm-debug.log*
@@ -38,4 +39,6 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+
 
