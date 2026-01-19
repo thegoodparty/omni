@@ -5,45 +5,65 @@ import {
   SignedIn,
   SignedOut,
   UserButton,
+  OrganizationSwitcher,
   useUser,
 } from '@clerk/nextjs'
+import { dark } from '@clerk/themes'
+import { useThemeContext } from '@radix-ui/themes'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
-import { Flex } from '@radix-ui/themes'
+import Link from 'next/link'
 
 export function Header() {
-  const user = useUser()
+  const { isSignedIn } = useUser()
+  const { appearance } = useThemeContext()
+  const isDarkMode = appearance === 'dark'
 
   return (
-    <Flex
-      asChild
-      justify="between"
-      align="center"
-      p="4"
-      gap="4"
-      style={{ height: '64px', borderBottom: '1px solid var(--gray-5)' }}
-    >
-      <header>
-        <Flex align="center" gap="4">
+    <header className="flex justify-between items-center px-4 py-4 gap-4 h-16 border-b border-[var(--gray-5)]">
+      <div className="flex items-center gap-4">
+        <Link href="/">
           <Image
             src="https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/logo.svg"
             alt="logo"
             width={40}
             height={40}
           />
-          {user?.isSignedIn && <SidebarTrigger />}
-        </Flex>
-        <Flex align="center" gap="4">
-          <DarkLightToggle />
-          <SignedOut>
-            <SignInButton />
-          </SignedOut>
-          <SignedIn>
-            <UserButton />
-          </SignedIn>
-        </Flex>
-      </header>
-    </Flex>
+        </Link>
+        {isSignedIn && <SidebarTrigger />}
+      </div>
+      <div className="flex items-center gap-4">
+        <SignedIn>
+          <OrganizationSwitcher
+            hidePersonal={true}
+            afterSelectOrganizationUrl="/dashboard"
+            appearance={{
+              baseTheme: isDarkMode ? dark : undefined,
+              elements: {
+                organizationSwitcherPopoverActionButton__createOrganization: {
+                  display: 'none',
+                },
+                rootBox: {
+                  display: 'flex',
+                  alignItems: 'center',
+                },
+              },
+            }}
+          />
+        </SignedIn>
+        <DarkLightToggle />
+        <SignedOut>
+          <SignInButton />
+        </SignedOut>
+        <SignedIn>
+          <UserButton
+            appearance={{
+              baseTheme: isDarkMode ? dark : undefined,
+            }}
+          />
+        </SignedIn>
+      </div>
+    </header>
   )
 }

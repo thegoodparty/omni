@@ -102,8 +102,30 @@ jobs:
         run: npx playwright test --project=chromium
         env:
           BASE_URL: ${{ env.BASE_URL }}
-          CLERK_TEST_USER_EMAIL: ${{ secrets.CLERK_TEST_USER_EMAIL }}
-          CLERK_TEST_USER_PASSWORD: ${{ secrets.CLERK_TEST_USER_PASSWORD }}
+          # Development environment test users
+          CLERK_TEST_DEV_ADMIN_EMAIL: ${{ secrets.CLERK_TEST_DEV_ADMIN_EMAIL }}
+          CLERK_TEST_DEV_ADMIN_PASSWORD: ${{ secrets.CLERK_TEST_DEV_ADMIN_PASSWORD }}
+          CLERK_TEST_DEV_SALES_EMAIL: ${{ secrets.CLERK_TEST_DEV_SALES_EMAIL }}
+          CLERK_TEST_DEV_SALES_PASSWORD: ${{ secrets.CLERK_TEST_DEV_SALES_PASSWORD }}
+          CLERK_TEST_DEV_READONLY_EMAIL: ${{ secrets.CLERK_TEST_DEV_READONLY_EMAIL }}
+          CLERK_TEST_DEV_READONLY_PASSWORD: ${{ secrets.CLERK_TEST_DEV_READONLY_PASSWORD }}
+          # QA environment test users
+          CLERK_TEST_QA_ADMIN_EMAIL: ${{ secrets.CLERK_TEST_QA_ADMIN_EMAIL }}
+          CLERK_TEST_QA_ADMIN_PASSWORD: ${{ secrets.CLERK_TEST_QA_ADMIN_PASSWORD }}
+          CLERK_TEST_QA_SALES_EMAIL: ${{ secrets.CLERK_TEST_QA_SALES_EMAIL }}
+          CLERK_TEST_QA_SALES_PASSWORD: ${{ secrets.CLERK_TEST_QA_SALES_PASSWORD }}
+          CLERK_TEST_QA_READONLY_EMAIL: ${{ secrets.CLERK_TEST_QA_READONLY_EMAIL }}
+          CLERK_TEST_QA_READONLY_PASSWORD: ${{ secrets.CLERK_TEST_QA_READONLY_PASSWORD }}
+          # Production environment test users
+          CLERK_TEST_PROD_ADMIN_EMAIL: ${{ secrets.CLERK_TEST_PROD_ADMIN_EMAIL }}
+          CLERK_TEST_PROD_ADMIN_PASSWORD: ${{ secrets.CLERK_TEST_PROD_ADMIN_PASSWORD }}
+          CLERK_TEST_PROD_SALES_EMAIL: ${{ secrets.CLERK_TEST_PROD_SALES_EMAIL }}
+          CLERK_TEST_PROD_SALES_PASSWORD: ${{ secrets.CLERK_TEST_PROD_SALES_PASSWORD }}
+          CLERK_TEST_PROD_READONLY_EMAIL: ${{ secrets.CLERK_TEST_PROD_READONLY_EMAIL }}
+          CLERK_TEST_PROD_READONLY_PASSWORD: ${{ secrets.CLERK_TEST_PROD_READONLY_PASSWORD }}
+          # Multi-org test user
+          CLERK_TEST_MULTI_ORG_EMAIL: ${{ secrets.CLERK_TEST_MULTI_ORG_EMAIL }}
+          CLERK_TEST_MULTI_ORG_PASSWORD: ${{ secrets.CLERK_TEST_MULTI_ORG_PASSWORD }}
 
       - name: Upload test reports
         if: ${{ !cancelled() }}
