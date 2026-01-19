@@ -13,7 +13,9 @@ import {
  *
  * Usage:
  * ```tsx
- * const { isAdmin, canWriteUsers, hasPermission } = useAuthorization()
+ * const { isAdmin, canWriteUsers, hasPermission, isLoaded } = useAuthorization()
+ *
+ * if (!isLoaded) return <Skeleton />
  *
  * if (canWriteUsers) {
  *   // Show edit button
@@ -21,8 +23,8 @@ import {
  * ```
  */
 export function useAuthorization() {
-  const { has, orgRole, orgId, isSignedIn } = useAuth()
-  const { organization } = useOrganization()
+  const { has, orgRole, orgId, isSignedIn, isLoaded } = useAuth()
+  const { organization, isLoaded: isOrgLoaded } = useOrganization()
 
   const hasPermission = (permission: Permission): boolean => {
     if (!isSignedIn || !orgId) return false
@@ -34,12 +36,10 @@ export function useAuthorization() {
     return has?.({ role }) ?? false
   }
 
-  // Role checks
   const isAdmin = hasRole(ROLES.ADMIN)
   const isSales = hasRole(ROLES.SALES)
   const isReadOnly = hasRole(ROLES.READ_ONLY)
 
-  // Permission checks
   const canReadUsers = hasPermission(PERMISSIONS.READ_USERS)
   const canWriteUsers = hasPermission(PERMISSIONS.WRITE_USERS)
   const canReadCampaigns = hasPermission(PERMISSIONS.READ_CAMPAIGNS)
@@ -48,28 +48,22 @@ export function useAuthorization() {
   const canInviteMembers = hasPermission(PERMISSIONS.INVITE_MEMBERS)
 
   return {
-    // Status
+    isLoaded: isLoaded && isOrgLoaded,
     isSignedIn: isSignedIn ?? false,
     hasActiveOrganization: !!orgId,
     organizationId: orgId,
     organizationName: organization?.name,
     organizationSlug: organization?.slug,
     currentRole: orgRole,
-
-    // Role checks
     isAdmin,
     isSales,
     isReadOnly,
-
-    // Permission checks
     canReadUsers,
     canWriteUsers,
     canReadCampaigns,
     canWriteCampaigns,
     canManageSettings,
     canInviteMembers,
-
-    // Generic checks
     hasPermission,
     hasRole,
   }

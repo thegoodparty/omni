@@ -4,6 +4,7 @@ import { useAuthorization } from '@/lib/hooks/useAuthorization'
 import { Permission, Role } from '@/lib/permissions'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
+import { Flex, Spinner } from '@radix-ui/themes'
 
 interface ProtectedContentProps {
   children: ReactNode
@@ -38,10 +39,23 @@ export function ProtectedContent({
   fallback,
   hideWhenUnauthorized = false,
 }: ProtectedContentProps) {
-  const { hasPermission, hasRole, hasActiveOrganization, isSignedIn } =
-    useAuthorization()
+  const {
+    hasPermission,
+    hasRole,
+    hasActiveOrganization,
+    isSignedIn,
+    isLoaded,
+  } = useAuthorization()
 
-  // Not signed in
+  if (!isLoaded) {
+    if (hideWhenUnauthorized) return null
+    return (
+      <Flex align="center" justify="center" p="4">
+        <Spinner size="2" />
+      </Flex>
+    )
+  }
+
   if (!isSignedIn) {
     if (hideWhenUnauthorized) return null
     return (
@@ -51,7 +65,6 @@ export function ProtectedContent({
     )
   }
 
-  // No active organization
   if (!hasActiveOrganization) {
     if (hideWhenUnauthorized) return null
     return (
@@ -64,7 +77,6 @@ export function ProtectedContent({
     )
   }
 
-  // Check permission
   if (requiredPermission && !hasPermission(requiredPermission)) {
     if (hideWhenUnauthorized) return null
     return (
@@ -74,7 +86,6 @@ export function ProtectedContent({
     )
   }
 
-  // Check role
   if (requiredRole && !hasRole(requiredRole)) {
     if (hideWhenUnauthorized) return null
     return (

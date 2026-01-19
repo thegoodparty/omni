@@ -36,11 +36,9 @@ export function Header() {
             afterSelectOrganizationUrl="/dashboard"
             appearance={{
               elements: {
-                // Hide the "Create Organization" button
                 organizationSwitcherPopoverActionButton__createOrganization: {
                   display: 'none',
                 },
-                // Dark mode compatibility
                 rootBox: {
                   display: 'flex',
                   alignItems: 'center',

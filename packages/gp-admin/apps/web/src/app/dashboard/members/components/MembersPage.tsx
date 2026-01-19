@@ -1,13 +1,11 @@
 'use client'
 
 import { OrganizationProfile } from '@clerk/nextjs'
-import { Heading } from '@radix-ui/themes'
 
 export function MembersPage() {
   return (
-    <div className="flex flex-col gap-6 p-6 flex-1">
-      <Heading size="6">Members</Heading>
-      <div className="flex items-center justify-center flex-1">
+    <div className="flex items-center justify-center flex-1">
+      <div>
         <OrganizationProfile
           appearance={{
             elements: {
@@ -36,15 +34,12 @@ export function MembersPage() {
               pageScrollBox: {
                 backgroundColor: 'var(--gray-1)',
               },
-              // Hide General tab (contains delete/leave org options)
               navbarButton__general: {
                 display: 'none',
               },
-              // Hide settings tab
               navbarButton__settings: {
                 display: 'none',
               },
-              // Hide any delete/leave organization buttons that might appear
               'cl-profileSection__organizationDanger': {
                 display: 'none',
               },

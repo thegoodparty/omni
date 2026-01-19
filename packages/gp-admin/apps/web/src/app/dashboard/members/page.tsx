@@ -12,12 +12,10 @@ export const metadata: Metadata = {
 export default async function Page() {
   const { has, orgId } = await auth()
 
-  // Only admins can access this page
   if (!has?.({ role: ROLES.ADMIN })) {
     redirect('/dashboard')
   }
 
-  // Must have an active organization
   if (!orgId) {
     redirect('/dashboard')
   }

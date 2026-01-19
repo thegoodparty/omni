@@ -8,7 +8,6 @@ test.describe('Role-Based Access Control', () => {
     })
 
     test('admin sees navigation items', async ({ page }) => {
-      // Admin should see at least Users, Campaigns, and Members
       await expect(page.getByRole('link', { name: 'Users' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Campaigns' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Members' })).toBeVisible()
@@ -30,7 +29,6 @@ test.describe('Role-Based Access Control', () => {
     test('sales cannot access members page - redirects to dashboard', async ({ page }) => {
       await page.goto('/dashboard/members')
 
-      // Should redirect to dashboard (not members page)
       await expect(page).toHaveURL(/\/dashboard$/)
     })
   })
@@ -43,7 +41,6 @@ test.describe('Role-Based Access Control', () => {
     test('readonly cannot access members page - redirects to dashboard', async ({ page }) => {
       await page.goto('/dashboard/members')
 
-      // Should redirect to dashboard (not members page)
       await expect(page).toHaveURL(/\/dashboard$/)
     })
   })
@@ -53,7 +50,6 @@ test.describe('Multi-Organization User', () => {
   test('is signed in to an organization', async ({ page }) => {
     await signIn(page, TEST_USERS.MULTI_ORG)
 
-    // Should be on dashboard with one of their orgs visible
     await expect(page.getByText(/Development|QA|Production/)).toBeVisible()
   })
 })

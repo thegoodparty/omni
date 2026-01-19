@@ -7,6 +7,10 @@ type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string }
 
+type ActionResultWithData<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; data: T }
+
 /**
  * Invite a new member to the current organization
  */
@@ -16,7 +20,6 @@ export async function inviteMember(
 ): Promise<ActionResult<{ invitationId: string }>> {
   const { orgId, userId, has } = await auth()
 
-  // Verify admin role
   if (!has?.({ role: ROLES.ADMIN })) {
     return { success: false, error: 'Unauthorized: Admin role required' }
   }
@@ -61,7 +64,6 @@ export async function revokeInvitation(
 ): Promise<ActionResult> {
   const { orgId, userId, has } = await auth()
 
-  // Verify admin role
   if (!has?.({ role: ROLES.ADMIN })) {
     return { success: false, error: 'Unauthorized: Admin role required' }
   }
@@ -97,7 +99,17 @@ export async function revokeInvitation(
 /**
  * Get all members of the current organization
  */
-export async function getOrganizationMembers() {
+export async function getOrganizationMembers(): Promise<
+  ActionResultWithData<
+    Awaited<
+      ReturnType<
+        Awaited<
+          ReturnType<typeof clerkClient>
+        >['organizations']['getOrganizationMembershipList']
+      >
+    >['data']
+  >
+> {
   const { orgId } = await auth()
 
   if (!orgId) {
@@ -132,10 +144,19 @@ export async function getOrganizationMembers() {
 /**
  * Get pending invitations for the current organization
  */
-export async function getPendingInvitations() {
+export async function getPendingInvitations(): Promise<
+  ActionResultWithData<
+    Awaited<
+      ReturnType<
+        Awaited<
+          ReturnType<typeof clerkClient>
+        >['organizations']['getOrganizationInvitationList']
+      >
+    >['data']
+  >
+> {
   const { orgId, has } = await auth()
 
-  // Verify admin role
   if (!has?.({ role: ROLES.ADMIN })) {
     return {
       success: false,
@@ -183,7 +204,6 @@ export async function updateMemberRole(
 ): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  // Verify admin role
   if (!has?.({ role: ROLES.ADMIN })) {
     return { success: false, error: 'Unauthorized: Admin role required' }
   }
@@ -218,7 +238,6 @@ export async function updateMemberRole(
 export async function removeMember(userId: string): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  // Verify admin role
   if (!has?.({ role: ROLES.ADMIN })) {
     return { success: false, error: 'Unauthorized: Admin role required' }
   }

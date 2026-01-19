@@ -84,8 +84,6 @@ export default function Sidebar() {
   const { isOpen } = useSidebar()
   const { hasPermission, hasActiveOrganization } = useAuthorization()
 
-  // Filter nav items based on user permissions
-  // Show no items if no organization is selected
   const navItems = hasActiveOrganization
     ? allNavItems.filter((item) => hasPermission(item.permission))
     : []

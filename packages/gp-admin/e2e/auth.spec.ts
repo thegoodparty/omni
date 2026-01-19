@@ -32,10 +32,7 @@ test.describe('Authentication', () => {
   test('sign-in page is accessible without authentication', async ({ page }) => {
     await page.goto('/auth/sign-in')
 
-    // Should stay on sign-in page (not redirect)
     await expect(page).toHaveURL(/\/auth\/sign-in/)
-
-    // Clerk sign-in form should be visible
     await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible()
   })
 })

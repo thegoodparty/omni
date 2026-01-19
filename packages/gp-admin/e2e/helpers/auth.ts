@@ -127,6 +127,6 @@ export async function switchOrganization(page: Page, orgName: string): Promise<v
   // Wait for dropdown to appear and click the organization
   await page.getByRole('menuitem', { name: orgName }).click()
 
-  // Wait briefly for navigation to update
-  await page.waitForTimeout(1000)
+  // Wait for the organization name to appear in the switcher, indicating the switch completed
+  await page.getByText(orgName).first().waitFor({ state: 'visible' })
 }

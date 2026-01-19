@@ -80,7 +80,6 @@ export async function getAuthContext(): Promise<AuthContext> {
     return has?.({ role }) ?? false
   }
 
-  // Get organization details if there's an active org
   let organization = null
   if (orgId) {
     try {

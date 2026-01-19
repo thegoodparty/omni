@@ -16,12 +16,10 @@ test.describe('Dashboard', () => {
   })
 
   test('displays organization switcher showing current org', async ({ page }) => {
-    // Org switcher shows "Development" text in the header
     await expect(page.getByText('Development')).toBeVisible()
   })
 
   test('displays sidebar with navigation', async ({ page }) => {
-    // Should see at least Users and Campaigns
     await expect(page.getByRole('link', { name: 'Users' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Campaigns' })).toBeVisible()
   })

@@ -1,9 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import {
-  ClerkProviderWrapper,
-  ThemeProvider,
-} from '@/shared/layout/providers'
+import { ClerkProviderWrapper, ThemeProvider } from '@/shared/layout/providers'
 import { Header } from '@/shared/layout/Header'
 
 export const metadata: Metadata = {
