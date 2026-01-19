@@ -2,13 +2,14 @@
 
 import { OrganizationProfile } from '@clerk/nextjs'
 import { useTheme } from '@/lib/hooks/useTheme'
+import { Box, Flex } from '@radix-ui/themes'
 
 export function MembersPage() {
   const { clerkTheme } = useTheme()
 
   return (
-    <div className="flex items-center justify-center flex-1">
-      <div>
+    <Flex align="center" justify="center" flexGrow="1">
+      <Box>
         <OrganizationProfile
           appearance={{
             baseTheme: clerkTheme,
@@ -53,7 +54,7 @@ export function MembersPage() {
             },
           }}
         />
-      </div>
-    </div>
+      </Box>
+    </Flex>
   )
 }
