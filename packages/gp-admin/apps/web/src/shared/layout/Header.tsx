@@ -8,8 +8,7 @@ import {
   OrganizationSwitcher,
   useUser,
 } from '@clerk/nextjs'
-import { dark } from '@clerk/themes'
-import { useThemeContext } from '@radix-ui/themes'
+import { useTheme } from '@/lib/hooks/useTheme'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
@@ -17,8 +16,7 @@ import Link from 'next/link'
 
 export function Header() {
   const { isSignedIn } = useUser()
-  const { appearance } = useThemeContext()
-  const isDarkMode = appearance === 'dark'
+  const { clerkTheme } = useTheme()
 
   return (
     <header className="flex justify-between items-center px-4 py-4 gap-4 h-16 border-b border-[var(--gray-5)]">
@@ -39,7 +37,7 @@ export function Header() {
             hidePersonal={true}
             afterSelectOrganizationUrl="/dashboard"
             appearance={{
-              baseTheme: isDarkMode ? dark : undefined,
+              baseTheme: clerkTheme,
               elements: {
                 organizationSwitcherPopoverActionButton__createOrganization: {
                   display: 'none',
@@ -59,7 +57,7 @@ export function Header() {
         <SignedIn>
           <UserButton
             appearance={{
-              baseTheme: isDarkMode ? dark : undefined,
+              baseTheme: clerkTheme,
             }}
           />
         </SignedIn>
