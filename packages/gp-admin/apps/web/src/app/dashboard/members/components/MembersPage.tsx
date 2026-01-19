@@ -1,11 +1,13 @@
 'use client'
 
 import { OrganizationProfile } from '@clerk/nextjs'
+import { Heading } from '@radix-ui/themes'
 
 export function MembersPage() {
   return (
-    <div className="flex items-center justify-center flex-1">
-      <div>
+    <div className="flex flex-col gap-6 p-6 flex-1">
+      <Heading size="6">Members</Heading>
+      <div className="flex items-center justify-center flex-1">
         <OrganizationProfile
           appearance={{
             elements: {

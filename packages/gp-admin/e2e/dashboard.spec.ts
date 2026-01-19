@@ -1,19 +1,28 @@
 import { test, expect } from '@playwright/test'
-import { signIn } from './helpers/auth'
+import { signIn, TEST_USERS } from './helpers/auth'
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ page }) => {
-    await signIn(page)
+    await signIn(page, TEST_USERS.DEV_ADMIN)
   })
 
-  test('authenticated user can view dashboard', async ({ page }) => {
+  test('displays dashboard page with heading', async ({ page }) => {
     await expect(page).toHaveURL(/\/dashboard/)
-    await expect(
-      page.getByRole('heading', { name: 'Dashboard Page' })
-    ).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard Page' })).toBeVisible()
   })
 
-  test('dashboard shows user button', async ({ page }) => {
+  test('displays user button in header', async ({ page }) => {
     await expect(page.getByRole('button', { name: /user/i })).toBeVisible()
+  })
+
+  test('displays organization switcher showing current org', async ({ page }) => {
+    // Org switcher shows "Development" text in the header
+    await expect(page.getByText('Development')).toBeVisible()
+  })
+
+  test('displays sidebar with navigation', async ({ page }) => {
+    // Should see at least Users and Campaigns
+    await expect(page.getByRole('link', { name: 'Users' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Campaigns' })).toBeVisible()
   })
 })
