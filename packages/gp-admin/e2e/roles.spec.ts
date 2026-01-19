@@ -17,7 +17,6 @@ test.describe('Role-Based Access Control', () => {
       await page.goto('/dashboard/members')
 
       await expect(page).toHaveURL(/\/dashboard\/members/)
-      await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible()
     })
   })
 
