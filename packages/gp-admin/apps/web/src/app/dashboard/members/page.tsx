@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { ROLES } from '@/lib/permissions'
+import { PERMISSIONS } from '@/lib/permissions'
 import { MembersPage } from './components/MembersPage'
 import { Metadata } from 'next'
 
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default async function Page() {
   const { has, orgId } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
     redirect('/dashboard')
   }
 

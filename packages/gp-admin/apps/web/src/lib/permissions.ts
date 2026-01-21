@@ -1,10 +1,3 @@
-/**
- * Role and Permission constants for Clerk Organizations
- *
- * Organizations represent environments: Development, QA, Production
- * Roles: admin (full access), sales (campaigns + read users), read_only (view only)
- */
-
 export const ROLES = {
   ADMIN: 'org:admin',
   SALES: 'org:sales',
@@ -22,16 +15,3 @@ export const PERMISSIONS = {
 
 export type Role = (typeof ROLES)[keyof typeof ROLES]
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]
-
-/**
- * Role Permissions Matrix:
- *
- * | Permission        | Admin | Sales | Read Only |
- * |-------------------|-------|-------|-----------|
- * | read_users        |   ✓   |   ✓   |     ✓     |
- * | write_users       |   ✓   |       |           |
- * | read_campaigns    |   ✓   |   ✓   |     ✓     |
- * | write_campaigns   |   ✓   |   ✓   |           |
- * | manage_settings   |   ✓   |       |           |
- * | invite_members    |   ✓   |       |           |
- */

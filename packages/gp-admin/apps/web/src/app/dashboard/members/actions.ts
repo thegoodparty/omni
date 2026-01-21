@@ -2,7 +2,7 @@
 
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { OrganizationMembership, OrganizationInvitation } from '@clerk/backend'
-import { ROLES } from '@/lib/permissions'
+import { ROLES, PERMISSIONS } from '@/lib/permissions'
 
 type ActionResult<T = void> =
   | { success: true; data: T }
@@ -21,8 +21,11 @@ export async function inviteMember(
 ): Promise<ActionResult<{ invitationId: string }>> {
   const { orgId, userId, has } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
-    return { success: false, error: 'Unauthorized: Admin role required' }
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+    return {
+      success: false,
+      error: 'Unauthorized: Missing invite_members permission',
+    }
   }
 
   if (!orgId) {
@@ -65,8 +68,11 @@ export async function revokeInvitation(
 ): Promise<ActionResult> {
   const { orgId, userId, has } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
-    return { success: false, error: 'Unauthorized: Admin role required' }
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+    return {
+      success: false,
+      error: 'Unauthorized: Missing invite_members permission',
+    }
   }
 
   if (!orgId) {
@@ -142,10 +148,10 @@ export async function getPendingInvitations(): Promise<
 > {
   const { orgId, has } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
     return {
       success: false,
-      error: 'Unauthorized: Admin role required',
+      error: 'Unauthorized: Missing invite_members permission',
       data: [],
     }
   }
@@ -189,8 +195,11 @@ export async function updateMemberRole(
 ): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
-    return { success: false, error: 'Unauthorized: Admin role required' }
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+    return {
+      success: false,
+      error: 'Unauthorized: Missing invite_members permission',
+    }
   }
 
   if (!orgId) {
@@ -223,8 +232,11 @@ export async function updateMemberRole(
 export async function removeMember(userId: string): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  if (!has?.({ role: ROLES.ADMIN })) {
-    return { success: false, error: 'Unauthorized: Admin role required' }
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+    return {
+      success: false,
+      error: 'Unauthorized: Missing invite_members permission',
+    }
   }
 
   if (!orgId) {
