@@ -5,7 +5,7 @@ import { OrganizationMembership, OrganizationInvitation } from '@clerk/backend'
 import { ROLES, PERMISSIONS } from '@/lib/permissions'
 
 type ActionResult<T = void> =
-  | { success: true; data: T }
+  | { success: true; data?: T }
   | { success: false; error: string }
 
 type ActionResultWithData<T> =
@@ -92,7 +92,7 @@ export async function revokeInvitation(
       requestingUserId: userId,
     })
 
-    return { success: true, data: undefined }
+    return { success: true }
   } catch (error) {
     console.error('Failed to revoke invitation:', error)
     return {
@@ -215,7 +215,7 @@ export async function updateMemberRole(
       role: newRole,
     })
 
-    return { success: true, data: undefined }
+    return { success: true }
   } catch (error) {
     console.error('Failed to update member role:', error)
     return {
@@ -251,7 +251,7 @@ export async function removeMember(userId: string): Promise<ActionResult> {
       userId,
     })
 
-    return { success: true, data: undefined }
+    return { success: true }
   } catch (error) {
     console.error('Failed to remove member:', error)
     return {
