@@ -90,5 +90,5 @@ export function ProtectedContent({
     )
   }
 
-  return <>{children}</>
+  return children
 }

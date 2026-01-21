@@ -12,11 +12,7 @@ export const metadata: Metadata = {
 export default async function Page() {
   const { has, orgId } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
-    redirect('/dashboard')
-  }
-
-  if (!orgId) {
+  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS }) || !orgId) {
     redirect('/dashboard')
   }
 

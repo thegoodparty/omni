@@ -41,5 +41,5 @@ export function OrganizationRequired({ children }: { children: ReactNode }) {
     )
   }
 
-  return <>{children}</>
+  return children
 }
