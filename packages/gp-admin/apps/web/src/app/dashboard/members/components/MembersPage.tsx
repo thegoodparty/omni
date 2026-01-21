@@ -1,11 +1,11 @@
 'use client'
 
 import { OrganizationProfile } from '@clerk/nextjs'
-import { useTheme } from '@/lib/hooks/useTheme'
+import { useClerkTheme } from '@/lib/hooks/useClerkTheme'
 import { Box, Flex } from '@radix-ui/themes'
 
 export function MembersPage() {
-  const { clerkTheme } = useTheme()
+  const clerkTheme = useClerkTheme()
 
   return (
     <Flex align="center" justify="center" flexGrow="1">

@@ -8,7 +8,7 @@ import {
   OrganizationSwitcher,
   useUser,
 } from '@clerk/nextjs'
-import { useTheme } from '@/lib/hooks/useTheme'
+import { useClerkTheme } from '@/lib/hooks/useClerkTheme'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
 import { SidebarTrigger } from './Sidebar'
@@ -17,7 +17,7 @@ import { Box, Flex } from '@radix-ui/themes'
 
 export function Header() {
   const { isSignedIn } = useUser()
-  const { clerkTheme } = useTheme()
+  const clerkTheme = useClerkTheme()
 
   return (
     <Box
