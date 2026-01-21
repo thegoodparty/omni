@@ -1,31 +1,12 @@
 'use client'
 
-import { useAuth, useOrganization } from '@clerk/nextjs'
+import { ClerkLoaded, ClerkLoading, useAuth } from '@clerk/nextjs'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
 import { Flex, Spinner } from '@radix-ui/themes'
 
-/**
- * Component that requires an active organization to render children
- *
- * Usage:
- * ```tsx
- * <OrganizationRequired>
- *   <DashboardContent />
- * </OrganizationRequired>
- * ```
- */
-export function OrganizationRequired({ children }: { children: ReactNode }) {
-  const { orgId, isSignedIn, isLoaded } = useAuth()
-  const { isLoaded: isOrgLoaded } = useOrganization()
-
-  if (!isLoaded || !isOrgLoaded) {
-    return (
-      <Flex align="center" justify="center" p="8">
-        <Spinner size="3" />
-      </Flex>
-    )
-  }
+function OrganizationRequiredContent({ children }: { children: ReactNode }) {
+  const { orgId, isSignedIn } = useAuth()
 
   if (!isSignedIn) {
     return <AuthCallout message="Please sign in to continue." centered />
@@ -42,4 +23,19 @@ export function OrganizationRequired({ children }: { children: ReactNode }) {
   }
 
   return children
+}
+
+export function OrganizationRequired({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <ClerkLoading>
+        <Flex align="center" justify="center" p="8">
+          <Spinner size="3" />
+        </Flex>
+      </ClerkLoading>
+      <ClerkLoaded>
+        <OrganizationRequiredContent>{children}</OrganizationRequiredContent>
+      </ClerkLoaded>
+    </>
+  )
 }
