@@ -1,25 +1,18 @@
-'use client'
-
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
 import { ReactNode } from 'react'
-import Sidebar from '@/shared/layout/Sidebar'
-import { OrganizationRequired } from '@/components/OrganizationRequired'
-import { Box, Flex } from '@radix-ui/themes'
+import { DashboardShell } from './components/DashboardShell'
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return (
-    <Flex minHeight="calc(100vh - 64px)">
-      <Sidebar />
-      <Flex
-        direction="column"
-        flexGrow="1"
-        className="transition-all duration-300"
-      >
-        <Box asChild p="4" flexGrow="1">
-          <main>
-            <OrganizationRequired>{children}</OrganizationRequired>
-          </main>
-        </Box>
-      </Flex>
-    </Flex>
-  )
+export default async function DashboardLayout({
+  children,
+}: {
+  children: ReactNode
+}) {
+  const { userId } = await auth()
+
+  if (!userId) {
+    redirect('/auth/sign-in')
+  }
+
+  return <DashboardShell>{children}</DashboardShell>
 }
