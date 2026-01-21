@@ -26,7 +26,7 @@ export const navItems: NavItem[] = [
     title: 'Members',
     href: '/dashboard/members',
     icon: HiUserGroup,
-    permission: PERMISSIONS.INVITE_MEMBERS,
+    permission: PERMISSIONS.MANAGE_INVITES,
   },
   {
     title: 'Settings',

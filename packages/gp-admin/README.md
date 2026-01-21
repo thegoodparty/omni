@@ -81,7 +81,7 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 | `read_campaigns` | ✓ | ✓ | ✓ |
 | `write_campaigns` | ✓ | ✓ | |
 | `manage_settings` | ✓ | | |
-| `invite_members` | ✓ | | |
+| `manage_invites` | ✓ | | |
 
 ### Testing
 

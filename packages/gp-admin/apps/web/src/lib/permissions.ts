@@ -10,7 +10,7 @@ export const PERMISSIONS = {
   READ_CAMPAIGNS: 'org:admin_portal:read_campaigns',
   WRITE_CAMPAIGNS: 'org:admin_portal:write_campaigns',
   MANAGE_SETTINGS: 'org:admin_portal:manage_settings',
-  INVITE_MEMBERS: 'org:admin_portal:invite_members',
+  MANAGE_INVITES: 'org:admin_portal:manage_invites',
 } as const
 
 export type Role = (typeof ROLES)[keyof typeof ROLES]

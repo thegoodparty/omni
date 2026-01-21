@@ -21,10 +21,10 @@ export async function inviteMember(
 ): Promise<ActionResult<{ invitationId: string }>> {
   const { orgId, userId, has } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
     return {
       success: false,
-      error: 'Unauthorized: Missing invite_members permission',
+      error: 'Unauthorized: Missing manage_invites permission',
     }
   }
 
@@ -68,10 +68,10 @@ export async function revokeInvitation(
 ): Promise<ActionResult> {
   const { orgId, userId, has } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
     return {
       success: false,
-      error: 'Unauthorized: Missing invite_members permission',
+      error: 'Unauthorized: Missing manage_invites permission',
     }
   }
 
@@ -148,10 +148,10 @@ export async function getPendingInvitations(): Promise<
 > {
   const { orgId, has } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
     return {
       success: false,
-      error: 'Unauthorized: Missing invite_members permission',
+      error: 'Unauthorized: Missing manage_invites permission',
       data: [],
     }
   }
@@ -195,10 +195,10 @@ export async function updateMemberRole(
 ): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
     return {
       success: false,
-      error: 'Unauthorized: Missing invite_members permission',
+      error: 'Unauthorized: Missing manage_invites permission',
     }
   }
 
@@ -232,10 +232,10 @@ export async function updateMemberRole(
 export async function removeMember(userId: string): Promise<ActionResult> {
   const { orgId, has } = await auth()
 
-  if (!has?.({ permission: PERMISSIONS.INVITE_MEMBERS })) {
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
     return {
       success: false,
-      error: 'Unauthorized: Missing invite_members permission',
+      error: 'Unauthorized: Missing manage_invites permission',
     }
   }
 
