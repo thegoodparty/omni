@@ -80,7 +80,6 @@ Follow these rules when you write code:
     - Use `page.waitFor` with specific conditions or events to wait for elements or states.
     - Ensure tests run reliably in parallel without shared state conflicts.
     - Avoid commenting on the resulting code.
-    - Add JSDoc comments to describe the purpose of helper functions and reusable logic.
     - Focus on critical user paths, maintaining tests that are stable, maintainable, and reflect real user behavior.
     - Follow the guidance and best practices described on "https://playwright.dev/docs/writing-tests" and "https://playwright.dev/docs/best-practices"
 
