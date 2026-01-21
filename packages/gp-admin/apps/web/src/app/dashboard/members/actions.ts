@@ -1,6 +1,7 @@
 'use server'
 
 import { auth, clerkClient } from '@clerk/nextjs/server'
+import { OrganizationMembership, OrganizationInvitation } from '@clerk/backend'
 import { ROLES } from '@/lib/permissions'
 
 type ActionResult<T = void> =
@@ -100,15 +101,7 @@ export async function revokeInvitation(
  * Get all members of the current organization
  */
 export async function getOrganizationMembers(): Promise<
-  ActionResultWithData<
-    Awaited<
-      ReturnType<
-        Awaited<
-          ReturnType<typeof clerkClient>
-        >['organizations']['getOrganizationMembershipList']
-      >
-    >['data']
-  >
+  ActionResultWithData<OrganizationMembership[]>
 > {
   const { orgId } = await auth()
 
@@ -145,15 +138,7 @@ export async function getOrganizationMembers(): Promise<
  * Get pending invitations for the current organization
  */
 export async function getPendingInvitations(): Promise<
-  ActionResultWithData<
-    Awaited<
-      ReturnType<
-        Awaited<
-          ReturnType<typeof clerkClient>
-        >['organizations']['getOrganizationInvitationList']
-      >
-    >['data']
-  >
+  ActionResultWithData<OrganizationInvitation[]>
 > {
   const { orgId, has } = await auth()
 
