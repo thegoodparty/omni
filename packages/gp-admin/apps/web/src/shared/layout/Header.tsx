@@ -11,7 +11,7 @@ import {
 import { useClerkTheme } from '@/lib/hooks/useClerkTheme'
 import { DarkLightToggle } from './DarkLightToggle'
 import Image from 'next/image'
-import { SidebarTrigger } from './Sidebar'
+import { SidebarTrigger } from './SidebarTrigger'
 import Link from 'next/link'
 import { Box, Flex } from '@radix-ui/themes'
 

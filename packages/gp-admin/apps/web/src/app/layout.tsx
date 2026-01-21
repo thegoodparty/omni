@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { ClerkProvider } from '@clerk/nextjs'
-import { SidebarProvider } from '@/shared/layout/Sidebar'
+import { SidebarProvider } from '@/shared/layout/SidebarContext'
 import { Theme } from '@radix-ui/themes'
 import { Header } from '@/shared/layout/Header'
 
