@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { ClerkProviderWrapper, ThemeProvider } from '@/shared/layout/providers'
+import { ThemeProvider } from '@/shared/layout/providers'
+import { ClerkProvider } from '@clerk/nextjs'
 import { Header } from '@/shared/layout/Header'
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <ClerkProviderWrapper>
+    <ClerkProvider>
       <html lang="en">
         <body>
           <ThemeProvider>
@@ -23,6 +24,6 @@ export default function RootLayout({
           </ThemeProvider>
         </body>
       </html>
-    </ClerkProviderWrapper>
+    </ClerkProvider>
   )
 }
