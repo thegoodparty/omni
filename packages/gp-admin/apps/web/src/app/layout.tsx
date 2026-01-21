@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { Providers } from '@/shared/layout/providers'
+import { ClerkProvider } from '@clerk/nextjs'
+import { SidebarProvider } from '@/shared/layout/SidebarContext'
+import { Theme } from '@radix-ui/themes'
 import { Header } from '@/shared/layout/Header'
 
 export const metadata: Metadata = {
@@ -14,13 +16,17 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <Providers>
+    <ClerkProvider>
       <html lang="en">
         <body>
-          <Header />
-          {children}
+          <Theme accentColor="indigo" grayColor="slate" radius="large">
+            <SidebarProvider>
+              <Header />
+              {children}
+            </SidebarProvider>
+          </Theme>
         </body>
       </html>
-    </Providers>
+    </ClerkProvider>
   )
 }

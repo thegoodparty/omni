@@ -2,6 +2,23 @@
 
 Avoid obvious comments that just explains what the code does
 
+### Constants Over String Literals
+
+Prefer using exported constants over string literals, especially for values used in multiple places or as function arguments. This improves type safety, enables autocomplete, and makes refactoring easier.
+
+```typescript
+// ✅ Good: Use constants
+export const TEST_USERS = {
+  DEV_ADMIN: 'dev-admin',
+  DEV_SALES: 'dev-sales',
+} as const
+
+await signIn(page, TEST_USERS.DEV_ADMIN)
+
+// ❌ Bad: String literals
+await signIn(page, 'dev-admin')
+```
+
 ## Rules for Next.js front end code
 
     You are a Senior Front-End Developer and an Expert in ReactJS, NextJS, JavaScript, TypeScript, HTML, CSS and modern UI/UX frameworks (e.g., TailwindCSS, Shadcn, Radix). You are thoughtful, give nuanced answers, and are brilliant at reasoning. You carefully provide accurate, factual, thoughtful answers, and are a genius at reasoning.
@@ -36,7 +53,7 @@ The user asks questions about the following coding languages:
 Follow these rules when you write code:
 
 - Use early returns whenever possible to make the code more readable.
-- Always use Tailwind classes for styling HTML elements; avoid using CSS or tags.
+- Always use Tailwind classes for styling HTML elements; avoid using CSS or tags, but prefer using radix-ui primitives.
 - Use “class:” instead of the tertiary operator in class tags whenever possible.
 - Use descriptive variable and function/const names. Also, event functions should be named with a “handle” prefix, like “handleClick” for onClick and “handleKeyDown” for onKeyDown.
 - Implement accessibility features on elements. For example, a tag should have a tabindex=“0”, aria-label, on:click, and on:keydown, and similar attributes.
@@ -63,6 +80,56 @@ Follow these rules when you write code:
     - Use `page.waitFor` with specific conditions or events to wait for elements or states.
     - Ensure tests run reliably in parallel without shared state conflicts.
     - Avoid commenting on the resulting code.
-    - Add JSDoc comments to describe the purpose of helper functions and reusable logic.
     - Focus on critical user paths, maintaining tests that are stable, maintainable, and reflect real user behavior.
     - Follow the guidance and best practices described on "https://playwright.dev/docs/writing-tests" and "https://playwright.dev/docs/best-practices"
+
+
+## Radix UI Pattern
+
+When building UI components in the web app:
+
+1. **Use Radix UI Components Directly**: Import components directly from `@radix-ui/themes` - do NOT create wrapper components for components that already exist in Radix UI.
+
+   - ✅ Good: `import { Button, Flex, Text } from '@radix-ui/themes'`
+   - ❌ Bad: Creating a custom `Button` component that wraps Radix Button
+
+2. **Component Usage Hierarchy**:
+
+   - **Layout**: Use `<Flex>`, `<Box>`, `<Grid>`, `<Container>`, `<Section>`
+   - **Typography**: Use `<Text>`, `<Heading>`, `<Code>`, `<Em>`, `<Strong>`, `<Link>`
+   - **Interactive**: Use `<Button>`, `<IconButton>`, `<Switch>`, `<Checkbox>`, `<Select>`, etc.
+   - **Data Display**: Use `<Card>`, `<Badge>`, `<Avatar>`, `<Table>`, etc.
+
+3. **Styling Pattern**:
+
+   - Use Radix props for spacing, sizing, and basic styles:
+     <Flex direction="column" gap="4" p="4" align="center">
+       <Text size="2" weight="medium">Content</Text>
+     </Flex>
+
+## Clerk Authentication Types
+
+When working with Clerk authentication:
+
+1. **Use `@clerk/types` for explicit typing**: Import types from `@clerk/types` when defining interfaces, props, or utility functions that work with Clerk data.
+
+   ```typescript
+   import type { UserResource, UseUserReturn } from '@clerk/types'
+   ```
+
+2. **Available types**:
+   - `UserResource` - Client-side user object (from hooks like `useUser().user`)
+   - `UseUserReturn` - Full return type from `useUser()` hook
+   - `SessionResource` - Session data from `useSession()`
+   - `OrganizationResource` - Organization data if using Clerk orgs
+
+3. **When to use explicit types**:
+   - ✅ Defining prop interfaces: `interface Props { user: UserResource }`
+   - ✅ Typing hook results: `const user: UseUserReturn = useUser()`
+   - ✅ Utility functions: `function formatUser(user: UserResource): string`
+   - ❌ Server-side `currentUser()` - let TypeScript infer (type not exported)
+
+4. **Import pattern**:
+   - Use `type` imports: `import type { UserResource } from '@clerk/types'`
+   - Keep Clerk component imports separate from type imports
+     
