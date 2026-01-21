@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { HiUsers, HiStar, HiMenu, HiCog, HiUserGroup } from 'react-icons/hi'
 import { Box, Flex, IconButton, Text } from '@radix-ui/themes'
-import { useAuthorization } from '@/lib/hooks/useAuthorization'
+import { useAuth } from '@clerk/nextjs'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
 
@@ -82,10 +82,10 @@ export function SidebarTrigger() {
 export default function Sidebar() {
   const pathname = usePathname()
   const { isOpen } = useSidebar()
-  const { hasPermission, hasActiveOrganization } = useAuthorization()
+  const { has, orgId } = useAuth()
 
-  const navItems = hasActiveOrganization
-    ? allNavItems.filter((item) => hasPermission(item.permission))
+  const navItems = orgId
+    ? allNavItems.filter((item) => has?.({ permission: item.permission }))
     : []
 
   return (
@@ -106,7 +106,7 @@ export default function Sidebar() {
         <Box asChild p="2">
           <nav aria-label="Main navigation">
             <Flex direction="column" gap="1">
-              {navItems.length === 0 && hasActiveOrganization === false && (
+              {navItems.length === 0 && !orgId && (
                 <Text
                   size="2"
                   color="gray"

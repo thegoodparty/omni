@@ -1,6 +1,6 @@
 'use client'
 
-import { useAuthorization } from '@/lib/hooks/useAuthorization'
+import { useAuth, useOrganization } from '@clerk/nextjs'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
 import { Flex, Spinner } from '@radix-ui/themes'
@@ -16,9 +16,10 @@ import { Flex, Spinner } from '@radix-ui/themes'
  * ```
  */
 export function OrganizationRequired({ children }: { children: ReactNode }) {
-  const { hasActiveOrganization, isSignedIn, isLoaded } = useAuthorization()
+  const { orgId, isSignedIn, isLoaded } = useAuth()
+  const { isLoaded: isOrgLoaded } = useOrganization()
 
-  if (!isLoaded) {
+  if (!isLoaded || !isOrgLoaded) {
     return (
       <Flex align="center" justify="center" p="8">
         <Spinner size="3" />
@@ -30,7 +31,7 @@ export function OrganizationRequired({ children }: { children: ReactNode }) {
     return <AuthCallout message="Please sign in to continue." centered />
   }
 
-  if (!hasActiveOrganization) {
+  if (!orgId) {
     return (
       <AuthCallout
         message="Please select an organization from the header to continue."

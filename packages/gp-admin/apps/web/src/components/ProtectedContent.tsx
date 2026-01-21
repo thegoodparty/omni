@@ -1,6 +1,6 @@
 'use client'
 
-import { useAuthorization } from '@/lib/hooks/useAuthorization'
+import { useAuth, useOrganization } from '@clerk/nextjs'
 import { Permission, Role } from '@/lib/permissions'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
@@ -39,15 +39,10 @@ export function ProtectedContent({
   fallback,
   hideWhenUnauthorized = false,
 }: ProtectedContentProps) {
-  const {
-    hasPermission,
-    hasRole,
-    hasActiveOrganization,
-    isSignedIn,
-    isLoaded,
-  } = useAuthorization()
+  const { has, orgId, isSignedIn, isLoaded } = useAuth()
+  const { isLoaded: isOrgLoaded } = useOrganization()
 
-  if (!isLoaded) {
+  if (!isLoaded || !isOrgLoaded) {
     if (hideWhenUnauthorized) return null
     return (
       <Flex align="center" justify="center" p="4">
@@ -65,7 +60,7 @@ export function ProtectedContent({
     )
   }
 
-  if (!hasActiveOrganization) {
+  if (!orgId) {
     if (hideWhenUnauthorized) return null
     return (
       fallback ?? (
@@ -77,7 +72,7 @@ export function ProtectedContent({
     )
   }
 
-  if (requiredPermission && !hasPermission(requiredPermission)) {
+  if (requiredPermission && !has?.({ permission: requiredPermission })) {
     if (hideWhenUnauthorized) return null
     return (
       fallback ?? (
@@ -86,7 +81,7 @@ export function ProtectedContent({
     )
   }
 
-  if (requiredRole && !hasRole(requiredRole)) {
+  if (requiredRole && !has?.({ role: requiredRole })) {
     if (hideWhenUnauthorized) return null
     return (
       fallback ?? (
