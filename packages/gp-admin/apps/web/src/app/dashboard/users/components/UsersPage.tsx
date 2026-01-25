@@ -29,6 +29,8 @@ export default function UsersPage() {
       return
     }
 
+    let isCancelled = false
+
     const fetchUsers = async () => {
       setIsLoading(true)
       setError(null)
@@ -40,6 +42,8 @@ export default function UsersPage() {
           last_name: searchParams.get('last_name') ?? undefined,
         })
 
+        if (isCancelled) return
+
         if (result === null) {
           setUsers([])
         } else if (Array.isArray(result)) {
@@ -50,14 +54,21 @@ export default function UsersPage() {
           return
         }
       } catch (err) {
+        if (isCancelled) return
         setError('Failed to search users. Please try again.')
         console.error('Search error:', err)
       } finally {
-        setIsLoading(false)
+        if (!isCancelled) {
+          setIsLoading(false)
+        }
       }
     }
 
     fetchUsers()
+
+    return () => {
+      isCancelled = true
+    }
   }, [searchParams, hasSearchParams, router])
 
   return (
@@ -70,7 +81,7 @@ export default function UsersPage() {
         <UserSearchForm />
       </Box>
 
-      {isLoading && <LoadingSpinner />}
+      {isLoading && <LoadingSpinner text="Searching..." />}
 
       {error && (
         <Text color="red" size="3">

@@ -45,11 +45,26 @@ export function UserSearchForm() {
 
   // Sync state with URL params when they change externally
   useEffect(() => {
-    setEmail(searchParams.get('email') ?? '')
-    setFirstName(searchParams.get('first_name') ?? '')
-    setLastName(searchParams.get('last_name') ?? '')
-    setSearchMode(getInitialSearchMode())
-    clearErrors()
+    const emailParam = searchParams.get('email')
+    const firstNameParam = searchParams.get('first_name')
+    const lastNameParam = searchParams.get('last_name')
+
+    setEmail(emailParam ?? '')
+    setFirstName(firstNameParam ?? '')
+    setLastName(lastNameParam ?? '')
+
+    // Determine search mode from current params
+    if (emailParam) {
+      setSearchMode('email')
+    } else if (firstNameParam || lastNameParam) {
+      setSearchMode('name')
+    } else {
+      setSearchMode('email')
+    }
+
+    setEmailError(null)
+    setFirstNameError(null)
+    setLastNameError(null)
   }, [searchParams])
 
   const clearErrors = () => {
@@ -151,7 +166,13 @@ export function UserSearchForm() {
     router.push(USERS_PATH)
   }
 
-  const hasFilters = searchMode === 'email' ? email : firstName || lastName
+  // Show Clear button if there are URL params (active search) OR current form fields have values
+  const hasUrlParams =
+    searchParams.get('email') ||
+    searchParams.get('first_name') ||
+    searchParams.get('last_name')
+  const hasFormValues = email || firstName || lastName
+  const hasFilters = hasUrlParams || hasFormValues
 
   return (
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
