@@ -3,7 +3,7 @@
 import { ClerkLoaded, ClerkLoading, useAuth } from '@clerk/nextjs'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
-import { Flex, Spinner } from '@radix-ui/themes'
+import { LoadingSpinner } from './LoadingSpinner'
 
 function OrganizationRequiredContent({ children }: { children: ReactNode }) {
   const { orgId, isSignedIn } = useAuth()
@@ -29,9 +29,7 @@ export function OrganizationRequired({ children }: { children: ReactNode }) {
   return (
     <>
       <ClerkLoading>
-        <Flex align="center" justify="center" p="8">
-          <Spinner size="3" />
-        </Flex>
+        <LoadingSpinner showText={false} />
       </ClerkLoading>
       <ClerkLoaded>
         <OrganizationRequiredContent>{children}</OrganizationRequiredContent>

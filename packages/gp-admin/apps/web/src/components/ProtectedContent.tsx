@@ -4,7 +4,7 @@ import { ClerkLoaded, ClerkLoading, useAuth } from '@clerk/nextjs'
 import { Permission, Role } from '@/lib/permissions'
 import { ReactNode } from 'react'
 import { AuthCallout } from './AuthCallout'
-import { Flex, Spinner } from '@radix-ui/themes'
+import { LoadingSpinner } from './LoadingSpinner'
 
 interface ProtectedContentProps {
   children: ReactNode
@@ -90,9 +90,7 @@ export function ProtectedContent({
     <>
       <ClerkLoading>
         {hideWhenUnauthorized ? null : (
-          <Flex align="center" justify="center" p="4">
-            <Spinner size="2" />
-          </Flex>
+          <LoadingSpinner size="2" p="4" showText={false} />
         )}
       </ClerkLoading>
       <ClerkLoaded>

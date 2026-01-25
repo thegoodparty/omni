@@ -38,7 +38,7 @@ export default function Sidebar() {
                 <NavigationMenu.Item key={item.href}>
                   <NavigationMenu.Link asChild active={isActive}>
                     <Link href={item.href}>
-                      <Flex align="center" gap="2" py="1">
+                      <Flex align="center" gap="2" py="2">
                         <item.icon className="w-5 h-5" />
                         {isOpen && <Text size="2">{item.title}</Text>}
                       </Flex>
