@@ -62,9 +62,9 @@ test.describe('Users Page', () => {
 
   test('shows validation error for short name', async ({ page }) => {
     await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('Jo')
+    await LOCATORS.firstNameInput(page).fill('J')
 
-    await expect(page.getByText('Must be at least 3 characters')).toBeVisible()
+    await expect(page.getByText('Must be at least 2 characters')).toBeVisible()
   })
 
   test('enables search button with valid name inputs', async ({ page }) => {
