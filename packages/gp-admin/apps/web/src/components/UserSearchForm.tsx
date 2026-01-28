@@ -12,6 +12,7 @@ import {
   SegmentedControl,
 } from '@radix-ui/themes'
 import { HiSearch, HiX } from 'react-icons/hi'
+import { ErrorText } from './ErrorText'
 import { z } from 'zod'
 import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
 
@@ -178,11 +179,7 @@ export function UserSearchForm() {
                   <HiSearch className="w-4 h-4" />
                 </TextField.Slot>
               </TextField.Root>
-              {errors.email && (
-                <Text size="1" color="red" mt="1">
-                  {errors.email.message}
-                </Text>
-              )}
+              {errors.email && <ErrorText>{errors.email.message}</ErrorText>}
             </Box>
           ) : (
             <Flex gap="4" wrap="wrap">
@@ -200,9 +197,7 @@ export function UserSearchForm() {
                   </TextField.Slot>
                 </TextField.Root>
                 {errors.firstName && (
-                  <Text size="1" color="red" mt="1">
-                    {errors.firstName.message}
-                  </Text>
+                  <ErrorText>{errors.firstName.message}</ErrorText>
                 )}
               </Box>
 
@@ -220,9 +215,7 @@ export function UserSearchForm() {
                   </TextField.Slot>
                 </TextField.Root>
                 {errors.lastName && (
-                  <Text size="1" color="red" mt="1">
-                    {errors.lastName.message}
-                  </Text>
+                  <ErrorText>{errors.lastName.message}</ErrorText>
                 )}
               </Box>
             </Flex>
