@@ -90,14 +90,15 @@ test.describe('Users Search - Email', () => {
     await expect(page.getByText('Searching...')).toBeVisible()
   })
 
-  test('email search redirects to user detail page for single result', async ({
-    page,
-  }) => {
+  test('email search displays single result in table', async ({ page }) => {
     await LOCATORS.emailInput(page).fill('john.doe@example.com')
     await LOCATORS.searchButton(page).click()
 
-    await page.waitForURL(/\/dashboard\/users\/\d+/)
-    await expect(page).toHaveURL(/\/dashboard\/users\/\d+/)
+    await expect(LOCATORS.resultsTable(page)).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'John Doe' })).toBeVisible()
+    await expect(
+      page.getByRole('cell', { name: 'john.doe@example.com' })
+    ).toBeVisible()
   })
 })
 

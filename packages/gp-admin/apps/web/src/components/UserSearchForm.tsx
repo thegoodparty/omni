@@ -113,13 +113,8 @@ export function UserSearchForm() {
     router.push(USERS_PATH)
   }
 
-  const hasUrlParams =
-    searchParams.get(SEARCH_PARAMS.EMAIL) ||
-    searchParams.get(SEARCH_PARAMS.FIRST_NAME) ||
-    searchParams.get(SEARCH_PARAMS.LAST_NAME)
-  const hasFormValues =
+  const showClear =
     watchedValues.email || watchedValues.firstName || watchedValues.lastName
-  const showClear = hasUrlParams || hasFormValues
 
   // Validation rules based on active tab
   const emailValidation =
