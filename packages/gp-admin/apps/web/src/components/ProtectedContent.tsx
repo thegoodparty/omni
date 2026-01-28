@@ -89,9 +89,7 @@ export function ProtectedContent({
   return (
     <>
       <ClerkLoading>
-        {hideWhenUnauthorized ? null : (
-          <LoadingSpinner size="2" p="4" showText={false} />
-        )}
+        {hideWhenUnauthorized ? null : <LoadingSpinner size="2" p="4" />}
       </ClerkLoading>
       <ClerkLoaded>
         <ProtectedContentLoaded

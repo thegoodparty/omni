@@ -29,7 +29,7 @@ export function OrganizationRequired({ children }: { children: ReactNode }) {
   return (
     <>
       <ClerkLoading>
-        <LoadingSpinner showText={false} />
+        <LoadingSpinner />
       </ClerkLoading>
       <ClerkLoaded>
         <OrganizationRequiredContent>{children}</OrganizationRequiredContent>

@@ -81,7 +81,7 @@ export default function UsersPage() {
         <UserSearchForm />
       </Box>
 
-      {isLoading && <LoadingSpinner text="Searching..." />}
+      {isLoading && <LoadingSpinner>Searching...</LoadingSpinner>}
 
       {error && (
         <Text color="red" size="3">
