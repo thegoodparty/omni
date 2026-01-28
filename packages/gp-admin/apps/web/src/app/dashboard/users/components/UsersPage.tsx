@@ -6,7 +6,7 @@ import { Container, Heading, Box, Text } from '@radix-ui/themes'
 import { UserSearchForm } from '@/components/UserSearchForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { searchUsers } from '../actions'
-import { User } from '../types'
+import { User, SEARCH_PARAMS } from '../types'
 import { UserList } from './UserList'
 
 export default function UsersPage() {
@@ -17,9 +17,9 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null)
 
   const hasSearchParams =
-    searchParams.has('email') ||
-    searchParams.has('first_name') ||
-    searchParams.has('last_name')
+    searchParams.has(SEARCH_PARAMS.EMAIL) ||
+    searchParams.has(SEARCH_PARAMS.FIRST_NAME) ||
+    searchParams.has(SEARCH_PARAMS.LAST_NAME)
 
   useEffect(() => {
     if (!hasSearchParams) {
@@ -34,9 +34,12 @@ export default function UsersPage() {
 
       try {
         const result = await searchUsers({
-          email: searchParams.get('email') ?? undefined,
-          first_name: searchParams.get('first_name') ?? undefined,
-          last_name: searchParams.get('last_name') ?? undefined,
+          [SEARCH_PARAMS.EMAIL]:
+            searchParams.get(SEARCH_PARAMS.EMAIL) ?? undefined,
+          [SEARCH_PARAMS.FIRST_NAME]:
+            searchParams.get(SEARCH_PARAMS.FIRST_NAME) ?? undefined,
+          [SEARCH_PARAMS.LAST_NAME]:
+            searchParams.get(SEARCH_PARAMS.LAST_NAME) ?? undefined,
         })
 
         setUsers(result || [])

@@ -1,7 +1,8 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { FormEvent, useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
 import {
   TextField,
   Button,
@@ -12,146 +13,95 @@ import {
 } from '@radix-ui/themes'
 import { HiSearch, HiX } from 'react-icons/hi'
 import { z } from 'zod'
+import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
 
-type SearchMode = 'email' | 'name'
-
-const emailSchema = z.string().email('Please enter a valid email address')
-const nameSchema = z.string().min(2, 'Must be at least 3 characters')
+const emailSchema = z.email()
 
 const USERS_PATH = '/dashboard/users'
+
+const SEARCH_TAB = {
+  EMAIL: 'email',
+  NAME: 'name',
+} as const
+
+type Tab = (typeof SEARCH_TAB)[keyof typeof SEARCH_TAB]
+
+interface FormData {
+  email: string
+  firstName: string
+  lastName: string
+}
 
 export function UserSearchForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  // Determine initial search mode from URL params
-  const getInitialSearchMode = (): SearchMode => {
-    if (searchParams.get('email')) return 'email'
-    if (searchParams.get('first_name') || searchParams.get('last_name'))
-      return 'name'
-    return 'email'
-  }
+  const initialTab: Tab =
+    searchParams.get(SEARCH_PARAMS.FIRST_NAME) ||
+    searchParams.get(SEARCH_PARAMS.LAST_NAME)
+      ? SEARCH_TAB.NAME
+      : SEARCH_TAB.EMAIL
 
-  const [searchMode, setSearchMode] = useState<SearchMode>(getInitialSearchMode)
-  const [email, setEmail] = useState(searchParams.get('email') ?? '')
-  const [firstName, setFirstName] = useState(
-    searchParams.get('first_name') ?? ''
-  )
-  const [lastName, setLastName] = useState(searchParams.get('last_name') ?? '')
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab)
 
-  const [emailError, setEmailError] = useState<string | null>(null)
-  const [firstNameError, setFirstNameError] = useState<string | null>(null)
-  const [lastNameError, setLastNameError] = useState<string | null>(null)
+  const {
+    register,
+    handleSubmit,
+    watch,
+    reset,
+    setValue,
+    formState: { errors },
+  } = useForm<FormData>({
+    mode: 'onChange',
+    defaultValues: {
+      email: searchParams.get(SEARCH_PARAMS.EMAIL) ?? '',
+      firstName: searchParams.get(SEARCH_PARAMS.FIRST_NAME) ?? '',
+      lastName: searchParams.get(SEARCH_PARAMS.LAST_NAME) ?? '',
+    },
+  })
 
-  // Sync state with URL params when they change externally
+  const watchedValues = watch()
+
+  // Sync form with URL params when they change externally
   useEffect(() => {
-    const emailParam = searchParams.get('email')
-    const firstNameParam = searchParams.get('first_name')
-    const lastNameParam = searchParams.get('last_name')
+    const emailParam = searchParams.get(SEARCH_PARAMS.EMAIL)
+    const firstNameParam = searchParams.get(SEARCH_PARAMS.FIRST_NAME)
+    const lastNameParam = searchParams.get(SEARCH_PARAMS.LAST_NAME)
 
-    setEmail(emailParam ?? '')
-    setFirstName(firstNameParam ?? '')
-    setLastName(lastNameParam ?? '')
+    reset({
+      email: emailParam ?? '',
+      firstName: firstNameParam ?? '',
+      lastName: lastNameParam ?? '',
+    })
 
-    // Determine search mode from current params
-    if (emailParam) {
-      setSearchMode('email')
-    } else if (firstNameParam || lastNameParam) {
-      setSearchMode('name')
+    if (firstNameParam || lastNameParam) {
+      setActiveTab(SEARCH_TAB.NAME)
+    } else if (emailParam) {
+      setActiveTab(SEARCH_TAB.EMAIL)
+    }
+  }, [searchParams, reset])
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab as Tab)
+    if (tab === SEARCH_TAB.EMAIL) {
+      setValue('firstName', '', { shouldValidate: true })
+      setValue('lastName', '', { shouldValidate: true })
     } else {
-      setSearchMode('email')
+      setValue('email', '', { shouldValidate: true })
     }
-
-    setEmailError(null)
-    setFirstNameError(null)
-    setLastNameError(null)
-  }, [searchParams])
-
-  const clearErrors = () => {
-    setEmailError(null)
-    setFirstNameError(null)
-    setLastNameError(null)
   }
 
-  const validateEmail = (value: string): boolean => {
-    if (!value.trim()) {
-      setEmailError(null)
-      return false
-    }
-    const result = emailSchema.safeParse(value.trim())
-    if (!result.success) {
-      setEmailError(result.error.issues[0].message)
-      return false
-    }
-    setEmailError(null)
-    return true
-  }
-
-  const validateName = (
-    value: string,
-    setError: (error: string | null) => void
-  ): boolean => {
-    if (!value.trim()) {
-      setError(null)
-      return false
-    }
-    const result = nameSchema.safeParse(value.trim())
-    if (!result.success) {
-      setError(result.error.issues[0].message)
-      return false
-    }
-    setError(null)
-    return true
-  }
-
-  const handleEmailChange = (value: string) => {
-    setEmail(value)
-    validateEmail(value)
-  }
-
-  const handleFirstNameChange = (value: string) => {
-    setFirstName(value)
-    validateName(value, setFirstNameError)
-  }
-
-  const handleLastNameChange = (value: string) => {
-    setLastName(value)
-    validateName(value, setLastNameError)
-  }
-
-  const handleSearchModeChange = (value: string) => {
-    setSearchMode(value as SearchMode)
-    clearErrors()
-  }
-
-  // Check if form is valid based on current search mode
-  const isFormValid = useMemo(() => {
-    if (searchMode === 'email') {
-      const trimmed = email.trim()
-      return trimmed && emailSchema.safeParse(trimmed).success
-    } else {
-      const trimmedFirst = firstName.trim()
-      const trimmedLast = lastName.trim()
-      const isFirstValid =
-        trimmedFirst && nameSchema.safeParse(trimmedFirst).success
-      const isLastValid =
-        trimmedLast && nameSchema.safeParse(trimmedLast).success
-      return isFirstValid && isLastValid
-    }
-  }, [searchMode, email, firstName, lastName])
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
-
-    if (!isFormValid) return
-
+  const onSubmit = (data: FormData) => {
     const params = new URLSearchParams()
 
-    if (searchMode === 'email') {
-      params.set('email', email.trim())
-    } else {
-      params.set('first_name', firstName.trim())
-      params.set('last_name', lastName.trim())
+    if (data.email.trim()) {
+      params.set(SEARCH_PARAMS.EMAIL, data.email.trim())
+    }
+    if (data.firstName.trim()) {
+      params.set(SEARCH_PARAMS.FIRST_NAME, data.firstName.trim())
+    }
+    if (data.lastName.trim()) {
+      params.set(SEARCH_PARAMS.LAST_NAME, data.lastName.trim())
     }
 
     const queryString = params.toString()
@@ -159,56 +109,83 @@ export function UserSearchForm() {
   }
 
   const handleClear = () => {
-    setEmail('')
-    setFirstName('')
-    setLastName('')
-    clearErrors()
+    reset({ email: '', firstName: '', lastName: '' })
     router.push(USERS_PATH)
   }
 
-  // Show Clear button if there are URL params (active search) OR current form fields have values
   const hasUrlParams =
-    searchParams.get('email') ||
-    searchParams.get('first_name') ||
-    searchParams.get('last_name')
-  const hasFormValues = email || firstName || lastName
-  const hasFilters = hasUrlParams || hasFormValues
+    searchParams.get(SEARCH_PARAMS.EMAIL) ||
+    searchParams.get(SEARCH_PARAMS.FIRST_NAME) ||
+    searchParams.get(SEARCH_PARAMS.LAST_NAME)
+  const hasFormValues =
+    watchedValues.email || watchedValues.firstName || watchedValues.lastName
+  const showClear = hasUrlParams || hasFormValues
+
+  // Validation rules based on active tab
+  const emailValidation =
+    activeTab === SEARCH_TAB.EMAIL
+      ? {
+          required: 'Email is required',
+          validate: (value: string) =>
+            emailSchema.safeParse(value).success ||
+            'Please enter a valid email address',
+        }
+      : {}
+
+  const nameValidation =
+    activeTab === SEARCH_TAB.NAME
+      ? {
+          required: 'This field is required',
+          minLength: { value: 2, message: 'Must be at least 2 characters' },
+        }
+      : {}
+
+  const canSubmit =
+    activeTab === SEARCH_TAB.EMAIL
+      ? watchedValues.email.trim() && !errors.email
+      : watchedValues.firstName.trim() &&
+        watchedValues.lastName.trim() &&
+        !errors.firstName &&
+        !errors.lastName
 
   return (
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit(onSubmit)}>
         <Flex direction="column" gap="4">
           <Box>
             <Text as="label" size="2" weight="medium" mb="2" mr="2">
               Search by
             </Text>
             <SegmentedControl.Root
-              value={searchMode}
-              onValueChange={handleSearchModeChange}
+              value={activeTab}
+              onValueChange={handleTabChange}
             >
-              <SegmentedControl.Item value="email">Email</SegmentedControl.Item>
-              <SegmentedControl.Item value="name">Name</SegmentedControl.Item>
+              <SegmentedControl.Item value={SEARCH_TAB.EMAIL}>
+                Email
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value={SEARCH_TAB.NAME}>
+                Name
+              </SegmentedControl.Item>
             </SegmentedControl.Root>
           </Box>
 
-          {searchMode === 'email' ? (
+          {activeTab === SEARCH_TAB.EMAIL ? (
             <Box style={{ maxWidth: '400px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 Email
               </Text>
               <TextField.Root
                 placeholder="Enter email address..."
-                value={email}
-                onChange={(e) => handleEmailChange(e.target.value)}
-                color={emailError ? 'red' : undefined}
+                {...register('email', emailValidation)}
+                color={errors.email ? 'red' : undefined}
               >
                 <TextField.Slot>
                   <HiSearch className="w-4 h-4" />
                 </TextField.Slot>
               </TextField.Root>
-              {emailError && (
+              {errors.email && (
                 <Text size="1" color="red" mt="1">
-                  {emailError}
+                  {errors.email.message}
                 </Text>
               )}
             </Box>
@@ -220,17 +197,16 @@ export function UserSearchForm() {
                 </Text>
                 <TextField.Root
                   placeholder="Enter first name..."
-                  value={firstName}
-                  onChange={(e) => handleFirstNameChange(e.target.value)}
-                  color={firstNameError ? 'red' : undefined}
+                  {...register('firstName', nameValidation)}
+                  color={errors.firstName ? 'red' : undefined}
                 >
                   <TextField.Slot>
                     <HiSearch className="w-4 h-4" />
                   </TextField.Slot>
                 </TextField.Root>
-                {firstNameError && (
+                {errors.firstName && (
                   <Text size="1" color="red" mt="1">
-                    {firstNameError}
+                    {errors.firstName.message}
                   </Text>
                 )}
               </Box>
@@ -241,17 +217,16 @@ export function UserSearchForm() {
                 </Text>
                 <TextField.Root
                   placeholder="Enter last name..."
-                  value={lastName}
-                  onChange={(e) => handleLastNameChange(e.target.value)}
-                  color={lastNameError ? 'red' : undefined}
+                  {...register('lastName', nameValidation)}
+                  color={errors.lastName ? 'red' : undefined}
                 >
                   <TextField.Slot>
                     <HiSearch className="w-4 h-4" />
                   </TextField.Slot>
                 </TextField.Root>
-                {lastNameError && (
+                {errors.lastName && (
                   <Text size="1" color="red" mt="1">
-                    {lastNameError}
+                    {errors.lastName.message}
                   </Text>
                 )}
               </Box>
@@ -259,7 +234,7 @@ export function UserSearchForm() {
           )}
 
           <Flex gap="2" justify="end">
-            {hasFilters && (
+            {showClear && (
               <Button
                 type="button"
                 variant="soft"
@@ -270,7 +245,7 @@ export function UserSearchForm() {
                 Clear
               </Button>
             )}
-            <Button type="submit" disabled={!isFormValid}>
+            <Button type="submit" disabled={!canSubmit}>
               <HiSearch className="w-4 h-4" />
               Search
             </Button>

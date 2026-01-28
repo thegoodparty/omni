@@ -1,4 +1,9 @@
-import { SearchUsersParams, SearchUsersResult, User } from './types'
+import {
+  SearchUsersParams,
+  SearchUsersResult,
+  User,
+  SEARCH_PARAMS,
+} from './types'
 
 /**
  * Stub function to search users - replace with actual API call later
@@ -35,14 +40,15 @@ export async function searchUsers(
     },
   ]
 
-  if (params.email) {
+  if (params[SEARCH_PARAMS.EMAIL]) {
     const user = stubUsers.find(
-      (u) => u.email.toLowerCase() === params.email?.toLowerCase()
+      (u) =>
+        u.email.toLowerCase() === params[SEARCH_PARAMS.EMAIL]?.toLowerCase()
     )
     return user ? [user] : []
   }
 
-  if (params.first_name || params.last_name) {
+  if (params[SEARCH_PARAMS.FIRST_NAME] || params[SEARCH_PARAMS.LAST_NAME]) {
     return stubUsers
   }
 
