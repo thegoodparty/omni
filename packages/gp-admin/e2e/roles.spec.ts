@@ -9,8 +9,9 @@ test.describe('Role-Based Access Control', () => {
 
     test('admin sees navigation items', async ({ page }) => {
       await expect(page.getByRole('link', { name: 'Users' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Campaigns' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Members' })).toBeVisible()
+      await expect(
+        page.getByRole('link', { name: 'Members (Internal)' })
+      ).toBeVisible()
     })
 
     test('admin can access members page', async ({ page }) => {
@@ -25,7 +26,9 @@ test.describe('Role-Based Access Control', () => {
       await signIn(page, TEST_USERS.DEV_SALES)
     })
 
-    test('sales cannot access members page - redirects to dashboard', async ({ page }) => {
+    test('sales cannot access members page - redirects to dashboard', async ({
+      page,
+    }) => {
       await page.goto('/dashboard/members')
 
       await expect(page).toHaveURL(/\/dashboard$/)
@@ -37,7 +40,9 @@ test.describe('Role-Based Access Control', () => {
       await signIn(page, TEST_USERS.DEV_READONLY)
     })
 
-    test('readonly cannot access members page - redirects to dashboard', async ({ page }) => {
+    test('readonly cannot access members page - redirects to dashboard', async ({
+      page,
+    }) => {
       await page.goto('/dashboard/members')
 
       await expect(page).toHaveURL(/\/dashboard$/)

@@ -1,4 +1,4 @@
-import { HiUsers, HiStar, HiCog, HiUserGroup } from 'react-icons/hi'
+import { HiUsers, HiCog, HiUserGroup } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
 
@@ -17,13 +17,7 @@ export const navItems: NavItem[] = [
     permission: PERMISSIONS.READ_USERS,
   },
   {
-    title: 'Campaigns',
-    href: '/dashboard/campaigns',
-    icon: HiStar,
-    permission: PERMISSIONS.READ_CAMPAIGNS,
-  },
-  {
-    title: 'Members',
+    title: 'Members (Internal)',
     href: '/dashboard/members',
     icon: HiUserGroup,
     permission: PERMISSIONS.MANAGE_INVITES,
