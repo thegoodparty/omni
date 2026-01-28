@@ -39,7 +39,7 @@ export async function searchUsers(
     const user = stubUsers.find(
       (u) => u.email.toLowerCase() === params.email?.toLowerCase()
     )
-    return user || null
+    return user ? [user] : []
   }
 
   if (params.first_name || params.last_name) {

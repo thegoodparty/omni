@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Container, Heading, Box, Text } from '@radix-ui/themes'
 import { UserSearchForm } from '@/components/UserSearchForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
@@ -10,7 +10,6 @@ import { User } from '../types'
 import { UserList } from './UserList'
 
 export default function UsersPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   const [isLoading, setIsLoading] = useState(false)
@@ -29,8 +28,6 @@ export default function UsersPage() {
       return
     }
 
-    let isCancelled = false
-
     const fetchUsers = async () => {
       setIsLoading(true)
       setError(null)
@@ -42,34 +39,17 @@ export default function UsersPage() {
           last_name: searchParams.get('last_name') ?? undefined,
         })
 
-        if (isCancelled) return
-
-        if (result === null) {
-          setUsers([])
-        } else if (Array.isArray(result)) {
-          setUsers(result)
-        } else {
-          // Single user result - redirect to user page
-          router.push(`/dashboard/users/${result.id}`)
-          return
-        }
+        setUsers(result || [])
       } catch (err) {
-        if (isCancelled) return
         setError('Failed to search users. Please try again.')
         console.error('Search error:', err)
       } finally {
-        if (!isCancelled) {
-          setIsLoading(false)
-        }
+        setIsLoading(false)
       }
     }
 
     fetchUsers()
-
-    return () => {
-      isCancelled = true
-    }
-  }, [searchParams, hasSearchParams, router])
+  }, [searchParams, hasSearchParams])
 
   return (
     <Container size="4">

@@ -12,4 +12,4 @@ export interface SearchUsersParams {
   last_name?: string
 }
 
-export type SearchUsersResult = User | User[]
+export type SearchUsersResult = User[]
