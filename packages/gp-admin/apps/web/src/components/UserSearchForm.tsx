@@ -51,7 +51,7 @@ export function UserSearchForm() {
     watch,
     reset,
     setValue,
-    formState: { errors },
+    formState: { errors, isValid },
   } = useForm<FormData>({
     mode: 'onChange',
     defaultValues: {
@@ -136,13 +136,12 @@ export function UserSearchForm() {
         }
       : {}
 
-  const canSubmit =
+  const hasRequiredValues =
     activeTab === SEARCH_TAB.EMAIL
-      ? watchedValues.email.trim() && !errors.email
-      : watchedValues.firstName.trim() &&
-        watchedValues.lastName.trim() &&
-        !errors.firstName &&
-        !errors.lastName
+      ? watchedValues.email.trim()
+      : watchedValues.firstName.trim() && watchedValues.lastName.trim()
+
+  const canSubmit = hasRequiredValues && isValid
 
   return (
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
