@@ -16,7 +16,7 @@ import { z } from 'zod'
 type SearchMode = 'email' | 'name'
 
 const emailSchema = z.string().email('Please enter a valid email address')
-const nameSchema = z.string().min(3, 'Must be at least 3 characters')
+const nameSchema = z.string().min(2, 'Must be at least 3 characters')
 
 const USERS_PATH = '/dashboard/users'
 
