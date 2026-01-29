@@ -32,7 +32,7 @@ export function Header() {
           <Flex align="center" gap="4">
             <Link href="/">
               <Image
-                src="https://s3.us-west-2.amazonaws.com/admin-assets.goodparty.org/logo.svg"
+                src="https://assets.goodparty.org/logo.svg"
                 alt="logo"
                 width={40}
                 height={40}
