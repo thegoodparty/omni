@@ -62,8 +62,7 @@ export function UserBasicInfoSection({ user }: UserBasicInfoSectionProps) {
         <DataRow
           label="Geo Location"
           value={
-            details.geoLocation?.lat !== undefined &&
-            details.geoLocation?.lng !== undefined
+            details.geoLocation?.lat != null && details.geoLocation?.lng != null
               ? `${details.geoLocation.lat.toFixed(4)}, ${details.geoLocation.lng.toFixed(4)}`
               : '—'
           }
