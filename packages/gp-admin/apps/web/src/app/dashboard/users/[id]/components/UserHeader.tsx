@@ -1,11 +1,10 @@
+'use client'
+
 import { Flex, Heading, Text, Avatar, Badge, Box } from '@radix-ui/themes'
-import type { DetailedUser } from '../types'
+import { useUser } from '../UserProvider'
 
-interface UserHeaderProps {
-  user: DetailedUser
-}
-
-export function UserHeader({ user }: UserHeaderProps) {
+export function UserHeader() {
+  const user = useUser()
   const { data, details } = user
 
   return (

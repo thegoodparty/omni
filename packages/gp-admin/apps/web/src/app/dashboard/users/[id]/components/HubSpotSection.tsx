@@ -1,14 +1,13 @@
+'use client'
+
 import { Badge } from '@radix-ui/themes'
 import { formatTimestampString } from '@/lib/utils/date'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { DetailedUser } from '../types'
 
-interface HubSpotSectionProps {
-  user: DetailedUser
-}
-
-export function HubSpotSection({ user }: HubSpotSectionProps) {
+export function HubSpotSection() {
+  const user = useUser()
   const hubSpotUpdates = user.data.hubSpotUpdates
   if (!hubSpotUpdates) return null
 

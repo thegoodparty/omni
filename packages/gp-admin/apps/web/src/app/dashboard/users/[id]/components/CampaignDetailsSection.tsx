@@ -1,14 +1,13 @@
+'use client'
+
 import { Grid, Text, Badge, Flex, Box, Heading } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { DetailedUser } from '../types'
 
-interface CampaignDetailsSectionProps {
-  user: DetailedUser
-}
-
-export function CampaignDetailsSection({ user }: CampaignDetailsSectionProps) {
+export function CampaignDetailsSection() {
+  const user = useUser()
   const { details, data } = user
 
   return (

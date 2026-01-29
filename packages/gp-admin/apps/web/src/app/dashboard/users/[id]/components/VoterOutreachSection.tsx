@@ -1,14 +1,13 @@
+'use client'
+
 import { Grid, Text, Box, Flex } from '@radix-ui/themes'
 import { formatNumber } from '@/lib/utils/number'
 import { formatKeyAsLabel } from '@/lib/utils/string'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { DetailedUser } from '../types'
 
-interface VoterOutreachSectionProps {
-  user: DetailedUser
-}
-
-export function VoterOutreachSection({ user }: VoterOutreachSectionProps) {
+export function VoterOutreachSection() {
+  const user = useUser()
   const goals = user.data.reportedVoterGoals
   if (!goals) return null
 

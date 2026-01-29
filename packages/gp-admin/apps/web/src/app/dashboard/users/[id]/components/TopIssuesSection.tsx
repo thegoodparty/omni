@@ -1,12 +1,12 @@
+'use client'
+
 import { Box, Text, Badge, Flex, Heading, Grid } from '@radix-ui/themes'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { DetailedUser, TopIssuePosition } from '../types'
+import type { TopIssuePosition } from '../types'
 
-interface TopIssuesSectionProps {
-  user: DetailedUser
-}
-
-export function TopIssuesSection({ user }: TopIssuesSectionProps) {
+export function TopIssuesSection() {
+  const user = useUser()
   const { topIssues, customIssues } = user.details
   if (!topIssues && !customIssues) return null
 

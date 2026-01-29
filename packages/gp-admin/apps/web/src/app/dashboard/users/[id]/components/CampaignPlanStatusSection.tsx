@@ -1,12 +1,11 @@
+'use client'
+
 import { Box, Text, Badge, Flex, Grid } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
 import { formatKeyAsLabel } from '@/lib/utils/string'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { DetailedUser, CampaignPlanStatus } from '../types'
-
-interface CampaignPlanStatusSectionProps {
-  user: DetailedUser
-}
+import type { CampaignPlanStatus } from '../types'
 
 function getStatusColor(status: string): 'green' | 'red' | 'orange' {
   switch (status) {
@@ -19,9 +18,8 @@ function getStatusColor(status: string): 'green' | 'red' | 'orange' {
   }
 }
 
-export function CampaignPlanStatusSection({
-  user,
-}: CampaignPlanStatusSectionProps) {
+export function CampaignPlanStatusSection() {
+  const user = useUser()
   const planStatus = user.data.campaignPlanStatus
   if (!planStatus) return null
 

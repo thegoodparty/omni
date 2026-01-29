@@ -5,12 +5,9 @@ import DOMPurify from 'isomorphic-dompurify'
 import { Box, Text, Badge, Flex, Button, ScrollArea } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
 import { formatKeyAsLabel } from '@/lib/utils/string'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { DetailedUser, AIContentItem } from '../types'
-
-interface AIContentSectionProps {
-  user: DetailedUser
-}
+import type { AIContentItem } from '../types'
 
 function isAIContentItem(
   value: AIContentItem | Record<string, unknown>
@@ -18,7 +15,8 @@ function isAIContentItem(
   return typeof value === 'object' && value !== null && 'content' in value
 }
 
-export function AIContentSection({ user }: AIContentSectionProps) {
+export function AIContentSection() {
+  const user = useUser()
   const [selectedContent, setSelectedContent] = useState<string | null>(null)
   const aiContent = user.aiContent
   if (!aiContent) return null

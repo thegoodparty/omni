@@ -1,12 +1,10 @@
+'use client'
+
 import { Grid, Text, Badge, Flex, Link } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { DetailedUser } from '../types'
-
-interface UserBasicInfoSectionProps {
-  user: DetailedUser
-}
 
 function formatPhone(phone: string | null): string {
   if (!phone) return '—'
@@ -20,7 +18,8 @@ function formatPhone(phone: string | null): string {
   return phone
 }
 
-export function UserBasicInfoSection({ user }: UserBasicInfoSectionProps) {
+export function UserBasicInfoSection() {
+  const user = useUser()
   const { details, data } = user
 
   return (

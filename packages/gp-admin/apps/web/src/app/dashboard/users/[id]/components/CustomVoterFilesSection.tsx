@@ -1,14 +1,11 @@
+'use client'
+
 import { Text, Badge, Flex, Table } from '@radix-ui/themes'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { DetailedUser } from '../types'
 
-interface CustomVoterFilesSectionProps {
-  user: DetailedUser
-}
-
-export function CustomVoterFilesSection({
-  user,
-}: CustomVoterFilesSectionProps) {
+export function CustomVoterFilesSection() {
+  const user = useUser()
   const files = user.data.customVoterFiles
   if (!files || files.length === 0) return null
 

@@ -1,14 +1,13 @@
+'use client'
+
 import { Grid, Text, Box, Flex, Progress } from '@radix-ui/themes'
 import { formatNumber } from '@/lib/utils/number'
+import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { DetailedUser } from '../types'
 
-interface PathToVictorySectionProps {
-  user: DetailedUser
-}
-
-export function PathToVictorySection({ user }: PathToVictorySectionProps) {
+export function PathToVictorySection() {
+  const user = useUser()
   const p2v = user.pathToVictory?.data || user.data.pathToVictory
   if (!p2v) return null
 
