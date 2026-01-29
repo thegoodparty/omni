@@ -26,7 +26,10 @@ export type TestUserType = (typeof TEST_USERS)[keyof typeof TEST_USERS]
 /**
  * Environment variable mapping for test users.
  */
-const TEST_USER_ENV_MAP: Record<TestUserType, { email: string; password: string }> = {
+const TEST_USER_ENV_MAP: Record<
+  TestUserType,
+  { email: string; password: string }
+> = {
   [TEST_USERS.DEV_ADMIN]: {
     email: 'CLERK_TEST_DEV_ADMIN_EMAIL',
     password: 'CLERK_TEST_DEV_ADMIN_PASSWORD',
@@ -119,7 +122,10 @@ export async function signIn(
  * @param page - Playwright page object
  * @param orgName - The name of the organization to switch to (e.g., 'Development', 'QA', 'Production')
  */
-export async function switchOrganization(page: Page, orgName: string): Promise<void> {
+export async function switchOrganization(
+  page: Page,
+  orgName: string
+): Promise<void> {
   // Find and click the organization switcher trigger (contains current org name text)
   const orgSwitcher = page.getByText(/Development|QA|Production/).first()
   await orgSwitcher.click()

@@ -6,4 +6,3 @@ export class AppService {
     return 'Hello from GP Admin API!'
   }
 }
-
