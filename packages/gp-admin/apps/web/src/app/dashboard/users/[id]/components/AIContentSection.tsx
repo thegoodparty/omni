@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import DOMPurify from 'dompurify'
+import DOMPurify from 'isomorphic-dompurify'
 import { Box, Text, Badge, Flex, Button, ScrollArea } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
 import { formatKeyAsLabel } from '@/lib/utils/string'
