@@ -136,8 +136,17 @@ export interface ReportedVoterGoals {
   phoneBanking: number
 }
 
+export const CAMPAIGN_PLAN_STATUS = {
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  PENDING: 'pending',
+} as const
+
+export type CampaignPlanStatusValue =
+  (typeof CAMPAIGN_PLAN_STATUS)[keyof typeof CAMPAIGN_PLAN_STATUS]
+
 export interface CampaignPlanStatus {
-  status: string
+  status: CampaignPlanStatusValue | string
   createdAt: number
 }
 
@@ -167,7 +176,7 @@ export interface UserData {
   hasVoterFile: string
   lastStepDate: string
   launchStatus: string
-  pathToVictory: PathToVictoryData
+  pathToVictory?: PathToVictoryData
   hubSpotUpdates: HubSpotUpdates
   customVoterFiles: CustomVoterFile[]
   textCampaignCount: number

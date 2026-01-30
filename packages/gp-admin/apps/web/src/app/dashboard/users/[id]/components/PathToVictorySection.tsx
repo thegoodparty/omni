@@ -1,14 +1,29 @@
 'use client'
 
 import { Grid, Text, Box, Flex, Progress } from '@radix-ui/themes'
-import { formatNumber } from '@/lib/utils/number'
 import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
+import { formatNumberForDisplay } from '@/lib/utils/number'
+
+const PARTY_LABELS = {
+  DEMOCRATS: 'Democrats',
+  REPUBLICANS: 'Republicans',
+  INDEPENDENTS: 'Independents',
+} as const
+
+const DEMOGRAPHIC_LABELS = {
+  MEN: 'Men',
+  WOMEN: 'Women',
+  WHITE: 'White',
+  HISPANIC: 'Hispanic',
+  ASIAN: 'Asian',
+  AFRICAN_AMERICAN: 'African American',
+} as const
 
 export function PathToVictorySection() {
   const user = useUser()
-  const p2v = user.pathToVictory?.data || user.data.pathToVictory
+  const p2v = user.pathToVictory?.data
   if (!p2v) return null
 
   const totalRegistered = p2v.totalRegisteredVoters || 0
@@ -20,18 +35,30 @@ export function PathToVictorySection() {
     totalRegistered > 0 ? (winNumber / totalRegistered) * 100 : 0
 
   const partyData = [
-    { label: 'Democrats', value: p2v.democrats, color: 'blue' as const },
-    { label: 'Republicans', value: p2v.republicans, color: 'red' as const },
-    { label: 'Independents', value: p2v.indies, color: 'purple' as const },
+    {
+      label: PARTY_LABELS.DEMOCRATS,
+      value: p2v.democrats,
+      color: 'blue' as const,
+    },
+    {
+      label: PARTY_LABELS.REPUBLICANS,
+      value: p2v.republicans,
+      color: 'red' as const,
+    },
+    {
+      label: PARTY_LABELS.INDEPENDENTS,
+      value: p2v.indies,
+      color: 'purple' as const,
+    },
   ]
 
   const demographicData = [
-    { label: 'Men', value: p2v.men },
-    { label: 'Women', value: p2v.women },
-    { label: 'White', value: p2v.white },
-    { label: 'Hispanic', value: p2v.hispanic },
-    { label: 'Asian', value: p2v.asian },
-    { label: 'African American', value: p2v.africanAmerican },
+    { label: DEMOGRAPHIC_LABELS.MEN, value: p2v.men },
+    { label: DEMOGRAPHIC_LABELS.WOMEN, value: p2v.women },
+    { label: DEMOGRAPHIC_LABELS.WHITE, value: p2v.white },
+    { label: DEMOGRAPHIC_LABELS.HISPANIC, value: p2v.hispanic },
+    { label: DEMOGRAPHIC_LABELS.ASIAN, value: p2v.asian },
+    { label: DEMOGRAPHIC_LABELS.AFRICAN_AMERICAN, value: p2v.africanAmerican },
   ].filter((d) => d.value !== undefined)
 
   return (
@@ -44,7 +71,7 @@ export function PathToVictorySection() {
                 Win Number
               </Text>
               <Text size="2" weight="bold" color="green">
-                {formatNumber(winNumber)}
+                {formatNumberForDisplay(winNumber)}
               </Text>
             </Flex>
             <Progress value={winPercentage} max={100} color="green" />
@@ -52,35 +79,31 @@ export function PathToVictorySection() {
               {winPercentage.toFixed(1)}% of registered voters
             </Text>
           </Box>
-          <DataRow
-            label="Voter Contact Goal"
-            value={formatNumber(p2v.voterContactGoal)}
-          />
-          <DataRow
-            label="Projected Turnout"
-            value={formatNumber(p2v.projectedTurnout)}
-          />
-          <DataRow
-            label="Average Turnout"
-            value={formatNumber(p2v.averageTurnout)}
-          />
-          <DataRow
-            label="Total Registered Voters"
-            value={formatNumber(p2v.totalRegisteredVoters)}
-          />
+          <DataRow label="Voter Contact Goal">
+            {formatNumberForDisplay(p2v.voterContactGoal)}
+          </DataRow>
+          <DataRow label="Projected Turnout">
+            {formatNumberForDisplay(p2v.projectedTurnout)}
+          </DataRow>
+          <DataRow label="Average Turnout">
+            {formatNumberForDisplay(p2v.averageTurnout)}
+          </DataRow>
+          <DataRow label="Total Registered Voters">
+            {formatNumberForDisplay(p2v.totalRegisteredVoters)}
+          </DataRow>
         </Flex>
       </InfoCard>
 
       <InfoCard title="Election Info">
-        <DataRow label="Election Type" value={p2v.electionType} />
-        <DataRow label="Location" value={p2v.electionLocation} />
-        <DataRow label="P2V Status" value={p2v.p2vStatus} />
-        <DataRow label="Source" value={p2v.source} />
-        <DataRow label="P2V Complete Date" value={p2v.p2vCompleteDate} />
+        <DataRow label="Election Type">{p2v.electionType}</DataRow>
+        <DataRow label="Location">{p2v.electionLocation}</DataRow>
+        <DataRow label="P2V Status">{p2v.p2vStatus}</DataRow>
+        <DataRow label="Source">{p2v.source}</DataRow>
+        <DataRow label="P2V Complete Date">{p2v.p2vCompleteDate}</DataRow>
         {p2v.viability && (
           <>
-            <DataRow label="Viability Score" value={p2v.viability.score} />
-            <DataRow label="Seats" value={p2v.viability.seats} />
+            <DataRow label="Viability Score">{p2v.viability.score}</DataRow>
+            <DataRow label="Seats">{p2v.viability.seats}</DataRow>
           </>
         )}
       </InfoCard>
@@ -94,7 +117,7 @@ export function PathToVictorySection() {
                   {label}
                 </Text>
                 <Text size="2" weight="medium">
-                  {formatNumber(value)}
+                  {formatNumberForDisplay(value)}
                 </Text>
               </Flex>
               <Progress
@@ -121,7 +144,7 @@ export function PathToVictorySection() {
                 className="bg-[var(--gray-2)] rounded-md text-center"
               >
                 <Text as="p" size="4" weight="bold">
-                  {formatNumber(value)}
+                  {formatNumberForDisplay(value)}
                 </Text>
                 <Text as="p" size="1" color="gray">
                   {label}

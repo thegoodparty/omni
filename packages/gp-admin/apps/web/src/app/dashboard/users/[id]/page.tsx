@@ -110,18 +110,6 @@ const stubbedUser = {
     hasVoterFile: 'completed',
     lastStepDate: '2024-04-03',
     launchStatus: 'launched',
-    pathToVictory: {
-      indies: 2838,
-      democrats: 4530,
-      winNumber: '3046.00',
-      republicans: 2614,
-      electionType: 'Unified_School_District',
-      averageTurnout: 6086,
-      electionLocation: 'OAK PARK USD',
-      projectedTurnout: 6090,
-      voterContactGoal: '15230.00',
-      totalRegisteredVoters: 9982,
-    },
     hubSpotUpdates: {
       p2p_sent: '0',
       date_verified: '1744848000000',

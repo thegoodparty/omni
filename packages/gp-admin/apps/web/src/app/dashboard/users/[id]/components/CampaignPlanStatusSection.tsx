@@ -5,13 +5,19 @@ import { formatDate } from '@/lib/utils/date'
 import { formatKeyAsLabel } from '@/lib/utils/string'
 import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
-import type { CampaignPlanStatus } from '../types'
+import {
+  CAMPAIGN_PLAN_STATUS,
+  type CampaignPlanStatus,
+  type CampaignPlanStatusValue,
+} from '../types'
 
-function getStatusColor(status: string): 'green' | 'red' | 'orange' {
+function getStatusColor(
+  status: CampaignPlanStatusValue | string
+): 'green' | 'red' | 'orange' {
   switch (status) {
-    case 'completed':
+    case CAMPAIGN_PLAN_STATUS.COMPLETED:
       return 'green'
-    case 'failed':
+    case CAMPAIGN_PLAN_STATUS.FAILED:
       return 'red'
     default:
       return 'orange'
@@ -24,7 +30,9 @@ export function CampaignPlanStatusSection() {
   if (!planStatus) return null
 
   const entries = Object.entries(planStatus) as [string, CampaignPlanStatus][]
-  const completed = entries.filter(([, v]) => v.status === 'completed').length
+  const completed = entries.filter(
+    ([, v]) => v.status === CAMPAIGN_PLAN_STATUS.COMPLETED
+  ).length
   const total = entries.length
 
   return (

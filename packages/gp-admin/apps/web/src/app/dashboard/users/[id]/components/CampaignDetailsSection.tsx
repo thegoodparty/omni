@@ -13,70 +13,59 @@ export function CampaignDetailsSection() {
   return (
     <Grid columns={{ initial: '1', md: '2' }} gap="4">
       <InfoCard title="Office & Election">
-        <DataRow label="Office" value={details.otherOffice || details.office} />
-        <DataRow label="Ballot Level" value={details.ballotLevel} />
-        <DataRow label="Partisan Type" value={details.partisanType} />
-        <DataRow
-          label="Election Date"
-          value={formatDate(details.electionDate)}
-        />
-        <DataRow label="Term Length" value={details.officeTermLength} />
-        <DataRow
-          label="Has Primary"
-          value={
-            <Badge color={details.hasPrimary ? 'blue' : 'gray'}>
-              {details.hasPrimary ? 'Yes' : 'No'}
-            </Badge>
-          }
-        />
-        <DataRow
-          label="Filing Period"
-          value={`${formatDate(details.filingPeriodsStart)} - ${formatDate(details.filingPeriodsEnd)}`}
-        />
+        <DataRow label="Office">
+          {details.otherOffice || details.office}
+        </DataRow>
+        <DataRow label="Ballot Level">{details.ballotLevel}</DataRow>
+        <DataRow label="Partisan Type">{details.partisanType}</DataRow>
+        <DataRow label="Election Date">
+          {formatDate(details.electionDate)}
+        </DataRow>
+        <DataRow label="Term Length">{details.officeTermLength}</DataRow>
+        <DataRow label="Has Primary">
+          <Badge color={details.hasPrimary ? 'blue' : 'gray'}>
+            {details.hasPrimary ? 'Yes' : 'No'}
+          </Badge>
+        </DataRow>
+        <DataRow label="Filing Period">
+          {`${formatDate(details.filingPeriodsStart)} - ${formatDate(details.filingPeriodsEnd)}`}
+        </DataRow>
       </InfoCard>
 
       <InfoCard title="Campaign Status">
-        <DataRow label="Launch Status" value={data.launchStatus} />
-        <DataRow label="Has Voter File" value={data.hasVoterFile} />
-        <DataRow label="P2V Status" value={data.path_to_victory_status} />
-        <DataRow label="Text Campaigns" value={data.textCampaignCount} />
-        <DataRow
-          label="Can Download Federal"
-          value={
-            <Badge color={user.canDownloadFederal ? 'green' : 'gray'}>
-              {user.canDownloadFederal ? 'Yes' : 'No'}
-            </Badge>
-          }
-        />
-        <DataRow label="Completed Tasks" value={user.completedTaskIds.length} />
+        <DataRow label="Launch Status">{data.launchStatus}</DataRow>
+        <DataRow label="Has Voter File">{data.hasVoterFile}</DataRow>
+        <DataRow label="P2V Status">{data.path_to_victory_status}</DataRow>
+        <DataRow label="Text Campaigns">{data.textCampaignCount}</DataRow>
+        <DataRow label="Can Download Federal">
+          <Badge color={user.canDownloadFederal ? 'green' : 'gray'}>
+            {user.canDownloadFederal ? 'Yes' : 'No'}
+          </Badge>
+        </DataRow>
+        <DataRow label="Completed Tasks">
+          {user.completedTaskIds.length}
+        </DataRow>
       </InfoCard>
 
       <InfoCard title="Candidate Background">
-        <DataRow
-          label="Citizen"
-          value={details.citizen === 'yes' ? 'Yes' : 'No'}
-        />
-        <DataRow
-          label="Run Before"
-          value={details.runBefore === 'yes' ? 'Yes' : 'No'}
-        />
-        <DataRow
-          label="Know Run"
-          value={details.knowRun === 'yes' ? 'Yes' : 'No'}
-        />
-        <DataRow
-          label="Filed Statement"
-          value={details.filedStatement === 'yes' ? 'Yes' : 'No'}
-        />
-        <DataRow
-          label="Pledged"
-          value={
-            <Badge color={details.pledged ? 'green' : 'gray'}>
-              {details.pledged ? 'Yes' : 'No'}
-            </Badge>
-          }
-        />
-        <DataRow label="Past Experience" value={details.pastExperience} />
+        <DataRow label="Citizen">
+          {details.citizen === 'yes' ? 'Yes' : 'No'}
+        </DataRow>
+        <DataRow label="Run Before">
+          {details.runBefore === 'yes' ? 'Yes' : 'No'}
+        </DataRow>
+        <DataRow label="Know Run">
+          {details.knowRun === 'yes' ? 'Yes' : 'No'}
+        </DataRow>
+        <DataRow label="Filed Statement">
+          {details.filedStatement === 'yes' ? 'Yes' : 'No'}
+        </DataRow>
+        <DataRow label="Pledged">
+          <Badge color={details.pledged ? 'green' : 'gray'}>
+            {details.pledged ? 'Yes' : 'No'}
+          </Badge>
+        </DataRow>
+        <DataRow label="Past Experience">{details.pastExperience}</DataRow>
       </InfoCard>
 
       <InfoCard title="Onboarding Progress">

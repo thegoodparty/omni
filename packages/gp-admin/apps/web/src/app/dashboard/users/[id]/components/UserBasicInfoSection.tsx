@@ -25,47 +25,39 @@ export function UserBasicInfoSection() {
   return (
     <Grid columns={{ initial: '1', md: '2' }} gap="4">
       <InfoCard title="Personal Information">
-        <DataRow label="User ID" value={user.userId} />
-        <DataRow label="Campaign ID" value={user.id} />
-        <DataRow label="Slug" value={user.slug} />
-        <DataRow
-          label="Name"
-          value={`${details.firstName} ${details.lastName}`}
-        />
-        <DataRow label="Date of Birth" value={formatDate(details.dob)} />
-        <DataRow label="Phone" value={formatPhone(details.phone)} />
-        <DataRow
-          label="Campaign Phone"
-          value={formatPhone(details.campaignPhone)}
-        />
-        <DataRow
-          label="Website"
-          value={
-            details.website ? (
-              <Link href={details.website} target="_blank">
-                {details.website}
-              </Link>
-            ) : (
-              '—'
-            )
-          }
-        />
-        <DataRow label="HubSpot ID" value={data.hubspotId} />
+        <DataRow label="User ID">{user.userId}</DataRow>
+        <DataRow label="Campaign ID">{user.id}</DataRow>
+        <DataRow label="Slug">{user.slug}</DataRow>
+        <DataRow label="Name">
+          {`${details.firstName} ${details.lastName}`}
+        </DataRow>
+        <DataRow label="Date of Birth">{formatDate(details.dob)}</DataRow>
+        <DataRow label="Phone">{formatPhone(details.phone)}</DataRow>
+        <DataRow label="Campaign Phone">
+          {formatPhone(details.campaignPhone)}
+        </DataRow>
+        <DataRow label="Website">
+          {details.website ? (
+            <Link href={details.website} target="_blank">
+              {details.website}
+            </Link>
+          ) : (
+            '—'
+          )}
+        </DataRow>
+        <DataRow label="HubSpot ID">{data.hubspotId}</DataRow>
       </InfoCard>
 
       <InfoCard title="Location">
-        <DataRow label="City" value={details.city} />
-        <DataRow label="County" value={details.county} />
-        <DataRow label="State" value={details.state} />
-        <DataRow label="ZIP" value={details.zip} />
-        <DataRow
-          label="Geo Location"
-          value={
-            details.geoLocation?.lat != null && details.geoLocation?.lng != null
-              ? `${details.geoLocation.lat.toFixed(4)}, ${details.geoLocation.lng.toFixed(4)}`
-              : '—'
-          }
-        />
+        <DataRow label="City">{details.city}</DataRow>
+        <DataRow label="County">{details.county}</DataRow>
+        <DataRow label="State">{details.state}</DataRow>
+        <DataRow label="ZIP">{details.zip}</DataRow>
+        <DataRow label="Geo Location">
+          {details.geoLocation?.lat != null && details.geoLocation?.lng != null
+            ? `${details.geoLocation.lat.toFixed(4)}, ${details.geoLocation.lng.toFixed(4)}`
+            : '—'}
+        </DataRow>
       </InfoCard>
 
       <InfoCard title="Account Status">
@@ -114,17 +106,14 @@ export function UserBasicInfoSection() {
       </InfoCard>
 
       <InfoCard title="Timeline">
-        <DataRow label="Created" value={formatDate(user.createdAt)} />
-        <DataRow label="Updated" value={formatDate(user.updatedAt)} />
-        <DataRow
-          label="Date Verified"
-          value={
-            user.dateVerified ? formatDate(user.dateVerified) : 'Not verified'
-          }
-        />
-        <DataRow label="Last Visited" value={formatDate(data.lastVisited)} />
-        <DataRow label="Last Step Date" value={data.lastStepDate} />
-        <DataRow label="Current Step" value={data.currentStep} />
+        <DataRow label="Created">{formatDate(user.createdAt)}</DataRow>
+        <DataRow label="Updated">{formatDate(user.updatedAt)}</DataRow>
+        <DataRow label="Date Verified">
+          {user.dateVerified ? formatDate(user.dateVerified) : 'Not verified'}
+        </DataRow>
+        <DataRow label="Last Visited">{formatDate(data.lastVisited)}</DataRow>
+        <DataRow label="Last Step Date">{data.lastStepDate}</DataRow>
+        <DataRow label="Current Step">{data.currentStep}</DataRow>
       </InfoCard>
     </Grid>
   )

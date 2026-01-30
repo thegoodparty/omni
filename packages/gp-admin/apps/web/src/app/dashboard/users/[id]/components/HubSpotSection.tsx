@@ -13,34 +13,27 @@ export function HubSpotSection() {
 
   return (
     <InfoCard title="HubSpot Data">
-      <DataRow label="P2P Sent" value={hubSpotUpdates.p2p_sent} />
-      <DataRow label="P2P Campaigns" value={hubSpotUpdates.p2p_campaigns} />
-      <DataRow
-        label="Pro Candidate"
-        value={
-          <Badge
-            color={hubSpotUpdates.pro_candidate === 'Yes' ? 'green' : 'gray'}
-          >
-            {hubSpotUpdates.pro_candidate}
-          </Badge>
-        }
-      />
-      <DataRow
-        label="Verified Candidate"
-        value={
-          <Badge
-            color={
-              hubSpotUpdates.verified_candidates === 'Yes' ? 'green' : 'orange'
-            }
-          >
-            {hubSpotUpdates.verified_candidates}
-          </Badge>
-        }
-      />
-      <DataRow
-        label="Date Verified"
-        value={formatTimestampString(hubSpotUpdates.date_verified)}
-      />
+      <DataRow label="P2P Sent">{hubSpotUpdates.p2p_sent}</DataRow>
+      <DataRow label="P2P Campaigns">{hubSpotUpdates.p2p_campaigns}</DataRow>
+      <DataRow label="Pro Candidate">
+        <Badge
+          color={hubSpotUpdates.pro_candidate === 'Yes' ? 'green' : 'gray'}
+        >
+          {hubSpotUpdates.pro_candidate}
+        </Badge>
+      </DataRow>
+      <DataRow label="Verified Candidate">
+        <Badge
+          color={
+            hubSpotUpdates.verified_candidates === 'Yes' ? 'green' : 'orange'
+          }
+        >
+          {hubSpotUpdates.verified_candidates}
+        </Badge>
+      </DataRow>
+      <DataRow label="Date Verified">
+        {formatTimestampString(hubSpotUpdates.date_verified)}
+      </DataRow>
     </InfoCard>
   )
 }

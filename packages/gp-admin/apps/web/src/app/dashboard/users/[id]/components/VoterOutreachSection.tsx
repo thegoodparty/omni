@@ -1,7 +1,7 @@
 'use client'
 
 import { Grid, Text, Box, Flex } from '@radix-ui/themes'
-import { formatNumber } from '@/lib/utils/number'
+import { formatNumberForDisplay } from '@/lib/utils/number'
 import { formatKeyAsLabel } from '@/lib/utils/string'
 import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
@@ -24,7 +24,7 @@ export function VoterOutreachSection() {
       <Flex direction="column" gap="4">
         <Box p="4" className="bg-[var(--accent-2)] rounded-lg text-center">
           <Text as="p" size="6" weight="bold" color="blue">
-            {formatNumber(totalContacts)}
+            {formatNumberForDisplay(totalContacts)}
           </Text>
           <Text as="p" size="2" color="gray">
             Total Voter Contacts
@@ -38,7 +38,7 @@ export function VoterOutreachSection() {
               className="bg-[var(--gray-2)] rounded-md text-center"
             >
               <Text as="p" size="4" weight="bold">
-                {formatNumber(value as number)}
+                {formatNumberForDisplay(value as number)}
               </Text>
               <Text as="p" size="1" color="gray">
                 {formatKeyAsLabel(key)}
