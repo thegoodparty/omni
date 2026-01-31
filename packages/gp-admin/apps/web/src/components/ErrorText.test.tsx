@@ -3,23 +3,18 @@ import { render, screen } from '@testing-library/react'
 import { ErrorText } from './ErrorText'
 
 describe('ErrorText', () => {
-  it('should render children text', () => {
-    render(<ErrorText>Error message</ErrorText>)
-    expect(screen.getByText('Error message')).toBeInTheDocument()
+  it('displays the error message to users', () => {
+    render(<ErrorText>Email is required</ErrorText>)
+    expect(screen.getByText('Email is required')).toBeVisible()
   })
 
-  it('should render with red color styling', () => {
-    render(<ErrorText>Error</ErrorText>)
-    const element = screen.getByText('Error')
-    expect(element).toBeInTheDocument()
-  })
-
-  it('should render ReactNode children', () => {
+  it('displays complex content when passed as children', () => {
     render(
       <ErrorText>
-        <span data-testid="custom-span">Custom error</span>
+        Please enter a valid <strong>email address</strong>
       </ErrorText>
     )
-    expect(screen.getByTestId('custom-span')).toBeInTheDocument()
+    expect(screen.getByText(/please enter a valid/i)).toBeVisible()
+    expect(screen.getByText('email address')).toBeVisible()
   })
 })

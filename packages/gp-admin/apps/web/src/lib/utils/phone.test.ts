@@ -2,31 +2,25 @@ import { describe, it, expect } from 'vitest'
 import { formatPhone } from './phone'
 
 describe('formatPhone', () => {
-  it('should format a valid US phone number', () => {
+  it('formats US phone numbers as (XXX) XXX-XXXX', () => {
     expect(formatPhone('2025551234')).toBe('(202) 555-1234')
   })
 
-  it('should format a phone number with country code', () => {
+  it('handles phone numbers with country code', () => {
     expect(formatPhone('+12025551234')).toBe('(202) 555-1234')
   })
 
-  it('should return em-dash for null', () => {
+  it('handles phone numbers with existing formatting', () => {
+    expect(formatPhone('202-555-1234')).toBe('(202) 555-1234')
+  })
+
+  it('shows em-dash when phone is missing', () => {
     expect(formatPhone(null)).toBe('—')
-  })
-
-  it('should return em-dash for undefined', () => {
     expect(formatPhone(undefined)).toBe('—')
-  })
-
-  it('should return em-dash for empty string', () => {
     expect(formatPhone('')).toBe('—')
   })
 
-  it('should return original string for invalid phone number', () => {
+  it('preserves invalid phone numbers as-is', () => {
     expect(formatPhone('invalid')).toBe('invalid')
-  })
-
-  it('should handle phone number with formatting', () => {
-    expect(formatPhone('202-555-1234')).toBe('(202) 555-1234')
   })
 })

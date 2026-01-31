@@ -3,32 +3,13 @@ import { render, screen } from '@testing-library/react'
 import { LoadingSpinner } from './LoadingSpinner'
 
 describe('LoadingSpinner', () => {
-  it('should render without children', () => {
+  it('renders the spinner component', () => {
     const { container } = render(<LoadingSpinner />)
-    expect(container.firstChild).toBeInTheDocument()
+    expect(container.querySelector('.rt-Spinner')).toBeInTheDocument()
   })
 
-  it('should render with children text', () => {
-    render(<LoadingSpinner>Loading...</LoadingSpinner>)
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
-  })
-
-  it('should render with custom size prop', () => {
-    const { container } = render(<LoadingSpinner size="2" />)
-    expect(container.firstChild).toBeInTheDocument()
-  })
-
-  it('should render with custom padding prop', () => {
-    const { container } = render(<LoadingSpinner p="4" />)
-    expect(container.firstChild).toBeInTheDocument()
-  })
-
-  it('should render with all props', () => {
-    render(
-      <LoadingSpinner size="1" p="2">
-        Please wait
-      </LoadingSpinner>
-    )
-    expect(screen.getByText('Please wait')).toBeInTheDocument()
+  it('displays loading message alongside the spinner when provided', () => {
+    render(<LoadingSpinner>Loading your data...</LoadingSpinner>)
+    expect(screen.getByText('Loading your data...')).toBeVisible()
   })
 })
