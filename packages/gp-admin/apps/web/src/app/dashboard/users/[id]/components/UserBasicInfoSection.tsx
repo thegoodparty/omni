@@ -2,21 +2,10 @@
 
 import { Grid, Text, Badge, Flex, Link } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
+import { formatPhone } from '@/lib/utils/phone'
 import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-
-function formatPhone(phone: string | null): string {
-  if (!phone) return '—'
-  const cleaned = phone.replace(/\D/g, '')
-  if (cleaned.length === 11 && cleaned.startsWith('1')) {
-    return `+1 (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7)}`
-  }
-  if (cleaned.length === 10) {
-    return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`
-  }
-  return phone
-}
 
 export function UserBasicInfoSection() {
   const user = useUser()

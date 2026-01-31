@@ -1,32 +1,38 @@
-export interface TopIssuePosition {
-  id: number
-  name: string
-  topIssue: {
-    id: number
-    name: string
-    createdAt: number
-    updatedAt: number
-  }
-  createdAt: number
-  updatedAt: number
-}
+/**
+ * User detail page types.
+ * Imports shared campaign types from @/types/campaign.
+ */
 
-export interface CustomIssue {
-  title: string
-  position: string
-}
+export {
+  type TopIssuePosition,
+  type CustomIssue,
+  type Opponent,
+  type GeoLocation,
+  type PathToVictoryData,
+  type CustomVoterFile,
+  type VoterGoals as ReportedVoterGoals,
+  type HubSpotUpdates,
+  type AiContentItem as AIContentItem,
+  type AiContentGenerationStatus as AIContentGenerationStatus,
+  type PathToVictoryRecord,
+  type CampaignPlanStatus,
+  type CampaignPlanStatusValue,
+  CAMPAIGN_PLAN_STATUS,
+} from '@/types/campaign'
 
-export interface Opponent {
-  name: string
-  party: string
-  description: string
-}
-
-export interface GeoLocation {
-  lat: number
-  lng: number
-  geoHash: string
-}
+import type {
+  TopIssuePosition,
+  CustomIssue,
+  Opponent,
+  GeoLocation,
+  PathToVictoryData,
+  CustomVoterFile,
+  VoterGoals,
+  HubSpotUpdates,
+  AiContentItem,
+  CampaignPlanStatus,
+  PathToVictoryRecord,
+} from '@/types/campaign'
 
 export interface UserDetails {
   dob: string
@@ -79,85 +85,6 @@ export interface UserDetails {
   priorElectionDates: string[]
 }
 
-export interface PathToVictoryData {
-  indies: number
-  democrats: number
-  winNumber: string | number
-  republicans: number
-  electionType: string
-  averageTurnout: number
-  electionLocation: string
-  projectedTurnout: number
-  voterContactGoal: string | number
-  totalRegisteredVoters: number
-  men?: number
-  women?: number
-  asian?: number
-  white?: number
-  hispanic?: number
-  africanAmerican?: number
-  source?: string
-  p2vStatus?: string
-  districtId?: string
-  p2vAttempts?: number
-  p2vComplete?: string
-  p2vCompleteDate?: string
-  districtManuallySet?: boolean
-  viability?: {
-    level: string
-    score: number
-    seats: number
-    candidates: string
-    isPartisan: boolean
-    isIncumbent: string
-    isUncontested: string
-    candidatesPerSeat: string
-  }
-}
-
-export interface CustomVoterFile {
-  name: string
-  channel: string
-  filters: string[]
-  purpose: string
-  createdAt: string
-}
-
-export interface ReportedVoterGoals {
-  text: number
-  calls: number
-  events: number
-  digital: number
-  robocall: number
-  digitalAds: number
-  directMail: number
-  socialMedia: number
-  doorKnocking: number
-  phoneBanking: number
-}
-
-export const CAMPAIGN_PLAN_STATUS = {
-  COMPLETED: 'completed',
-  FAILED: 'failed',
-  PENDING: 'pending',
-} as const
-
-export type CampaignPlanStatusValue =
-  (typeof CAMPAIGN_PLAN_STATUS)[keyof typeof CAMPAIGN_PLAN_STATUS]
-
-export interface CampaignPlanStatus {
-  status: CampaignPlanStatusValue | string
-  createdAt: number
-}
-
-export interface HubSpotUpdates {
-  p2p_sent: string
-  date_verified: string
-  p2p_campaigns: string
-  pro_candidate: string
-  verified_candidates: string
-}
-
 export interface UserData {
   id: number
   name: string
@@ -168,7 +95,7 @@ export interface UserData {
   social: { completed: boolean }
   finance: Record<string, boolean>
   profile: { completed: boolean }
-  aiContent: Record<string, AIContentItem>
+  aiContent: Record<string, AiContentItem>
   hubspotId: string
   currentStep: string
   lastVisited: number
@@ -181,35 +108,8 @@ export interface UserData {
   customVoterFiles: CustomVoterFile[]
   textCampaignCount: number
   campaignPlanStatus: Record<string, CampaignPlanStatus>
-  reportedVoterGoals: ReportedVoterGoals
+  reportedVoterGoals: VoterGoals
   path_to_victory_status: string
-}
-
-export interface AIContentItem {
-  name?: string
-  content?: string
-  updatedAt?: number | string
-  inputValues?: Record<string, string>
-  prompt?: string
-  status?: string
-  createdAt?: number
-  existingChat?: Array<{ role: string; content: string }>
-}
-
-export interface AIContentGenerationStatus {
-  prompt?: string
-  status: string
-  createdAt: number
-  inputValues?: Record<string, string>
-  existingChat?: Array<{ role: string; content: string }>
-}
-
-export interface PathToVictoryRecord {
-  id: number
-  createdAt: string
-  updatedAt: string
-  campaignId: number
-  data: PathToVictoryData
 }
 
 export interface DetailedUser {
@@ -228,7 +128,7 @@ export interface DetailedUser {
   placeId: string | null
   data: UserData
   details: UserDetails
-  aiContent: Record<string, AIContentItem | Record<string, unknown>>
+  aiContent: Record<string, AiContentItem | Record<string, unknown>>
   vendorTsData: Record<string, unknown>
   userId: number
   canDownloadFederal: boolean

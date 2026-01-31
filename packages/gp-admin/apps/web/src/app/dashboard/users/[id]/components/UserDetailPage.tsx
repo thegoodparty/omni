@@ -19,10 +19,28 @@ interface UserDetailPageProps {
   user: DetailedUser
 }
 
-type TabValue = 'overview' | 'campaign' | 'p2v' | 'content' | 'integrations'
+const TAB_VALUES = [
+  'overview',
+  'campaign',
+  'p2v',
+  'content',
+  'integrations',
+] as const
+
+type TabValue = (typeof TAB_VALUES)[number]
+
+function isTabValue(value: string): value is TabValue {
+  return TAB_VALUES.includes(value as TabValue)
+}
 
 export default function UserDetailPage({ user }: UserDetailPageProps) {
   const [activeTab, setActiveTab] = useState<TabValue>('overview')
+
+  function handleTabChange(value: string) {
+    if (isTabValue(value)) {
+      setActiveTab(value)
+    }
+  }
 
   return (
     <UserProvider user={user}>
@@ -33,10 +51,7 @@ export default function UserDetailPage({ user }: UserDetailPageProps) {
 
         <Separator size="4" mb="6" />
 
-        <Tabs.Root
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as TabValue)}
-        >
+        <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
           <Tabs.List mb="4">
             <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
             <Tabs.Trigger value="campaign">Campaign</Tabs.Trigger>

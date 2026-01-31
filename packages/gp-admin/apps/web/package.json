@@ -16,6 +16,7 @@
     "@radix-ui/themes": "^3.2.1",
     "date-fns": "^4.1.0",
     "isomorphic-dompurify": "^2.22.0",
+    "libphonenumber-js": "^1.12.36",
     "next": "^16.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
