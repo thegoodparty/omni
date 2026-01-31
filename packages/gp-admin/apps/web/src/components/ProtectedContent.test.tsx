@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import { ProtectedContent } from './ProtectedContent'
 import { PERMISSIONS, ROLES } from '@/lib/permissions'
 
@@ -10,8 +10,12 @@ const mockUseAuth = vi.fn()
 // Mock Clerk
 vi.mock('@clerk/nextjs', () => ({
   useAuth: () => mockUseAuth(),
-  ClerkLoading: () => null,
-  ClerkLoaded: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ClerkLoading: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="clerk-loading">{children}</div>
+  ),
+  ClerkLoaded: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="clerk-loaded">{children}</div>
+  ),
 }))
 
 describe('ProtectedContent', () => {
@@ -21,18 +25,51 @@ describe('ProtectedContent', () => {
     mockUseAuth.mockReset()
   })
 
-  afterEach(() => {
-    cleanup()
+  describe('loading state', () => {
+    it('shows loading spinner during Clerk loading', () => {
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent>
+          <div>Content</div>
+        </ProtectedContent>
+      )
+
+      expect(screen.getByTestId('clerk-loading')).toBeInTheDocument()
+    })
+
+    it('hides loading spinner when hideWhenUnauthorized is true', () => {
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent hideWhenUnauthorized>
+          <div>Content</div>
+        </ProtectedContent>
+      )
+
+      const loadingDiv = screen.getByTestId('clerk-loading')
+      expect(loadingDiv.children.length).toBe(0)
+    })
   })
 
-  describe('authentication states', () => {
-    it('shows sign-in message when user is not authenticated', () => {
+  describe('not signed in', () => {
+    beforeEach(() => {
       mockUseAuth.mockReturnValue({
         isSignedIn: false,
         orgId: null,
         has: mockHas,
       })
+    })
 
+    it('shows sign-in message', () => {
       render(
         <ProtectedContent>
           <div>Secret content</div>
@@ -42,15 +79,46 @@ describe('ProtectedContent', () => {
       expect(
         screen.getByText('You must be signed in to view this content.')
       ).toBeInTheDocument()
+      expect(screen.queryByText('Secret content')).not.toBeInTheDocument()
     })
 
-    it('shows organization message when signed in but no org selected', () => {
+    it('hides everything when hideWhenUnauthorized is true', () => {
+      render(
+        <ProtectedContent hideWhenUnauthorized>
+          <div>Secret content</div>
+        </ProtectedContent>
+      )
+
+      const loadedContent = screen.getByTestId('clerk-loaded')
+      expect(loadedContent.textContent).toBe('')
+    })
+
+    it('shows custom fallback instead of default message', () => {
+      render(
+        <ProtectedContent fallback={<div>Custom unauthorized message</div>}>
+          <div>Secret content</div>
+        </ProtectedContent>
+      )
+
+      expect(
+        screen.getByText('Custom unauthorized message')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('You must be signed in to view this content.')
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('no organization selected', () => {
+    beforeEach(() => {
       mockUseAuth.mockReturnValue({
         isSignedIn: true,
         orgId: null,
         has: mockHas,
       })
+    })
 
+    it('shows organization selection message', () => {
       render(
         <ProtectedContent>
           <div>Secret content</div>
@@ -62,24 +130,25 @@ describe('ProtectedContent', () => {
       ).toBeInTheDocument()
     })
 
-    it('hides content completely when hideWhenUnauthorized is true', () => {
-      mockUseAuth.mockReturnValue({
-        isSignedIn: false,
-        orgId: null,
-        has: mockHas,
-      })
-
-      const { container } = render(
+    it('hides everything when hideWhenUnauthorized is true', () => {
+      render(
         <ProtectedContent hideWhenUnauthorized>
           <div>Secret content</div>
         </ProtectedContent>
       )
 
-      expect(screen.queryByText('Secret content')).not.toBeInTheDocument()
-      expect(
-        screen.queryByText('You must be signed in to view this content.')
-      ).not.toBeInTheDocument()
-      expect(container.textContent).toBe('')
+      const loadedContent = screen.getByTestId('clerk-loaded')
+      expect(loadedContent.textContent).toBe('')
+    })
+
+    it('shows custom fallback for no org', () => {
+      render(
+        <ProtectedContent fallback={<div>Please select org</div>}>
+          <div>Secret content</div>
+        </ProtectedContent>
+      )
+
+      expect(screen.getByText('Please select org')).toBeInTheDocument()
     })
   })
 
@@ -99,9 +168,12 @@ describe('ProtectedContent', () => {
       )
 
       expect(screen.getByText('Admin content')).toBeInTheDocument()
+      expect(mockHas).toHaveBeenCalledWith({
+        permission: PERMISSIONS.WRITE_USERS,
+      })
     })
 
-    it('shows permission error when user lacks required permission', () => {
+    it('shows permission error when user lacks permission', () => {
       mockHas.mockReturnValue(false)
       mockUseAuth.mockReturnValue({
         isSignedIn: true,
@@ -118,6 +190,47 @@ describe('ProtectedContent', () => {
       expect(
         screen.getByText("You don't have permission to view this content.")
       ).toBeInTheDocument()
+    })
+
+    it('hides when lacking permission and hideWhenUnauthorized is true', () => {
+      mockHas.mockReturnValue(false)
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_USERS}
+          hideWhenUnauthorized
+        >
+          <div>Admin content</div>
+        </ProtectedContent>
+      )
+
+      const loadedContent = screen.getByTestId('clerk-loaded')
+      expect(loadedContent.textContent).toBe('')
+    })
+
+    it('shows custom fallback when lacking permission', () => {
+      mockHas.mockReturnValue(false)
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_USERS}
+          fallback={<div>No access</div>}
+        >
+          <div>Admin content</div>
+        </ProtectedContent>
+      )
+
+      expect(screen.getByText('No access')).toBeInTheDocument()
     })
   })
 
@@ -137,9 +250,10 @@ describe('ProtectedContent', () => {
       )
 
       expect(screen.getByText('Admin panel')).toBeInTheDocument()
+      expect(mockHas).toHaveBeenCalledWith({ role: ROLES.ADMIN })
     })
 
-    it('shows role error when user lacks required role', () => {
+    it('shows role error when user lacks role', () => {
       mockHas.mockReturnValue(false)
       mockUseAuth.mockReturnValue({
         isSignedIn: true,
@@ -159,23 +273,62 @@ describe('ProtectedContent', () => {
         )
       ).toBeInTheDocument()
     })
-  })
 
-  describe('custom fallback', () => {
-    it('renders custom fallback instead of default message', () => {
+    it('hides when lacking role and hideWhenUnauthorized is true', () => {
+      mockHas.mockReturnValue(false)
       mockUseAuth.mockReturnValue({
-        isSignedIn: false,
-        orgId: null,
+        isSignedIn: true,
+        orgId: 'org_123',
         has: mockHas,
       })
 
       render(
-        <ProtectedContent fallback={<div>Custom fallback message</div>}>
-          <div>Protected</div>
+        <ProtectedContent requiredRole={ROLES.ADMIN} hideWhenUnauthorized>
+          <div>Admin panel</div>
         </ProtectedContent>
       )
 
-      expect(screen.getByText('Custom fallback message')).toBeInTheDocument()
+      const loadedContent = screen.getByTestId('clerk-loaded')
+      expect(loadedContent.textContent).toBe('')
+    })
+
+    it('shows custom fallback when lacking role', () => {
+      mockHas.mockReturnValue(false)
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent
+          requiredRole={ROLES.ADMIN}
+          fallback={<div>Admin only</div>}
+        >
+          <div>Admin panel</div>
+        </ProtectedContent>
+      )
+
+      expect(screen.getByText('Admin only')).toBeInTheDocument()
+    })
+  })
+
+  describe('authorized user', () => {
+    it('renders children when fully authorized', () => {
+      mockHas.mockReturnValue(true)
+      mockUseAuth.mockReturnValue({
+        isSignedIn: true,
+        orgId: 'org_123',
+        has: mockHas,
+      })
+
+      render(
+        <ProtectedContent>
+          <div>Protected content</div>
+        </ProtectedContent>
+      )
+
+      expect(screen.getByText('Protected content')).toBeInTheDocument()
     })
   })
 })

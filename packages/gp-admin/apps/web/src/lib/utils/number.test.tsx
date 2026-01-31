@@ -19,8 +19,12 @@ describe('formatNumberForDisplay', () => {
   })
 
   it('shows em-dash when value is missing', () => {
-    const { container: nullContainer } = render(<>{formatNumberForDisplay(null)}</>)
-    const { container: undefinedContainer } = render(<>{formatNumberForDisplay(undefined)}</>)
+    const { container: nullContainer } = render(
+      <>{formatNumberForDisplay(null)}</>
+    )
+    const { container: undefinedContainer } = render(
+      <>{formatNumberForDisplay(undefined)}</>
+    )
     expect(nullContainer.textContent).toBe('—')
     expect(undefinedContainer.textContent).toBe('—')
   })

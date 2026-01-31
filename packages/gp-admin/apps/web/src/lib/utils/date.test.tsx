@@ -22,7 +22,9 @@ describe('formatDate', () => {
 
   it('shows em-dash when date is missing', () => {
     const { container: nullContainer } = render(<>{formatDate(null)}</>)
-    const { container: undefinedContainer } = render(<>{formatDate(undefined)}</>)
+    const { container: undefinedContainer } = render(
+      <>{formatDate(undefined)}</>
+    )
     expect(nullContainer.textContent).toBe('—')
     expect(undefinedContainer.textContent).toBe('—')
   })
