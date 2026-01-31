@@ -1,0 +1,82 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, dev, qa, prod]
+  pull_request:
+    branches: [main, dev, qa, prod]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage -w @gp-admin/web
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: apps/web/coverage/
+          retention-days: 30
+
+      - name: Parse coverage summary
+        id: coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          COVERAGE_FILE="apps/web/coverage/coverage-summary.json"
+          if [ -f "$COVERAGE_FILE" ]; then
+            LINES=$(jq '.total.lines.pct' "$COVERAGE_FILE")
+            STATEMENTS=$(jq '.total.statements.pct' "$COVERAGE_FILE")
+            FUNCTIONS=$(jq '.total.functions.pct' "$COVERAGE_FILE")
+            BRANCHES=$(jq '.total.branches.pct' "$COVERAGE_FILE")
+            echo "lines=$LINES" >> $GITHUB_OUTPUT
+            echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
+            echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+            echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
+          else
+            echo "Coverage file not found"
+            exit 1
+          fi
+
+      - name: Find existing coverage comment
+        id: find-comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '## Unit Test Coverage Report'
+
+      - name: Create or update coverage comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            ## Unit Test Coverage Report
+
+            | Metric | Coverage |
+            |--------|----------|
+            | Lines | ${{ steps.coverage.outputs.lines }}% |
+            | Statements | ${{ steps.coverage.outputs.statements }}% |
+            | Functions | ${{ steps.coverage.outputs.functions }}% |
+            | Branches | ${{ steps.coverage.outputs.branches }}% |
+
+            > Threshold: 20% for all metrics
