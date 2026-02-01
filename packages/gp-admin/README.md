@@ -60,28 +60,28 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 
 #### Organizations & Roles
 
-| Organization | Description |
-|--------------|-------------|
-| Development  | Dev environment access |
-| QA           | QA environment access |
+| Organization | Description                   |
+| ------------ | ----------------------------- |
+| Development  | Dev environment access        |
+| QA           | QA environment access         |
 | Production   | Production environment access |
 
-| Role | Key | Permissions |
-|------|-----|-------------|
-| Admin | `org:admin` | Full access - manage users, settings, invite members |
-| Sales | `org:sales` | Read/write campaigns, read users |
-| Read Only | `org:read_only` | View only access |
+| Role      | Key             | Permissions                                          |
+| --------- | --------------- | ---------------------------------------------------- |
+| Admin     | `org:admin`     | Full access - manage users, settings, invite members |
+| Sales     | `org:sales`     | Read/write campaigns, read users                     |
+| Read Only | `org:read_only` | View only access                                     |
 
 #### Permissions
 
-| Permission | Admin | Sales | Read Only |
-|------------|-------|-------|-----------|
-| `read_users` | ✓ | ✓ | ✓ |
-| `write_users` | ✓ | | |
-| `read_campaigns` | ✓ | ✓ | ✓ |
-| `write_campaigns` | ✓ | ✓ | |
-| `manage_settings` | ✓ | | |
-| `manage_invites` | ✓ | | |
+| Permission        | Admin | Sales | Read Only |
+| ----------------- | ----- | ----- | --------- |
+| `read_users`      | ✓     | ✓     | ✓         |
+| `write_users`     | ✓     |       |           |
+| `read_campaigns`  | ✓     | ✓     | ✓         |
+| `write_campaigns` | ✓     | ✓     |           |
+| `manage_settings` | ✓     |       |           |
+| `manage_invites`  | ✓     |       |           |
 
 ### Testing
 
