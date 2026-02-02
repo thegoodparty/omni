@@ -1,4 +1,4 @@
-export const DETAIL_TABS = {
+export const TABS = {
   USER: 'user',
   CAMPAIGN: 'campaign',
   P2V: 'p2v',
@@ -7,17 +7,15 @@ export const DETAIL_TABS = {
   INTEGRATIONS: 'integrations',
 } as const
 
-export const DETAIL_TAB_VALUES = Object.values(DETAIL_TABS)
-export type DetailTabValue = (typeof DETAIL_TAB_VALUES)[number]
+export const TAB_VALUES = Object.values(TABS)
+export type TabValue = (typeof TAB_VALUES)[number]
 
-export const EDIT_TABS = {
-  USER: 'user',
-  CAMPAIGN: 'campaign',
-  P2V: 'p2v',
-  ELECTED_OFFICE: 'elected-office',
-} as const
-
-export const EDIT_TAB_VALUES = Object.values(EDIT_TABS)
+export const EDIT_TAB_VALUES = [
+  TABS.USER,
+  TABS.CAMPAIGN,
+  TABS.P2V,
+  TABS.ELECTED_OFFICE,
+] as const
 export type EditTabValue = (typeof EDIT_TAB_VALUES)[number]
 
 export const LAUNCH_STATUS = {

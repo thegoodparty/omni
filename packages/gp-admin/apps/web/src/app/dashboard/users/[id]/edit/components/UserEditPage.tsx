@@ -18,13 +18,17 @@ import {
 } from '@radix-ui/themes'
 import { HiArrowLeft, HiCheck, HiX } from 'react-icons/hi'
 import type { DetailedUser } from '../../types'
-import { EDIT_TABS, EDIT_TAB_VALUES, type EditTabValue } from '../../constants'
+import { TABS, EDIT_TAB_VALUES, type EditTabValue } from '../../constants'
 import {
   userSchema,
   campaignSchema,
   campaignDetailsSchema,
   pathToVictorySchema,
   electedOfficeSchema,
+  CAMPAIGN_LAUNCH_STATUS,
+  BALLOT_LEVELS,
+  ELECTION_LEVELS,
+  P2V_STATUS,
   type UserFormData,
   type CampaignFormData,
   type CampaignDetailsFormData,
@@ -47,7 +51,7 @@ function isTabValue(value: string): value is EditTabValue {
 
 export default function UserEditPage({ user }: UserEditPageProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<EditTabValue>(EDIT_TABS.USER)
+  const [activeTab, setActiveTab] = useState<EditTabValue>(TABS.USER)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   const userForm = useForm<UserFormData>({
@@ -57,7 +61,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       firstName: user.details.firstName ?? '',
       lastName: user.details.lastName ?? '',
       name: user.data.name ?? '',
-      email: '', // Would come from User model
+      email: '',
       phone: user.details.phone ?? '',
       zip: user.details.zip ?? '',
       avatar: user.data.image ?? '',
@@ -78,12 +82,14 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       isPro: user.isPro ?? false,
       isDemo: user.isDemo,
       didWin: user.didWin ?? false,
-      tier: null, // Note: frontend type is number, Prisma enum is WIN/LOSE/TOSSUP
+      tier: null,
       canDownloadFederal: user.canDownloadFederal,
       data: {
-        launchStatus: user.data.launchStatus as 'launched' | undefined,
+        launchStatus: user.data.launchStatus as
+          | (typeof CAMPAIGN_LAUNCH_STATUS)[number]
+          | undefined,
         name: user.data.name ?? '',
-        adminUserEmail: '', // Would come from data.adminUserEmail
+        adminUserEmail: '',
       },
     },
   })
@@ -98,14 +104,18 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       city: user.details.city ?? '',
       county: user.details.county ?? '',
       zip: user.details.zip ?? '',
-      district: '', // Would come from details.district
+      district: '',
       office: user.details.office ?? '',
       otherOffice: user.details.otherOffice ?? '',
-      ballotLevel: user.details.ballotLevel as 'CITY' | 'COUNTY' | undefined,
-      level: (user.details.level as 'city' | 'county' | undefined) ?? null,
+      ballotLevel: user.details.ballotLevel as
+        | (typeof BALLOT_LEVELS)[number]
+        | undefined,
+      level:
+        (user.details.level as (typeof ELECTION_LEVELS)[number] | undefined) ??
+        null,
       officeTermLength: user.details.officeTermLength ?? '',
       electionDate: user.details.electionDate ?? '',
-      primaryElectionDate: '', // Would come from details.primaryElectionDate
+      primaryElectionDate: '',
       partisanType: user.details.partisanType ?? '',
       filingPeriodsStart: user.details.filingPeriodsStart ?? '',
       filingPeriodsEnd: user.details.filingPeriodsEnd ?? '',
@@ -128,7 +138,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       pathToVictorySchema
     ) as Resolver<PathToVictoryFormData>,
     defaultValues: {
-      p2vStatus: user.pathToVictory?.data?.p2vStatus as 'Complete' | undefined,
+      p2vStatus: user.pathToVictory?.data?.p2vStatus as
+        | (typeof P2V_STATUS)[number]
+        | undefined,
       electionType: user.pathToVictory?.data?.electionType ?? '',
       electionLocation: user.pathToVictory?.data?.electionLocation ?? '',
       winNumber: user.pathToVictory?.data?.winNumber
@@ -199,7 +211,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   }
 
   function handleSave() {
-    if (activeTab === EDIT_TABS.CAMPAIGN) {
+    if (activeTab === TABS.CAMPAIGN) {
       const campaignData = campaignForm.getValues()
       const detailsData = detailsForm.getValues()
 
@@ -221,17 +233,17 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       })
     } else {
       const formConfig = {
-        [EDIT_TABS.USER]: {
+        [TABS.USER]: {
           form: userForm,
           schema: userSchema,
           endpoint: '/users/:id',
         },
-        [EDIT_TABS.P2V]: {
+        [TABS.P2V]: {
           form: p2vForm,
           schema: pathToVictorySchema,
           endpoint: '/path-to-victory/:id',
         },
-        [EDIT_TABS.ELECTED_OFFICE]: {
+        [TABS.ELECTED_OFFICE]: {
           form: electedOfficeForm,
           schema: electedOfficeSchema,
           endpoint: '/elected-offices/:id',
@@ -258,7 +270,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   }
 
   const getFormState = () => {
-    if (activeTab === EDIT_TABS.CAMPAIGN) {
+    if (activeTab === TABS.CAMPAIGN) {
       const isDirty =
         campaignForm.formState.isDirty || detailsForm.formState.isDirty
       const isValid =
@@ -267,9 +279,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     }
 
     const formMap = {
-      [EDIT_TABS.USER]: userForm,
-      [EDIT_TABS.P2V]: p2vForm,
-      [EDIT_TABS.ELECTED_OFFICE]: electedOfficeForm,
+      [TABS.USER]: userForm,
+      [TABS.P2V]: p2vForm,
+      [TABS.ELECTED_OFFICE]: electedOfficeForm,
     }
     const form = formMap[activeTab]
     return {
@@ -312,16 +324,16 @@ export default function UserEditPage({ user }: UserEditPageProps) {
 
       <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
         <Tabs.List mb="4">
-          <Tabs.Trigger value={EDIT_TABS.USER}>User</Tabs.Trigger>
-          <Tabs.Trigger value={EDIT_TABS.CAMPAIGN}>Campaign</Tabs.Trigger>
-          <Tabs.Trigger value={EDIT_TABS.P2V}>Path to Victory</Tabs.Trigger>
-          <Tabs.Trigger value={EDIT_TABS.ELECTED_OFFICE}>
+          <Tabs.Trigger value={TABS.USER}>User</Tabs.Trigger>
+          <Tabs.Trigger value={TABS.CAMPAIGN}>Campaign</Tabs.Trigger>
+          <Tabs.Trigger value={TABS.P2V}>Path to Victory</Tabs.Trigger>
+          <Tabs.Trigger value={TABS.ELECTED_OFFICE}>
             Elected Office
           </Tabs.Trigger>
         </Tabs.List>
 
         <Box pt="4">
-          <Tabs.Content value={EDIT_TABS.USER}>
+          <Tabs.Content value={TABS.USER}>
             <UserForm
               register={userForm.register}
               errors={userForm.formState.errors}
@@ -330,7 +342,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             />
           </Tabs.Content>
 
-          <Tabs.Content value={EDIT_TABS.CAMPAIGN}>
+          <Tabs.Content value={TABS.CAMPAIGN}>
             <Flex direction="column" gap="6">
               <CampaignForm
                 register={campaignForm.register}
@@ -347,7 +359,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             </Flex>
           </Tabs.Content>
 
-          <Tabs.Content value={EDIT_TABS.P2V}>
+          <Tabs.Content value={TABS.P2V}>
             <PathToVictoryForm
               register={p2vForm.register}
               watch={p2vForm.watch}
@@ -355,7 +367,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             />
           </Tabs.Content>
 
-          <Tabs.Content value={EDIT_TABS.ELECTED_OFFICE}>
+          <Tabs.Content value={TABS.ELECTED_OFFICE}>
             <ElectedOfficeForm
               register={electedOfficeForm.register}
               watch={electedOfficeForm.watch}

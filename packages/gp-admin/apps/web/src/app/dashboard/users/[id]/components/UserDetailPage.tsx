@@ -3,11 +3,7 @@
 import { useState } from 'react'
 import { Container, Flex, Box, Tabs, Separator } from '@radix-ui/themes'
 import { UserProvider } from '../UserProvider'
-import {
-  DETAIL_TABS,
-  DETAIL_TAB_VALUES,
-  type DetailTabValue,
-} from '../constants'
+import { TABS, TAB_VALUES, type TabValue } from '../constants'
 import { UserHeader } from './UserHeader'
 import { UserInfoSection } from './UserInfoSection'
 import { CampaignStatusSection } from './CampaignStatusSection'
@@ -26,12 +22,12 @@ interface UserDetailPageProps {
   user: DetailedUser
 }
 
-function isTabValue(value: string): value is DetailTabValue {
-  return DETAIL_TAB_VALUES.includes(value as DetailTabValue)
+function isTabValue(value: string): value is TabValue {
+  return TAB_VALUES.includes(value as TabValue)
 }
 
 export default function UserDetailPage({ user }: UserDetailPageProps) {
-  const [activeTab, setActiveTab] = useState<DetailTabValue>(DETAIL_TABS.USER)
+  const [activeTab, setActiveTab] = useState<TabValue>(TABS.USER)
 
   function handleTabChange(value: string) {
     if (isTabValue(value)) {
@@ -50,26 +46,24 @@ export default function UserDetailPage({ user }: UserDetailPageProps) {
 
         <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
           <Tabs.List mb="4">
-            <Tabs.Trigger value={DETAIL_TABS.USER}>User</Tabs.Trigger>
-            <Tabs.Trigger value={DETAIL_TABS.CAMPAIGN}>Campaign</Tabs.Trigger>
-            <Tabs.Trigger value={DETAIL_TABS.P2V}>Path to Victory</Tabs.Trigger>
-            <Tabs.Trigger value={DETAIL_TABS.ELECTED_OFFICE}>
+            <Tabs.Trigger value={TABS.USER}>User</Tabs.Trigger>
+            <Tabs.Trigger value={TABS.CAMPAIGN}>Campaign</Tabs.Trigger>
+            <Tabs.Trigger value={TABS.P2V}>Path to Victory</Tabs.Trigger>
+            <Tabs.Trigger value={TABS.ELECTED_OFFICE}>
               Elected Office
             </Tabs.Trigger>
-            <Tabs.Trigger value={DETAIL_TABS.CONTENT}>Content</Tabs.Trigger>
-            <Tabs.Trigger value={DETAIL_TABS.INTEGRATIONS}>
-              Integrations
-            </Tabs.Trigger>
+            <Tabs.Trigger value={TABS.CONTENT}>Content</Tabs.Trigger>
+            <Tabs.Trigger value={TABS.INTEGRATIONS}>Integrations</Tabs.Trigger>
           </Tabs.List>
 
           <Box pt="4">
-            <Tabs.Content value={DETAIL_TABS.USER}>
+            <Tabs.Content value={TABS.USER}>
               <Flex direction="column" gap="6">
                 <UserInfoSection />
               </Flex>
             </Tabs.Content>
 
-            <Tabs.Content value={DETAIL_TABS.CAMPAIGN}>
+            <Tabs.Content value={TABS.CAMPAIGN}>
               <Flex direction="column" gap="6">
                 <CampaignStatusSection />
                 <CampaignDetailsDisplaySection />
@@ -79,26 +73,26 @@ export default function UserDetailPage({ user }: UserDetailPageProps) {
               </Flex>
             </Tabs.Content>
 
-            <Tabs.Content value={DETAIL_TABS.P2V}>
+            <Tabs.Content value={TABS.P2V}>
               <Flex direction="column" gap="6">
                 <PathToVictoryDisplaySection />
                 <VoterOutreachSection />
               </Flex>
             </Tabs.Content>
 
-            <Tabs.Content value={DETAIL_TABS.ELECTED_OFFICE}>
+            <Tabs.Content value={TABS.ELECTED_OFFICE}>
               <Flex direction="column" gap="6">
                 <ElectedOfficeSection />
               </Flex>
             </Tabs.Content>
 
-            <Tabs.Content value={DETAIL_TABS.CONTENT}>
+            <Tabs.Content value={TABS.CONTENT}>
               <Flex direction="column" gap="6">
                 <AIContentSection />
               </Flex>
             </Tabs.Content>
 
-            <Tabs.Content value={DETAIL_TABS.INTEGRATIONS}>
+            <Tabs.Content value={TABS.INTEGRATIONS}>
               <Flex direction="column" gap="6">
                 <HubSpotSection />
               </Flex>

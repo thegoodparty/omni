@@ -219,7 +219,9 @@ export function PathToVictoryDisplaySection() {
               </Text>
               <Badge
                 color={
-                  String(p2v.viability.isIncumbent) === 'true' ? 'green' : 'gray'
+                  String(p2v.viability.isIncumbent) === 'true'
+                    ? 'green'
+                    : 'gray'
                 }
               >
                 {String(p2v.viability.isIncumbent) === 'true' ? 'Yes' : 'No'}

@@ -6,6 +6,8 @@ import { useUser } from '../UserProvider'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 
+const STUBBED_ROLE = 'candidate'
+
 export function UserInfoSection() {
   const user = useUser()
   const { details, data } = user
@@ -27,7 +29,6 @@ export function UserInfoSection() {
         <DataRow label="HubSpot ID">{data.hubspotId}</DataRow>
         <DataRow label="Text Notifications">
           <Badge color="gray" variant="soft">
-            {/* Would come from metaData */}
             Unknown
           </Badge>
         </DataRow>
@@ -35,9 +36,8 @@ export function UserInfoSection() {
 
       <InfoCard title="Roles">
         <Flex gap="2" wrap="wrap">
-          {/* Roles would come from User model */}
           <Badge color="blue" variant="soft">
-            candidate
+            {STUBBED_ROLE}
           </Badge>
         </Flex>
       </InfoCard>
