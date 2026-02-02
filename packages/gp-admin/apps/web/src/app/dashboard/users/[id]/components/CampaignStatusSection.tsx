@@ -3,6 +3,7 @@
 import { Grid, Text, Badge, Flex } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
 import { useUser } from '../UserProvider'
+import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 
@@ -56,10 +57,12 @@ export function CampaignStatusSection() {
         <DataRow label="Campaign Name">{data.name}</DataRow>
         <DataRow label="Launch Status">
           <Badge
-            color={data.launchStatus === 'launched' ? 'green' : 'orange'}
+            color={
+              data.launchStatus === LAUNCH_STATUS.LAUNCHED ? 'green' : 'orange'
+            }
             variant="soft"
           >
-            {data.launchStatus || 'Not launched'}
+            {data.launchStatus || LAUNCH_STATUS.NOT_LAUNCHED}
           </Badge>
         </DataRow>
       </InfoCard>

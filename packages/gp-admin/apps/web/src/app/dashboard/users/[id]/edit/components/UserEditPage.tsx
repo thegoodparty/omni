@@ -18,6 +18,7 @@ import {
 } from '@radix-ui/themes'
 import { HiArrowLeft, HiCheck, HiX } from 'react-icons/hi'
 import type { DetailedUser } from '../../types'
+import { EDIT_TABS, EDIT_TAB_VALUES, type EditTabValue } from '../../constants'
 import {
   userSchema,
   campaignSchema,
@@ -40,19 +41,15 @@ interface UserEditPageProps {
   user: DetailedUser
 }
 
-const TAB_VALUES = ['user', 'campaign', 'p2v', 'elected-office'] as const
-type TabValue = (typeof TAB_VALUES)[number]
-
-function isTabValue(value: string): value is TabValue {
-  return TAB_VALUES.includes(value as TabValue)
+function isTabValue(value: string): value is EditTabValue {
+  return EDIT_TAB_VALUES.includes(value as EditTabValue)
 }
 
 export default function UserEditPage({ user }: UserEditPageProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<TabValue>('user')
+  const [activeTab, setActiveTab] = useState<EditTabValue>(EDIT_TABS.USER)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // User form
   const userForm = useForm<UserFormData>({
     mode: 'onChange',
     resolver: zodResolver(userSchema) as Resolver<UserFormData>,
@@ -72,7 +69,6 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     },
   })
 
-  // Campaign form
   const campaignForm = useForm<CampaignFormData>({
     mode: 'onChange',
     resolver: zodResolver(campaignSchema) as Resolver<CampaignFormData>,
@@ -92,7 +88,6 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     },
   })
 
-  // Campaign Details form
   const detailsForm = useForm<CampaignDetailsFormData>({
     mode: 'onChange',
     resolver: zodResolver(
@@ -127,7 +122,6 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     },
   })
 
-  // Path to Victory form
   const p2vForm = useForm<PathToVictoryFormData>({
     mode: 'onChange',
     resolver: zodResolver(
@@ -172,7 +166,6 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     },
   })
 
-  // Elected Office form
   const electedOfficeForm = useForm<ElectedOfficeFormData>({
     mode: 'onChange',
     resolver: zodResolver(
@@ -188,7 +181,6 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     },
   })
 
-  // Check if elected office exists (would come from API)
   const hasElectedOffice = user.didWin === true
 
   function handleTabChange(value: string) {
@@ -202,8 +194,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   }
 
   function handleSave() {
-    if (activeTab === 'campaign') {
-      // Campaign tab has two forms - validate and save both
+    if (activeTab === EDIT_TABS.CAMPAIGN) {
       const campaignData = campaignForm.getValues()
       const detailsData = detailsForm.getValues()
 
@@ -224,15 +215,18 @@ export default function UserEditPage({ user }: UserEditPageProps) {
         details: detailsData,
       })
     } else {
-      // Other tabs have single forms
       const formConfig = {
-        user: { form: userForm, schema: userSchema, endpoint: '/users/:id' },
-        p2v: {
+        [EDIT_TABS.USER]: {
+          form: userForm,
+          schema: userSchema,
+          endpoint: '/users/:id',
+        },
+        [EDIT_TABS.P2V]: {
           form: p2vForm,
           schema: pathToVictorySchema,
           endpoint: '/path-to-victory/:id',
         },
-        'elected-office': {
+        [EDIT_TABS.ELECTED_OFFICE]: {
           form: electedOfficeForm,
           schema: electedOfficeSchema,
           endpoint: '/elected-offices/:id',
@@ -252,17 +246,14 @@ export default function UserEditPage({ user }: UserEditPageProps) {
       console.log(`[${formConfig.endpoint}] Saving:`, data)
     }
 
-    // Show success message
     setSaveSuccess(true)
     setTimeout(() => {
       setSaveSuccess(false)
     }, 2000)
   }
 
-  // Calculate dirty and valid states based on active tab
   const getFormState = () => {
-    if (activeTab === 'campaign') {
-      // Both forms must be valid, at least one must be dirty
+    if (activeTab === EDIT_TABS.CAMPAIGN) {
       const isDirty =
         campaignForm.formState.isDirty || detailsForm.formState.isDirty
       const isValid =
@@ -271,9 +262,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
     }
 
     const formMap = {
-      user: userForm,
-      p2v: p2vForm,
-      'elected-office': electedOfficeForm,
+      [EDIT_TABS.USER]: userForm,
+      [EDIT_TABS.P2V]: p2vForm,
+      [EDIT_TABS.ELECTED_OFFICE]: electedOfficeForm,
     }
     const form = formMap[activeTab]
     return {
@@ -316,14 +307,16 @@ export default function UserEditPage({ user }: UserEditPageProps) {
 
       <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
         <Tabs.List mb="4">
-          <Tabs.Trigger value="user">User</Tabs.Trigger>
-          <Tabs.Trigger value="campaign">Campaign</Tabs.Trigger>
-          <Tabs.Trigger value="p2v">Path to Victory</Tabs.Trigger>
-          <Tabs.Trigger value="elected-office">Elected Office</Tabs.Trigger>
+          <Tabs.Trigger value={EDIT_TABS.USER}>User</Tabs.Trigger>
+          <Tabs.Trigger value={EDIT_TABS.CAMPAIGN}>Campaign</Tabs.Trigger>
+          <Tabs.Trigger value={EDIT_TABS.P2V}>Path to Victory</Tabs.Trigger>
+          <Tabs.Trigger value={EDIT_TABS.ELECTED_OFFICE}>
+            Elected Office
+          </Tabs.Trigger>
         </Tabs.List>
 
         <Box pt="4">
-          <Tabs.Content value="user">
+          <Tabs.Content value={EDIT_TABS.USER}>
             <UserForm
               register={userForm.register}
               errors={userForm.formState.errors}
@@ -332,7 +325,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             />
           </Tabs.Content>
 
-          <Tabs.Content value="campaign">
+          <Tabs.Content value={EDIT_TABS.CAMPAIGN}>
             <Flex direction="column" gap="6">
               <CampaignForm
                 register={campaignForm.register}
@@ -349,7 +342,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             </Flex>
           </Tabs.Content>
 
-          <Tabs.Content value="p2v">
+          <Tabs.Content value={EDIT_TABS.P2V}>
             <PathToVictoryForm
               register={p2vForm.register}
               watch={p2vForm.watch}
@@ -357,7 +350,7 @@ export default function UserEditPage({ user }: UserEditPageProps) {
             />
           </Tabs.Content>
 
-          <Tabs.Content value="elected-office">
+          <Tabs.Content value={EDIT_TABS.ELECTED_OFFICE}>
             <ElectedOfficeForm
               register={electedOfficeForm.register}
               watch={electedOfficeForm.watch}
