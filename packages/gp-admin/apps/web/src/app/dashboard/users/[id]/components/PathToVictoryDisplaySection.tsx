@@ -218,9 +218,11 @@ export function PathToVictoryDisplaySection() {
                 Incumbent
               </Text>
               <Badge
-                color={p2v.viability.isIncumbent === 'true' ? 'green' : 'gray'}
+                color={
+                  String(p2v.viability.isIncumbent) === 'true' ? 'green' : 'gray'
+                }
               >
-                {p2v.viability.isIncumbent === 'true' ? 'Yes' : 'No'}
+                {String(p2v.viability.isIncumbent) === 'true' ? 'Yes' : 'No'}
               </Badge>
             </Flex>
             <Flex justify="between" align="center">
@@ -229,10 +231,12 @@ export function PathToVictoryDisplaySection() {
               </Text>
               <Badge
                 color={
-                  p2v.viability.isUncontested === 'true' ? 'amber' : 'gray'
+                  String(p2v.viability.isUncontested) === 'true'
+                    ? 'amber'
+                    : 'gray'
                 }
               >
-                {p2v.viability.isUncontested === 'true' ? 'Yes' : 'No'}
+                {String(p2v.viability.isUncontested) === 'true' ? 'Yes' : 'No'}
               </Badge>
             </Flex>
           </Flex>

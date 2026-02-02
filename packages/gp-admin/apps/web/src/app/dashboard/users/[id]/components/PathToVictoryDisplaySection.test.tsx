@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { PathToVictoryDisplaySection } from './PathToVictoryDisplaySection'
-import { renderWithUser, mockUserNoP2V } from './test-utils'
+import { renderWithUser, mockUser, mockUserNoP2V } from './test-utils'
 
 describe('PathToVictoryDisplaySection', () => {
   describe('when P2V data exists', () => {
@@ -210,6 +210,86 @@ describe('PathToVictoryDisplaySection', () => {
         renderWithUser(<PathToVictoryDisplaySection />)
 
         expect(screen.getByText('Uncontested')).toBeInTheDocument()
+      })
+
+      it('displays "Yes" for isIncumbent when value is string "true"', () => {
+        const userWithIncumbent: typeof mockUser = {
+          ...mockUser,
+          pathToVictory: {
+            ...mockUser.pathToVictory,
+            data: {
+              ...mockUser.pathToVictory.data,
+              viability: {
+                ...mockUser.pathToVictory.data.viability!,
+                isIncumbent: 'true',
+              },
+            },
+          },
+        }
+        renderWithUser(<PathToVictoryDisplaySection />, userWithIncumbent)
+
+        const incumbentRow = screen.getByText('Incumbent').closest('div')
+        expect(incumbentRow).toHaveTextContent('Yes')
+      })
+
+      it('displays "Yes" for isIncumbent when value is boolean true', () => {
+        const userWithIncumbentBool: typeof mockUser = {
+          ...mockUser,
+          pathToVictory: {
+            ...mockUser.pathToVictory,
+            data: {
+              ...mockUser.pathToVictory.data,
+              viability: {
+                ...mockUser.pathToVictory.data.viability!,
+                isIncumbent: true as unknown as string,
+              },
+            },
+          },
+        }
+        renderWithUser(<PathToVictoryDisplaySection />, userWithIncumbentBool)
+
+        const incumbentRow = screen.getByText('Incumbent').closest('div')
+        expect(incumbentRow).toHaveTextContent('Yes')
+      })
+
+      it('displays "Yes" for isUncontested when value is string "true"', () => {
+        const userUncontested: typeof mockUser = {
+          ...mockUser,
+          pathToVictory: {
+            ...mockUser.pathToVictory,
+            data: {
+              ...mockUser.pathToVictory.data,
+              viability: {
+                ...mockUser.pathToVictory.data.viability!,
+                isUncontested: 'true',
+              },
+            },
+          },
+        }
+        renderWithUser(<PathToVictoryDisplaySection />, userUncontested)
+
+        const uncontestedRow = screen.getByText('Uncontested').closest('div')
+        expect(uncontestedRow).toHaveTextContent('Yes')
+      })
+
+      it('displays "Yes" for isUncontested when value is boolean true', () => {
+        const userUncontestedBool: typeof mockUser = {
+          ...mockUser,
+          pathToVictory: {
+            ...mockUser.pathToVictory,
+            data: {
+              ...mockUser.pathToVictory.data,
+              viability: {
+                ...mockUser.pathToVictory.data.viability!,
+                isUncontested: true as unknown as string,
+              },
+            },
+          },
+        }
+        renderWithUser(<PathToVictoryDisplaySection />, userUncontestedBool)
+
+        const uncontestedRow = screen.getByText('Uncontested').closest('div')
+        expect(uncontestedRow).toHaveTextContent('Yes')
       })
     })
   })
