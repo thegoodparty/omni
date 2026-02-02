@@ -95,7 +95,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   // Campaign Details form
   const detailsForm = useForm<CampaignDetailsFormData>({
     mode: 'onChange',
-    resolver: zodResolver(campaignDetailsSchema) as Resolver<CampaignDetailsFormData>,
+    resolver: zodResolver(
+      campaignDetailsSchema
+    ) as Resolver<CampaignDetailsFormData>,
     defaultValues: {
       state: user.details.state ?? '',
       city: user.details.city ?? '',
@@ -128,7 +130,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   // Path to Victory form
   const p2vForm = useForm<PathToVictoryFormData>({
     mode: 'onChange',
-    resolver: zodResolver(pathToVictorySchema) as Resolver<PathToVictoryFormData>,
+    resolver: zodResolver(
+      pathToVictorySchema
+    ) as Resolver<PathToVictoryFormData>,
     defaultValues: {
       p2vStatus: user.pathToVictory?.data?.p2vStatus as 'Complete' | undefined,
       electionType: user.pathToVictory?.data?.electionType ?? '',
@@ -171,7 +175,9 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   // Elected Office form
   const electedOfficeForm = useForm<ElectedOfficeFormData>({
     mode: 'onChange',
-    resolver: zodResolver(electedOfficeSchema) as Resolver<ElectedOfficeFormData>,
+    resolver: zodResolver(
+      electedOfficeSchema
+    ) as Resolver<ElectedOfficeFormData>,
     defaultValues: {
       electedDate: null,
       swornInDate: null,
@@ -213,13 +219,24 @@ export default function UserEditPage({ user }: UserEditPageProps) {
         return
       }
 
-      console.log('[/campaigns/:id] Saving:', { ...campaignData, details: detailsData })
+      console.log('[/campaigns/:id] Saving:', {
+        ...campaignData,
+        details: detailsData,
+      })
     } else {
       // Other tabs have single forms
       const formConfig = {
         user: { form: userForm, schema: userSchema, endpoint: '/users/:id' },
-        p2v: { form: p2vForm, schema: pathToVictorySchema, endpoint: '/path-to-victory/:id' },
-        'elected-office': { form: electedOfficeForm, schema: electedOfficeSchema, endpoint: '/elected-offices/:id' },
+        p2v: {
+          form: p2vForm,
+          schema: pathToVictorySchema,
+          endpoint: '/path-to-victory/:id',
+        },
+        'elected-office': {
+          form: electedOfficeForm,
+          schema: electedOfficeSchema,
+          endpoint: '/elected-offices/:id',
+        },
       }[activeTab]
 
       if (!formConfig) return
@@ -246,8 +263,10 @@ export default function UserEditPage({ user }: UserEditPageProps) {
   const getFormState = () => {
     if (activeTab === 'campaign') {
       // Both forms must be valid, at least one must be dirty
-      const isDirty = campaignForm.formState.isDirty || detailsForm.formState.isDirty
-      const isValid = campaignForm.formState.isValid && detailsForm.formState.isValid
+      const isDirty =
+        campaignForm.formState.isDirty || detailsForm.formState.isDirty
+      const isValid =
+        campaignForm.formState.isValid && detailsForm.formState.isValid
       return { isDirty, isValid }
     }
 

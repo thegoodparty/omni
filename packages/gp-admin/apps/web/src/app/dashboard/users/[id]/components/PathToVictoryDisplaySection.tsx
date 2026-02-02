@@ -228,7 +228,9 @@ export function PathToVictoryDisplaySection() {
                 Uncontested
               </Text>
               <Badge
-                color={p2v.viability.isUncontested === 'true' ? 'amber' : 'gray'}
+                color={
+                  p2v.viability.isUncontested === 'true' ? 'amber' : 'gray'
+                }
               >
                 {p2v.viability.isUncontested === 'true' ? 'Yes' : 'No'}
               </Badge>
