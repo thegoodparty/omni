@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { Container, Flex, Box, Tabs, Separator } from '@radix-ui/themes'
 import { UserProvider } from '../UserProvider'
 import { UserHeader } from './UserHeader'
-import { UserBasicInfoSection } from './UserBasicInfoSection'
-import { CampaignDetailsSection } from './CampaignDetailsSection'
-import { PathToVictorySection } from './PathToVictorySection'
+import { UserInfoSection } from './UserInfoSection'
+import { CampaignStatusSection } from './CampaignStatusSection'
+import { CampaignDetailsDisplaySection } from './CampaignDetailsDisplaySection'
+import { PathToVictoryDisplaySection } from './PathToVictoryDisplaySection'
+import { ElectedOfficeSection } from './ElectedOfficeSection'
 import { VoterOutreachSection } from './VoterOutreachSection'
 import { TopIssuesSection } from './TopIssuesSection'
 import { CampaignPlanStatusSection } from './CampaignPlanStatusSection'
@@ -20,9 +22,10 @@ interface UserDetailPageProps {
 }
 
 const TAB_VALUES = [
-  'overview',
+  'user',
   'campaign',
   'p2v',
+  'elected-office',
   'content',
   'integrations',
 ] as const
@@ -34,7 +37,7 @@ function isTabValue(value: string): value is TabValue {
 }
 
 export default function UserDetailPage({ user }: UserDetailPageProps) {
-  const [activeTab, setActiveTab] = useState<TabValue>('overview')
+  const [activeTab, setActiveTab] = useState<TabValue>('user')
 
   function handleTabChange(value: string) {
     if (isTabValue(value)) {
@@ -53,23 +56,25 @@ export default function UserDetailPage({ user }: UserDetailPageProps) {
 
         <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
           <Tabs.List mb="4">
-            <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+            <Tabs.Trigger value="user">User</Tabs.Trigger>
             <Tabs.Trigger value="campaign">Campaign</Tabs.Trigger>
             <Tabs.Trigger value="p2v">Path to Victory</Tabs.Trigger>
+            <Tabs.Trigger value="elected-office">Elected Office</Tabs.Trigger>
             <Tabs.Trigger value="content">Content</Tabs.Trigger>
             <Tabs.Trigger value="integrations">Integrations</Tabs.Trigger>
           </Tabs.List>
 
           <Box pt="4">
-            <Tabs.Content value="overview">
+            <Tabs.Content value="user">
               <Flex direction="column" gap="6">
-                <UserBasicInfoSection />
+                <UserInfoSection />
               </Flex>
             </Tabs.Content>
 
             <Tabs.Content value="campaign">
               <Flex direction="column" gap="6">
-                <CampaignDetailsSection />
+                <CampaignStatusSection />
+                <CampaignDetailsDisplaySection />
                 <TopIssuesSection />
                 <CampaignPlanStatusSection />
                 <CustomVoterFilesSection />
@@ -78,8 +83,14 @@ export default function UserDetailPage({ user }: UserDetailPageProps) {
 
             <Tabs.Content value="p2v">
               <Flex direction="column" gap="6">
-                <PathToVictorySection />
+                <PathToVictoryDisplaySection />
                 <VoterOutreachSection />
+              </Flex>
+            </Tabs.Content>
+
+            <Tabs.Content value="elected-office">
+              <Flex direction="column" gap="6">
+                <ElectedOfficeSection />
               </Flex>
             </Tabs.Content>
 
