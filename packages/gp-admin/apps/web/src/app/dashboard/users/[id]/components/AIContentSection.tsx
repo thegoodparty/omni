@@ -18,7 +18,7 @@ function isAIContentItem(
 export function AIContentSection() {
   const user = useUser()
   const [selectedContent, setSelectedContent] = useState<string | null>(null)
-  // AI content is stored in user.data.aiContent, not user.aiContent
+
   const aiContent = user.data.aiContent || user.aiContent
   if (!aiContent) return null
 
