@@ -157,9 +157,14 @@ export default function UserEditPage({ user }: UserEditPageProps) {
           user.pathToVictory?.data?.viability?.isIncumbent === 'true',
         isUncontested:
           user.pathToVictory?.data?.viability?.isUncontested === 'true',
-        candidates: undefined,
+        candidates: user.pathToVictory?.data?.viability?.candidates
+          ? Number(user.pathToVictory.data.viability.candidates)
+          : undefined,
         seats: user.pathToVictory?.data?.viability?.seats ?? undefined,
-        candidatesPerSeat: undefined,
+        candidatesPerSeat: user.pathToVictory?.data?.viability
+          ?.candidatesPerSeat
+          ? Number(user.pathToVictory.data.viability.candidatesPerSeat)
+          : undefined,
         score: user.pathToVictory?.data?.viability?.score ?? undefined,
         probOfWin: undefined,
       },
