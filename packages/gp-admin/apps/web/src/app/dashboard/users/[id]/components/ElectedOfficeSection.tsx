@@ -10,7 +10,6 @@ import { DataRow } from './DataRow'
 export function ElectedOfficeSection() {
   const user = useUser()
 
-  // Check if user has elected office (based on didWin flag)
   const hasElectedOffice = user.didWin === true
 
   if (!hasElectedOffice) {

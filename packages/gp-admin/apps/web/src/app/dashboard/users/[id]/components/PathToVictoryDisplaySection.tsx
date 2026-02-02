@@ -2,6 +2,7 @@
 
 import { Grid, Text, Box, Flex, Progress, Badge } from '@radix-ui/themes'
 import { useUser } from '../UserProvider'
+import { P2V_STATUS_VALUES } from '../constants'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 import { formatNumberForDisplay } from '@/lib/utils/number'
@@ -32,7 +33,9 @@ export function PathToVictoryDisplaySection() {
       <InfoCard title="P2V Status">
         <DataRow label="Status">
           <Badge
-            color={p2v.p2vStatus === 'Complete' ? 'green' : 'orange'}
+            color={
+              p2v.p2vStatus === P2V_STATUS_VALUES.COMPLETE ? 'green' : 'orange'
+            }
             variant="soft"
           >
             {p2v.p2vStatus || 'Not set'}
