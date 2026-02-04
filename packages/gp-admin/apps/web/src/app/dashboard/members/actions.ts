@@ -1,17 +1,8 @@
 'use server'
 
 import { auth, clerkClient } from '@clerk/nextjs/server'
-import { OrganizationMembership, OrganizationInvitation, createClerkClient } from '@clerk/backend'
+import { OrganizationMembership, OrganizationInvitation } from '@clerk/backend'
 import { ROLES, PERMISSIONS } from '@/lib/permissions'
-
-const { GP_WEBAPP_CLERK_PUBLISHABLE_KEY, GP_WEBAPP_CLERK_SECRET_KEY } =
-  process.env
-
-const gpWebAppClerkClient = createClerkClient({
-  secretKey: GP_WEBAPP_CLERK_SECRET_KEY,
-})
-
-console.log(`gpWebAppClerkClient =>`, gpWebAppClerkClient)
 
 type ActionResult<T = void> =
   | { success: true; data?: T }
