@@ -12,6 +12,15 @@ interface P2VFormProps {
   setValue: UseFormSetValue<PathToVictoryFormData>
 }
 
+// Convert empty/NaN values to undefined to match default values
+const numberFieldOptions = {
+  setValueAs: (v: string) => {
+    if (v === '' || v === null || v === undefined) return undefined
+    const num = Number(v)
+    return isNaN(num) ? undefined : num
+  },
+}
+
 export function P2VForm({ register, watch, setValue }: P2VFormProps) {
   return (
     <Flex direction="column" gap="4">
@@ -69,7 +78,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Win Number
               </Text>
               <TextField.Root
-                {...register('winNumber')}
+                {...register('winNumber', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -79,7 +88,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Voter Contact Goal
               </Text>
               <TextField.Root
-                {...register('voterContactGoal')}
+                {...register('voterContactGoal', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -92,7 +101,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Total Registered Voters
               </Text>
               <TextField.Root
-                {...register('totalRegisteredVoters')}
+                {...register('totalRegisteredVoters', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -102,7 +111,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Projected Turnout
               </Text>
               <TextField.Root
-                {...register('projectedTurnout')}
+                {...register('projectedTurnout', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -112,7 +121,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Average Turnout
               </Text>
               <TextField.Root
-                {...register('averageTurnout')}
+                {...register('averageTurnout', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -128,7 +137,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Republicans
             </Text>
             <TextField.Root
-              {...register('republicans')}
+              {...register('republicans', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -138,7 +147,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Democrats
             </Text>
             <TextField.Root
-              {...register('democrats')}
+              {...register('democrats', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -148,7 +157,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Independents
             </Text>
             <TextField.Root
-              {...register('indies')}
+              {...register('indies', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -163,7 +172,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Men
             </Text>
             <TextField.Root
-              {...register('men')}
+              {...register('men', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -173,7 +182,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Women
             </Text>
             <TextField.Root
-              {...register('women')}
+              {...register('women', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -188,7 +197,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               White
             </Text>
             <TextField.Root
-              {...register('white')}
+              {...register('white', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -198,7 +207,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Asian
             </Text>
             <TextField.Root
-              {...register('asian')}
+              {...register('asian', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -208,7 +217,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               African American
             </Text>
             <TextField.Root
-              {...register('africanAmerican')}
+              {...register('africanAmerican', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -218,7 +227,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               Hispanic
             </Text>
             <TextField.Root
-              {...register('hispanic')}
+              {...register('hispanic', numberFieldOptions)}
               type="number"
               placeholder="0"
             />
@@ -243,7 +252,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Seats
               </Text>
               <TextField.Root
-                {...register('viability.seats')}
+                {...register('viability.seats', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -253,7 +262,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Candidates
               </Text>
               <TextField.Root
-                {...register('viability.candidates')}
+                {...register('viability.candidates', numberFieldOptions)}
                 type="number"
                 placeholder="0"
               />
@@ -266,7 +275,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Candidates/Seat
               </Text>
               <TextField.Root
-                {...register('viability.candidatesPerSeat')}
+                {...register('viability.candidatesPerSeat', numberFieldOptions)}
                 type="number"
                 step="0.01"
                 placeholder="0"
@@ -277,7 +286,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Score
               </Text>
               <TextField.Root
-                {...register('viability.score')}
+                {...register('viability.score', numberFieldOptions)}
                 type="number"
                 step="0.01"
                 placeholder="0"
@@ -288,7 +297,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
                 Prob. of Win
               </Text>
               <TextField.Root
-                {...register('viability.probOfWin')}
+                {...register('viability.probOfWin', numberFieldOptions)}
                 type="number"
                 step="0.01"
                 placeholder="0"

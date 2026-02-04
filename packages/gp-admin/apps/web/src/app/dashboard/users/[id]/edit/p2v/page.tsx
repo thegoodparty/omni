@@ -5,7 +5,7 @@ import { useForm, Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { stubbedPathToVictory } from '@/data/stubbed-p2v'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
 import {
@@ -67,6 +67,29 @@ export default function EditP2VPage() {
   })
 
   useUnsavedChangesWarning(form.formState.isDirty)
+
+  // Debug: Log dirty state and which fields are dirty
+  useEffect(() => {
+    const defaultVals = form.formState.defaultValues
+    const currentVals = form.getValues()
+    console.log('[P2V Form Debug]', {
+      isDirty: form.formState.isDirty,
+      dirtyFields: form.formState.dirtyFields,
+    })
+    // Deep compare each field
+    if (defaultVals) {
+      Object.keys(currentVals).forEach((key) => {
+        const defaultVal = defaultVals[key as keyof typeof defaultVals]
+        const currentVal = currentVals[key as keyof typeof currentVals]
+        if (JSON.stringify(defaultVal) !== JSON.stringify(currentVal)) {
+          console.log(`[MISMATCH] ${key}:`, {
+            default: defaultVal,
+            current: currentVal,
+          })
+        }
+      })
+    }
+  }, [form.formState.isDirty, form.formState.dirtyFields, form])
 
   function handleCancel() {
     router.push(`/dashboard/users/${stubbedCampaign.userId}/p2v`)
