@@ -1,15 +1,17 @@
 'use client'
 
 import { Grid, Text, Box, Flex, Progress, Badge } from '@radix-ui/themes'
-import { useUser } from '../UserProvider'
 import { P2V_STATUS_VALUES } from '../constants'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 import { formatNumberForDisplay } from '@/lib/utils/number'
+import type { PathToVictory } from '../types'
 
-export function PathToVictoryDisplaySection() {
-  const user = useUser()
-  const p2v = user.pathToVictory?.data
+interface P2VSectionProps {
+  p2v: PathToVictory | null
+}
+
+export function P2VSection({ p2v }: P2VSectionProps) {
   if (!p2v) {
     return (
       <InfoCard title="Path to Victory">
@@ -20,11 +22,12 @@ export function PathToVictoryDisplaySection() {
     )
   }
 
-  const totalRegistered = p2v.totalRegisteredVoters || 0
+  const data = p2v.data
+  const totalRegistered = data.totalRegisteredVoters || 0
   const winNumber =
-    typeof p2v.winNumber === 'string'
-      ? parseFloat(p2v.winNumber)
-      : p2v.winNumber || 0
+    typeof data.winNumber === 'string'
+      ? parseFloat(data.winNumber)
+      : data.winNumber || 0
   const winPercentage =
     totalRegistered > 0 ? (winNumber / totalRegistered) * 100 : 0
 
@@ -34,17 +37,17 @@ export function PathToVictoryDisplaySection() {
         <DataRow label="Status">
           <Badge
             color={
-              p2v.p2vStatus === P2V_STATUS_VALUES.COMPLETE ? 'green' : 'orange'
+              data.p2vStatus === P2V_STATUS_VALUES.COMPLETE ? 'green' : 'orange'
             }
             variant="soft"
           >
-            {p2v.p2vStatus || 'Not set'}
+            {data.p2vStatus || 'Not set'}
           </Badge>
         </DataRow>
-        <DataRow label="Election Type">{p2v.electionType}</DataRow>
-        <DataRow label="Election Location">{p2v.electionLocation}</DataRow>
-        <DataRow label="Source">{p2v.source}</DataRow>
-        <DataRow label="P2V Complete Date">{p2v.p2vCompleteDate}</DataRow>
+        <DataRow label="Election Type">{data.electionType}</DataRow>
+        <DataRow label="Election Location">{data.electionLocation}</DataRow>
+        <DataRow label="Source">{data.source}</DataRow>
+        <DataRow label="P2V Complete Date">{data.p2vCompleteDate}</DataRow>
       </InfoCard>
 
       <InfoCard title="Target Numbers">
@@ -64,16 +67,16 @@ export function PathToVictoryDisplaySection() {
             </Text>
           </Box>
           <DataRow label="Voter Contact Goal">
-            {formatNumberForDisplay(p2v.voterContactGoal)}
+            {formatNumberForDisplay(data.voterContactGoal)}
           </DataRow>
           <DataRow label="Total Registered Voters">
-            {formatNumberForDisplay(p2v.totalRegisteredVoters)}
+            {formatNumberForDisplay(data.totalRegisteredVoters)}
           </DataRow>
           <DataRow label="Projected Turnout">
-            {formatNumberForDisplay(p2v.projectedTurnout)}
+            {formatNumberForDisplay(data.projectedTurnout)}
           </DataRow>
           <DataRow label="Average Turnout">
-            {formatNumberForDisplay(p2v.averageTurnout)}
+            {formatNumberForDisplay(data.averageTurnout)}
           </DataRow>
         </Flex>
       </InfoCard>
@@ -86,13 +89,13 @@ export function PathToVictoryDisplaySection() {
                 Republicans
               </Text>
               <Text size="2" weight="medium">
-                {formatNumberForDisplay(p2v.republicans)}
+                {formatNumberForDisplay(data.republicans)}
               </Text>
             </Flex>
             <Progress
               value={
                 totalRegistered > 0
-                  ? ((p2v.republicans || 0) / totalRegistered) * 100
+                  ? ((data.republicans || 0) / totalRegistered) * 100
                   : 0
               }
               max={100}
@@ -105,13 +108,13 @@ export function PathToVictoryDisplaySection() {
                 Democrats
               </Text>
               <Text size="2" weight="medium">
-                {formatNumberForDisplay(p2v.democrats)}
+                {formatNumberForDisplay(data.democrats)}
               </Text>
             </Flex>
             <Progress
               value={
                 totalRegistered > 0
-                  ? ((p2v.democrats || 0) / totalRegistered) * 100
+                  ? ((data.democrats || 0) / totalRegistered) * 100
                   : 0
               }
               max={100}
@@ -124,13 +127,13 @@ export function PathToVictoryDisplaySection() {
                 Independents
               </Text>
               <Text size="2" weight="medium">
-                {formatNumberForDisplay(p2v.indies)}
+                {formatNumberForDisplay(data.indies)}
               </Text>
             </Flex>
             <Progress
               value={
                 totalRegistered > 0
-                  ? ((p2v.indies || 0) / totalRegistered) * 100
+                  ? ((data.indies || 0) / totalRegistered) * 100
                   : 0
               }
               max={100}
@@ -144,7 +147,7 @@ export function PathToVictoryDisplaySection() {
         <Grid columns="2" gap="3">
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.men)}
+              {formatNumberForDisplay(data.men)}
             </Text>
             <Text as="p" size="1" color="gray">
               Men
@@ -152,7 +155,7 @@ export function PathToVictoryDisplaySection() {
           </Box>
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.women)}
+              {formatNumberForDisplay(data.women)}
             </Text>
             <Text as="p" size="1" color="gray">
               Women
@@ -165,7 +168,7 @@ export function PathToVictoryDisplaySection() {
         <Grid columns="2" gap="3">
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.white)}
+              {formatNumberForDisplay(data.white)}
             </Text>
             <Text as="p" size="1" color="gray">
               White
@@ -173,7 +176,7 @@ export function PathToVictoryDisplaySection() {
           </Box>
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.asian)}
+              {formatNumberForDisplay(data.asian)}
             </Text>
             <Text as="p" size="1" color="gray">
               Asian
@@ -181,7 +184,7 @@ export function PathToVictoryDisplaySection() {
           </Box>
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.africanAmerican)}
+              {formatNumberForDisplay(data.africanAmerican)}
             </Text>
             <Text as="p" size="1" color="gray">
               African American
@@ -189,7 +192,7 @@ export function PathToVictoryDisplaySection() {
           </Box>
           <Box p="3" className="bg-[var(--gray-2)] rounded-md text-center">
             <Text as="p" size="4" weight="bold">
-              {formatNumberForDisplay(p2v.hispanic)}
+              {formatNumberForDisplay(data.hispanic)}
             </Text>
             <Text as="p" size="1" color="gray">
               Hispanic
@@ -198,22 +201,22 @@ export function PathToVictoryDisplaySection() {
         </Grid>
       </InfoCard>
 
-      {p2v.viability && (
+      {data.viability && (
         <InfoCard title="Viability Analysis">
-          <DataRow label="Level">{p2v.viability.level}</DataRow>
-          <DataRow label="Score">{p2v.viability.score}</DataRow>
-          <DataRow label="Seats">{p2v.viability.seats}</DataRow>
-          <DataRow label="Candidates">{p2v.viability.candidates}</DataRow>
+          <DataRow label="Level">{data.viability.level}</DataRow>
+          <DataRow label="Score">{data.viability.score}</DataRow>
+          <DataRow label="Seats">{data.viability.seats}</DataRow>
+          <DataRow label="Candidates">{data.viability.candidates}</DataRow>
           <DataRow label="Candidates Per Seat">
-            {p2v.viability.candidatesPerSeat}
+            {data.viability.candidatesPerSeat}
           </DataRow>
           <Flex direction="column" gap="2" mt="2">
             <Flex justify="between" align="center">
               <Text size="2" color="gray">
                 Partisan
               </Text>
-              <Badge color={p2v.viability.isPartisan ? 'blue' : 'gray'}>
-                {p2v.viability.isPartisan ? 'Yes' : 'No'}
+              <Badge color={data.viability.isPartisan ? 'blue' : 'gray'}>
+                {data.viability.isPartisan ? 'Yes' : 'No'}
               </Badge>
             </Flex>
             <Flex justify="between" align="center">
@@ -222,12 +225,12 @@ export function PathToVictoryDisplaySection() {
               </Text>
               <Badge
                 color={
-                  String(p2v.viability.isIncumbent) === 'true'
+                  String(data.viability.isIncumbent) === 'true'
                     ? 'green'
                     : 'gray'
                 }
               >
-                {String(p2v.viability.isIncumbent) === 'true' ? 'Yes' : 'No'}
+                {String(data.viability.isIncumbent) === 'true' ? 'Yes' : 'No'}
               </Badge>
             </Flex>
             <Flex justify="between" align="center">
@@ -236,12 +239,12 @@ export function PathToVictoryDisplaySection() {
               </Text>
               <Badge
                 color={
-                  String(p2v.viability.isUncontested) === 'true'
+                  String(data.viability.isUncontested) === 'true'
                     ? 'amber'
                     : 'gray'
                 }
               >
-                {String(p2v.viability.isUncontested) === 'true' ? 'Yes' : 'No'}
+                {String(data.viability.isUncontested) === 'true' ? 'Yes' : 'No'}
               </Badge>
             </Flex>
           </Flex>

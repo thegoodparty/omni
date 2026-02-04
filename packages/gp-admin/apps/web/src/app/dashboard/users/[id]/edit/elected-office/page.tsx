@@ -1,0 +1,107 @@
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useForm, Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
+import { HiCheck, HiX } from 'react-icons/hi'
+import { useState } from 'react'
+import { stubbedElectedOffice } from '@/data/stubbed-elected-office'
+import { stubbedCampaign } from '@/data/stubbed-campaign'
+import { electedOfficeSchema, type ElectedOfficeFormData } from '../schema'
+import { ElectedOfficeForm } from '../components/ElectedOfficeForm'
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning'
+
+export default function EditElectedOfficePage() {
+  const router = useRouter()
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  const hasElectedOffice = stubbedCampaign.didWin === true
+  const electedOffice = hasElectedOffice ? stubbedElectedOffice : null
+
+  const form = useForm<ElectedOfficeFormData>({
+    mode: 'onChange',
+    resolver: zodResolver(
+      electedOfficeSchema
+    ) as Resolver<ElectedOfficeFormData>,
+    defaultValues: {
+      electedDate: electedOffice?.electedDate ?? null,
+      swornInDate: electedOffice?.swornInDate ?? null,
+      termStartDate: electedOffice?.termStartDate ?? null,
+      termLengthDays: electedOffice?.termLengthDays ?? null,
+      termEndDate: electedOffice?.termEndDate ?? null,
+      isActive: electedOffice?.isActive ?? true,
+    },
+  })
+
+  useUnsavedChangesWarning(form.formState.isDirty)
+
+  function handleCancel() {
+    router.push(`/dashboard/users/${stubbedCampaign.userId}/elected-office`)
+  }
+
+  function handleSave() {
+    const data = form.getValues()
+    const result = electedOfficeSchema.safeParse(data)
+
+    if (!result.success) {
+      console.error('Validation errors:', result.error)
+      return
+    }
+
+    console.log('[PATCH /elected-offices/:id] Saving:', data)
+
+    setSaveSuccess(true)
+    setTimeout(() => {
+      setSaveSuccess(false)
+    }, 2000)
+  }
+
+  const { isDirty, isValid } = form.formState
+
+  return (
+    <>
+      {saveSuccess && (
+        <Callout.Root color="green" mb="4">
+          <Callout.Icon>
+            <HiCheck />
+          </Callout.Icon>
+          <Callout.Text>Changes saved (simulated)</Callout.Text>
+        </Callout.Root>
+      )}
+
+      <ElectedOfficeForm
+        register={form.register}
+        watch={form.watch}
+        setValue={form.setValue}
+        hasElectedOffice={hasElectedOffice}
+      />
+
+      {hasElectedOffice && (
+        <>
+          <Separator size="4" my="6" />
+
+          <Flex gap="3" justify="end">
+            <Button
+              type="button"
+              variant="soft"
+              color="gray"
+              onClick={handleCancel}
+            >
+              <HiX className="w-4 h-4" />
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={!isValid || !isDirty}
+            >
+              <HiCheck className="w-4 h-4" />
+              Save Changes
+            </Button>
+          </Flex>
+        </>
+      )}
+    </>
+  )
+}

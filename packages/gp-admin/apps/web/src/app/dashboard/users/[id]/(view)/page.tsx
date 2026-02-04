@@ -1,6 +1,6 @@
 import { Metadata } from 'next'
-import UserDetailPage from './components/UserDetailPage'
 import { stubbedUser } from '@/data/stubbed-user'
+import { UserSection } from '../components/UserSection'
 
 export const metadata: Metadata = {
   title: 'User Details | GP Admin',
@@ -12,7 +12,9 @@ interface PageProps {
 }
 
 export default async function Page({ params }: PageProps) {
-  // TODO: Replace stubbed data with API call using params.id
-  void params // Params will be used when API is connected
-  return <UserDetailPage user={stubbedUser} />
+  const { id } = await params
+  // TODO: Replace stubbed data with API call using id
+  void id // Will be used when API is connected
+
+  return <UserSection user={stubbedUser} />
 }

@@ -6,17 +6,13 @@ import type { PathToVictoryFormData } from '../schema'
 import { P2V_STATUS } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 
-interface PathToVictoryFormProps {
+interface P2VFormProps {
   register: UseFormRegister<PathToVictoryFormData>
   watch: UseFormWatch<PathToVictoryFormData>
   setValue: UseFormSetValue<PathToVictoryFormData>
 }
 
-export function PathToVictoryForm({
-  register,
-  watch,
-  setValue,
-}: PathToVictoryFormProps) {
+export function P2VForm({ register, watch, setValue }: P2VFormProps) {
   return (
     <Flex direction="column" gap="4">
       <InfoCard title="P2V Status">
