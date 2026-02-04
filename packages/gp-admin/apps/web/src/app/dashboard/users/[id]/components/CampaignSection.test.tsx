@@ -196,4 +196,197 @@ describe('CampaignSection', () => {
     expect(screen.getByText('Door Knocking')).toBeInTheDocument()
     expect(screen.getByText('GOTV')).toBeInTheDocument()
   })
+
+  it('does not render custom voter files when empty', () => {
+    const campaignNoVoterFiles: Campaign = {
+      ...mockCampaign,
+      data: { ...mockCampaign.data, customVoterFiles: [] },
+    }
+
+    render(<CampaignSection campaign={campaignNoVoterFiles} />)
+
+    expect(screen.queryByText('Custom Voter Files')).not.toBeInTheDocument()
+  })
+
+  it('does not render custom issues when empty', () => {
+    const campaignNoCustomIssues: Campaign = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, customIssues: [] },
+    }
+
+    render(<CampaignSection campaign={campaignNoCustomIssues} />)
+
+    expect(screen.queryByText('Custom Issues')).not.toBeInTheDocument()
+  })
+
+  it('does not render campaign plan status when missing', () => {
+    const campaignNoPlanStatus: Campaign = {
+      ...mockCampaign,
+      data: { ...mockCampaign.data, campaignPlanStatus: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNoPlanStatus} />)
+
+    expect(screen.queryByText('Campaign Plan Status')).not.toBeInTheDocument()
+  })
+
+  it('renders failed campaign plan status with red badge', () => {
+    const campaignFailedPlan: Campaign = {
+      ...mockCampaign,
+      data: {
+        ...mockCampaign.data,
+        campaignPlanStatus: {
+          why: { status: 'failed', createdAt: 2678400000 },
+        },
+      },
+    }
+
+    render(<CampaignSection campaign={campaignFailedPlan} />)
+
+    expect(screen.getByText('failed')).toBeInTheDocument()
+  })
+
+  it('renders pending campaign plan status with orange badge', () => {
+    const campaignPendingPlan: Campaign = {
+      ...mockCampaign,
+      data: {
+        ...mockCampaign.data,
+        campaignPlanStatus: {
+          why: { status: 'pending', createdAt: 2678400000 },
+        },
+      },
+    }
+
+    render(<CampaignSection campaign={campaignPendingPlan} />)
+
+    expect(screen.getByText('pending')).toBeInTheDocument()
+  })
+
+  it('renders not launched status when launchStatus is missing', () => {
+    const campaignNotLaunched: Campaign = {
+      ...mockCampaign,
+      data: { ...mockCampaign.data, launchStatus: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNotLaunched} />)
+
+    expect(screen.getByText('Not launched')).toBeInTheDocument()
+  })
+
+  it('renders dateVerified when present', () => {
+    const campaignVerified: Campaign = {
+      ...mockCampaign,
+      dateVerified: '2024-06-15T12:00:00.000Z',
+    }
+
+    render(<CampaignSection campaign={campaignVerified} />)
+
+    expect(screen.getByText('Jun 15, 2024')).toBeInTheDocument()
+  })
+
+  it('renders tier when present', () => {
+    const campaignWithTier: Campaign = {
+      ...mockCampaign,
+      tier: 'WIN',
+    }
+
+    render(<CampaignSection campaign={campaignWithTier} />)
+
+    expect(screen.getByText('WIN')).toBeInTheDocument()
+  })
+
+  it('renders Not set when ballotLevel is missing', () => {
+    const campaignNoBallotLevel: Campaign = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, ballotLevel: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNoBallotLevel} />)
+
+    expect(screen.getAllByText('Not set')).toHaveLength(1)
+  })
+
+  it('renders Not set when level is missing', () => {
+    const campaignNoLevel: Campaign = {
+      ...mockCampaign,
+      details: {
+        ...mockCampaign.details,
+        ballotLevel: 'CITY',
+        level: undefined,
+      },
+    }
+
+    render(<CampaignSection campaign={campaignNoLevel} />)
+
+    expect(screen.getAllByText('Not set')).toHaveLength(1)
+  })
+
+  it('renders No for hasPrimary when false', () => {
+    const campaignNoPrimary: Campaign = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, hasPrimary: false },
+    }
+
+    render(<CampaignSection campaign={campaignNoPrimary} />)
+
+    // Find the hasPrimary "No" badge
+    const electionCard = screen.getByText('Election').closest('div')
+    expect(electionCard).toBeInTheDocument()
+  })
+
+  it('renders No for pledged when false', () => {
+    const campaignNotPledged: Campaign = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, pledged: false },
+    }
+
+    render(<CampaignSection campaign={campaignNotPledged} />)
+
+    // Component renders without error
+    expect(screen.getByText('Party & Background')).toBeInTheDocument()
+  })
+
+  it('does not render top issues when positions array is empty', () => {
+    const campaignEmptyPositions: Campaign = {
+      ...mockCampaign,
+      details: {
+        ...mockCampaign.details,
+        topIssues: { positions: [] },
+      },
+    }
+
+    render(<CampaignSection campaign={campaignEmptyPositions} />)
+
+    expect(screen.queryByText('Top Issues')).not.toBeInTheDocument()
+  })
+
+  it('renders top issue without position detail when not present', () => {
+    const campaignNoPositionDetail: Campaign = {
+      ...mockCampaign,
+      details: {
+        ...mockCampaign.details,
+        topIssues: {
+          positions: [
+            {
+              id: 999,
+              name: 'Test Position',
+              topIssue: {
+                id: 1,
+                name: 'Test Issue',
+                createdAt: 123,
+                updatedAt: 123,
+              },
+              createdAt: 123,
+              updatedAt: 123,
+            },
+          ],
+        },
+      },
+    }
+
+    render(<CampaignSection campaign={campaignNoPositionDetail} />)
+
+    expect(screen.getByText('Test Issue')).toBeInTheDocument()
+    expect(screen.getByText('Test Position')).toBeInTheDocument()
+  })
 })

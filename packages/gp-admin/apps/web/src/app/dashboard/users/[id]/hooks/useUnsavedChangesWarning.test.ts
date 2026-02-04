@@ -296,5 +296,63 @@ describe('useUnsavedChangesWarning', () => {
 
       document.body.removeChild(anchor)
     })
+
+    it('handles relative href by converting to absolute path', async () => {
+      const { useUnsavedChangesWarning: hook } =
+        await import('./useUnsavedChangesWarning')
+      confirmSpy.mockReturnValue(true)
+
+      renderHook(() => hook(true))
+
+      const anchor = document.createElement('a')
+      anchor.setAttribute('href', 'other-page')
+      document.body.appendChild(anchor)
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      anchor.dispatchEvent(clickEvent)
+
+      expect(confirmSpy).toHaveBeenCalled()
+
+      document.body.removeChild(anchor)
+    })
+
+    it('does not show confirm for anchor without href', async () => {
+      const { useUnsavedChangesWarning: hook } =
+        await import('./useUnsavedChangesWarning')
+
+      renderHook(() => hook(true))
+
+      const anchor = document.createElement('a')
+      document.body.appendChild(anchor)
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      anchor.dispatchEvent(clickEvent)
+
+      expect(confirmSpy).not.toHaveBeenCalled()
+
+      document.body.removeChild(anchor)
+    })
+
+    it('does not re-register listeners on subsequent hook calls', async () => {
+      const { useUnsavedChangesWarning: hook } =
+        await import('./useUnsavedChangesWarning')
+
+      // First render
+      const { unmount } = renderHook(() => hook(false))
+
+      const initialCallCount = addEventListenerSpy.mock.calls.filter(
+        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
+      ).length
+
+      // Second render (should not add more listeners)
+      unmount()
+      renderHook(() => hook(false))
+
+      const finalCallCount = addEventListenerSpy.mock.calls.filter(
+        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
+      ).length
+
+      expect(finalCallCount).toBe(initialCallCount)
+    })
   })
 })

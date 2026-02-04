@@ -147,5 +147,135 @@ describe('P2VSection', () => {
 
       expect(screen.queryByText('Viability Analysis')).not.toBeInTheDocument()
     })
+
+    it('handles zero total registered voters', () => {
+      const p2vZeroVoters: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          totalRegisteredVoters: 0,
+          republicans: 0,
+          democrats: 0,
+          indies: 0,
+        },
+      }
+
+      render(<P2VSection p2v={p2vZeroVoters} />)
+
+      // Should render with 0.0% of registered voters
+      expect(screen.getByText('0.0% of registered voters')).toBeInTheDocument()
+    })
+
+    it('renders non-complete P2V status', () => {
+      const p2vPending: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          p2vStatus: 'Pending',
+        },
+      }
+
+      render(<P2VSection p2v={p2vPending} />)
+
+      expect(screen.getByText('Pending')).toBeInTheDocument()
+    })
+
+    it('renders Not set when p2vStatus is missing', () => {
+      const p2vNoStatus: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          p2vStatus: undefined,
+        },
+      }
+
+      render(<P2VSection p2v={p2vNoStatus} />)
+
+      expect(screen.getByText('Not set')).toBeInTheDocument()
+    })
+
+    it('renders viability with isPartisan true', () => {
+      const p2vPartisan: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          viability: {
+            ...mockP2V.data.viability!,
+            isPartisan: true,
+          },
+        },
+      }
+
+      render(<P2VSection p2v={p2vPartisan} />)
+
+      expect(screen.getByText('Viability Analysis')).toBeInTheDocument()
+    })
+
+    it('renders viability with isIncumbent true', () => {
+      const p2vIncumbent: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          viability: {
+            ...mockP2V.data.viability!,
+            isIncumbent: 'true',
+          },
+        },
+      }
+
+      render(<P2VSection p2v={p2vIncumbent} />)
+
+      expect(screen.getByText('Viability Analysis')).toBeInTheDocument()
+    })
+
+    it('renders viability with isUncontested true', () => {
+      const p2vUncontested: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          viability: {
+            ...mockP2V.data.viability!,
+            isUncontested: 'true',
+          },
+        },
+      }
+
+      render(<P2VSection p2v={p2vUncontested} />)
+
+      expect(screen.getByText('Viability Analysis')).toBeInTheDocument()
+    })
+
+    it('handles missing winNumber', () => {
+      const p2vNoWin: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          winNumber: undefined,
+        },
+      }
+
+      render(<P2VSection p2v={p2vNoWin} />)
+
+      // Should render with 0 win number
+      expect(screen.getByText('Win Number')).toBeInTheDocument()
+    })
+
+    it('handles missing party affiliation data', () => {
+      const p2vNoPartyData: PathToVictory = {
+        ...mockP2V,
+        data: {
+          ...mockP2V.data,
+          republicans: undefined,
+          democrats: undefined,
+          indies: undefined,
+        },
+      }
+
+      render(<P2VSection p2v={p2vNoPartyData} />)
+
+      expect(screen.getByText('Republicans')).toBeInTheDocument()
+      expect(screen.getByText('Democrats')).toBeInTheDocument()
+      expect(screen.getByText('Independents')).toBeInTheDocument()
+    })
   })
 })
