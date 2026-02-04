@@ -48,6 +48,7 @@ export function TabNavigation({
           <Link
             key={key}
             href={`${basePath}${route}`}
+            aria-current={active ? 'page' : undefined}
             className={`
               px-4 py-3 text-sm font-medium transition-colors
               border-b-2 -mb-[1px]
