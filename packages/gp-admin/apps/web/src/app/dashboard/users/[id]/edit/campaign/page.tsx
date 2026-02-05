@@ -1,8 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { SuccessCallout } from '@/components/SuccessCallout'
+import { useToast } from '@/components/Toast'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
 import {
   CampaignEditForm,
@@ -11,15 +10,11 @@ import {
 
 export default function EditCampaignPage() {
   const router = useRouter()
-  const [saveSuccess, setSaveSuccess] = useState(false)
+  const { showToast } = useToast()
 
   function handleSave(data: CombinedCampaignFormData) {
     console.log('[PATCH /campaigns/:id] Saving:', data)
-
-    setSaveSuccess(true)
-    setTimeout(() => {
-      setSaveSuccess(false)
-    }, 2000)
+    showToast('Changes saved (simulated)')
   }
 
   function handleCancel() {
@@ -27,17 +22,10 @@ export default function EditCampaignPage() {
   }
 
   return (
-    <>
-      <SuccessCallout
-        visible={saveSuccess}
-        message="Changes saved (simulated)"
-      />
-
-      <CampaignEditForm
-        initialData={stubbedCampaign}
-        onSave={handleSave}
-        onCancel={handleCancel}
-      />
-    </>
+    <CampaignEditForm
+      initialData={stubbedCampaign}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
   )
 }

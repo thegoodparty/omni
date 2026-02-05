@@ -120,7 +120,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     const newRoles = currentRoles.includes(role)
       ? currentRoles.filter((r) => r !== role)
       : [...currentRoles, role]
-    setValue('roles', newRoles)
+    setValue('roles', newRoles, { shouldDirty: true })
   }
 
   function getError(key: FieldPath) {
@@ -187,7 +187,9 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
               <Switch
                 checked={watch('metaData.textNotifications') ?? false}
                 onCheckedChange={(checked) =>
-                  setValue('metaData.textNotifications', checked)
+                  setValue('metaData.textNotifications', checked, {
+                    shouldDirty: true,
+                  })
                 }
               />
             </Flex>

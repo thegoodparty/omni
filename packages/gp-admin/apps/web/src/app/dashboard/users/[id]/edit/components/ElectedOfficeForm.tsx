@@ -154,7 +154,9 @@ export function ElectedOfficeForm({
             </Text>
             <Switch
               checked={watch('isActive') ?? false}
-              onCheckedChange={(checked) => setValue('isActive', checked)}
+              onCheckedChange={(checked) =>
+                setValue('isActive', checked, { shouldDirty: true })
+              }
             />
           </Flex>
         </InfoCard>

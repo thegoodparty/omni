@@ -1,8 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { SuccessCallout } from '@/components/SuccessCallout'
+import { useToast } from '@/components/Toast'
 import { stubbedPathToVictory } from '@/data/stubbed-p2v'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
 import { P2VForm } from '../components/P2VForm'
@@ -10,15 +9,11 @@ import type { PathToVictoryFormData } from '../schema'
 
 export default function EditP2VPage() {
   const router = useRouter()
-  const [saveSuccess, setSaveSuccess] = useState(false)
+  const { showToast } = useToast()
 
   function handleSave(data: PathToVictoryFormData) {
     console.log('[PATCH /path-to-victory/:id] Saving:', data)
-
-    setSaveSuccess(true)
-    setTimeout(() => {
-      setSaveSuccess(false)
-    }, 2000)
+    showToast('Changes saved (simulated)')
   }
 
   function handleCancel() {
@@ -26,17 +21,10 @@ export default function EditP2VPage() {
   }
 
   return (
-    <>
-      <SuccessCallout
-        visible={saveSuccess}
-        message="Changes saved (simulated)"
-      />
-
-      <P2VForm
-        initialData={stubbedPathToVictory}
-        onSave={handleSave}
-        onCancel={handleCancel}
-      />
-    </>
+    <P2VForm
+      initialData={stubbedPathToVictory}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
   )
 }

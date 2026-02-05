@@ -117,7 +117,7 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
 
   function handleStatusChange(value: string) {
     if (isP2VStatus(value)) {
-      setValue('p2vStatus', value)
+      setValue('p2vStatus', value, { shouldDirty: true })
     }
   }
 
@@ -125,7 +125,7 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
     field: 'isPartisan' | 'isIncumbent' | 'isUncontested',
     checked: boolean
   ) {
-    setValue(`viability.${field}`, checked)
+    setValue(`viability.${field}`, checked, { shouldDirty: true })
   }
 
   return (

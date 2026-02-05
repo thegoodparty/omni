@@ -166,34 +166,34 @@ export function CampaignEditForm({
   }
 
   function handleStatusFlagChange(key: StatusFlagKey, checked: boolean) {
-    setValue(key, checked)
+    setValue(key, checked, { shouldDirty: true })
   }
 
   function handleTierChange(value: string) {
     if (value === SELECT_NONE_VALUE) {
-      setValue('tier', null)
+      setValue('tier', null, { shouldDirty: true })
     } else if (isCampaignTier(value)) {
-      setValue('tier', value)
+      setValue('tier', value, { shouldDirty: true })
     }
   }
 
   function handleLaunchStatusChange(value: string) {
     if (isLaunchStatus(value)) {
-      setValue('data.launchStatus', value)
+      setValue('data.launchStatus', value, { shouldDirty: true })
     }
   }
 
   function handleBallotLevelChange(value: string) {
     if (isBallotLevel(value)) {
-      setValue('details.ballotLevel', value)
+      setValue('details.ballotLevel', value, { shouldDirty: true })
     }
   }
 
   function handleElectionLevelChange(value: string) {
     if (value === SELECT_NONE_VALUE) {
-      setValue('details.level', null)
+      setValue('details.level', null, { shouldDirty: true })
     } else if (isElectionLevel(value)) {
-      setValue('details.level', value)
+      setValue('details.level', value, { shouldDirty: true })
     }
   }
 
@@ -571,7 +571,7 @@ export function CampaignEditForm({
                 <Switch
                   checked={watch('details.pledged') ?? false}
                   onCheckedChange={(checked) =>
-                    setValue('details.pledged', checked)
+                    setValue('details.pledged', checked, { shouldDirty: true })
                   }
                 />
               </Flex>
