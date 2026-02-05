@@ -88,6 +88,24 @@ export interface Opponent {
   description: string
 }
 
+export interface CampaignFinance {
+  ein?: boolean
+  filing?: boolean
+  management?: boolean
+  regulatory?: boolean
+}
+
+export interface CampaignPlan {
+  why?: string
+  slogan?: string
+  aboutMe?: string
+  messageBox?: string
+  mobilizing?: string
+  pathToVictory?: string
+  policyPlatform?: string
+  communicationsStrategy?: string
+}
+
 export interface CampaignDetails {
   state?: string
   ballotLevel?: BallotReadyPositionLevel
@@ -196,10 +214,9 @@ export interface CampaignData {
   image?: string
   launch?: Record<string, boolean>
   social?: { completed: boolean }
-  finance?: Record<string, boolean>
+  finance?: CampaignFinance
   profile?: { completed: boolean }
-  aiContent?: Record<string, AiContentItem>
-  campaignPlan?: Record<string, string>
+  campaignPlan?: CampaignPlan
   hasVoterFile?: string
   pathToVictory?: PathToVictoryData
   campaignPlanStatus?: Record<string, CampaignPlanStatus>

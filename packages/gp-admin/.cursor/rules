@@ -2,6 +2,39 @@
 
 Avoid obvious comments that just explains what the code does
 
+### Explicit Types Over Record
+
+Avoid `Record<string, T>` when the keys are known. Define explicit interfaces instead:
+
+```typescript
+// ❌ Bad: Generic Record loses type information
+interface CampaignData {
+  finance?: Record<string, boolean>
+  campaignPlan?: Record<string, string>
+}
+
+// ✅ Good: Explicit interface with known keys
+interface CampaignFinance {
+  ein?: boolean
+  filing?: boolean
+  management?: boolean
+  regulatory?: boolean
+}
+
+interface CampaignPlan {
+  why?: string
+  slogan?: string
+  aboutMe?: string
+}
+
+interface CampaignData {
+  finance?: CampaignFinance
+  campaignPlan?: CampaignPlan
+}
+```
+
+Benefits: autocomplete, compile-time error checking, self-documenting code. Only use `Record<K, V>` when keys are truly dynamic (user-generated IDs, localization keys).
+
 ### Constants Over String Literals
 
 Prefer using exported constants over string literals, especially for values used in multiple places or as function arguments. This improves type safety, enables autocomplete, and makes refactoring easier.

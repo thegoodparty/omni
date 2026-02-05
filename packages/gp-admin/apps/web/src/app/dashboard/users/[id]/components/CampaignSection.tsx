@@ -1,41 +1,140 @@
 'use client'
 
 import { Grid, Text, Badge, Flex, Box, Table } from '@radix-ui/themes'
-import { formatDate } from '@/lib/utils/date'
 import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
-import { DataRow } from './DataRow'
+import { FieldList } from './FieldList'
 import type { Campaign } from '../types'
+import type { FieldConfig } from '../types/field-config'
 import { CAMPAIGN_PLAN_STATUS } from '@/types/campaign'
 
 interface CampaignSectionProps {
   campaign: Campaign
 }
 
-type StatusFlagKey =
-  | 'isActive'
-  | 'isVerified'
-  | 'isPro'
-  | 'isDemo'
-  | 'didWin'
-  | 'canDownloadFederal'
-
-interface StatusFlag {
-  key: StatusFlagKey
-  label: string
-  trueColor: 'green' | 'blue' | 'violet' | 'amber'
-}
-
-const STATUS_FLAGS: StatusFlag[] = [
-  { key: 'isActive', label: 'Active', trueColor: 'green' },
-  { key: 'isVerified', label: 'Verified', trueColor: 'blue' },
-  { key: 'isPro', label: 'Pro', trueColor: 'violet' },
-  { key: 'isDemo', label: 'Demo Account', trueColor: 'amber' },
-  { key: 'didWin', label: 'Won Election', trueColor: 'green' },
+const STATUS_FLAGS: FieldConfig[] = [
+  {
+    key: 'isActive',
+    label: 'Active',
+    type: 'boolean',
+    trueBadgeColor: 'green',
+  },
+  {
+    key: 'isVerified',
+    label: 'Verified',
+    type: 'boolean',
+    trueBadgeColor: 'blue',
+  },
+  { key: 'isPro', label: 'Pro', type: 'boolean', trueBadgeColor: 'violet' },
+  {
+    key: 'isDemo',
+    label: 'Demo Account',
+    type: 'boolean',
+    trueBadgeColor: 'amber',
+  },
+  {
+    key: 'didWin',
+    label: 'Won Election',
+    type: 'boolean',
+    trueBadgeColor: 'green',
+  },
   {
     key: 'canDownloadFederal',
     label: 'Can Download Federal',
-    trueColor: 'green',
+    type: 'boolean',
+    trueBadgeColor: 'green',
+  },
+]
+
+const TIER_FIELDS: FieldConfig[] = [
+  {
+    key: 'tier',
+    label: 'Tier',
+    type: 'badge',
+    badgeColor: 'blue',
+    fallback: 'None',
+  },
+]
+
+const CAMPAIGN_DATA_FIELDS: FieldConfig[] = [
+  { key: 'data.name', label: 'Campaign Name', type: 'text' },
+  { key: 'slug', label: 'Slug', type: 'text' },
+  {
+    key: 'data.launchStatus',
+    label: 'Launch Status',
+    type: 'badge',
+    colorMap: { [LAUNCH_STATUS.LAUNCHED]: 'green' },
+    defaultColor: 'orange',
+    fallback: LAUNCH_STATUS.NOT_LAUNCHED,
+  },
+]
+
+const TIMELINE_FIELDS: FieldConfig[] = [
+  { key: 'createdAt', label: 'Created', type: 'date' },
+  { key: 'updatedAt', label: 'Updated', type: 'date' },
+  {
+    key: 'dateVerified',
+    label: 'Date Verified',
+    type: 'date',
+    fallback: 'Not verified',
+  },
+  { key: 'data.lastVisited', label: 'Last Visited', type: 'date' },
+  { key: 'data.lastStepDate', label: 'Last Step Date', type: 'text' },
+  { key: 'data.currentStep', label: 'Current Step', type: 'text' },
+]
+
+const LOCATION_FIELDS: FieldConfig[] = [
+  { key: 'details.state', label: 'State', type: 'text' },
+  { key: 'details.city', label: 'City', type: 'text' },
+  { key: 'details.county', label: 'County', type: 'text' },
+  { key: 'details.zip', label: 'ZIP', type: 'text' },
+]
+
+const OFFICE_FIELDS: FieldConfig[] = [
+  { key: 'details.office', label: 'Office', type: 'text' },
+  { key: 'details.otherOffice', label: 'Other Office', type: 'text' },
+  {
+    key: 'details.ballotLevel',
+    label: 'Ballot Level',
+    type: 'badge',
+    badgeColor: 'blue',
+    fallback: 'Not set',
+  },
+  {
+    key: 'details.level',
+    label: 'Election Level',
+    type: 'badge',
+    badgeColor: 'iris',
+    fallback: 'Not set',
+  },
+  { key: 'details.officeTermLength', label: 'Term Length', type: 'text' },
+]
+
+const ELECTION_FIELDS: FieldConfig[] = [
+  { key: 'details.electionDate', label: 'Election Date', type: 'text' },
+  { key: 'details.partisanType', label: 'Partisan Type', type: 'text' },
+  {
+    key: 'details.hasPrimary',
+    label: 'Has Primary',
+    type: 'boolean',
+    trueBadgeColor: 'green',
+  },
+]
+
+const FILING_PERIOD_FIELDS: FieldConfig[] = [
+  { key: 'details.filingPeriodsStart', label: 'Start', type: 'text' },
+  { key: 'details.filingPeriodsEnd', label: 'End', type: 'text' },
+]
+
+const PARTY_BACKGROUND_FIELDS: FieldConfig[] = [
+  { key: 'details.party', label: 'Party', type: 'text' },
+  { key: 'details.occupation', label: 'Occupation', type: 'text' },
+  { key: 'details.website', label: 'Website', type: 'text' },
+  {
+    key: 'details.pledged',
+    label: 'Pledged',
+    type: 'boolean',
+    trueBadgeColor: 'green',
   },
 ]
 
@@ -47,110 +146,42 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
       <Grid columns={{ initial: '1', md: '2' }} gap="4">
         <InfoCard title="Campaign Status">
           <Flex direction="column" gap="3">
-            {STATUS_FLAGS.map(({ key, label, trueColor }) => {
-              const value = campaign[key]
-              const isTrue = Boolean(value)
-              return (
-                <Flex key={key} justify="between" align="center">
-                  <Text size="2" color="gray">
-                    {label}
-                  </Text>
-                  <Badge color={isTrue ? trueColor : 'gray'}>
-                    {isTrue ? 'Yes' : 'No'}
-                  </Badge>
-                </Flex>
-              )
-            })}
+            <FieldList data={campaign} fields={STATUS_FLAGS} />
           </Flex>
         </InfoCard>
 
         <InfoCard title="Campaign Tier">
-          <DataRow label="Tier">
-            <Badge color="blue" variant="soft">
-              {campaign.tier ?? 'None'}
-            </Badge>
-          </DataRow>
+          <FieldList data={campaign} fields={TIER_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Campaign Data">
-          <DataRow label="Campaign Name">{data.name}</DataRow>
-          <DataRow label="Slug">{campaign.slug}</DataRow>
-          <DataRow label="Launch Status">
-            <Badge
-              color={
-                data.launchStatus === LAUNCH_STATUS.LAUNCHED
-                  ? 'green'
-                  : 'orange'
-              }
-              variant="soft"
-            >
-              {data.launchStatus || LAUNCH_STATUS.NOT_LAUNCHED}
-            </Badge>
-          </DataRow>
+          <FieldList data={campaign} fields={CAMPAIGN_DATA_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Timeline">
-          <DataRow label="Created">{formatDate(campaign.createdAt)}</DataRow>
-          <DataRow label="Updated">{formatDate(campaign.updatedAt)}</DataRow>
-          <DataRow label="Date Verified">
-            {campaign.dateVerified
-              ? formatDate(campaign.dateVerified)
-              : 'Not verified'}
-          </DataRow>
-          <DataRow label="Last Visited">{formatDate(data.lastVisited)}</DataRow>
-          <DataRow label="Last Step Date">{data.lastStepDate}</DataRow>
-          <DataRow label="Current Step">{data.currentStep}</DataRow>
+          <FieldList data={campaign} fields={TIMELINE_FIELDS} />
         </InfoCard>
       </Grid>
 
       <Grid columns={{ initial: '1', md: '2' }} gap="4">
         <InfoCard title="Location">
-          <DataRow label="State">{details.state}</DataRow>
-          <DataRow label="City">{details.city}</DataRow>
-          <DataRow label="County">{details.county}</DataRow>
-          <DataRow label="ZIP">{details.zip}</DataRow>
+          <FieldList data={campaign} fields={LOCATION_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Office">
-          <DataRow label="Office">{details.office}</DataRow>
-          <DataRow label="Other Office">{details.otherOffice}</DataRow>
-          <DataRow label="Ballot Level">
-            <Badge color="blue" variant="soft">
-              {details.ballotLevel ?? 'Not set'}
-            </Badge>
-          </DataRow>
-          <DataRow label="Election Level">
-            <Badge color="iris" variant="soft">
-              {details.level ?? 'Not set'}
-            </Badge>
-          </DataRow>
-          <DataRow label="Term Length">{details.officeTermLength}</DataRow>
+          <FieldList data={campaign} fields={OFFICE_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Election">
-          <DataRow label="Election Date">{details.electionDate}</DataRow>
-          <DataRow label="Partisan Type">{details.partisanType}</DataRow>
-          <DataRow label="Has Primary">
-            <Badge color={details.hasPrimary ? 'green' : 'gray'} variant="soft">
-              {details.hasPrimary ? 'Yes' : 'No'}
-            </Badge>
-          </DataRow>
+          <FieldList data={campaign} fields={ELECTION_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Filing Period">
-          <DataRow label="Start">{details.filingPeriodsStart}</DataRow>
-          <DataRow label="End">{details.filingPeriodsEnd}</DataRow>
+          <FieldList data={campaign} fields={FILING_PERIOD_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Party & Background">
-          <DataRow label="Party">{details.party}</DataRow>
-          <DataRow label="Occupation">{details.occupation}</DataRow>
-          <DataRow label="Website">{details.website}</DataRow>
-          <DataRow label="Pledged">
-            <Badge color={details.pledged ? 'green' : 'gray'} variant="soft">
-              {details.pledged ? 'Yes' : 'No'}
-            </Badge>
-          </DataRow>
+          <FieldList data={campaign} fields={PARTY_BACKGROUND_FIELDS} />
         </InfoCard>
 
         {details.funFact && (

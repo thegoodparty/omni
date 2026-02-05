@@ -1,46 +1,35 @@
+// Import shared types and constants from global types
 import type {
   CustomVoterFile,
   VoterGoals,
   HubSpotUpdates,
   AiContentItem,
   CampaignPlanStatus,
+  CampaignFinance,
+  CampaignPlan,
   TopIssuePosition,
   CustomIssue,
   Opponent,
   GeoLocation,
+  BallotReadyPositionLevel,
+  ElectionLevel,
+  CampaignLaunchStatus,
+  CampaignTier,
 } from '@/types/campaign'
 
-export const CAMPAIGN_TIERS = ['WIN', 'LOSE', 'TOSSUP'] as const
-export type CampaignTier = (typeof CAMPAIGN_TIERS)[number]
+// Re-export const arrays from global types
+export {
+  BALLOT_LEVELS,
+  ELECTION_LEVELS,
+  CAMPAIGN_TIERS,
+  CAMPAIGN_LAUNCH_STATUS,
+} from '@/types/campaign'
 
-export const CAMPAIGN_LAUNCH_STATUS = [
-  'draft',
-  'launched',
-  'archived',
-  'suspended',
-] as const
-export type CampaignLaunchStatus = (typeof CAMPAIGN_LAUNCH_STATUS)[number]
+// Re-export type aliases for local usage
+export type BallotLevel = BallotReadyPositionLevel
+export type { ElectionLevel, CampaignLaunchStatus, CampaignTier }
 
-export const BALLOT_LEVELS = [
-  'CITY',
-  'COUNTY',
-  'FEDERAL',
-  'LOCAL',
-  'REGIONAL',
-  'STATE',
-  'TOWNSHIP',
-] as const
-export type BallotLevel = (typeof BALLOT_LEVELS)[number]
-
-export const ELECTION_LEVELS = [
-  'city',
-  'county',
-  'state',
-  'federal',
-  'local',
-] as const
-export type ElectionLevel = (typeof ELECTION_LEVELS)[number]
-
+// UI-focused interfaces (subset of fields needed for display)
 export interface CampaignData {
   id?: number
   name?: string
@@ -57,10 +46,9 @@ export interface CampaignData {
   team?: { completed: boolean }
   launch?: Record<string, boolean>
   social?: { completed: boolean }
-  finance?: Record<string, boolean>
+  finance?: CampaignFinance
   profile?: { completed: boolean }
-  aiContent?: Record<string, AiContentItem>
-  campaignPlan?: Record<string, string>
+  campaignPlan?: CampaignPlan
   hubSpotUpdates?: HubSpotUpdates
   customVoterFiles?: CustomVoterFile[]
   campaignPlanStatus?: Record<string, CampaignPlanStatus>
@@ -135,16 +123,20 @@ export interface Campaign {
   dateVerified: string | null
   tier: CampaignTier | null
   canDownloadFederal: boolean
+  aiContent?: Record<string, AiContentItem>
   data: CampaignData
   details: CampaignDetails
 }
 
+// Re-export utility types for consumers
 export type {
   CustomVoterFile,
   VoterGoals,
   HubSpotUpdates,
   AiContentItem,
   CampaignPlanStatus,
+  CampaignFinance,
+  CampaignPlan,
   TopIssuePosition,
   CustomIssue,
   Opponent,

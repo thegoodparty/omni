@@ -14,6 +14,25 @@ export const stubbedCampaign: Campaign = {
   dateVerified: null,
   tier: null,
   canDownloadFederal: false,
+  aiContent: {
+    launchEmail: {
+      name: 'Launch Email2',
+      content:
+        '<div class="text-black">\n    <h3 class="text-3xl font-bold mb-4">Join the Movement for a Better Future!</h3>\n    <p class="mb-4">Dear supporters and fellow citizens,</p>\n\n    <p class="mb-4">I am thrilled to announce that I am running for the position of US Senate as an Independent candidate! After careful consideration and with a burning desire to bring about real change, I am stepping up to represent the values and aspirations of the people.</p>\n</div>',
+      updatedAt: 1697481244693,
+      inputValues: {},
+    },
+    pressRelease: {
+      name: 'Press Release',
+      content:
+        '<div class="text-black">\n    \n<h2 class="text-3xl font-bold mb-6">Tomer Almog Announces Candidacy for Mayor of Los Angeles</h2>\n\n<p>Los Angeles, CA – Today, Tomer Almog officially announced his bid for the position of Mayor of Los Angeles.</p>\n</div>',
+      updatedAt: 1696954554215,
+      inputValues: {
+        'Additional instructions': '',
+        'Subject of Press Release': 'Tomer is Running for Mayor of LA',
+      },
+    },
+  },
   data: {
     id: 1,
     name: 'Tomer Almog',
@@ -38,25 +57,6 @@ export const stubbedCampaign: Campaign = {
     },
     profile: {
       completed: true,
-    },
-    aiContent: {
-      launchEmail: {
-        name: 'Launch Email2',
-        content:
-          '<div class="text-black">\n    <h3 class="text-3xl font-bold mb-4">Join the Movement for a Better Future!</h3>\n    <p class="mb-4">Dear supporters and fellow citizens,</p>\n\n    <p class="mb-4">I am thrilled to announce that I am running for the position of US Senate as an Independent candidate! After careful consideration and with a burning desire to bring about real change, I am stepping up to represent the values and aspirations of the people.</p>\n</div>',
-        updatedAt: 1697481244693,
-        inputValues: {},
-      },
-      pressRelease: {
-        name: 'Press Release',
-        content:
-          '<div class="text-black">\n    \n<h2 class="text-3xl font-bold mb-6">Tomer Almog Announces Candidacy for Mayor of Los Angeles</h2>\n\n<p>Los Angeles, CA – Today, Tomer Almog officially announced his bid for the position of Mayor of Los Angeles.</p>\n</div>',
-        updatedAt: 1696954554215,
-        inputValues: {
-          'Additional instructions': '',
-          'Subject of Press Release': 'Tomer is Running for Mayor of LA',
-        },
-      },
     },
     hubspotId: '31012600096',
     currentStep: 'onboarding-complete',
