@@ -16,7 +16,7 @@ export default async function EditLayout({
 }: EditLayoutProps) {
   const { id } = await params
   // TODO: Replace stubbed data with API call using id
-  void id // Will be used when API is connected
+  void id
   const headerData = stubbedUserHeader
 
   return (

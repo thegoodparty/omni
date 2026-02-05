@@ -1,25 +1,64 @@
 'use client'
 
 import { TextField, Text, Box, Flex, Switch, Checkbox } from '@radix-ui/themes'
-import {
-  UseFormRegister,
-  FieldErrors,
-  UseFormWatch,
-  UseFormSetValue,
-} from 'react-hook-form'
+import { useFormContext, type Path } from 'react-hook-form'
 import type { UserFormData } from '../schema'
 import { USER_ROLES } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
+import {
+  INPUT_TYPE,
+  ROLE_DISPLAY_NAMES,
+  USER_FORM_SECTIONS,
+  type InputType,
+} from '../constants'
 
-interface UserFormProps {
-  register: UseFormRegister<UserFormData>
-  errors: FieldErrors<UserFormData>
-  watch: UseFormWatch<UserFormData>
-  setValue: UseFormSetValue<UserFormData>
+type FieldPath = Path<UserFormData>
+
+interface FieldConfig {
+  key: FieldPath
+  label: string
+  placeholder: string
+  type?: InputType
+  hasError?: boolean
 }
 
-export function UserForm({ register, errors, watch, setValue }: UserFormProps) {
+const BASIC_INFO_FIELDS: FieldConfig[] = [
+  { key: 'firstName', label: 'First Name', placeholder: 'First name' },
+  { key: 'lastName', label: 'Last Name', placeholder: 'Last name' },
+  { key: 'name', label: 'Display Name', placeholder: 'Display name' },
+  {
+    key: 'email',
+    label: 'Email',
+    placeholder: 'email@example.com',
+    type: INPUT_TYPE.EMAIL,
+    hasError: true,
+  },
+  { key: 'phone', label: 'Phone', placeholder: 'Phone' },
+  { key: 'zip', label: 'ZIP Code', placeholder: 'ZIP' },
+  {
+    key: 'avatar',
+    label: 'Avatar URL',
+    placeholder: 'https://...',
+    hasError: true,
+  },
+]
+
+const USER_SETTINGS_FIELDS: FieldConfig[] = [
+  {
+    key: 'metaData.hubspotId',
+    label: 'HubSpot ID',
+    placeholder: 'HubSpot contact ID',
+  },
+]
+
+export function UserForm() {
+  const {
+    register,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useFormContext<UserFormData>()
   const currentRoles = watch('roles') ?? []
 
   function toggleRole(role: (typeof USER_ROLES)[number]) {
@@ -29,81 +68,43 @@ export function UserForm({ register, errors, watch, setValue }: UserFormProps) {
     setValue('roles', newRoles)
   }
 
+  function getError(key: FieldPath) {
+    if (key === 'email') return errors.email
+    if (key === 'avatar') return errors.avatar
+    return undefined
+  }
+
+  function renderFields(fields: FieldConfig[]) {
+    return (
+      <Flex gap="4" wrap="wrap">
+        {fields.map(({ key, label, placeholder, type, hasError }) => {
+          const error = hasError ? getError(key) : undefined
+          return (
+            <Box key={key} flexGrow="1" style={{ minWidth: '200px' }}>
+              <Text as="label" size="2" weight="medium" mb="1">
+                {label}
+              </Text>
+              <TextField.Root
+                {...register(key)}
+                type={type}
+                placeholder={placeholder}
+                color={error ? 'red' : undefined}
+              />
+              {error && <ErrorText>{error.message}</ErrorText>}
+            </Box>
+          )
+        })}
+      </Flex>
+    )
+  }
+
   return (
     <Flex direction="column" gap="4">
-      <InfoCard title="Basic Information">
-        <Flex direction="column" gap="4">
-          <Flex gap="4" wrap="wrap">
-            <Box flexGrow="1" style={{ minWidth: '200px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                First Name
-              </Text>
-              <TextField.Root
-                {...register('firstName')}
-                placeholder="First name"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '200px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Last Name
-              </Text>
-              <TextField.Root
-                {...register('lastName')}
-                placeholder="Last name"
-              />
-            </Box>
-          </Flex>
-
-          <Box>
-            <Text as="label" size="2" weight="medium" mb="1">
-              Display Name
-            </Text>
-            <TextField.Root {...register('name')} placeholder="Display name" />
-          </Box>
-
-          <Box>
-            <Text as="label" size="2" weight="medium" mb="1">
-              Email
-            </Text>
-            <TextField.Root
-              {...register('email')}
-              type="email"
-              placeholder="email@example.com"
-              color={errors.email ? 'red' : undefined}
-            />
-            {errors.email && <ErrorText>{errors.email.message}</ErrorText>}
-          </Box>
-
-          <Flex gap="4" wrap="wrap">
-            <Box flexGrow="1" style={{ minWidth: '200px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Phone
-              </Text>
-              <TextField.Root {...register('phone')} placeholder="Phone" />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '150px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                ZIP Code
-              </Text>
-              <TextField.Root {...register('zip')} placeholder="ZIP" />
-            </Box>
-          </Flex>
-
-          <Box>
-            <Text as="label" size="2" weight="medium" mb="1">
-              Avatar URL
-            </Text>
-            <TextField.Root
-              {...register('avatar')}
-              placeholder="https://..."
-              color={errors.avatar ? 'red' : undefined}
-            />
-            {errors.avatar && <ErrorText>{errors.avatar.message}</ErrorText>}
-          </Box>
-        </Flex>
+      <InfoCard title={USER_FORM_SECTIONS.BASIC_INFO}>
+        {renderFields(BASIC_INFO_FIELDS)}
       </InfoCard>
 
-      <InfoCard title="Roles">
+      <InfoCard title={USER_FORM_SECTIONS.ROLES}>
         <Flex direction="column" gap="3">
           {USER_ROLES.map((role) => (
             <Flex key={role} align="center" gap="2">
@@ -112,24 +113,16 @@ export function UserForm({ register, errors, watch, setValue }: UserFormProps) {
                 onCheckedChange={() => toggleRole(role)}
               />
               <Text size="2" style={{ textTransform: 'capitalize' }}>
-                {role === 'campaignManager' ? 'Campaign Manager' : role}
+                {ROLE_DISPLAY_NAMES[role] ?? role}
               </Text>
             </Flex>
           ))}
         </Flex>
       </InfoCard>
 
-      <InfoCard title="User Settings">
+      <InfoCard title={USER_FORM_SECTIONS.USER_SETTINGS}>
         <Flex direction="column" gap="4">
-          <Box>
-            <Text as="label" size="2" weight="medium" mb="1">
-              HubSpot ID
-            </Text>
-            <TextField.Root
-              {...register('metaData.hubspotId')}
-              placeholder="HubSpot contact ID"
-            />
-          </Box>
+          {renderFields(USER_SETTINGS_FIELDS)}
 
           <Flex justify="between" align="center">
             <Text as="label" size="2">

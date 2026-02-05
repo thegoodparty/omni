@@ -14,7 +14,7 @@ interface PageProps {
 export default async function CampaignPage({ params }: PageProps) {
   const { id } = await params
   // TODO: Replace stubbed data with API call using id
-  void id // Will be used when API is connected
+  void id
 
   return <CampaignSection campaign={stubbedCampaign} />
 }

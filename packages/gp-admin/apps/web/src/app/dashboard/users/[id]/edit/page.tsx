@@ -1,13 +1,14 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useForm, Resolver } from 'react-hook-form'
+import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
 import { useState } from 'react'
 import { stubbedUser } from '@/data/stubbed-user'
 import { userSchema, type UserFormData } from './schema'
+import { FORM_MODE } from './constants'
 import { UserForm } from './components/UserForm'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 
@@ -16,8 +17,8 @@ export default function EditUserPage() {
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   const form = useForm<UserFormData>({
-    mode: 'onChange',
-    resolver: zodResolver(userSchema) as Resolver<UserFormData>,
+    mode: FORM_MODE.ON_CHANGE,
+    resolver: zodResolver(userSchema),
     defaultValues: {
       firstName: stubbedUser.firstName ?? '',
       lastName: stubbedUser.lastName ?? '',
@@ -70,12 +71,9 @@ export default function EditUserPage() {
         </Callout.Root>
       )}
 
-      <UserForm
-        register={form.register}
-        errors={form.formState.errors}
-        watch={form.watch}
-        setValue={form.setValue}
-      />
+      <FormProvider {...form}>
+        <UserForm />
+      </FormProvider>
 
       <Separator size="4" my="6" />
 

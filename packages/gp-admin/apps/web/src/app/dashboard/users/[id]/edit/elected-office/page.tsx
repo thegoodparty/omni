@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useForm, Resolver } from 'react-hook-form'
+import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
@@ -11,6 +11,7 @@ import { stubbedCampaign } from '@/data/stubbed-campaign'
 import { electedOfficeSchema, type ElectedOfficeFormData } from '../schema'
 import { ElectedOfficeForm } from '../components/ElectedOfficeForm'
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning'
+import { FORM_MODE } from '../constants'
 
 export default function EditElectedOfficePage() {
   const router = useRouter()
@@ -20,10 +21,8 @@ export default function EditElectedOfficePage() {
   const electedOffice = hasElectedOffice ? stubbedElectedOffice : null
 
   const form = useForm<ElectedOfficeFormData>({
-    mode: 'onChange',
-    resolver: zodResolver(
-      electedOfficeSchema
-    ) as Resolver<ElectedOfficeFormData>,
+    mode: FORM_MODE.ON_CHANGE,
+    resolver: zodResolver(electedOfficeSchema),
     defaultValues: {
       electedDate: electedOffice?.electedDate ?? null,
       swornInDate: electedOffice?.swornInDate ?? null,
@@ -70,12 +69,9 @@ export default function EditElectedOfficePage() {
         </Callout.Root>
       )}
 
-      <ElectedOfficeForm
-        register={form.register}
-        watch={form.watch}
-        setValue={form.setValue}
-        hasElectedOffice={hasElectedOffice}
-      />
+      <FormProvider {...form}>
+        <ElectedOfficeForm hasElectedOffice={hasElectedOffice} />
+      </FormProvider>
 
       {hasElectedOffice && (
         <>

@@ -12,18 +12,32 @@ interface CampaignSectionProps {
   campaign: Campaign
 }
 
-const STATUS_FLAGS = [
-  { key: 'isActive', label: 'Active', trueColor: 'green' as const },
-  { key: 'isVerified', label: 'Verified', trueColor: 'blue' as const },
-  { key: 'isPro', label: 'Pro', trueColor: 'violet' as const },
-  { key: 'isDemo', label: 'Demo Account', trueColor: 'amber' as const },
-  { key: 'didWin', label: 'Won Election', trueColor: 'green' as const },
+type StatusFlagKey =
+  | 'isActive'
+  | 'isVerified'
+  | 'isPro'
+  | 'isDemo'
+  | 'didWin'
+  | 'canDownloadFederal'
+
+interface StatusFlag {
+  key: StatusFlagKey
+  label: string
+  trueColor: 'green' | 'blue' | 'violet' | 'amber'
+}
+
+const STATUS_FLAGS: StatusFlag[] = [
+  { key: 'isActive', label: 'Active', trueColor: 'green' },
+  { key: 'isVerified', label: 'Verified', trueColor: 'blue' },
+  { key: 'isPro', label: 'Pro', trueColor: 'violet' },
+  { key: 'isDemo', label: 'Demo Account', trueColor: 'amber' },
+  { key: 'didWin', label: 'Won Election', trueColor: 'green' },
   {
     key: 'canDownloadFederal',
     label: 'Can Download Federal',
-    trueColor: 'green' as const,
+    trueColor: 'green',
   },
-] as const
+]
 
 export function CampaignSection({ campaign }: CampaignSectionProps) {
   const { data, details } = campaign
@@ -34,7 +48,7 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
         <InfoCard title="Campaign Status">
           <Flex direction="column" gap="3">
             {STATUS_FLAGS.map(({ key, label, trueColor }) => {
-              const value = campaign[key as keyof typeof campaign]
+              const value = campaign[key]
               const isTrue = Boolean(value)
               return (
                 <Flex key={key} justify="between" align="center">

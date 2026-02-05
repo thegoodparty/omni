@@ -1,23 +1,16 @@
 'use client'
 
 import { TextField, Text, Box, Flex, Switch, Select } from '@radix-ui/themes'
-import {
-  UseFormRegister,
-  FieldErrors,
-  UseFormWatch,
-  UseFormSetValue,
-} from 'react-hook-form'
+import { useFormContext } from 'react-hook-form'
 import type { CampaignFormData } from '../schema'
 import { CAMPAIGN_TIERS, CAMPAIGN_LAUNCH_STATUS } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
-
-interface CampaignFormProps {
-  register: UseFormRegister<CampaignFormData>
-  errors: FieldErrors<CampaignFormData>
-  watch: UseFormWatch<CampaignFormData>
-  setValue: UseFormSetValue<CampaignFormData>
-}
+import {
+  INPUT_TYPE,
+  CAMPAIGN_FORM_SECTIONS,
+  SELECT_NONE_VALUE,
+} from '../constants'
 
 const STATUS_FLAGS = [
   { name: 'isActive', label: 'Active' },
@@ -28,15 +21,17 @@ const STATUS_FLAGS = [
   { name: 'canDownloadFederal', label: 'Can Download Federal' },
 ] as const
 
-export function CampaignForm({
-  register,
-  errors,
-  watch,
-  setValue,
-}: CampaignFormProps) {
+export function CampaignForm() {
+  const {
+    register,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useFormContext<CampaignFormData>()
+
   return (
     <Flex direction="column" gap="4">
-      <InfoCard title="Campaign Status">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.STATUS}>
         <Flex direction="column" gap="4">
           {STATUS_FLAGS.map(({ name, label }) => (
             <Flex key={name} justify="between" align="center">
@@ -53,17 +48,17 @@ export function CampaignForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Campaign Tier">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.TIER}>
         <Flex direction="column" gap="1">
           <Text as="label" size="2" weight="medium">
             Tier
           </Text>
           <Select.Root
-            value={watch('tier') ?? '__none__'}
+            value={watch('tier') ?? SELECT_NONE_VALUE}
             onValueChange={(value) =>
               setValue(
                 'tier',
-                value === '__none__'
+                value === SELECT_NONE_VALUE
                   ? null
                   : (value as (typeof CAMPAIGN_TIERS)[number])
               )
@@ -71,7 +66,7 @@ export function CampaignForm({
           >
             <Select.Trigger placeholder="Select tier..." />
             <Select.Content>
-              <Select.Item value="__none__">None</Select.Item>
+              <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
               {CAMPAIGN_TIERS.map((tier) => (
                 <Select.Item key={tier} value={tier}>
                   {tier}
@@ -82,7 +77,7 @@ export function CampaignForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Campaign Data">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.DATA}>
         <Flex direction="column" gap="4">
           <Box>
             <Text as="label" size="2" weight="medium" mb="1">
@@ -124,7 +119,7 @@ export function CampaignForm({
             </Text>
             <TextField.Root
               {...register('data.adminUserEmail')}
-              type="email"
+              type={INPUT_TYPE.EMAIL}
               placeholder="admin@example.com"
               color={errors.data?.adminUserEmail ? 'red' : undefined}
             />

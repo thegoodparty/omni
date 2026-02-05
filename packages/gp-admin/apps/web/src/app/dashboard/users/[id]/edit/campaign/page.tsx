@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useForm, Resolver } from 'react-hook-form'
+import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
@@ -19,14 +19,15 @@ import {
 import { CampaignForm } from '../components/CampaignForm'
 import { CampaignDetailsForm } from '../components/CampaignDetailsForm'
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning'
+import { FORM_MODE } from '../constants'
 
 export default function EditCampaignPage() {
   const router = useRouter()
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   const campaignForm = useForm<CampaignFormData>({
-    mode: 'onChange',
-    resolver: zodResolver(campaignSchema) as Resolver<CampaignFormData>,
+    mode: FORM_MODE.ON_CHANGE,
+    resolver: zodResolver(campaignSchema),
     defaultValues: {
       isActive: stubbedCampaign.isActive,
       isVerified: stubbedCampaign.isVerified ?? false,
@@ -46,10 +47,8 @@ export default function EditCampaignPage() {
   })
 
   const detailsForm = useForm<CampaignDetailsFormData>({
-    mode: 'onChange',
-    resolver: zodResolver(
-      campaignDetailsSchema
-    ) as Resolver<CampaignDetailsFormData>,
+    mode: FORM_MODE.ON_CHANGE,
+    resolver: zodResolver(campaignDetailsSchema),
     defaultValues: {
       state: stubbedCampaign.details.state ?? '',
       city: stubbedCampaign.details.city ?? '',
@@ -134,18 +133,12 @@ export default function EditCampaignPage() {
       )}
 
       <Flex direction="column" gap="6">
-        <CampaignForm
-          register={campaignForm.register}
-          errors={campaignForm.formState.errors}
-          watch={campaignForm.watch}
-          setValue={campaignForm.setValue}
-        />
-        <CampaignDetailsForm
-          register={detailsForm.register}
-          errors={detailsForm.formState.errors}
-          watch={detailsForm.watch}
-          setValue={detailsForm.setValue}
-        />
+        <FormProvider {...campaignForm}>
+          <CampaignForm />
+        </FormProvider>
+        <FormProvider {...detailsForm}>
+          <CampaignDetailsForm />
+        </FormProvider>
       </Flex>
 
       <Separator size="4" my="6" />

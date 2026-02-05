@@ -141,7 +141,12 @@ export type CampaignDetailsFormData = z.infer<typeof campaignDetailsSchema>
 // PATH TO VICTORY SCHEMA (PATCH /path-to-victory/:id)
 // ============================================
 
-const numberOrEmpty = z.coerce.number().optional()
+// Number field schema - accepts any input and outputs number | undefined
+const numberOrUndefined = z.any().transform((val): number | undefined => {
+  if (val === undefined || val === null || val === '') return undefined
+  const num = Number(val)
+  return isNaN(num) ? undefined : num
+})
 
 export const pathToVictorySchema = z.object({
   // Status
@@ -150,26 +155,26 @@ export const pathToVictorySchema = z.object({
   electionLocation: z.string().optional(),
 
   // Target Numbers
-  winNumber: numberOrEmpty,
-  voterContactGoal: numberOrEmpty,
-  totalRegisteredVoters: numberOrEmpty,
-  projectedTurnout: numberOrEmpty,
-  averageTurnout: numberOrEmpty,
+  winNumber: numberOrUndefined,
+  voterContactGoal: numberOrUndefined,
+  totalRegisteredVoters: numberOrUndefined,
+  projectedTurnout: numberOrUndefined,
+  averageTurnout: numberOrUndefined,
 
   // Demographics - Party
-  republicans: numberOrEmpty,
-  democrats: numberOrEmpty,
-  indies: numberOrEmpty,
+  republicans: numberOrUndefined,
+  democrats: numberOrUndefined,
+  indies: numberOrUndefined,
 
   // Demographics - Gender
-  men: numberOrEmpty,
-  women: numberOrEmpty,
+  men: numberOrUndefined,
+  women: numberOrUndefined,
 
   // Demographics - Race/Ethnicity
-  white: numberOrEmpty,
-  asian: numberOrEmpty,
-  africanAmerican: numberOrEmpty,
-  hispanic: numberOrEmpty,
+  white: numberOrUndefined,
+  asian: numberOrUndefined,
+  africanAmerican: numberOrUndefined,
+  hispanic: numberOrUndefined,
 
   // Viability (nested object)
   viability: z
@@ -178,11 +183,11 @@ export const pathToVictorySchema = z.object({
       isPartisan: z.boolean().optional(),
       isIncumbent: z.boolean().optional(),
       isUncontested: z.boolean().optional(),
-      candidates: numberOrEmpty,
-      seats: numberOrEmpty,
-      candidatesPerSeat: numberOrEmpty,
-      score: numberOrEmpty,
-      probOfWin: numberOrEmpty,
+      candidates: numberOrUndefined,
+      seats: numberOrUndefined,
+      candidatesPerSeat: numberOrUndefined,
+      score: numberOrUndefined,
+      probOfWin: numberOrUndefined,
     })
     .optional(),
 })
@@ -193,11 +198,18 @@ export type PathToVictoryFormData = z.infer<typeof pathToVictorySchema>
 // ELECTED OFFICE SCHEMA (PATCH /elected-offices/:id)
 // ============================================
 
+// Number field schema - accepts any input and outputs number | null
+const numberOrNull = z.any().transform((val): number | null => {
+  if (val === null || val === undefined || val === '') return null
+  const num = Number(val)
+  return isNaN(num) ? null : num
+})
+
 export const electedOfficeSchema = z.object({
   electedDate: z.string().optional().nullable(),
   swornInDate: z.string().optional().nullable(),
   termStartDate: z.string().optional().nullable(),
-  termLengthDays: z.coerce.number().optional().nullable(),
+  termLengthDays: numberOrNull,
   termEndDate: z.string().optional().nullable(),
   isActive: z.boolean(),
 })

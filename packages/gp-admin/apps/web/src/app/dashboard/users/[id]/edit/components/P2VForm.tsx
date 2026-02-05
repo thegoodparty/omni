@@ -1,16 +1,11 @@
 'use client'
 
 import { TextField, Text, Box, Flex, Select, Switch } from '@radix-ui/themes'
-import { UseFormRegister, UseFormWatch, UseFormSetValue } from 'react-hook-form'
+import { useFormContext } from 'react-hook-form'
 import type { PathToVictoryFormData } from '../schema'
 import { P2V_STATUS } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
-
-interface P2VFormProps {
-  register: UseFormRegister<PathToVictoryFormData>
-  watch: UseFormWatch<PathToVictoryFormData>
-  setValue: UseFormSetValue<PathToVictoryFormData>
-}
+import { INPUT_TYPE, P2V_FORM_SECTIONS } from '../constants'
 
 // Convert empty/NaN values to undefined to match default values
 const numberFieldOptions = {
@@ -21,10 +16,11 @@ const numberFieldOptions = {
   },
 }
 
-export function P2VForm({ register, watch, setValue }: P2VFormProps) {
+export function P2VForm() {
+  const { register, watch, setValue } = useFormContext<PathToVictoryFormData>()
   return (
     <Flex direction="column" gap="4">
-      <InfoCard title="P2V Status">
+      <InfoCard title={P2V_FORM_SECTIONS.STATUS}>
         <Flex direction="column" gap="4">
           <Flex direction="column" gap="1">
             <Text as="label" size="2" weight="medium">
@@ -70,7 +66,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Target Numbers">
+      <InfoCard title={P2V_FORM_SECTIONS.TARGET_NUMBERS}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '150px' }}>
@@ -79,7 +75,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('winNumber', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -89,7 +85,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('voterContactGoal', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -102,7 +98,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('totalRegisteredVoters', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -112,7 +108,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('projectedTurnout', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -122,7 +118,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('averageTurnout', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -130,7 +126,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Demographics - Party Affiliation">
+      <InfoCard title={P2V_FORM_SECTIONS.PARTY_DEMOGRAPHICS}>
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '120px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
@@ -138,7 +134,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('republicans', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -148,7 +144,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('democrats', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -158,14 +154,14 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('indies', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Demographics - Gender">
+      <InfoCard title={P2V_FORM_SECTIONS.GENDER_DEMOGRAPHICS}>
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '150px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
@@ -173,7 +169,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('men', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -183,14 +179,14 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('women', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Demographics - Race/Ethnicity">
+      <InfoCard title={P2V_FORM_SECTIONS.RACE_DEMOGRAPHICS}>
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '120px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
@@ -198,7 +194,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('white', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -208,7 +204,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('asian', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -218,7 +214,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('africanAmerican', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
@@ -228,14 +224,14 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
             </Text>
             <TextField.Root
               {...register('hispanic', numberFieldOptions)}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="0"
             />
           </Box>
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Viability Analysis">
+      <InfoCard title={P2V_FORM_SECTIONS.VIABILITY}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '150px' }}>
@@ -253,7 +249,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('viability.seats', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -263,7 +259,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('viability.candidates', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 placeholder="0"
               />
             </Box>
@@ -276,7 +272,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('viability.candidatesPerSeat', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 step="0.01"
                 placeholder="0"
               />
@@ -287,7 +283,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('viability.score', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 step="0.01"
                 placeholder="0"
               />
@@ -298,7 +294,7 @@ export function P2VForm({ register, watch, setValue }: P2VFormProps) {
               </Text>
               <TextField.Root
                 {...register('viability.probOfWin', numberFieldOptions)}
-                type="number"
+                type={INPUT_TYPE.NUMBER}
                 step="0.01"
                 placeholder="0"
               />

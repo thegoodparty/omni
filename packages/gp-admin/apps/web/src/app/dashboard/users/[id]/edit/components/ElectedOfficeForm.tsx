@@ -2,23 +2,19 @@
 
 import { TextField, Text, Box, Flex, Switch, Callout } from '@radix-ui/themes'
 import { HiInformationCircle } from 'react-icons/hi'
-import { UseFormRegister, UseFormWatch, UseFormSetValue } from 'react-hook-form'
+import { useFormContext } from 'react-hook-form'
 import type { ElectedOfficeFormData } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
+import { INPUT_TYPE, ELECTED_OFFICE_FORM_SECTIONS } from '../constants'
 
 interface ElectedOfficeFormProps {
-  register: UseFormRegister<ElectedOfficeFormData>
-  watch: UseFormWatch<ElectedOfficeFormData>
-  setValue: UseFormSetValue<ElectedOfficeFormData>
   hasElectedOffice: boolean
 }
 
 export function ElectedOfficeForm({
-  register,
-  watch,
-  setValue,
   hasElectedOffice,
 }: ElectedOfficeFormProps) {
+  const { register, watch, setValue } = useFormContext<ElectedOfficeFormData>()
   if (!hasElectedOffice) {
     return (
       <Callout.Root color="gray">
@@ -35,20 +31,26 @@ export function ElectedOfficeForm({
 
   return (
     <Flex direction="column" gap="4">
-      <InfoCard title="Term Information">
+      <InfoCard title={ELECTED_OFFICE_FORM_SECTIONS.TERM_INFO}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 Elected Date
               </Text>
-              <TextField.Root {...register('electedDate')} type="date" />
+              <TextField.Root
+                {...register('electedDate')}
+                type={INPUT_TYPE.DATE}
+              />
             </Box>
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 Sworn In Date
               </Text>
-              <TextField.Root {...register('swornInDate')} type="date" />
+              <TextField.Root
+                {...register('swornInDate')}
+                type={INPUT_TYPE.DATE}
+              />
             </Box>
           </Flex>
 
@@ -57,13 +59,19 @@ export function ElectedOfficeForm({
               <Text as="label" size="2" weight="medium" mb="1">
                 Term Start Date
               </Text>
-              <TextField.Root {...register('termStartDate')} type="date" />
+              <TextField.Root
+                {...register('termStartDate')}
+                type={INPUT_TYPE.DATE}
+              />
             </Box>
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 Term End Date
               </Text>
-              <TextField.Root {...register('termEndDate')} type="date" />
+              <TextField.Root
+                {...register('termEndDate')}
+                type={INPUT_TYPE.DATE}
+              />
             </Box>
           </Flex>
 
@@ -73,14 +81,14 @@ export function ElectedOfficeForm({
             </Text>
             <TextField.Root
               {...register('termLengthDays')}
-              type="number"
+              type={INPUT_TYPE.NUMBER}
               placeholder="e.g., 1461"
             />
           </Box>
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Status">
+      <InfoCard title={ELECTED_OFFICE_FORM_SECTIONS.STATUS}>
         <Flex justify="between" align="center">
           <Text as="label" size="2">
             Active Office Holder

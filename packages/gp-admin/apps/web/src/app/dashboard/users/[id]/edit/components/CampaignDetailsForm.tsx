@@ -9,33 +9,27 @@ import {
   Switch,
   Select,
 } from '@radix-ui/themes'
-import {
-  UseFormRegister,
-  FieldErrors,
-  UseFormWatch,
-  UseFormSetValue,
-} from 'react-hook-form'
+import { useFormContext } from 'react-hook-form'
 import type { CampaignDetailsFormData } from '../schema'
 import { BALLOT_LEVELS, ELECTION_LEVELS } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
+import {
+  INPUT_TYPE,
+  CAMPAIGN_FORM_SECTIONS,
+  SELECT_NONE_VALUE,
+} from '../constants'
 
-interface CampaignDetailsFormProps {
-  register: UseFormRegister<CampaignDetailsFormData>
-  errors: FieldErrors<CampaignDetailsFormData>
-  watch: UseFormWatch<CampaignDetailsFormData>
-  setValue: UseFormSetValue<CampaignDetailsFormData>
-}
-
-export function CampaignDetailsForm({
-  register,
-  errors,
-  watch,
-  setValue,
-}: CampaignDetailsFormProps) {
+export function CampaignDetailsForm() {
+  const {
+    register,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useFormContext<CampaignDetailsFormData>()
   return (
     <Flex direction="column" gap="4">
-      <InfoCard title="Location">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.LOCATION}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
@@ -76,7 +70,7 @@ export function CampaignDetailsForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Office">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.OFFICE}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
@@ -135,11 +129,11 @@ export function CampaignDetailsForm({
                 Election Level
               </Text>
               <Select.Root
-                value={watch('level') ?? '__none__'}
+                value={watch('level') ?? SELECT_NONE_VALUE}
                 onValueChange={(value) =>
                   setValue(
                     'level',
-                    value === '__none__'
+                    value === SELECT_NONE_VALUE
                       ? null
                       : (value as (typeof ELECTION_LEVELS)[number])
                   )
@@ -147,7 +141,7 @@ export function CampaignDetailsForm({
               >
                 <Select.Trigger placeholder="Select level..." />
                 <Select.Content>
-                  <Select.Item value="__none__">None</Select.Item>
+                  <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                   {ELECTION_LEVELS.map((level) => (
                     <Select.Item key={level} value={level}>
                       {level.charAt(0).toUpperCase() + level.slice(1)}
@@ -170,14 +164,17 @@ export function CampaignDetailsForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Election">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.ELECTION}>
         <Flex direction="column" gap="4">
           <Flex gap="4" wrap="wrap">
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 Election Date
               </Text>
-              <TextField.Root {...register('electionDate')} type="date" />
+              <TextField.Root
+                {...register('electionDate')}
+                type={INPUT_TYPE.DATE}
+              />
             </Box>
             <Box flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
@@ -185,7 +182,7 @@ export function CampaignDetailsForm({
               </Text>
               <TextField.Root
                 {...register('primaryElectionDate')}
-                type="date"
+                type={INPUT_TYPE.DATE}
               />
             </Box>
           </Flex>
@@ -202,24 +199,30 @@ export function CampaignDetailsForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Filing Period">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.FILING_PERIOD}>
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '200px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
               Filing Start
             </Text>
-            <TextField.Root {...register('filingPeriodsStart')} type="date" />
+            <TextField.Root
+              {...register('filingPeriodsStart')}
+              type={INPUT_TYPE.DATE}
+            />
           </Box>
           <Box flexGrow="1" style={{ minWidth: '200px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
               Filing End
             </Text>
-            <TextField.Root {...register('filingPeriodsEnd')} type="date" />
+            <TextField.Root
+              {...register('filingPeriodsEnd')}
+              type={INPUT_TYPE.DATE}
+            />
           </Box>
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Party">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.PARTY}>
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '200px' }}>
             <Text as="label" size="2" weight="medium" mb="1">
@@ -239,7 +242,7 @@ export function CampaignDetailsForm({
         </Flex>
       </InfoCard>
 
-      <InfoCard title="Background">
+      <InfoCard title={CAMPAIGN_FORM_SECTIONS.BACKGROUND}>
         <Flex direction="column" gap="4">
           <Box>
             <Text as="label" size="2" weight="medium" mb="1">
