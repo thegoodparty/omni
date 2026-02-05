@@ -2,7 +2,6 @@
 
 import { useEffect, useId } from 'react'
 
-// Global map to track dirty state per component instance
 const dirtyStateMap = new Map<string, boolean>()
 let listenersInitialized = false
 
@@ -20,7 +19,6 @@ function handleBeforeUnload(e: BeforeUnloadEvent) {
 function handleClick(e: MouseEvent) {
   if (!hasUnsavedChanges()) return
 
-  // Type guard: verify target is an HTMLElement before using DOM methods
   if (!(e.target instanceof HTMLElement)) return
 
   const anchor = e.target.closest('a')
@@ -31,13 +29,11 @@ function handleClick(e: MouseEvent) {
   const href = anchor.getAttribute('href')
   if (!href || href.startsWith('http') || href.startsWith('mailto:')) return
 
-  // Normalize paths for comparison
   const currentPath = window.location.pathname
   const targetPath = href.startsWith('/')
     ? href.split('?')[0]
     : new URL(href, window.location.origin).pathname
 
-  // Don't warn if staying on the same page
   if (targetPath === currentPath) return
 
   const confirmed = window.confirm(
@@ -57,22 +53,13 @@ function initializeListeners() {
   document.addEventListener('click', handleClick, true)
 }
 
-/**
- * Hook to warn users about unsaved changes when navigating away.
- * Handles both browser navigation (refresh, close tab) and
- * client-side navigation (clicking links).
- *
- * @param isDirty - Whether there are unsaved changes
- */
 export function useUnsavedChangesWarning(isDirty: boolean) {
   const instanceId = useId()
 
-  // Initialize global listeners once
   useEffect(() => {
     initializeListeners()
   }, [])
 
-  // Update the global dirty state map
   useEffect(() => {
     dirtyStateMap.set(instanceId, isDirty)
     return () => {
