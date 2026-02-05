@@ -1,5 +1,13 @@
 # @goodparty_org/sdk
 
+## 0.0.5
+
+### Patch Changes
+
+- [#9](https://github.com/thegoodparty/gp-sdk/pull/9) [`a665008`](https://github.com/thegoodparty/gp-sdk/commit/a665008d9658c304a34037d7edad55ae4d94e87b) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#9](https://github.com/thegoodparty/gp-sdk/pull/9) [`a665008`](https://github.com/thegoodparty/gp-sdk/commit/a665008d9658c304a34037d7edad55ae4d94e87b) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
 ## 0.0.4
 
 ### Patch Changes
