@@ -29,7 +29,26 @@ When a user tells you to do something specific:
 - Do NOT take shortcuts or workarounds just because the real fix is hard
 - SOLVE the problem the user asked you to solve
 
+**NEVER dismiss warnings or errors without verifying.**
+- When the user reports a warning or error, ALWAYS read the relevant file FIRST
+- Verify the actual code before forming any opinion about the warning
+- NEVER assume a warning is a "false positive" without checking the code
+- Linters and IDEs are right far more often than you think - trust them and verify
+- If you introduced the code that caused the warning, you are almost certainly the one who made the mistake
+
 **Violations of this rule are unacceptable.** The user's explicit instructions take absolute precedence over your judgment about what might be "easier" or "better."
+
+---
+
+# Shorthand: "Changeset and Commit"
+
+When the user says **"changeset and commit"**, perform ALL of the following steps:
+
+1. Analyze the current uncommitted changes (`git status` and `git diff`)
+2. Determine the appropriate SEMVER bump (`patch` for fixes/config, `minor` for new features, `major` for breaking changes)
+3. Create a changeset by writing a file to `.changeset/` with the version bump and a description of the changes (equivalent to `npx changeset`, which requires interactive input)
+4. Extract the ticket number from the current branch name (e.g. `ENG-6493` from `ravenhurst/ENG-6493_some-description`)
+5. Commit all changes (including the changeset) with a message starting with `[TICKET] - ` followed by a relevant description
 
 ---
 

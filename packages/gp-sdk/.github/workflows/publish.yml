@@ -48,9 +48,16 @@ jobs:
         run: npm run build
 
       - name: Create Release Pull Request or Publish
+        id: changesets
         uses: changesets/action@v1
         with:
           publish: npm publish --provenance --access public
           title: 'chore: release @goodparty_org/sdk'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Auto-merge Release PR
+        if: steps.changesets.outputs.pullRequestNumber
+        run: gh pr merge ${{ steps.changesets.outputs.pullRequestNumber }} --squash --auto --delete-branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
