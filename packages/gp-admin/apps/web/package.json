@@ -22,6 +22,7 @@
     "isomorphic-dompurify": "^2.22.0",
     "libphonenumber-js": "^1.12.36",
     "next": "^16.0.10",
+    "next-navigation-guard": "^0.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.71.1",

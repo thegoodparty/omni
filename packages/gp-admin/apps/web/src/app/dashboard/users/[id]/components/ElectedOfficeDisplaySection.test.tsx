@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ElectedOfficeDisplaySection } from './ElectedOfficeDisplaySection'
-import type { ElectedOffice } from '../types'
+import type { ElectedOffice } from '../types/elected-office'
 
 const mockElectedOffice: ElectedOffice = {
   id: 'uuid-123',

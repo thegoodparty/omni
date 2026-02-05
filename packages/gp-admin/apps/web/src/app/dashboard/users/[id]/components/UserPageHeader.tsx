@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { HiPencil, HiArrowLeft } from 'react-icons/hi'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { UserHeaderData } from '../types'
+import type { UserHeaderData } from '../types/user'
 
 interface UserPageHeaderProps {
   user: UserHeaderData

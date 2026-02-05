@@ -1,56 +1,17 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useForm, FormProvider } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { Flex, Button, Separator } from '@radix-ui/themes'
-import { HiCheck, HiX } from 'react-icons/hi'
-import { SuccessCallout } from '@/components/SuccessCallout'
 import { useState } from 'react'
+import { SuccessCallout } from '@/components/SuccessCallout'
 import { stubbedUser } from '@/data/stubbed-user'
-import { userSchema, type UserFormData } from './schema'
-import { FORM_MODE } from './constants'
 import { UserForm } from './components/UserForm'
-import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import type { UserFormData } from './schema'
 
 export default function EditUserPage() {
   const router = useRouter()
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const form = useForm<UserFormData>({
-    mode: FORM_MODE.ON_CHANGE,
-    resolver: zodResolver(userSchema),
-    defaultValues: {
-      firstName: stubbedUser.firstName ?? '',
-      lastName: stubbedUser.lastName ?? '',
-      name: stubbedUser.name ?? '',
-      email: stubbedUser.email ?? '',
-      phone: stubbedUser.phone ?? '',
-      zip: stubbedUser.zip ?? '',
-      avatar: stubbedUser.avatar ?? '',
-      roles: stubbedUser.roles ?? [],
-      metaData: {
-        hubspotId: stubbedUser.metaData?.hubspotId ?? '',
-        textNotifications: stubbedUser.metaData?.textNotifications ?? false,
-      },
-    },
-  })
-
-  useUnsavedChangesWarning(form.formState.isDirty)
-
-  function handleCancel() {
-    router.push(`/dashboard/users/${stubbedUser.id}`)
-  }
-
-  function handleSave() {
-    const data = form.getValues()
-    const result = userSchema.safeParse(data)
-
-    if (!result.success) {
-      console.error('Validation errors:', result.error)
-      return
-    }
-
+  function handleSave(data: UserFormData) {
     console.log('[PATCH /users/:id] Saving:', data)
 
     setSaveSuccess(true)
@@ -59,7 +20,9 @@ export default function EditUserPage() {
     }, 2000)
   }
 
-  const { isDirty, isValid } = form.formState
+  function handleCancel() {
+    router.push(`/dashboard/users/${stubbedUser.id}`)
+  }
 
   return (
     <>
@@ -68,31 +31,11 @@ export default function EditUserPage() {
         message="Changes saved (simulated)"
       />
 
-      <FormProvider {...form}>
-        <UserForm />
-      </FormProvider>
-
-      <Separator size="4" my="6" />
-
-      <Flex gap="3" justify="end">
-        <Button
-          type="button"
-          variant="soft"
-          color="gray"
-          onClick={handleCancel}
-        >
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <UserForm
+        initialData={stubbedUser}
+        onSave={handleSave}
+        onCancel={handleCancel}
+      />
     </>
   )
 }

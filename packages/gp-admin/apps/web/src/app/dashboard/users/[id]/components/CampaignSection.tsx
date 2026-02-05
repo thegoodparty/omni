@@ -4,7 +4,7 @@ import { Grid, Text, Badge, Flex, Box, Table } from '@radix-ui/themes'
 import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
-import type { Campaign } from '../types'
+import type { Campaign } from '../types/campaign'
 import type { FieldConfig } from '../types/field-config'
 import { CAMPAIGN_PLAN_STATUS } from '@/types/campaign'
 

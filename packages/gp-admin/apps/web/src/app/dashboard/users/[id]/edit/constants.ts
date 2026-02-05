@@ -84,3 +84,9 @@ export const ELECTED_OFFICE_FORM_SECTIONS = {
  * to represent null/undefined selections.
  */
 export const SELECT_NONE_VALUE = '__none__'
+
+/**
+ * Message shown to user when they try to navigate away with unsaved changes
+ */
+export const UNSAVED_CHANGES_MESSAGE =
+  'You have unsaved changes. Are you sure you want to leave this page?'

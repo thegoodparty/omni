@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignSection } from './CampaignSection'
-import type { Campaign } from '../types'
+import type { Campaign } from '../types/campaign'
 
 const mockCampaign: Campaign = {
   id: 1,

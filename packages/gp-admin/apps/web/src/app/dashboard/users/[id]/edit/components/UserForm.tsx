@@ -1,17 +1,31 @@
 'use client'
 
-import { TextField, Text, Box, Flex, Switch, Checkbox } from '@radix-ui/themes'
-import { useFormContext, type Path } from 'react-hook-form'
-import type { UserFormData } from '../schema'
-import { USER_ROLES } from '../schema'
+import {
+  TextField,
+  Text,
+  Box,
+  Flex,
+  Switch,
+  Checkbox,
+  Button,
+  Separator,
+} from '@radix-ui/themes'
+import { useForm, type Path } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { HiCheck, HiX } from 'react-icons/hi'
+import { useNavigationGuard } from 'next-navigation-guard'
+import { userSchema, type UserFormData, USER_ROLES } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
+import { UNSAVED_CHANGES_MESSAGE } from '../constants'
 import {
   INPUT_TYPE,
   ROLE_DISPLAY_NAMES,
   USER_FORM_SECTIONS,
+  FORM_MODE,
   type InputType,
 } from '../constants'
+import type { User } from '../../types/user'
 
 type FieldPath = Path<UserFormData>
 
@@ -52,14 +66,56 @@ const USER_SETTINGS_FIELDS: FieldConfig[] = [
   },
 ]
 
-export function UserForm() {
+interface UserFormProps {
+  initialData: User
+  onSave: (data: UserFormData) => void
+  onCancel: () => void
+}
+
+export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
   const {
     register,
     watch,
     setValue,
-    formState: { errors },
-  } = useFormContext<UserFormData>()
+    getValues,
+    formState: { errors, isDirty, isValid },
+  } = useForm<UserFormData>({
+    mode: FORM_MODE.ON_CHANGE,
+    resolver: zodResolver(userSchema),
+    defaultValues: {
+      firstName: initialData.firstName ?? '',
+      lastName: initialData.lastName ?? '',
+      name: initialData.name ?? '',
+      email: initialData.email ?? '',
+      phone: initialData.phone ?? '',
+      zip: initialData.zip ?? '',
+      avatar: initialData.avatar ?? '',
+      roles: initialData.roles ?? [],
+      metaData: {
+        hubspotId: initialData.metaData?.hubspotId ?? '',
+        textNotifications: initialData.metaData?.textNotifications ?? false,
+      },
+    },
+  })
+
   const currentRoles = watch('roles') ?? []
+
+  useNavigationGuard({
+    enabled: isDirty,
+    confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
+  })
+
+  function handleSubmit() {
+    const data = getValues()
+    const result = userSchema.safeParse(data)
+
+    if (!result.success) {
+      console.error('Validation errors:', result.error)
+      return
+    }
+
+    onSave(data)
+  }
 
   function toggleRole(role: (typeof USER_ROLES)[number]) {
     const newRoles = currentRoles.includes(role)
@@ -99,44 +155,63 @@ export function UserForm() {
   }
 
   return (
-    <Flex direction="column" gap="4">
-      <InfoCard title={USER_FORM_SECTIONS.BASIC_INFO}>
-        {renderFields(BASIC_INFO_FIELDS)}
-      </InfoCard>
+    <>
+      <Flex direction="column" gap="4">
+        <InfoCard title={USER_FORM_SECTIONS.BASIC_INFO}>
+          {renderFields(BASIC_INFO_FIELDS)}
+        </InfoCard>
 
-      <InfoCard title={USER_FORM_SECTIONS.ROLES}>
-        <Flex direction="column" gap="3">
-          {USER_ROLES.map((role) => (
-            <Flex key={role} align="center" gap="2">
-              <Checkbox
-                checked={currentRoles.includes(role)}
-                onCheckedChange={() => toggleRole(role)}
-              />
-              <Text size="2" style={{ textTransform: 'capitalize' }}>
-                {ROLE_DISPLAY_NAMES[role] ?? role}
-              </Text>
-            </Flex>
-          ))}
-        </Flex>
-      </InfoCard>
-
-      <InfoCard title={USER_FORM_SECTIONS.USER_SETTINGS}>
-        <Flex direction="column" gap="4">
-          {renderFields(USER_SETTINGS_FIELDS)}
-
-          <Flex justify="between" align="center">
-            <Text as="label" size="2">
-              Text Notifications
-            </Text>
-            <Switch
-              checked={watch('metaData.textNotifications') ?? false}
-              onCheckedChange={(checked) =>
-                setValue('metaData.textNotifications', checked)
-              }
-            />
+        <InfoCard title={USER_FORM_SECTIONS.ROLES}>
+          <Flex direction="column" gap="3">
+            {USER_ROLES.map((role) => (
+              <Flex key={role} align="center" gap="2">
+                <Checkbox
+                  checked={currentRoles.includes(role)}
+                  onCheckedChange={() => toggleRole(role)}
+                />
+                <Text size="2" style={{ textTransform: 'capitalize' }}>
+                  {ROLE_DISPLAY_NAMES[role] ?? role}
+                </Text>
+              </Flex>
+            ))}
           </Flex>
-        </Flex>
-      </InfoCard>
-    </Flex>
+        </InfoCard>
+
+        <InfoCard title={USER_FORM_SECTIONS.USER_SETTINGS}>
+          <Flex direction="column" gap="4">
+            {renderFields(USER_SETTINGS_FIELDS)}
+
+            <Flex justify="between" align="center">
+              <Text as="label" size="2">
+                Text Notifications
+              </Text>
+              <Switch
+                checked={watch('metaData.textNotifications') ?? false}
+                onCheckedChange={(checked) =>
+                  setValue('metaData.textNotifications', checked)
+                }
+              />
+            </Flex>
+          </Flex>
+        </InfoCard>
+      </Flex>
+
+      <Separator size="4" my="6" />
+
+      <Flex gap="3" justify="end">
+        <Button type="button" variant="soft" color="gray" onClick={onCancel}>
+          <HiX className="w-4 h-4" />
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!isValid || !isDirty}
+        >
+          <HiCheck className="w-4 h-4" />
+          Save Changes
+        </Button>
+      </Flex>
+    </>
   )
 }

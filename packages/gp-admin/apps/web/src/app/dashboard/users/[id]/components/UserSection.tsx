@@ -5,7 +5,7 @@ import { formatPhone } from '@/lib/utils/phone'
 import { formatDate } from '@/lib/utils/date'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { User } from '../types'
+import type { User } from '../types/user'
 
 interface UserSectionProps {
   user: User

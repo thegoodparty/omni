@@ -1,4 +1,4 @@
-import type { Campaign } from '@/app/dashboard/users/[id]/types'
+import type { Campaign } from '@/app/dashboard/users/[id]/types/campaign'
 
 export const stubbedCampaign: Campaign = {
   id: 1,

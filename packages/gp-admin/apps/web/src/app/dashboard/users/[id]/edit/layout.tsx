@@ -1,10 +1,10 @@
 import { Container, Box, Separator } from '@radix-ui/themes'
+import { NavigationGuardProvider } from 'next-navigation-guard'
 import { stubbedUserHeader } from '@/data/stubbed-user'
 import { UserPageHeader } from '../components/UserPageHeader'
 import { TabNavigation } from '../components/TabNavigation'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
-import { UnsavedChangesProvider } from './context/UnsavedChangesContext'
 
 interface EditLayoutProps {
   children: React.ReactNode
@@ -27,11 +27,11 @@ export default async function EditLayout({
           <UserPageHeader user={headerData} isEditMode />
         </Box>
 
-        <UnsavedChangesProvider>
+        <NavigationGuardProvider>
           <TabNavigation userId={id} isEditMode />
           <Separator size="4" my="4" />
           {children}
-        </UnsavedChangesProvider>
+        </NavigationGuardProvider>
       </Container>
     </ProtectedContent>
   )

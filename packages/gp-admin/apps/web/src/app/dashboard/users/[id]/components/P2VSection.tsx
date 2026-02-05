@@ -5,7 +5,7 @@ import { P2V_STATUS_VALUES } from '../constants'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 import { formatNumberForDisplay } from '@/lib/utils/number'
-import type { PathToVictory } from '../types'
+import type { PathToVictory } from '../types/p2v'
 
 interface P2VSectionProps {
   p2v: PathToVictory | null

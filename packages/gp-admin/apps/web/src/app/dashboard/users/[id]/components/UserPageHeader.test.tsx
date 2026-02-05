@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { UserPageHeader } from './UserPageHeader'
-import type { UserHeaderData } from '../types'
+import type { UserHeaderData } from '../types/user'
 
 // Mock Clerk
 const mockHas = vi.fn()

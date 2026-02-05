@@ -1,4 +1,4 @@
-import type { User, UserHeaderData } from '@/app/dashboard/users/[id]/types'
+import type { User, UserHeaderData } from '@/app/dashboard/users/[id]/types/user'
 
 export const stubbedUser: User = {
   id: 595,

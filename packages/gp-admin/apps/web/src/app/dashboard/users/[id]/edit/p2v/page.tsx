@@ -1,80 +1,18 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useForm, FormProvider } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { Flex, Button, Separator } from '@radix-ui/themes'
-import { HiCheck, HiX } from 'react-icons/hi'
-import { SuccessCallout } from '@/components/SuccessCallout'
 import { useState } from 'react'
+import { SuccessCallout } from '@/components/SuccessCallout'
 import { stubbedPathToVictory } from '@/data/stubbed-p2v'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
-import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
 import { P2VForm } from '../components/P2VForm'
-import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning'
-import { FORM_MODE } from '../constants'
+import type { PathToVictoryFormData } from '../schema'
 
 export default function EditP2VPage() {
   const router = useRouter()
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const p2v = stubbedPathToVictory
 
-  const form = useForm<PathToVictoryFormData>({
-    mode: FORM_MODE.ON_CHANGE,
-    resolver: zodResolver(pathToVictorySchema),
-    defaultValues: {
-      p2vStatus: p2v?.data?.p2vStatus,
-      electionType: p2v?.data?.electionType ?? '',
-      electionLocation: p2v?.data?.electionLocation ?? '',
-      winNumber: p2v?.data?.winNumber ? Number(p2v.data.winNumber) : undefined,
-      voterContactGoal: p2v?.data?.voterContactGoal
-        ? Number(p2v.data.voterContactGoal)
-        : undefined,
-      totalRegisteredVoters: p2v?.data?.totalRegisteredVoters ?? undefined,
-      projectedTurnout: p2v?.data?.projectedTurnout ?? undefined,
-      averageTurnout: p2v?.data?.averageTurnout ?? undefined,
-      republicans: p2v?.data?.republicans ?? undefined,
-      democrats: p2v?.data?.democrats ?? undefined,
-      indies: p2v?.data?.indies ?? undefined,
-      men: p2v?.data?.men ?? undefined,
-      women: p2v?.data?.women ?? undefined,
-      white: p2v?.data?.white ?? undefined,
-      asian: p2v?.data?.asian ?? undefined,
-      africanAmerican: p2v?.data?.africanAmerican ?? undefined,
-      hispanic: p2v?.data?.hispanic ?? undefined,
-      viability: {
-        level: p2v?.data?.viability?.level ?? '',
-        isPartisan: p2v?.data?.viability?.isPartisan ?? false,
-        isIncumbent: p2v?.data?.viability?.isIncumbent === 'true',
-        isUncontested: p2v?.data?.viability?.isUncontested === 'true',
-        candidates: p2v?.data?.viability?.candidates
-          ? Number(p2v.data.viability.candidates)
-          : undefined,
-        seats: p2v?.data?.viability?.seats ?? undefined,
-        candidatesPerSeat: p2v?.data?.viability?.candidatesPerSeat
-          ? Number(p2v.data.viability.candidatesPerSeat)
-          : undefined,
-        score: p2v?.data?.viability?.score ?? undefined,
-        probOfWin: undefined,
-      },
-    },
-  })
-
-  useUnsavedChangesWarning(form.formState.isDirty)
-
-  function handleCancel() {
-    router.push(`/dashboard/users/${stubbedCampaign.userId}/p2v`)
-  }
-
-  function handleSave() {
-    const data = form.getValues()
-    const result = pathToVictorySchema.safeParse(data)
-
-    if (!result.success) {
-      console.error('Validation errors:', result.error)
-      return
-    }
-
+  function handleSave(data: PathToVictoryFormData) {
     console.log('[PATCH /path-to-victory/:id] Saving:', data)
 
     setSaveSuccess(true)
@@ -83,7 +21,9 @@ export default function EditP2VPage() {
     }, 2000)
   }
 
-  const { isDirty, isValid } = form.formState
+  function handleCancel() {
+    router.push(`/dashboard/users/${stubbedCampaign.userId}/p2v`)
+  }
 
   return (
     <>
@@ -92,31 +32,11 @@ export default function EditP2VPage() {
         message="Changes saved (simulated)"
       />
 
-      <FormProvider {...form}>
-        <P2VForm />
-      </FormProvider>
-
-      <Separator size="4" my="6" />
-
-      <Flex gap="3" justify="end">
-        <Button
-          type="button"
-          variant="soft"
-          color="gray"
-          onClick={handleCancel}
-        >
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <P2VForm
+        initialData={stubbedPathToVictory}
+        onSave={handleSave}
+        onCancel={handleCancel}
+      />
     </>
   )
 }

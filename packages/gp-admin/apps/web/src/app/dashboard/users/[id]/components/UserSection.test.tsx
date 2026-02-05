@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { UserSection } from './UserSection'
-import type { User } from '../types'
+import type { User } from '../types/user'
 
 const mockUser: User = {
   id: 123,

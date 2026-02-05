@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Flex } from '@radix-ui/themes'
 import { USER_ROUTES, TAB_LABELS } from '../constants'
-import { useUnsavedChangesContext } from '../edit/context/UnsavedChangesContext'
 
 interface TabNavigationProps {
   userId: string
@@ -27,34 +26,16 @@ export function TabNavigation({
   isEditMode = false,
 }: TabNavigationProps) {
   const pathname = usePathname()
-  // Returns null when not inside UnsavedChangesProvider (non-edit pages)
-  const unsavedChanges = useUnsavedChangesContext()
 
   const basePath = isEditMode
     ? `/dashboard/users/${userId}/edit`
     : `/dashboard/users/${userId}`
 
   function isActive(route: string): boolean {
-    const fullPath = `${basePath}${route}`
     if (route === '') {
       return pathname === basePath || pathname === `${basePath}/`
     }
-    return pathname.startsWith(fullPath)
-  }
-
-  function handleClick(e: React.MouseEvent<HTMLAnchorElement>, route: string) {
-    if (!isEditMode || !unsavedChanges) return
-
-    const fullPath = `${basePath}${route}`
-    const isCurrentTab = isActive(route)
-
-    // Don't warn if clicking the current tab
-    if (isCurrentTab) return
-
-    // Confirm navigation if there are unsaved changes
-    if (!unsavedChanges.confirmNavigation()) {
-      e.preventDefault()
-    }
+    return pathname.startsWith(`${basePath}${route}`)
   }
 
   return (
@@ -65,7 +46,6 @@ export function TabNavigation({
           <Link
             key={key}
             href={`${basePath}${route}`}
-            onClick={(e) => handleClick(e, route)}
             aria-current={active ? 'page' : undefined}
             className={`
               px-4 py-3 text-sm font-medium transition-colors

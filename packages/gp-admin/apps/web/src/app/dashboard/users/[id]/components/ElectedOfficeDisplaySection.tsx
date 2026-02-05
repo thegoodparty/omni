@@ -5,7 +5,7 @@ import { HiInformationCircle } from 'react-icons/hi'
 import { formatDate } from '@/lib/utils/date'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { ElectedOffice } from '../types'
+import type { ElectedOffice } from '../types/elected-office'
 
 interface ElectedOfficeDisplaySectionProps {
   electedOffice: ElectedOffice | null

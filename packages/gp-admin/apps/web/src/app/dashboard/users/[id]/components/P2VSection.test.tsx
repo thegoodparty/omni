@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { P2VSection } from './P2VSection'
-import type { PathToVictory } from '../types'
+import type { PathToVictory } from '../types/p2v'
 
 const mockP2V: PathToVictory = {
   id: 771,

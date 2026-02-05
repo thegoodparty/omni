@@ -1,4 +1,4 @@
-import type { PathToVictory } from '@/app/dashboard/users/[id]/types'
+import type { PathToVictory } from '@/app/dashboard/users/[id]/types/p2v'
 
 export const stubbedPathToVictory: PathToVictory = {
   id: 771,
