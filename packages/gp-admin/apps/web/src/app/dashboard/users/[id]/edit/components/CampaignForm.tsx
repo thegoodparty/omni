@@ -12,14 +12,38 @@ import {
   SELECT_NONE_VALUE,
 } from '../constants'
 
-const STATUS_FLAGS = [
-  { name: 'isActive', label: 'Active' },
-  { name: 'isVerified', label: 'Verified' },
-  { name: 'isPro', label: 'Pro' },
-  { name: 'isDemo', label: 'Demo' },
-  { name: 'didWin', label: 'Won Election' },
-  { name: 'canDownloadFederal', label: 'Can Download Federal' },
-] as const
+type CampaignTier = (typeof CAMPAIGN_TIERS)[number]
+type LaunchStatus = (typeof CAMPAIGN_LAUNCH_STATUS)[number]
+
+type StatusFlagKey =
+  | 'isActive'
+  | 'isVerified'
+  | 'isPro'
+  | 'isDemo'
+  | 'didWin'
+  | 'canDownloadFederal'
+
+interface StatusFlag {
+  key: StatusFlagKey
+  label: string
+}
+
+const STATUS_FLAGS: StatusFlag[] = [
+  { key: 'isActive', label: 'Active' },
+  { key: 'isVerified', label: 'Verified' },
+  { key: 'isPro', label: 'Pro' },
+  { key: 'isDemo', label: 'Demo' },
+  { key: 'didWin', label: 'Won Election' },
+  { key: 'canDownloadFederal', label: 'Can Download Federal' },
+]
+
+function isCampaignTier(value: string): value is CampaignTier {
+  return CAMPAIGN_TIERS.includes(value as CampaignTier)
+}
+
+function isLaunchStatus(value: string): value is LaunchStatus {
+  return CAMPAIGN_LAUNCH_STATUS.includes(value as LaunchStatus)
+}
 
 export function CampaignForm() {
   const {
@@ -29,19 +53,39 @@ export function CampaignForm() {
     formState: { errors },
   } = useFormContext<CampaignFormData>()
 
+  function handleStatusFlagChange(key: StatusFlagKey, checked: boolean) {
+    setValue(key, checked)
+  }
+
+  function handleTierChange(value: string) {
+    if (value === SELECT_NONE_VALUE) {
+      setValue('tier', null)
+    } else if (isCampaignTier(value)) {
+      setValue('tier', value)
+    }
+  }
+
+  function handleLaunchStatusChange(value: string) {
+    if (isLaunchStatus(value)) {
+      setValue('data.launchStatus', value)
+    }
+  }
+
   return (
     <Flex direction="column" gap="4">
       <InfoCard title={CAMPAIGN_FORM_SECTIONS.STATUS}>
         <Flex direction="column" gap="4">
-          {STATUS_FLAGS.map(({ name, label }) => (
-            <Flex key={name} justify="between" align="center">
-              <Text as="label" size="2" htmlFor={name}>
+          {STATUS_FLAGS.map(({ key, label }) => (
+            <Flex key={key} justify="between" align="center">
+              <Text as="label" size="2" htmlFor={key}>
                 {label}
               </Text>
               <Switch
-                id={name}
-                checked={watch(name) ?? false}
-                onCheckedChange={(checked) => setValue(name, checked)}
+                id={key}
+                checked={watch(key) ?? false}
+                onCheckedChange={(checked) =>
+                  handleStatusFlagChange(key, checked)
+                }
               />
             </Flex>
           ))}
@@ -55,14 +99,7 @@ export function CampaignForm() {
           </Text>
           <Select.Root
             value={watch('tier') ?? SELECT_NONE_VALUE}
-            onValueChange={(value) =>
-              setValue(
-                'tier',
-                value === SELECT_NONE_VALUE
-                  ? null
-                  : (value as (typeof CAMPAIGN_TIERS)[number])
-              )
-            }
+            onValueChange={handleTierChange}
           >
             <Select.Trigger placeholder="Select tier..." />
             <Select.Content>
@@ -95,12 +132,7 @@ export function CampaignForm() {
             </Text>
             <Select.Root
               value={watch('data.launchStatus') ?? ''}
-              onValueChange={(value) =>
-                setValue(
-                  'data.launchStatus',
-                  value as (typeof CAMPAIGN_LAUNCH_STATUS)[number]
-                )
-              }
+              onValueChange={handleLaunchStatusChange}
             >
               <Select.Trigger placeholder="Select status..." />
               <Select.Content>

@@ -20,6 +20,17 @@ import {
   SELECT_NONE_VALUE,
 } from '../constants'
 
+type BallotLevel = (typeof BALLOT_LEVELS)[number]
+type ElectionLevel = (typeof ELECTION_LEVELS)[number]
+
+function isBallotLevel(value: string): value is BallotLevel {
+  return BALLOT_LEVELS.includes(value as BallotLevel)
+}
+
+function isElectionLevel(value: string): value is ElectionLevel {
+  return ELECTION_LEVELS.includes(value as ElectionLevel)
+}
+
 export function CampaignDetailsForm() {
   const {
     register,
@@ -27,6 +38,25 @@ export function CampaignDetailsForm() {
     setValue,
     formState: { errors },
   } = useFormContext<CampaignDetailsFormData>()
+
+  function handleBallotLevelChange(value: string) {
+    if (isBallotLevel(value)) {
+      setValue('ballotLevel', value)
+    }
+  }
+
+  function handleElectionLevelChange(value: string) {
+    if (value === SELECT_NONE_VALUE) {
+      setValue('level', null)
+    } else if (isElectionLevel(value)) {
+      setValue('level', value)
+    }
+  }
+
+  function handlePledgedChange(checked: boolean) {
+    setValue('pledged', checked)
+  }
+
   return (
     <Flex direction="column" gap="4">
       <InfoCard title={CAMPAIGN_FORM_SECTIONS.LOCATION}>
@@ -102,12 +132,7 @@ export function CampaignDetailsForm() {
               </Text>
               <Select.Root
                 value={watch('ballotLevel') ?? ''}
-                onValueChange={(value) =>
-                  setValue(
-                    'ballotLevel',
-                    value as (typeof BALLOT_LEVELS)[number]
-                  )
-                }
+                onValueChange={handleBallotLevelChange}
               >
                 <Select.Trigger placeholder="Select level..." />
                 <Select.Content>
@@ -130,14 +155,7 @@ export function CampaignDetailsForm() {
               </Text>
               <Select.Root
                 value={watch('level') ?? SELECT_NONE_VALUE}
-                onValueChange={(value) =>
-                  setValue(
-                    'level',
-                    value === SELECT_NONE_VALUE
-                      ? null
-                      : (value as (typeof ELECTION_LEVELS)[number])
-                  )
-                }
+                onValueChange={handleElectionLevelChange}
               >
                 <Select.Trigger placeholder="Select level..." />
                 <Select.Content>
@@ -294,7 +312,7 @@ export function CampaignDetailsForm() {
             </Text>
             <Switch
               checked={watch('pledged') ?? false}
-              onCheckedChange={(checked) => setValue('pledged', checked)}
+              onCheckedChange={handlePledgedChange}
             />
           </Flex>
         </Flex>

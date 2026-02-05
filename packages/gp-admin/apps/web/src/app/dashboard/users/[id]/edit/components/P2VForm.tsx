@@ -7,6 +7,8 @@ import { P2V_STATUS } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { INPUT_TYPE, P2V_FORM_SECTIONS } from '../constants'
 
+type P2VStatus = (typeof P2V_STATUS)[number]
+
 // Convert empty/NaN values to undefined to match default values
 const numberFieldOptions = {
   setValueAs: (v: string) => {
@@ -16,8 +18,26 @@ const numberFieldOptions = {
   },
 }
 
+function isP2VStatus(value: string): value is P2VStatus {
+  return P2V_STATUS.includes(value as P2VStatus)
+}
+
 export function P2VForm() {
   const { register, watch, setValue } = useFormContext<PathToVictoryFormData>()
+
+  function handleStatusChange(value: string) {
+    if (isP2VStatus(value)) {
+      setValue('p2vStatus', value)
+    }
+  }
+
+  function handleViabilityBooleanChange(
+    field: 'isPartisan' | 'isIncumbent' | 'isUncontested',
+    checked: boolean
+  ) {
+    setValue(`viability.${field}`, checked)
+  }
+
   return (
     <Flex direction="column" gap="4">
       <InfoCard title={P2V_FORM_SECTIONS.STATUS}>
@@ -28,9 +48,7 @@ export function P2VForm() {
             </Text>
             <Select.Root
               value={watch('p2vStatus') ?? ''}
-              onValueChange={(value) =>
-                setValue('p2vStatus', value as (typeof P2V_STATUS)[number])
-              }
+              onValueChange={handleStatusChange}
             >
               <Select.Trigger placeholder="Select status..." />
               <Select.Content>
@@ -306,7 +324,7 @@ export function P2VForm() {
               <Switch
                 checked={watch('viability.isPartisan') ?? false}
                 onCheckedChange={(checked) =>
-                  setValue('viability.isPartisan', checked)
+                  handleViabilityBooleanChange('isPartisan', checked)
                 }
               />
               <Text size="2">Partisan</Text>
@@ -315,7 +333,7 @@ export function P2VForm() {
               <Switch
                 checked={watch('viability.isIncumbent') ?? false}
                 onCheckedChange={(checked) =>
-                  setValue('viability.isIncumbent', checked)
+                  handleViabilityBooleanChange('isIncumbent', checked)
                 }
               />
               <Text size="2">Incumbent</Text>
@@ -324,7 +342,7 @@ export function P2VForm() {
               <Switch
                 checked={watch('viability.isUncontested') ?? false}
                 onCheckedChange={(checked) =>
-                  setValue('viability.isUncontested', checked)
+                  handleViabilityBooleanChange('isUncontested', checked)
                 }
               />
               <Text size="2">Uncontested</Text>
