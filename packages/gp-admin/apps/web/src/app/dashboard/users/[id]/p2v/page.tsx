@@ -1,6 +1,7 @@
 import { Metadata } from 'next'
 import { stubbedPathToVictory } from '@/data/stubbed-p2v'
-import { P2VSection } from '../../components/P2VSection'
+import { P2VSection } from '../components/P2VSection'
+import { ViewLayout } from '../components/ViewLayout'
 
 export const metadata: Metadata = {
   title: 'Path to Victory | GP Admin',
@@ -16,5 +17,9 @@ export default async function P2VPage({ params }: PageProps) {
   // TODO: Replace stubbed data with API call using id
   void id
 
-  return <P2VSection p2v={stubbedPathToVictory} />
+  return (
+    <ViewLayout userId={id}>
+      <P2VSection p2v={stubbedPathToVictory} />
+    </ViewLayout>
+  )
 }

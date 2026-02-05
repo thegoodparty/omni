@@ -1,6 +1,7 @@
 import { Metadata } from 'next'
 import { stubbedUser } from '@/data/stubbed-user'
-import { UserSection } from '../components/UserSection'
+import { UserSection } from './components/UserSection'
+import { ViewLayout } from './components/ViewLayout'
 
 export const metadata: Metadata = {
   title: 'User Details | GP Admin',
@@ -16,5 +17,9 @@ export default async function Page({ params }: PageProps) {
   // TODO: Replace stubbed data with API call using id
   void id
 
-  return <UserSection user={stubbedUser} />
+  return (
+    <ViewLayout userId={id}>
+      <UserSection user={stubbedUser} />
+    </ViewLayout>
+  )
 }
