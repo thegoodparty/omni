@@ -7,15 +7,15 @@ import {
   Flex,
   Switch,
   Callout,
-  Button,
   Separator,
 } from '@radix-ui/themes'
-import { HiInformationCircle, HiCheck, HiX } from 'react-icons/hi'
+import { HiInformationCircle } from 'react-icons/hi'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { electedOfficeSchema, type ElectedOfficeFormData } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
+import { FormActions } from './FormActions'
 import {
   INPUT_TYPE,
   ELECTED_OFFICE_FORM_SECTIONS,
@@ -162,20 +162,12 @@ export function ElectedOfficeForm({
 
       <Separator size="4" my="6" />
 
-      <Flex gap="3" justify="end">
-        <Button type="button" variant="soft" color="gray" onClick={onCancel}>
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <FormActions
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+        isValid={isValid}
+        isDirty={isDirty}
+      />
     </>
   )
 }

@@ -7,12 +7,10 @@ import {
   Flex,
   Select,
   Switch,
-  Button,
   Separator,
 } from '@radix-ui/themes'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { HiCheck, HiX } from 'react-icons/hi'
 import {
   pathToVictorySchema,
   type PathToVictoryFormData,
@@ -20,6 +18,7 @@ import {
 } from '../schema'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
+import { FormActions } from './FormActions'
 import {
   INPUT_TYPE,
   P2V_FORM_SECTIONS,
@@ -449,20 +448,12 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
 
       <Separator size="4" my="6" />
 
-      <Flex gap="3" justify="end">
-        <Button type="button" variant="soft" color="gray" onClick={onCancel}>
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <FormActions
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+        isValid={isValid}
+        isDirty={isDirty}
+      />
     </>
   )
 }

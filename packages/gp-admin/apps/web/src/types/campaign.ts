@@ -3,10 +3,6 @@
  * TODO: Move to shared packages/types package.
  */
 
-// ============================================
-// ENUMS (matching Prisma schema)
-// ============================================
-
 export const BALLOT_LEVELS = [
   'CITY',
   'COUNTY',

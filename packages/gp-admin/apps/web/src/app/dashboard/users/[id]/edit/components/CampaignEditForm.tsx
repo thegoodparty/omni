@@ -8,16 +8,15 @@ import {
   Flex,
   Switch,
   Select,
-  Button,
   Separator,
 } from '@radix-ui/themes'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { HiCheck, HiX } from 'react-icons/hi'
 import { z } from 'zod'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
+import { FormActions } from './FormActions'
 import {
   campaignSchema,
   campaignDetailsSchema,
@@ -583,20 +582,12 @@ export function CampaignEditForm({
 
       <Separator size="4" my="6" />
 
-      <Flex gap="3" justify="end">
-        <Button type="button" variant="soft" color="gray" onClick={onCancel}>
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <FormActions
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+        isValid={isValid}
+        isDirty={isDirty}
+      />
     </>
   )
 }

@@ -7,16 +7,15 @@ import {
   Flex,
   Switch,
   Checkbox,
-  Button,
   Separator,
 } from '@radix-ui/themes'
 import { useForm, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { HiCheck, HiX } from 'react-icons/hi'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { userSchema, type UserFormData, USER_ROLES } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
+import { FormActions } from './FormActions'
 import { UNSAVED_CHANGES_MESSAGE } from '../constants'
 import {
   INPUT_TYPE,
@@ -198,20 +197,12 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
 
       <Separator size="4" my="6" />
 
-      <Flex gap="3" justify="end">
-        <Button type="button" variant="soft" color="gray" onClick={onCancel}>
-          <HiX className="w-4 h-4" />
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!isValid || !isDirty}
-        >
-          <HiCheck className="w-4 h-4" />
-          Save Changes
-        </Button>
-      </Flex>
+      <FormActions
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+        isValid={isValid}
+        isDirty={isDirty}
+      />
     </>
   )
 }
