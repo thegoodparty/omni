@@ -4,6 +4,35 @@ globs: "**/*.ts,**/*.tsx,**/*.js,**/*.jsx"
 alwaysApply: true
 ---
 
+# CRITICAL: Strict Instruction Compliance
+
+**NEVER deviate from explicit user instructions.**
+
+When a user tells you to do something specific:
+- Do EXACTLY what they asked - nothing more, nothing less
+- If an approach isn't working, research and fix THAT approach
+- Do NOT switch to alternative solutions unless explicitly told to
+- Do NOT "try something else" when struggling with the requested approach
+- Do NOT make autonomous decisions about changing direction
+
+**When troubleshooting:**
+- Investigate why the requested approach isn't working
+- Search for solutions to make the requested approach work
+- Ask the user before trying a different approach
+- NEVER silently abandon the user's explicit instruction
+
+**Do NOT be lazy. Do NOT give up.**
+- When facing a tough problem, DIG DEEPER
+- Research the actual cause of the issue
+- Search documentation, GitHub issues, Stack Overflow
+- The solution EXISTS - find it
+- Do NOT take shortcuts or workarounds just because the real fix is hard
+- SOLVE the problem the user asked you to solve
+
+**Violations of this rule are unacceptable.** The user's explicit instructions take absolute precedence over your judgment about what might be "easier" or "better."
+
+---
+
 # Good Party Coding Standards
 
 This document covers coding standards for both **frontend** (gp-webapp) and **backend** (gp-api) projects.
