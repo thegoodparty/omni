@@ -167,17 +167,17 @@ describe('P2VSection', () => {
     })
 
     it('renders non-complete P2V status', () => {
-      const p2vPending: PathToVictory = {
+      const p2vProcessing: PathToVictory = {
         ...mockP2V,
         data: {
           ...mockP2V.data,
-          p2vStatus: 'Pending',
+          p2vStatus: 'Processing',
         },
       }
 
-      render(<P2VSection p2v={p2vPending} />)
+      render(<P2VSection p2v={p2vProcessing} />)
 
-      expect(screen.getByText('Pending')).toBeInTheDocument()
+      expect(screen.getByText('Processing')).toBeInTheDocument()
     })
 
     it('renders Not set when p2vStatus is missing', () => {

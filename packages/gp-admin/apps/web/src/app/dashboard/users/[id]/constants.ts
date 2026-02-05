@@ -17,10 +17,20 @@ export const LAUNCH_STATUS = {
   NOT_LAUNCHED: 'Not launched',
 } as const
 
+export const P2V_STATUS = [
+  'Waiting',
+  'Processing',
+  'Complete',
+  'Failed',
+  'Not Needed',
+] as const
+
+export type P2VStatus = (typeof P2V_STATUS)[number]
+
 export const P2V_STATUS_VALUES = {
   WAITING: 'Waiting',
   PROCESSING: 'Processing',
   COMPLETE: 'Complete',
   FAILED: 'Failed',
   NOT_NEEDED: 'Not Needed',
-} as const
+} as const satisfies Record<string, P2VStatus>

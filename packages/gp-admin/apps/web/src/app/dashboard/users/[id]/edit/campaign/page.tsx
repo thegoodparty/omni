@@ -3,16 +3,14 @@
 import { useRouter } from 'next/navigation'
 import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
+import { Flex, Button, Separator } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
+import { SuccessCallout } from '@/components/SuccessCallout'
 import { useState } from 'react'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
 import {
   campaignSchema,
   campaignDetailsSchema,
-  CAMPAIGN_LAUNCH_STATUS,
-  BALLOT_LEVELS,
-  ELECTION_LEVELS,
   type CampaignFormData,
   type CampaignDetailsFormData,
 } from '../schema'
@@ -37,9 +35,7 @@ export default function EditCampaignPage() {
       tier: null,
       canDownloadFederal: stubbedCampaign.canDownloadFederal,
       data: {
-        launchStatus: stubbedCampaign.data.launchStatus as
-          | (typeof CAMPAIGN_LAUNCH_STATUS)[number]
-          | undefined,
+        launchStatus: stubbedCampaign.data.launchStatus,
         name: stubbedCampaign.data.name ?? '',
         adminUserEmail: '',
       },
@@ -57,13 +53,8 @@ export default function EditCampaignPage() {
       district: '',
       office: stubbedCampaign.details.office ?? '',
       otherOffice: stubbedCampaign.details.otherOffice ?? '',
-      ballotLevel: stubbedCampaign.details.ballotLevel as
-        | (typeof BALLOT_LEVELS)[number]
-        | undefined,
-      level:
-        (stubbedCampaign.details.level as
-          | (typeof ELECTION_LEVELS)[number]
-          | undefined) ?? null,
+      ballotLevel: stubbedCampaign.details.ballotLevel,
+      level: stubbedCampaign.details.level ?? null,
       officeTermLength: stubbedCampaign.details.officeTermLength ?? '',
       electionDate: stubbedCampaign.details.electionDate ?? '',
       primaryElectionDate: '',
@@ -123,14 +114,10 @@ export default function EditCampaignPage() {
 
   return (
     <>
-      {saveSuccess && (
-        <Callout.Root color="green" mb="4">
-          <Callout.Icon>
-            <HiCheck />
-          </Callout.Icon>
-          <Callout.Text>Changes saved (simulated)</Callout.Text>
-        </Callout.Root>
-      )}
+      <SuccessCallout
+        visible={saveSuccess}
+        message="Changes saved (simulated)"
+      />
 
       <Flex direction="column" gap="6">
         <FormProvider {...campaignForm}>

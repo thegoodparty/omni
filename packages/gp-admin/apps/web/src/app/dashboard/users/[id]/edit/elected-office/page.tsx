@@ -3,8 +3,9 @@
 import { useRouter } from 'next/navigation'
 import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
+import { Flex, Button, Separator } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
+import { SuccessCallout } from '@/components/SuccessCallout'
 import { useState } from 'react'
 import { stubbedElectedOffice } from '@/data/stubbed-elected-office'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
@@ -60,14 +61,10 @@ export default function EditElectedOfficePage() {
 
   return (
     <>
-      {saveSuccess && (
-        <Callout.Root color="green" mb="4">
-          <Callout.Icon>
-            <HiCheck />
-          </Callout.Icon>
-          <Callout.Text>Changes saved (simulated)</Callout.Text>
-        </Callout.Root>
-      )}
+      <SuccessCallout
+        visible={saveSuccess}
+        message="Changes saved (simulated)"
+      />
 
       <FormProvider {...form}>
         <ElectedOfficeForm hasElectedOffice={hasElectedOffice} />

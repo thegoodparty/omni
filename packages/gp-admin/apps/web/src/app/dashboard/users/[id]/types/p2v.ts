@@ -8,19 +8,19 @@ export const P2V_STATUS = [
 export type P2VStatus = (typeof P2V_STATUS)[number]
 
 export interface Viability {
-  level: string
-  score: number
-  seats: number
-  candidates: string
-  isPartisan: boolean
-  isIncumbent: string
-  isUncontested: string
-  candidatesPerSeat: string
+  level?: string
+  score?: number
+  seats?: number
+  candidates?: number | string
+  isPartisan?: boolean
+  isIncumbent?: boolean | string
+  isUncontested?: boolean | string
+  candidatesPerSeat?: number | string
 }
 
 export interface PathToVictoryData {
   // Status
-  p2vStatus?: string
+  p2vStatus?: P2VStatus
   source?: string
   p2vComplete?: string
   p2vCompleteDate?: string

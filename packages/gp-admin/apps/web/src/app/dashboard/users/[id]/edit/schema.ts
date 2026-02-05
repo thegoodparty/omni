@@ -1,46 +1,22 @@
 import { z } from 'zod'
+import { USER_ROLES } from '../types/user'
+import {
+  BALLOT_LEVELS,
+  CAMPAIGN_LAUNCH_STATUS,
+  CAMPAIGN_TIERS,
+  ELECTION_LEVELS,
+} from '@/types/campaign'
+import { P2V_STATUS } from '../constants'
 
-// ============================================
-// ENUMS (matching Prisma schema)
-// ============================================
-
-export const USER_ROLES = [
-  'admin',
-  'sales',
-  'candidate',
-  'campaignManager',
-  'demo',
-] as const
-export const CAMPAIGN_TIERS = ['WIN', 'LOSE', 'TOSSUP'] as const
-export const CAMPAIGN_LAUNCH_STATUS = [
-  'draft',
-  'launched',
-  'archived',
-  'suspended',
-] as const
-export const BALLOT_LEVELS = [
-  'CITY',
-  'COUNTY',
-  'FEDERAL',
-  'LOCAL',
-  'REGIONAL',
-  'STATE',
-  'TOWNSHIP',
-] as const
-export const ELECTION_LEVELS = [
-  'city',
-  'county',
-  'state',
-  'federal',
-  'local',
-] as const
-export const P2V_STATUS = [
-  'Waiting',
-  'Processing',
-  'Complete',
-  'Failed',
-  'Not Needed',
-] as const
+// Re-export constants from canonical sources for backward compatibility
+export {
+  BALLOT_LEVELS,
+  CAMPAIGN_LAUNCH_STATUS,
+  CAMPAIGN_TIERS,
+  ELECTION_LEVELS,
+  P2V_STATUS,
+  USER_ROLES,
+}
 
 // ============================================
 // USER SCHEMA (PATCH /users/:id)

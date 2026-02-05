@@ -3,22 +3,44 @@
  * TODO: Move to shared packages/types package.
  */
 
-export type BallotReadyPositionLevel =
-  | 'CITY'
-  | 'COUNTY'
-  | 'STATE'
-  | 'FEDERAL'
-  | 'LOCAL'
+// ============================================
+// ENUMS (matching Prisma schema)
+// ============================================
 
-export type ElectionLevel = 'city' | 'county' | 'state' | 'federal' | 'local'
+export const BALLOT_LEVELS = [
+  'CITY',
+  'COUNTY',
+  'FEDERAL',
+  'LOCAL',
+  'REGIONAL',
+  'STATE',
+  'TOWNSHIP',
+] as const
+
+export const ELECTION_LEVELS = [
+  'city',
+  'county',
+  'state',
+  'federal',
+  'local',
+] as const
+
+export const CAMPAIGN_LAUNCH_STATUS = [
+  'draft',
+  'launched',
+  'archived',
+  'suspended',
+] as const
+
+export const CAMPAIGN_TIERS = ['WIN', 'LOSE', 'TOSSUP'] as const
+
+// Derived types from const arrays
+export type BallotReadyPositionLevel = (typeof BALLOT_LEVELS)[number]
+export type ElectionLevel = (typeof ELECTION_LEVELS)[number]
+export type CampaignLaunchStatus = (typeof CAMPAIGN_LAUNCH_STATUS)[number]
+export type CampaignTier = (typeof CAMPAIGN_TIERS)[number]
 
 export type CampaignCreatedBy = 'user' | 'admin' | 'import'
-
-export type CampaignLaunchStatus =
-  | 'draft'
-  | 'launched'
-  | 'archived'
-  | 'suspended'
 
 export type OnboardingStep =
   | 'profile'

@@ -3,16 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Flex, Button, Separator, Callout } from '@radix-ui/themes'
+import { Flex, Button, Separator } from '@radix-ui/themes'
 import { HiCheck, HiX } from 'react-icons/hi'
+import { SuccessCallout } from '@/components/SuccessCallout'
 import { useState } from 'react'
 import { stubbedPathToVictory } from '@/data/stubbed-p2v'
 import { stubbedCampaign } from '@/data/stubbed-campaign'
-import {
-  pathToVictorySchema,
-  P2V_STATUS,
-  type PathToVictoryFormData,
-} from '../schema'
+import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
 import { P2VForm } from '../components/P2VForm'
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning'
 import { FORM_MODE } from '../constants'
@@ -26,9 +23,7 @@ export default function EditP2VPage() {
     mode: FORM_MODE.ON_CHANGE,
     resolver: zodResolver(pathToVictorySchema),
     defaultValues: {
-      p2vStatus: p2v?.data?.p2vStatus as
-        | (typeof P2V_STATUS)[number]
-        | undefined,
+      p2vStatus: p2v?.data?.p2vStatus,
       electionType: p2v?.data?.electionType ?? '',
       electionLocation: p2v?.data?.electionLocation ?? '',
       winNumber: p2v?.data?.winNumber ? Number(p2v.data.winNumber) : undefined,
@@ -92,14 +87,10 @@ export default function EditP2VPage() {
 
   return (
     <>
-      {saveSuccess && (
-        <Callout.Root color="green" mb="4">
-          <Callout.Icon>
-            <HiCheck />
-          </Callout.Icon>
-          <Callout.Text>Changes saved (simulated)</Callout.Text>
-        </Callout.Root>
-      )}
+      <SuccessCallout
+        visible={saveSuccess}
+        message="Changes saved (simulated)"
+      />
 
       <FormProvider {...form}>
         <P2VForm />
