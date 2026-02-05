@@ -4,6 +4,7 @@ import { UserPageHeader } from '../components/UserPageHeader'
 import { TabNavigation } from '../components/TabNavigation'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
+import { UnsavedChangesProvider } from './context/UnsavedChangesContext'
 
 interface EditLayoutProps {
   children: React.ReactNode
@@ -26,11 +27,11 @@ export default async function EditLayout({
           <UserPageHeader user={headerData} isEditMode />
         </Box>
 
-        <TabNavigation userId={id} isEditMode />
-
-        <Separator size="4" my="4" />
-
-        {children}
+        <UnsavedChangesProvider>
+          <TabNavigation userId={id} isEditMode />
+          <Separator size="4" my="4" />
+          {children}
+        </UnsavedChangesProvider>
       </Container>
     </ProtectedContent>
   )
