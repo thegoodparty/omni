@@ -20,8 +20,10 @@ function handleBeforeUnload(e: BeforeUnloadEvent) {
 function handleClick(e: MouseEvent) {
   if (!hasUnsavedChanges()) return
 
-  const target = e.target as HTMLElement
-  const anchor = target.closest('a')
+  // Type guard: verify target is an HTMLElement before using DOM methods
+  if (!(e.target instanceof HTMLElement)) return
+
+  const anchor = e.target.closest('a')
 
   if (!anchor) return
 
