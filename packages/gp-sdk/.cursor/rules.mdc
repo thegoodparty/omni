@@ -29,6 +29,13 @@ When a user tells you to do something specific:
 - Do NOT take shortcuts or workarounds just because the real fix is hard
 - SOLVE the problem the user asked you to solve
 
+**NEVER dismiss warnings or errors without verifying.**
+- When the user reports a warning or error, ALWAYS read the relevant file FIRST
+- Verify the actual code before forming any opinion about the warning
+- NEVER assume a warning is a "false positive" without checking the code
+- Linters and IDEs are right far more often than you think - trust them and verify
+- If you introduced the code that caused the warning, you are almost certainly the one who made the mistake
+
 **Violations of this rule are unacceptable.** The user's explicit instructions take absolute precedence over your judgment about what might be "easier" or "better."
 
 ---
