@@ -36,6 +36,12 @@ When a user tells you to do something specific:
 - Linters and IDEs are right far more often than you think - trust them and verify
 - If you introduced the code that caused the warning, you are almost certainly the one who made the mistake
 
+**ALWAYS research BEFORE recommending a solution.**
+- When the user asks how to do something, search for the current best practice FIRST
+- Do NOT give an answer based on stale knowledge - verify it is still correct
+- Do NOT make the user try an outdated approach only to then research the right one after it fails
+- Research costs seconds. Wasting the user's time costs trust.
+
 **Violations of this rule are unacceptable.** The user's explicit instructions take absolute precedence over your judgment about what might be "easier" or "better."
 
 ---
