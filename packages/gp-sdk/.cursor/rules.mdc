@@ -1,0 +1,768 @@
+---
+description: Comprehensive coding standards for Good Party projects (gp-webapp and gp-api)
+globs: "**/*.ts,**/*.tsx,**/*.js,**/*.jsx"
+alwaysApply: true
+---
+
+# Good Party Coding Standards
+
+This document covers coding standards for both **frontend** (gp-webapp) and **backend** (gp-api) projects.
+
+Legend:
+- **[ALL]** - Applies to both frontend and backend
+- **[FRONTEND]** - Applies to gp-webapp (Next.js/React)
+- **[BACKEND]** - Applies to gp-api (NestJS)
+
+---
+
+# Type Safety
+
+## [ALL] Banned Type Keywords
+
+**NEVER use:**
+- `any`
+- `never` (except for truly unreachable code paths)
+- `unknown`
+
+```typescript
+// WRONG
+const data: any = fetchData()
+const result: Promise<never> = asyncFn()
+
+// CORRECT
+const data: MyType = fetchData()
+const result: Promise<void> = asyncFn()
+```
+
+`Promise<never>` is wrong - use `Promise<void>` for async functions with no return value.
+
+For catch blocks, use `Error` type:
+
+```typescript
+try {
+  // code
+} catch (error: Error) {
+  // handle error
+}
+```
+
+For truly unknown external data, use type guards:
+
+```typescript
+const isApiResponse = (data: unknown): data is ApiResponse => {
+  return typeof data === 'object' && data !== null && 'data' in data
+}
+```
+
+---
+
+## [ALL] Banned: Type Casting
+
+**ALL forms of `as` keyword are FORBIDDEN:**
+- `value as SomeType`
+- `<SomeType>value`
+- `value as any`
+- `key as keyof SomeType`
+- `{} as SomeType`
+
+**Correct Solutions:**
+
+```typescript
+// WRONG - Casting API response
+const data = await fetchData() as MyType
+
+// CORRECT - Make fetch function generic
+const fetchData = async <T>(): Promise<T> => {
+  const response = await fetch(url)
+  return response.json()
+}
+const data = await fetchData<MyType>()
+
+// WRONG - Casting Object.keys result
+Object.keys(obj).map((key) => obj[key as keyof typeof obj])
+
+// CORRECT - Use Object.entries
+Object.entries(obj).map(([key, value]) => value)
+
+// WRONG - Casting reduce accumulator
+.reduce((acc, item) => ({ ...acc }), {} as Record<string, string>)
+
+// CORRECT - Use generic parameter
+.reduce<Record<string, string>>((acc, item) => ({ ...acc }), {})
+```
+
+**[FRONTEND]** For React hooks:
+
+```typescript
+// WRONG
+const id = params.id as string
+
+// CORRECT
+const params = useParams<{ id: string }>()
+```
+
+---
+
+## [ALL] Banned: Broad Index Signatures
+
+**NEVER use catch-all index signatures:**
+
+```typescript
+// WRONG
+interface Content {
+  [key: string]: string | number | boolean | object | null
+}
+
+// WRONG - Even with specific properties
+interface Campaign {
+  id: string
+  name: string
+  [key: string]: string | number | boolean | object | null
+}
+
+// CORRECT - Define explicit properties
+interface Campaign {
+  id: string
+  name: string
+  slug: string
+  office?: string
+  state?: string
+  isActive: boolean
+}
+```
+
+---
+
+## [ALL] Record<> Rules
+
+### Banned for Static Objects
+
+Never use `Record<>` when keys are known at compile time:
+
+```typescript
+// WRONG
+const statusToText: Record<IssueStatus, string> = {
+  newIssue: 'New Issue',
+  accepted: 'Accepted',
+}
+
+// CORRECT
+type StatusToText = {
+  newIssue: string
+  accepted: string
+}
+const statusToText: StatusToText = {
+  newIssue: 'New Issue',
+  accepted: 'Accepted',
+}
+```
+
+### Always Use Partial<Record<>>
+
+When `Record<>` is necessary for dynamic data, ALWAYS wrap in `Partial<>`:
+
+```typescript
+// WRONG
+const [selected, setSelected] = useState<Record<number, boolean>>({})
+
+// CORRECT
+const [selected, setSelected] = useState<Partial<Record<number, boolean>>>({})
+```
+
+---
+
+## [ALL] Banned Escape Hatches
+
+- `// @ts-ignore` - Fix the underlying type
+- `// @ts-expect-error` - Fix the underlying type
+- `.d.ts` files for your own code - Define types in the `.ts` file
+
+---
+
+## [ALL] Type Guards
+
+Type guards must NOT use casts:
+
+```typescript
+// WRONG - Cast defeats the purpose
+export const states = ['AK', 'AL'] as const
+export const isState = (v: string): v is State => {
+  return (states as readonly string[]).includes(v)
+}
+
+// CORRECT - Proper array typing
+export const states: readonly string[] = ['AK', 'AL']
+export type State = 'AK' | 'AL'
+export const isState = (v: string): v is State => {
+  return states.includes(v)
+}
+```
+
+---
+
+# Code Organization
+
+## [ALL] DRY - Don't Repeat Yourself
+
+**NEVER duplicate interface definitions across files.**
+
+```typescript
+// WRONG - Same interface in multiple files
+// File 1:
+interface Race { id: number; slug: string }
+// File 2:
+interface RaceItem { id: number; slug: string }
+
+// CORRECT - Define once, import everywhere
+// shared/types.ts
+export interface Race { id: number; slug: string }
+
+// Any other file
+import { Race } from '@shared/types'
+```
+
+Abstract repeated code into reusable functions, classes, or modules.
+
+---
+
+## [ALL] Use Existing Types
+
+### [FRONTEND] Check helpers/types.ts First
+
+Before defining any interface for core data models (User, Campaign, etc.):
+1. Check `helpers/types.ts` for existing type
+2. If exists, import it
+3. If not exists, add it to `helpers/types.ts`
+
+### [FRONTEND] Check gp-api for API Response Types
+
+When typing API responses, FIRST check `gp-api/src/`:
+- Controllers: `src/*/*.controller.ts` - return types
+- Schemas: `src/*/schemas/*.schema.ts` - Zod schemas
+- DTOs: `src/*/*.dto.ts` - Data transfer objects
+
+```typescript
+// WRONG - Assumed response shape
+interface PhoneListResponse {
+  phoneListToken: string  // API actually returns "token"!
+}
+
+// CORRECT - Checked gp-api schema first
+interface PhoneListResponse {
+  token: string
+}
+```
+
+### [ALL] Use Library Types
+
+Always prefer library types over custom definitions:
+
+**[FRONTEND]** Next.js types:
+
+```typescript
+import { SearchParams } from 'next/dist/server/request/search-params'
+
+export default async function Page({ 
+  params, 
+  searchParams 
+}: { 
+  params: Promise<{ slug: string }>
+  searchParams: SearchParams
+}): Promise<React.JSX.Element>
+```
+
+Common frontend library types:
+- `next/dist/server/request/search-params` → `SearchParams`
+- `react` → `React.JSX.Element`, `React.ReactNode`
+- `@mui/material` → `ButtonProps`, `TextFieldProps`
+- `react-hook-form` → `UseFormReturn`, `FieldValues`
+
+**[BACKEND]** Use Prisma types for database models:
+
+```typescript
+import { Prisma } from '@prisma/client'
+
+type WebsiteWithDomain = Prisma.WebsiteGetPayload<{
+  include: { domain: true }
+}>
+```
+
+---
+
+## [ALL] Import/Export Verification
+
+When modifying files with imports or exports:
+- Before removing a file, check for all imports of that file
+- Before removing an export, check for all imports of that export
+- After renaming a file, update all imports that reference it
+- After changing an export, verify all importing files still work
+
+---
+
+## [ALL] SOLID Principles
+
+- **Single Responsibility**: Each class/component/function should have one purpose
+- **Open/Closed**: Design for extension without modification
+- **Liskov Substitution**: Derived types must be substitutable for base types
+- **Interface Segregation**: Prefer specific interfaces over large general ones
+- **Dependency Inversion**: Depend on abstractions not concretions
+
+---
+
+# Code Style
+
+## [ALL] No Comments
+
+Do not add comments to code. Code should be self-documenting through clear naming and structure.
+
+**Exception**: Do not delete existing comments that were already in the codebase.
+
+---
+
+## [ALL] Prefer Ternary Operators
+
+Use ternaries for conditional assignments:
+
+```typescript
+// CORRECT
+const stateName = isStateAbbreviation(upperState)
+  ? shortToLongState[upperState]
+  : state
+
+// AVOID for simple assignments
+let stateName = state
+if (isStateAbbreviation(upperState)) {
+  stateName = shortToLongState[upperState]
+}
+```
+
+Use if-else when:
+- Multiple statements per branch
+- Complex logic
+- Early returns/guard clauses
+
+---
+
+## [ALL] No Redundant Variables for Returns
+
+Don't create a variable just to immediately return it:
+
+```typescript
+// WRONG
+const result = await someAsyncFunction()
+return result
+
+// CORRECT
+return someAsyncFunction()
+```
+
+Don't use `await` if simply returning an async function result:
+
+```typescript
+// WRONG
+return await someAsyncFunction()
+
+// CORRECT
+return someAsyncFunction()
+```
+
+---
+
+## [ALL] Remove Code Completely
+
+When removing code:
+- Delete it completely - never leave commented-out blocks
+- Remove all associated unused imports
+- Check for other code that depended on it
+
+```typescript
+// WRONG - Commented code left behind
+// const oldFeature = () => { ... }
+
+// CORRECT - Just delete it
+```
+
+---
+
+## [ALL] Use Available Libraries
+
+Always attempt to use libraries listed in `package.json` for relevant functionality. Avoid implementing custom solutions when a library can provide the needed functionality.
+
+Check `package-lock.json` for the specific version and use that version's documentation.
+
+---
+
+# Frontend-Specific (gp-webapp)
+
+## [FRONTEND] Context Providers
+
+Use `null` for uninitialized context, never cast empty objects:
+
+```typescript
+// WRONG
+export const MyContext = createContext<[Type, Setter]>([
+  {} as Type,
+  () => {},
+])
+
+// CORRECT
+export const MyContext = createContext<[Type | null, Setter]>([
+  null,
+  () => {},
+])
+```
+
+---
+
+## [FRONTEND] API Response Pattern
+
+Always return the full `ApiResponse`, not just `.data`:
+
+```typescript
+import { ApiResponse } from 'gpApi/clientFetch'
+
+// WRONG - Callers expect .ok, .status
+export const fetchData = async (): Promise<Data> => {
+  const response = await clientFetch(...)
+  return response.data
+}
+
+// CORRECT
+export const fetchData = async (): Promise<ApiResponse<Data>> => {
+  const response: ApiResponse<Data> = await clientFetch(...)
+  return response
+}
+```
+
+---
+
+## [FRONTEND] React/JSX Best Practices
+
+### Never Pass Empty Fragments as Props
+
+```typescript
+// WRONG - Empty fragment is truthy, hides default content
+<TaskFlow customButton={<></>} />
+
+// CORRECT - Don't pass the prop at all
+<TaskFlow />
+```
+
+### Preserve type="button" in Forms
+
+Buttons inside `<form>` default to `type="submit"`:
+
+```typescript
+// WRONG - Cancel button submits form!
+<form onSubmit={handleSubmit}>
+  <SecondaryButton onClick={handleCancel}>Cancel</SecondaryButton>
+</form>
+
+// CORRECT
+<form onSubmit={handleSubmit}>
+  <SecondaryButton type="button" onClick={handleCancel}>Cancel</SecondaryButton>
+</form>
+```
+
+### null vs undefined Matter
+
+Libraries treat `null` and `undefined` differently:
+
+```typescript
+// MUI Autocomplete
+// value={null} = controlled with no selection
+// value={undefined} = potentially uncontrolled
+
+// CORRECT - Use generic type parameters to allow null
+<Autocomplete<OptionType, false, false, false>
+  value={value}
+/>
+```
+
+### Never Extract Methods to Variables
+
+Extracting breaks `this` binding:
+
+```typescript
+// WRONG - `this` is undefined
+const updateFn = stepsRef.current.updateStepElement
+updateFn(nextStepIndex)
+
+// CORRECT
+stepsRef.current?.updateStepElement(nextStepIndex)
+```
+
+---
+
+## [FRONTEND] Component Types
+
+```typescript
+// Function components
+export default function MyComponent(props: Props): React.JSX.Element {
+  return <div>...</div>
+}
+
+// Components returning null
+export default function TrackEvent(props: Props): null {
+  useEffect(() => { ... }, [])
+  return null
+}
+```
+
+---
+
+## [FRONTEND] Event Handlers
+
+```typescript
+import { ChangeEvent, MouseEvent } from 'react'
+
+const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+  console.log(e.target.value)
+}
+
+const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
+  console.log('clicked')
+}
+```
+
+---
+
+# Backend-Specific (gp-api)
+
+## [BACKEND] Prisma Service Pattern
+
+All Prisma model services MUST extend `createPrismaBase(MODELS.ModelName)`:
+
+```typescript
+import { Injectable } from '@nestjs/common'
+import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+
+@Injectable()
+export class MyModelService extends createPrismaBase(MODELS.MyModel) {
+  constructor() {
+    super()
+  }
+  
+  customMethod() {
+    return this.model.create({ data: {...} })
+  }
+}
+```
+
+- Use `this.model` to access the Prisma model (NOT `this.prisma.modelName`)
+- Access raw client with `this.client`
+- Keep services focused on data operations; business logic belongs in controllers
+
+---
+
+## [BACKEND] NestJS Services Directory Structure
+
+Every `*.service.ts` file MUST reside in a `services/` subdirectory:
+
+```
+src/module-name/
+  module-name.module.ts
+  module-name.controller.ts
+  services/
+    module-name.service.ts
+    other-service.service.ts
+```
+
+---
+
+## [BACKEND] Exception Handling
+
+### Exception Types
+
+1. **BadRequestException (400)** - Client-side errors:
+   - Invalid input data
+   - Validation failures
+   - Missing required fields
+
+2. **BadGatewayException (502)** - External service failures:
+   - Third-party API failures (Vercel, AWS, Stripe)
+   - External service timeouts
+   - Upstream service errors
+
+3. **ConflictException (409)** - Resource conflicts:
+   - Duplicate entries
+   - Resource state conflicts
+
+4. **NotFoundException (404)** - Missing resources
+
+### Try-Catch Pattern
+
+Only wrap external service calls in try-catch, not database operations:
+
+```typescript
+// CORRECT
+let externalResult
+try {
+  externalResult = await this.externalService.doSomething()
+} catch (error) {
+  throw new BadGatewayException('External service failed')
+}
+await this.model.update(...)  // Outside try-catch
+
+// WRONG - Includes DB operations in try-catch
+try {
+  const result = await this.externalService.doSomething()
+  await this.model.update(...)  // Catches both external and DB errors
+} catch (error) {
+  // ...
+}
+```
+
+---
+
+## [BACKEND] HTTP 204 No Content
+
+Methods with `@HttpCode(HttpStatus.NO_CONTENT)` MUST NOT return data:
+
+```typescript
+// CORRECT
+@Delete('resource/:id')
+@HttpCode(HttpStatus.NO_CONTENT)
+async deleteResource(@Param('id') id: string) {
+  await this.service.delete(id)  // Use await, not return
+}
+
+// WRONG
+@Delete('resource/:id')
+@HttpCode(HttpStatus.NO_CONTENT)
+async deleteResource(@Param('id') id: string) {
+  return this.service.delete(id)  // Returns data with 204 status
+}
+```
+
+---
+
+## [BACKEND] Use http-constants-ts for MIME Types
+
+Always use the `http-constants-ts` library for MIME type constants instead of string literals:
+
+```typescript
+import { MediaType } from 'http-constants-ts'
+
+// CORRECT
+const contentType = MediaType.APPLICATION_JSON
+
+// WRONG
+const contentType = 'application/json'
+```
+
+---
+
+## [BACKEND] Avoid JSON Columns
+
+**Default: Avoid JSON columns** - Use strongly-typed relational columns instead.
+
+**When NOT to use JSON:**
+- Data has known structure → Use proper columns
+- Sub-fields need to be queried → Use separate model with relations
+- Data needs validation → Use typed fields with validators
+- Relationships exist → Use proper relations
+
+**When JSON is acceptable:**
+- Truly dynamic/unpredictable data (user-generated key-value pairs)
+- Sparse optional data (>20 optional fields rarely populated)
+
+```typescript
+// WRONG
+model BlogArticle {
+  id   String @id
+  meta Json   // Contains title, description, tags, author
+}
+
+// CORRECT
+model BlogArticle {
+  id          String  @id
+  title       String
+  description String?
+  author      String?
+  tags        Tag[]
+}
+```
+
+---
+
+## [BACKEND] E2E Testing Patterns
+
+### File Organization
+
+Place test files alongside the feature they test:
+- `src/authentication/tests/login.e2e.ts`
+- `src/campaigns/tasks/tests/list-tasks.e2e.ts`
+
+Shared utilities go in `e2e-tests/utils/`.
+
+### Test Cleanup
+
+ALWAYS clean up test users:
+
+```typescript
+test.beforeEach(async ({ request }, testInfo) => {
+  const result = await registerUser(request, { ... })
+  ;(testInfo as TestInfoWithContext).testContext = {
+    testUser: { userId: result.user.id, authToken: result.token },
+  }
+})
+
+test.afterEach(async ({ request }, testInfo) => {
+  const testContext = (testInfo as TestInfoWithContext).testContext
+  if (testContext) {
+    await cleanupTestUser(request, testContext.testUser)
+  }
+})
+```
+
+### Use HttpStatus Enum
+
+```typescript
+import { HttpStatus } from '@nestjs/common'
+
+expect(response.status()).toBe(HttpStatus.OK)
+expect(response.status()).toBe(HttpStatus.CREATED)
+expect(response.status()).toBe(HttpStatus.NO_CONTENT)
+```
+
+### Use Faker for Test Data
+
+```typescript
+import { generateRandomEmail, generateRandomName } from '../../../e2e-tests/utils/auth.util'
+
+const email = generateRandomEmail()
+const firstName = generateRandomName()
+```
+
+---
+
+# Git & Workflow
+
+## [ALL] Git Commit Format
+
+All git commit commands MUST:
+- Be in a bash code block
+- Include the `-a` flag
+
+```bash
+git commit -a -m "feat: add new feature"
+```
+
+---
+
+## [ALL] File Deletion Verification
+
+When deleting files:
+1. Verify file exists first
+2. Use `delete_file` tool (try relative path, then absolute)
+3. Verify deletion success afterward
+
+---
+
+## [ALL] Strict Implementation Scope
+
+Only create or implement EXACTLY what is explicitly requested:
+- Don't add additional files, features, or functionality beyond the request
+- Ask for clarification if scope is unclear
+- Wait for explicit instructions before adding functionality
