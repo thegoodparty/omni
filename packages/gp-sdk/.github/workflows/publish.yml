@@ -56,6 +56,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
+      - name: Approve Release PR
+        if: steps.changesets.outputs.pullRequestNumber
+        run: gh pr review ${{ steps.changesets.outputs.pullRequestNumber }} --approve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Auto-merge Release PR
         if: steps.changesets.outputs.pullRequestNumber
         run: gh pr merge ${{ steps.changesets.outputs.pullRequestNumber }} --squash --auto --delete-branch
