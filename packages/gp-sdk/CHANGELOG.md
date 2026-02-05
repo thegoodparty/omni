@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 0.0.4
+
+### Patch Changes
+
+- [#7](https://github.com/thegoodparty/gp-sdk/pull/7) [`b69f192`](https://github.com/thegoodparty/gp-sdk/commit/b69f192d2c097d9d3e66a59c3b10dc8d93e29dd0) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
 ## 0.0.3
 
 ### Patch Changes
