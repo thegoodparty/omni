@@ -1,5 +1,15 @@
 # @goodparty_org/sdk
 
+## 0.0.6
+
+### Patch Changes
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix GitHub Release creation by using gh CLI directly instead of relying on changesets/action createGithubReleases, which fails silently with app tokens on scoped packages.
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
 ## 0.0.5
 
 ### Patch Changes
