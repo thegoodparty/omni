@@ -51,7 +51,7 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: npm publish --access public
+          publish: npx changeset publish
           title: 'chore: release @goodparty_org/sdk'
           createGithubReleases: false
         env:
