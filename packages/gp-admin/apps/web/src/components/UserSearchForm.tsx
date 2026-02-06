@@ -15,6 +15,7 @@ import { HiSearch, HiX } from 'react-icons/hi'
 import { ErrorText } from './ErrorText'
 import { z } from 'zod'
 import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
+import { FORM_MODE } from '@/app/dashboard/users/[id]/edit/constants'
 
 const emailSchema = z.email()
 
@@ -53,7 +54,7 @@ export function UserSearchForm() {
     setValue,
     formState: { errors, isValid },
   } = useForm<FormData>({
-    mode: 'onChange',
+    mode: FORM_MODE.ON_CHANGE,
     defaultValues: {
       email: searchParams.get(SEARCH_PARAMS.EMAIL) ?? '',
       firstName: searchParams.get(SEARCH_PARAMS.FIRST_NAME) ?? '',
