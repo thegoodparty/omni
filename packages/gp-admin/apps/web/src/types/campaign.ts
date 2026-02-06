@@ -3,22 +3,40 @@
  * TODO: Move to shared packages/types package.
  */
 
-export type BallotReadyPositionLevel =
-  | 'CITY'
-  | 'COUNTY'
-  | 'STATE'
-  | 'FEDERAL'
-  | 'LOCAL'
+export const BALLOT_LEVELS = [
+  'CITY',
+  'COUNTY',
+  'FEDERAL',
+  'LOCAL',
+  'REGIONAL',
+  'STATE',
+  'TOWNSHIP',
+] as const
 
-export type ElectionLevel = 'city' | 'county' | 'state' | 'federal' | 'local'
+export const ELECTION_LEVELS = [
+  'city',
+  'county',
+  'state',
+  'federal',
+  'local',
+] as const
+
+export const CAMPAIGN_LAUNCH_STATUS = [
+  'draft',
+  'launched',
+  'archived',
+  'suspended',
+] as const
+
+export const CAMPAIGN_TIERS = ['WIN', 'LOSE', 'TOSSUP'] as const
+
+// Derived types from const arrays
+export type BallotReadyPositionLevel = (typeof BALLOT_LEVELS)[number]
+export type ElectionLevel = (typeof ELECTION_LEVELS)[number]
+export type CampaignLaunchStatus = (typeof CAMPAIGN_LAUNCH_STATUS)[number]
+export type CampaignTier = (typeof CAMPAIGN_TIERS)[number]
 
 export type CampaignCreatedBy = 'user' | 'admin' | 'import'
-
-export type CampaignLaunchStatus =
-  | 'draft'
-  | 'launched'
-  | 'archived'
-  | 'suspended'
 
 export type OnboardingStep =
   | 'profile'
@@ -64,6 +82,24 @@ export interface Opponent {
   name: string
   party: string
   description: string
+}
+
+export interface CampaignFinance {
+  ein?: boolean
+  filing?: boolean
+  management?: boolean
+  regulatory?: boolean
+}
+
+export interface CampaignPlan {
+  why?: string
+  slogan?: string
+  aboutMe?: string
+  messageBox?: string
+  mobilizing?: string
+  pathToVictory?: string
+  policyPlatform?: string
+  communicationsStrategy?: string
 }
 
 export interface CampaignDetails {
@@ -174,10 +210,9 @@ export interface CampaignData {
   image?: string
   launch?: Record<string, boolean>
   social?: { completed: boolean }
-  finance?: Record<string, boolean>
+  finance?: CampaignFinance
   profile?: { completed: boolean }
-  aiContent?: Record<string, AiContentItem>
-  campaignPlan?: Record<string, string>
+  campaignPlan?: CampaignPlan
   hasVoterFile?: string
   pathToVictory?: PathToVictoryData
   campaignPlanStatus?: Record<string, CampaignPlanStatus>

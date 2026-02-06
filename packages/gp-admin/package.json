@@ -27,5 +27,10 @@
   "packageManager": "npm@10.9.2",
   "engines": {
     "node": ">=18"
+  },
+  "overrides": {
+    "next-navigation-guard": {
+      "next": "^16.0.0"
+    }
   }
 }

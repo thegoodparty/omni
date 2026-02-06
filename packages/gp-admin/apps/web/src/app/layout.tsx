@@ -4,6 +4,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { SidebarProvider } from '@/shared/layout/SidebarContext'
 import { Theme } from '@radix-ui/themes'
 import { Header } from '@/shared/layout/Header'
+import { ToastProvider } from '@/components/Toast'
 import { GoodPartyClient } from '@goodparty_org/sdk'
 import { generateUrl } from '@/shared/util/generateUrl.util'
 
@@ -57,10 +58,12 @@ export default function RootLayout({
       <html lang="en">
         <body>
           <Theme accentColor="indigo" grayColor="slate" radius="large">
-            <SidebarProvider>
-              <Header />
-              {children}
-            </SidebarProvider>
+            <ToastProvider>
+              <SidebarProvider>
+                <Header />
+                {children}
+              </SidebarProvider>
+            </ToastProvider>
           </Theme>
         </body>
       </html>
