@@ -1,5 +1,16 @@
 # @goodparty_org/sdk
 
+## 0.1.0
+
+### Minor Changes
+
+- [#15](https://github.com/thegoodparty/gp-sdk/pull/15) [`a070e2e`](https://github.com/thegoodparty/gp-sdk/commit/a070e2ee50b06ce28fb9e2681441beb84421cf8c) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add User CRUD module with M2M token authentication
+  - Introduce modular resource architecture (BaseResource, HttpClient, UsersResource)
+  - Add `client.users.get(id)`, `client.users.delete(id)`, `client.users.updatePassword(id, input)`, and `client.users.list(options?)` methods
+  - Use `ofetch` for HTTP requests with automatic JSON handling, baseURL resolution, and unified error handling
+  - Export typed `User`, `UserRole`, `UserMetaData`, `UpdatePasswordInput`, `SdkError`, `PaginatedList`, `PaginationOptions`, and `PaginationMeta`
+  - Throw `SdkError` (extends Error) on failed requests with status, message, and optional raw Response
+
 ## 0.0.7
 
 ### Patch Changes
