@@ -1,0 +1,36 @@
+---
+description: Always use library-provided types instead of creating bespoke type definitions
+globs: "**/*.ts"
+alwaysApply: true
+---
+
+# Use Library Types Over Bespoke Definitions
+
+CRITICAL REQUIREMENT:
+- Before defining ANY custom type for a library's function arguments, return values, or options, ALWAYS inspect the library's own type exports first.
+- If the library provides a type that matches what you need, use it directly.
+- If you need a subset of a library type, use indexed access types (e.g., `LibraryType['property']`) or `Pick`/`Omit` to derive it from the library's type.
+
+PROHIBITED:
+- Creating custom interfaces or type aliases that duplicate or redefine what a library already exports
+- Guessing at the shape of a library's options/arguments instead of importing the actual type
+- Using `RequestInit`, `Record<string, unknown>`, or other generic stand-ins when the library has a specific type
+
+REQUIRED APPROACH:
+1. Read the library's type definitions (e.g., in `node_modules/<lib>/dist/*.d.ts`)
+2. Import and use the library's own types for function signatures
+3. Derive subtypes via indexed access when you need a specific property's type
+
+```typescript
+// WRONG - bespoke type that duplicates library's own type
+type JsonFetchOptions = Omit<RequestInit, 'body'> & {
+  body?: Record<string, unknown>
+}
+
+// CORRECT - use the library's own type
+import type { FetchOptions } from 'ofetch'
+request = async <T>(path: string, init?: FetchOptions<'json'>): Promise<T> =>
+
+// CORRECT - derive subtype via indexed access
+export type OfetchRequestBody = FetchOptions<'json'>['body']
+```

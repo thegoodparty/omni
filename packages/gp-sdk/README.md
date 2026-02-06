@@ -11,9 +11,35 @@ npm install @goodparty_org/sdk
 ## Usage
 
 ```typescript
-import { GoodPartyClient } from '@goodparty_org/sdk'
+import { GoodPartyClient, SdkError } from '@goodparty_org/sdk'
 
-const client = new GoodPartyClient()
+const client = await GoodPartyClient.create({
+  m2mSecret: process.env.GP_MACHINE_SECRET,
+  gpApiRootUrl: 'https://gp-api.goodparty.org/v1',
+})
+
+const user = await client.users.get(1)
+
+const users = await client.users.list({ page: 1, limit: 20 })
+
+await client.users.updatePassword(1, {
+  oldPassword: 'old',
+  newPassword: 'new',
+})
+
+await client.users.delete(1)
+```
+
+All methods throw `SdkError` on failure:
+
+```typescript
+try {
+  const user = await client.users.get(999)
+} catch (error) {
+  if (error instanceof SdkError) {
+    console.error(error.status, error.message)
+  }
+}
 ```
 
 ## Development
@@ -32,6 +58,7 @@ npm install
 
 | Command              | Description                          |
 | -------------------- | ------------------------------------ |
+| `npm run dev`        | Build in watch mode for local dev    |
 | `npm run build`      | Build the SDK with tsup              |
 | `npm run typecheck`  | Run TypeScript type checking         |
 | `npm run lint`       | Run ESLint                           |

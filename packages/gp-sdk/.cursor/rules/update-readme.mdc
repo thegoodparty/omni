@@ -1,0 +1,23 @@
+---
+description: Always update README.md when making changes that affect the public API, usage examples, or setup instructions
+globs: "**/*"
+alwaysApply: true
+---
+
+# Always Update README.md
+
+CRITICAL REQUIREMENT:
+- Whenever you make changes that affect the public API, configuration, setup, installation, or usage patterns of the project, you MUST update the README.md to reflect those changes in the same task.
+
+THIS INCLUDES:
+- Changes to constructor signatures, factory methods, or initialization patterns
+- Changes to config types or required parameters
+- New exports, renamed exports, or removed exports
+- New dependencies consumers need to know about
+- Changes to method signatures on public classes
+- Any change that would make existing README examples incorrect or incomplete
+
+ENFORCEMENT:
+- After completing code changes, review the README.md for any sections that are now stale
+- Update usage examples, API documentation, and setup instructions accordingly
+- Do not consider a task complete if the README.md contains outdated information
