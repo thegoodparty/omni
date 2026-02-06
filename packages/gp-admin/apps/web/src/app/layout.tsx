@@ -5,6 +5,11 @@ import { SidebarProvider } from '@/shared/layout/SidebarContext'
 import { Theme } from '@radix-ui/themes'
 import { Header } from '@/shared/layout/Header'
 import { clerkClient } from '@clerk/nextjs/server'
+import { GoodPartyClient } from '@goodparty_org/sdk'
+
+const gpClient = new GoodPartyClient()
+
+console.log(`gpClient =>`, gpClient)
 
 const getGpWebAppMachineAuthToken = async () => {
   const client = await clerkClient()
