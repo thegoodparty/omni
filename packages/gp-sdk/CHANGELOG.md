@@ -1,5 +1,17 @@
 # @goodparty_org/sdk
 
+## 0.0.7
+
+### Patch Changes
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix GitHub Release creation by using gh CLI directly instead of relying on changesets/action createGithubReleases, which fails silently with app tokens on scoped packages.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Use changeset publish instead of npm publish so the changesets action correctly sets the published output, enabling the GitHub Release creation step.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
 ## 0.0.6
 
 ### Patch Changes
