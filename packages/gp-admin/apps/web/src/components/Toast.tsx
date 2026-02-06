@@ -43,31 +43,14 @@ export function ToastProvider({ children }: ToastProviderProps) {
     <ToastContext.Provider value={{ showToast }}>
       <ToastPrimitive.Provider swipeDirection="right" duration={TOAST_DURATION}>
         {children}
-        <ToastPrimitive.Root
-          open={open}
-          onOpenChange={setOpen}
-          className="
-            bg-[var(--green-3)] border border-[var(--green-6)] rounded-md shadow-lg
-            p-4 flex items-center gap-3
-            data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2
-            data-[state=closed]:animate-out data-[state=closed]:fade-out
-            data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)]
-            data-[swipe=cancel]:translate-x-0 data-[swipe=cancel]:transition-transform
-            data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)]
-          "
-        >
-          <HiCheck className="w-5 h-5 text-[var(--green-11)]" />
-          <ToastPrimitive.Description className="text-sm text-[var(--green-12)]">
-            {message}
-          </ToastPrimitive.Description>
-          <ToastPrimitive.Close
-            className="ml-auto text-[var(--green-11)] hover:text-[var(--green-12)]"
-            aria-label="Close"
-          >
-            <HiX className="w-4 h-4" />
+        <ToastPrimitive.Root open={open} onOpenChange={setOpen}>
+          <HiCheck />
+          <ToastPrimitive.Description>{message}</ToastPrimitive.Description>
+          <ToastPrimitive.Close aria-label="Close">
+            <HiX />
           </ToastPrimitive.Close>
         </ToastPrimitive.Root>
-        <ToastPrimitive.Viewport className="fixed top-4 right-4 z-50 w-80" />
+        <ToastPrimitive.Viewport />
       </ToastPrimitive.Provider>
     </ToastContext.Provider>
   )
