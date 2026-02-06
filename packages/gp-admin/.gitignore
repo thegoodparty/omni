@@ -20,6 +20,7 @@ dist/
 *.pem
 .vscode
 temp-docs/
+CLAUDE.md
 
 # Debug
 npm-debug.log*

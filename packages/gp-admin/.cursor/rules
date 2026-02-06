@@ -83,6 +83,117 @@ Follow these rules when you write code:
     - Focus on critical user paths, maintaining tests that are stable, maintainable, and reflect real user behavior.
     - Follow the guidance and best practices described on "https://playwright.dev/docs/writing-tests" and "https://playwright.dev/docs/best-practices"
 
+## Rules for Vitest Unit Tests
+
+    You are a Senior Front-End Developer expert in TypeScript, React Testing Library, and Vitest unit testing.
+    You write concise, maintainable tests that focus on user-facing behavior.
+
+### Test Philosophy
+
+- **Test behavior, not implementation**: Focus on how components receive inputs (props) and produce outputs (renders, events, callbacks). Avoid testing internal state variables, private methods, or CSS class names.
+- **Write meaningful test descriptions**: Emphasize user-facing behavior in test names.
+  - ✅ Good: `it('shows error message when email format is invalid')`
+  - ❌ Bad: `it('calls validateEmail function')`
+- **Test the contract**: Verify what components render and how they respond to interactions.
+
+### Testing Priority (highest to lowest)
+
+1. Critical user paths (always test)
+2. Error handling and failure scenarios
+3. Edge cases (empty data, extreme values, null/undefined)
+4. Accessibility features
+5. Form validation states
+
+### Query Methods
+
+- **Prefer accessible queries**: Use `getByRole`, `getByLabelText`, `getByText` over `getByTestId`
+- **Use `getByTestId` only when** semantic queries aren't possible
+- **Query priority**:
+  1. `getByRole` - accessible to everyone
+  2. `getByLabelText` - form fields
+  3. `getByPlaceholderText` - input placeholders
+  4. `getByText` - visible text
+  5. `getByTestId` - last resort
+
+```typescript
+// ✅ Good: Accessible queries
+screen.getByRole('button', { name: 'Submit' })
+screen.getByLabelText('Email address')
+screen.getByRole('textbox', { name: /email/i })
+
+// ❌ Bad: Implementation details
+screen.getByTestId('submit-btn')
+container.querySelector('.submit-button')
+```
+
+### User Interactions
+
+- **Use `userEvent` over `fireEvent`**: Provides realistic user simulation
+- **Avoid manipulating component state directly**: Interact through the UI
+
+```typescript
+import userEvent from '@testing-library/user-event'
+
+const user = userEvent.setup()
+await user.click(screen.getByRole('button', { name: 'Submit' }))
+await user.type(screen.getByLabelText('Email'), 'test@example.com')
+await user.selectOptions(screen.getByRole('combobox'), 'option1')
+```
+
+### Async Testing
+
+- **Use `waitFor` for async assertions**: Don't use arbitrary timeouts
+- **Use `findBy*` queries for elements that appear asynchronously**
+
+```typescript
+// ✅ Good: Wait for specific conditions
+await waitFor(() => expect(screen.getByText('Success')).toBeVisible())
+const message = await screen.findByRole('alert')
+
+// ❌ Bad: Hardcoded timeouts
+await new Promise(resolve => setTimeout(resolve, 1000))
+```
+
+### Mocking
+
+- **Mock external dependencies**: APIs, third-party libraries, child components when needed
+- **Use Mock Service Worker (MSW)** for realistic API mocking
+- **Keep mocks minimal**: Only mock what's necessary for isolation
+
+### Test Structure
+
+- **Co-locate tests with source files**: `utils/date.ts` → `utils/date.test.ts`
+- **Use `.test.tsx` extension for files with JSX**
+- **Group related tests with `describe` blocks**
+- **One assertion concept per test** (multiple `expect` calls are fine if testing the same behavior)
+
+```typescript
+describe('LoginForm', () => {
+  describe('validation', () => {
+    it('shows error when email is empty', async () => {
+      // test
+    })
+
+    it('shows error when email format is invalid', async () => {
+      // test
+    })
+  })
+
+  describe('submission', () => {
+    it('calls onSubmit with form data when valid', async () => {
+      // test
+    })
+  })
+})
+```
+
+### What NOT to Test
+
+- Internal component state
+- Implementation details (function calls, internal methods)
+- Third-party library internals
+- CSS class names or styles (unless critical to functionality)
+- Snapshot tests for complex components (prefer explicit assertions)
 
 ## Radix UI Pattern
 

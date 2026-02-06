@@ -22,4 +22,3 @@ describe('AppController (e2e)', () => {
       .expect('Hello from GP Admin API!')
   })
 })
-
