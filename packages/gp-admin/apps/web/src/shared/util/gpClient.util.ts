@@ -6,7 +6,7 @@ import {
   resolveEnvironment,
 } from '@/shared/util/gpEnvironment'
 
-export type GpActionResult<T> =
+export type GpSdkActionResult<T> =
   | { success: true; data: T }
   | { success: false; error: string }
 
@@ -30,9 +30,9 @@ function getOrCreateGpClient(
   return clientPromise
 }
 
-export async function gpAction<T>(
+export async function gpSdkAction<T>(
   fn: (client: GoodPartyClient) => Promise<T>
-): Promise<GpActionResult<T>> {
+): Promise<GpSdkActionResult<T>> {
   try {
     const { orgId } = await auth()
 

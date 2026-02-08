@@ -1,4 +1,4 @@
-import { gpAction } from '@/shared/util/gpClient.util'
+import { gpSdkAction } from '@/shared/util/gpClient.util'
 import { UserProvider } from './context/UserContext'
 import { notFound } from 'next/navigation'
 
@@ -13,7 +13,7 @@ export default async function UserLayout({
 }: UserLayoutProps) {
   const { id } = await params
 
-  const result = await gpAction((client) => client.users.get(Number(id)))
+  const result = await gpSdkAction((client) => client.users.get(Number(id)))
   const user = result.success ? result.data : null
   if (!user) {
     notFound()
