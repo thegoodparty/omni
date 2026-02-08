@@ -5,9 +5,10 @@ import type { FieldConfig } from '../types/field-config'
 
 describe('FieldList', () => {
   it('returns null for unknown field type', () => {
-    const fields = [
+    const fields: FieldConfig[] = [
+      // @ts-expect-error testing default branch with invalid field type
       { key: 'foo', label: 'Foo', type: 'unknown' },
-    ] as unknown as FieldConfig[]
+    ]
 
     const { container } = render(
       <FieldList data={{ foo: 'bar' }} fields={fields} />
