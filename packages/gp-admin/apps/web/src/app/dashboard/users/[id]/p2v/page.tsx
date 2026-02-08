@@ -8,17 +8,9 @@ export const metadata: Metadata = {
   description: 'View path to victory details',
 }
 
-interface PageProps {
-  params: Promise<{ id: string }>
-}
-
-export default async function P2VPage({ params }: PageProps) {
-  const { id } = await params
-  // TODO: Replace stubbed data with API call using id
-  void id
-
+export default function P2VPage() {
   return (
-    <ViewLayout userId={id}>
+    <ViewLayout>
       <P2VSection p2v={stubbedPathToVictory} />
     </ViewLayout>
   )

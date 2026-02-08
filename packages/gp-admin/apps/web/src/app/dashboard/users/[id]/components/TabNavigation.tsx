@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Flex } from '@radix-ui/themes'
 import { USER_ROUTES, TAB_LABELS } from '../constants'
+import { useUser } from '../context/UserContext'
 
 interface TabNavigationProps {
-  userId: string
   isEditMode?: boolean
 }
 
@@ -21,15 +21,13 @@ const tabs = [
   },
 ] as const
 
-export function TabNavigation({
-  userId,
-  isEditMode = false,
-}: TabNavigationProps) {
+export function TabNavigation({ isEditMode = false }: TabNavigationProps) {
   const pathname = usePathname()
+  const user = useUser()
 
   const basePath = isEditMode
-    ? `/dashboard/users/${userId}/edit`
-    : `/dashboard/users/${userId}`
+    ? `/dashboard/users/${user.id}/edit`
+    : `/dashboard/users/${user.id}`
 
   function isActive(route: string): boolean {
     if (route === '') {

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TabNavigation } from './TabNavigation'
+import { UserProvider } from '../context/UserContext'
+import type { User } from '@goodparty_org/sdk'
 
 // Mock next/navigation
 const mockUsePathname = vi.fn()
@@ -8,6 +10,24 @@ const mockUsePathname = vi.fn()
 vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
 }))
+
+function makeUser(id: number): User {
+  return {
+    id,
+    firstName: 'Test',
+    lastName: 'User',
+    email: 'test@example.com',
+    hasPassword: true,
+  }
+}
+
+function renderWithUser(userId: number, props: { isEditMode?: boolean } = {}) {
+  return render(
+    <UserProvider user={makeUser(userId)}>
+      <TabNavigation {...props} />
+    </UserProvider>
+  )
+}
 
 describe('TabNavigation', () => {
   beforeEach(() => {
@@ -18,7 +38,7 @@ describe('TabNavigation', () => {
     it('renders all tab links', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123')
 
-      render(<TabNavigation userId="123" />)
+      renderWithUser(123)
 
       expect(screen.getByRole('link', { name: 'User' })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Campaign' })).toBeInTheDocument()
@@ -33,7 +53,7 @@ describe('TabNavigation', () => {
     it('generates correct hrefs for view mode', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/456')
 
-      render(<TabNavigation userId="456" />)
+      renderWithUser(456)
 
       expect(screen.getByRole('link', { name: 'User' })).toHaveAttribute(
         'href',
@@ -54,7 +74,7 @@ describe('TabNavigation', () => {
     it('marks User tab as current page on base route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123')
 
-      render(<TabNavigation userId="123" />)
+      renderWithUser(123)
 
       expect(
         screen.getByRole('link', { name: 'User', current: 'page' })
@@ -67,7 +87,7 @@ describe('TabNavigation', () => {
     it('marks Campaign tab as current page on campaign route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/campaign')
 
-      render(<TabNavigation userId="123" />)
+      renderWithUser(123)
 
       expect(
         screen.getByRole('link', { name: 'Campaign', current: 'page' })
@@ -77,7 +97,7 @@ describe('TabNavigation', () => {
     it('marks P2V tab as current page on p2v route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/p2v')
 
-      render(<TabNavigation userId="123" />)
+      renderWithUser(123)
 
       expect(
         screen.getByRole('link', { name: 'Path to Victory', current: 'page' })
@@ -87,7 +107,7 @@ describe('TabNavigation', () => {
     it('marks Elected Office tab as current page on elected-office route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/elected-office')
 
-      render(<TabNavigation userId="123" />)
+      renderWithUser(123)
 
       expect(
         screen.getByRole('link', { name: 'Elected Office', current: 'page' })
@@ -99,7 +119,7 @@ describe('TabNavigation', () => {
     it('generates correct hrefs for edit mode', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/789/edit')
 
-      render(<TabNavigation userId="789" isEditMode />)
+      renderWithUser(789, { isEditMode: true })
 
       expect(screen.getByRole('link', { name: 'User' })).toHaveAttribute(
         'href',
@@ -120,7 +140,7 @@ describe('TabNavigation', () => {
     it('marks User tab as current page on edit base route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
 
-      render(<TabNavigation userId="123" isEditMode />)
+      renderWithUser(123, { isEditMode: true })
 
       expect(
         screen.getByRole('link', { name: 'User', current: 'page' })
@@ -130,7 +150,7 @@ describe('TabNavigation', () => {
     it('marks Campaign tab as current page on edit campaign route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/edit/campaign')
 
-      render(<TabNavigation userId="123" isEditMode />)
+      renderWithUser(123, { isEditMode: true })
 
       expect(
         screen.getByRole('link', { name: 'Campaign', current: 'page' })

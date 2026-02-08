@@ -11,11 +11,8 @@ import {
 } from '@radix-ui/themes'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import {
-  pathToVictorySchema,
-  type PathToVictoryFormData,
-  P2V_STATUS,
-} from '../schema'
+import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
+import { P2V_STATUS } from '../../constants'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { FormActions } from './FormActions'

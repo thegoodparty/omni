@@ -18,25 +18,25 @@ export async function searchUsers(
 
   const stubUsers: User[] = [
     {
-      id: '1',
-      email: 'john.doe@example.com',
-      firstName: 'John',
-      lastName: 'Doe',
+      id: '4170',
+      email: 'matthew@goodparty.org',
+      firstName: 'Matthew',
+      lastName: 'Marcus',
       phone: '+1 555-123-4567',
     },
     {
-      id: '2',
-      email: 'jane.smith@example.com',
-      firstName: 'Jane',
-      lastName: 'Smith',
-      phone: '+1 555-987-6543',
+      id: '595',
+      email: 'tomer@goodparty.org',
+      firstName: 'Tomer',
+      lastName: 'Almog',
+      phone: '+1 310-975-9102',
     },
     {
-      id: '3',
-      email: 'bob.wilson@example.com',
-      firstName: 'Bob',
-      lastName: 'Wilson',
-      phone: null,
+      id: '38943',
+      email: 'bryant@goodparty.org',
+      firstName: 'Bryant',
+      lastName: 'Levine',
+      phone: '+1 555-987-6543',
     },
   ]
 

@@ -5,7 +5,12 @@ export type UrlConfig = {
   rootPath?: string
 }
 
-export const generateUrl = ({ protocol, domain, port, rootPath }: UrlConfig): URL => {
+export const generateUrl = ({
+  protocol,
+  domain,
+  port,
+  rootPath,
+}: UrlConfig): URL => {
   const url = new URL(`${protocol}://${domain}`)
   if (port) url.port = port
   if (rootPath) url.pathname = rootPath

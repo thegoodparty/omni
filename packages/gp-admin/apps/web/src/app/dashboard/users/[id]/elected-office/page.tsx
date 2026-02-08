@@ -9,19 +9,11 @@ export const metadata: Metadata = {
   description: 'View elected office details',
 }
 
-interface PageProps {
-  params: Promise<{ id: string }>
-}
-
-export default async function ElectedOfficePage({ params }: PageProps) {
-  const { id } = await params
-  // TODO: Replace stubbed data with API call using id
-  void id
-
+export default function ElectedOfficePage() {
   const electedOffice = stubbedCampaign.didWin ? stubbedElectedOffice : null
 
   return (
-    <ViewLayout userId={id}>
+    <ViewLayout>
       <ElectedOfficeDisplaySection electedOffice={electedOffice} />
     </ViewLayout>
   )
