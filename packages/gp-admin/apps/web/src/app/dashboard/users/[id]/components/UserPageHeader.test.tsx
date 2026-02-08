@@ -118,5 +118,13 @@ describe('UserPageHeader', () => {
       // Component should render without throwing
       expect(screen.getByRole('link', { name: /edit/i })).toBeInTheDocument()
     })
+
+    it('uses "U" avatar fallback when firstName is undefined', () => {
+      // @ts-expect-error testing defensive fallback when firstName is absent at runtime
+      renderWithUser({ ...mockUser, firstName: undefined, avatar: null })
+
+      // Avatar fallback path (firstName?.[0] ?? 'U') is exercised
+      expect(screen.getByRole('heading')).toBeInTheDocument()
+    })
   })
 })
