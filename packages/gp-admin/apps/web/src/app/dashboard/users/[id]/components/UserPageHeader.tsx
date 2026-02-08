@@ -33,9 +33,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
           radius="medium"
         />
         <Heading size="6">
-          {isEditMode
-            ? `Edit: ${user.firstName} ${user.lastName}`
-            : `${user.firstName} ${user.lastName}`}
+          {isEditMode ? 'Edit: ' : ''} {user.firstName} {user.lastName}
         </Heading>
       </Flex>
       {!isEditMode && (
