@@ -12,14 +12,14 @@ interface UserPageHeaderProps {
 }
 
 export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
-  const user = useUser()
+  const { id, firstName, lastName, avatar } = useUser()
 
   return (
     <Flex gap="5" align="center" justify="between">
       <Flex gap="4" align="center">
         {isEditMode && (
           <Link
-            href={`/dashboard/users/${user.id}`}
+            href={`/dashboard/users/${id}`}
             aria-label="Back to user"
             className="text-[var(--gray-11)] hover:text-[var(--gray-12)]"
           >
@@ -28,12 +28,12 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
         )}
         <Avatar
           size="6"
-          src={user.avatar ?? undefined}
-          fallback={user.firstName?.[0] ?? 'U'}
+          src={avatar ?? undefined}
+          fallback={firstName?.[0] ?? 'U'}
           radius="medium"
         />
         <Heading size="6">
-          {`${isEditMode ? 'Edit: ' : ''}${user.firstName} ${user.lastName}`}
+          {`${isEditMode ? 'Edit: ' : ''}${firstName} ${lastName}`}
         </Heading>
       </Flex>
       {!isEditMode && (
@@ -42,7 +42,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
           hideWhenUnauthorized
         >
           <Button asChild>
-            <Link href={`/dashboard/users/${user.id}/edit`}>
+            <Link href={`/dashboard/users/${id}/edit`}>
               <HiPencil className="w-4 h-4" />
               Edit
             </Link>

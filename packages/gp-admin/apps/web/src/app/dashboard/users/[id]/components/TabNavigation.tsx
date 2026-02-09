@@ -23,11 +23,11 @@ const tabs = [
 
 export function TabNavigation({ isEditMode = false }: TabNavigationProps) {
   const pathname = usePathname()
-  const user = useUser()
+  const { id: userId } = useUser()
 
   const basePath = isEditMode
-    ? `/dashboard/users/${user.id}/edit`
-    : `/dashboard/users/${user.id}`
+    ? `/dashboard/users/${userId}/edit`
+    : `/dashboard/users/${userId}`
 
   function isActive(route: string): boolean {
     if (route === '') {

@@ -1,3 +1,15 @@
+## Project Basics
+
+This is a TypeScript project (gp-admin). Always ensure files are created in the correct project directory. Double-check file paths before writing.
+
+## Workflow Rules
+
+After generating or editing code, always run the build/lint check (`npm run build` or equivalent) before presenting the result as complete. Fix any type errors, import issues, or lint failures before moving on.
+
+## Code Quality Standards
+
+Prefer reusable, senior-level patterns: generic wrappers, singletons, shared utilities. Avoid one-off implementations or prop drilling. If building a server action or SDK integration, make it generic and reusable from the start.
+
 ## General Rules
 
 Avoid obvious comments that just explains what the code does
@@ -135,6 +147,10 @@ Follow these rules when you write code:
     - Focus on critical user paths, maintaining tests that are stable, maintainable, and reflect real user behavior.
     - Follow the guidance and best practices described on "https://playwright.dev/docs/writing-tests" and "https://playwright.dev/docs/best-practices"
 
+## Testing
+
+When writing or fixing tests, verify enum values and constant names against the actual codebase (grep for the enum definition) rather than guessing. Pay attention to type coercion differences (e.g., NaN vs undefined).
+
 ## Rules for Vitest Unit Tests
 
     You are a Senior Front-End Developer expert in TypeScript, React Testing Library, and Vitest unit testing.
@@ -246,6 +262,10 @@ describe('LoginForm', () => {
 - Third-party library internals
 - CSS class names or styles (unless critical to functionality)
 - Snapshot tests for complex components (prefer explicit assertions)
+
+## UI / Component Conventions
+
+When using Radix UI Select components, never use empty string ('') as a value — Radix treats it as no value. Use a sentinel like 'none' or undefined instead. Always add proper spacing (e.g., gap or margin) between labels and Select/Input components.
 
 ## Radix UI Pattern
 
