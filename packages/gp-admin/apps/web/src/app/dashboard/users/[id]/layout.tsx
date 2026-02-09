@@ -1,6 +1,7 @@
-import { gpSdkAction } from '@/shared/util/gpClient.util'
+import { gpAction } from '@/shared/util/gpClient.util'
 import { UserProvider } from './context/UserContext'
 import { notFound } from 'next/navigation'
+import { SdkError } from '@goodparty_org/sdk'
 
 interface UserLayoutProps {
   children: React.ReactNode
@@ -13,10 +14,14 @@ export default async function UserLayout({
 }: UserLayoutProps) {
   const { id } = await params
 
-  const result = await gpSdkAction((client) => client.users.get(Number(id)))
-  const user = result.success ? result.data : null
-  if (!user) {
-    notFound()
+  let user
+  try {
+    user = await gpAction((client) => client.users.get(Number(id)))
+  } catch (error) {
+    if (error instanceof SdkError && error.status === 404) {
+      notFound()
+    }
+    throw error
   }
 
   return <UserProvider user={user}>{children}</UserProvider>
