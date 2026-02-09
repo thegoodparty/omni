@@ -9,8 +9,8 @@ export const GP_ENVIRONMENT = {
 export type GpEnvironment = (typeof GP_ENVIRONMENT)[keyof typeof GP_ENVIRONMENT]
 
 export type GpEnvironmentConfig = {
-  apiRootUrl: string
-  machineSecret: string
+  gpApiRootUrl: string
+  m2mSecret: string
 }
 
 const ORG_ID_ENV_KEYS: Record<GpEnvironment, string> = {
@@ -54,7 +54,7 @@ export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
   const { domain: domainKey, secret: secretKey } = ENV_CONFIG_KEYS[env]
 
   const domain = process.env[domainKey]
-  const machineSecret = process.env[secretKey]
+  const m2mSecret = process.env[secretKey]
   const protocol = process.env.GP_API_PROTOCOL
   const port = process.env.GP_API_PORT
   const rootPath = process.env.GP_API_ROOT_PATH
@@ -62,19 +62,19 @@ export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
   if (!domain) {
     throw new Error(`${domainKey} is not set`)
   }
-  if (!machineSecret) {
+  if (!m2mSecret) {
     throw new Error(`${secretKey} is not set`)
   }
   if (!protocol) {
     throw new Error('GP_API_PROTOCOL is not set')
   }
 
-  const apiRootUrl = generateUrl({
+  const gpApiRootUrl = generateUrl({
     protocol,
     domain,
     port,
     rootPath,
   }).toString()
 
-  return { apiRootUrl, machineSecret }
+  return { gpApiRootUrl, m2mSecret }
 }

@@ -8,22 +8,23 @@ import {
 
 const clientCache = new Map<GpEnvironment, Promise<GoodPartyClient>>()
 
-function getOrCreateGpClient(
+async function getOrCreateGpClient(
   environment: GpEnvironment
 ): Promise<GoodPartyClient> {
-  let clientPromise = clientCache.get(environment)
-  if (!clientPromise) {
-    const config = getEnvironmentConfig(environment)
-    clientPromise = GoodPartyClient.create({
-      m2mSecret: config.machineSecret,
-      gpApiRootUrl: config.apiRootUrl,
-    }).catch((err) => {
-      clientCache.delete(environment)
-      throw err
-    })
-    clientCache.set(environment, clientPromise)
+  const cached = clientCache.get(environment)
+  if (cached) return cached
+
+  const clientPromise = GoodPartyClient.create(
+    getEnvironmentConfig(environment)
+  )
+  clientCache.set(environment, clientPromise)
+
+  try {
+    return await clientPromise
+  } catch (err) {
+    clientCache.delete(environment)
+    throw err
   }
-  return clientPromise
 }
 
 export async function gpAction<T>(
