@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { UserSearchForm } from './UserSearchForm'
 
@@ -228,6 +228,22 @@ describe('UserSearchForm', () => {
       expect(mockPush).toHaveBeenCalledWith(
         '/dashboard/users?email=test%40example.com'
       )
+    })
+
+    it('navigates to base path when submitted values trim to empty', async () => {
+      const user = userEvent.setup()
+      const { container } = render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(screen.getByPlaceholderText('Enter first name...'), '  ')
+      await user.type(screen.getByPlaceholderText('Enter last name...'), '  ')
+
+      // Submit form directly — bypasses disabled button
+      fireEvent.submit(container.querySelector('form')!)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/dashboard/users')
+      })
     })
 
     it('submits name search and navigates', async () => {

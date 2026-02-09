@@ -17,14 +17,13 @@ import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
 import { FormActions } from './FormActions'
+import { campaignSchema, campaignDetailsSchema } from '../schema'
 import {
-  campaignSchema,
-  campaignDetailsSchema,
   CAMPAIGN_TIERS,
   CAMPAIGN_LAUNCH_STATUS,
   BALLOT_LEVELS,
   ELECTION_LEVELS,
-} from '../schema'
+} from '@/types/campaign'
 import {
   INPUT_TYPE,
   CAMPAIGN_FORM_SECTIONS,

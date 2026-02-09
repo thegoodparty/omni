@@ -1,25 +1,16 @@
-/**
- * React Hook Form validation modes
- * @see https://react-hook-form.com/docs/useform#mode
- */
+import { UserRole } from '@goodparty_org/sdk'
+
+/** @see https://react-hook-form.com/docs/useform#mode */
 export const FORM_MODE = {
-  /** Validation triggers on change events */
   ON_CHANGE: 'onChange',
-  /** Validation triggers on blur events */
   ON_BLUR: 'onBlur',
-  /** Validation triggers on submit */
   ON_SUBMIT: 'onSubmit',
-  /** Validation triggers on first blur, then on every change */
   ON_TOUCHED: 'onTouched',
-  /** Validation triggers on both blur and change events */
   ALL: 'all',
 } as const
 
 export type FormMode = (typeof FORM_MODE)[keyof typeof FORM_MODE]
 
-/**
- * HTML input types
- */
 export const INPUT_TYPE = {
   TEXT: 'text',
   EMAIL: 'email',
@@ -32,16 +23,13 @@ export const INPUT_TYPE = {
 
 export type InputType = (typeof INPUT_TYPE)[keyof typeof INPUT_TYPE]
 
-/**
- * User role display names for UI
- */
-export const ROLE_DISPLAY_NAMES: Record<string, string> = {
-  admin: 'Admin',
-  sales: 'Sales',
-  candidate: 'Candidate',
-  campaignManager: 'Campaign Manager',
-  demo: 'Demo',
-} as const
+export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
+  [UserRole.admin]: 'Admin',
+  [UserRole.sales]: 'Sales',
+  [UserRole.candidate]: 'Candidate',
+  [UserRole.campaignManager]: 'Campaign Manager',
+  [UserRole.demo]: 'Demo',
+}
 
 /**
  * Form section titles

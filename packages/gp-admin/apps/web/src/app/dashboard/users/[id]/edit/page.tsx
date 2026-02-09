@@ -2,13 +2,15 @@
 
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
-import { stubbedUser } from '@/data/stubbed-user'
+import { useUser } from '../context/UserContext'
 import { UserForm } from './components/UserForm'
 import type { UserFormData } from './schema'
 
 export default function EditUserPage() {
   const router = useRouter()
   const { showToast } = useToast()
+  const user = useUser()
+  const { id } = user
 
   function handleSave(data: UserFormData) {
     console.log('[PATCH /users/:id] Saving:', data)
@@ -16,14 +18,10 @@ export default function EditUserPage() {
   }
 
   function handleCancel() {
-    router.push(`/dashboard/users/${stubbedUser.id}`)
+    router.push(`/dashboard/users/${id}`)
   }
 
   return (
-    <UserForm
-      initialData={stubbedUser}
-      onSave={handleSave}
-      onCancel={handleCancel}
-    />
+    <UserForm initialData={user} onSave={handleSave} onCancel={handleCancel} />
   )
 }

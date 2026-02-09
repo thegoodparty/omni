@@ -1,9 +1,6 @@
 import { test, expect, Page } from '@playwright/test'
 import { signIn, TEST_USERS } from './helpers/auth'
 
-// TODO: Replace stubbed data with real API responses when backend is ready
-// TODO: Update stub data assertions when real data is available
-
 const LOCATORS = {
   emailInput: (page: Page) => page.getByPlaceholder('Enter email address...'),
   firstNameInput: (page: Page) => page.getByPlaceholder('Enter first name...'),
@@ -83,21 +80,23 @@ test.describe('Users Search - Email', () => {
   })
 
   test('searching by email updates URL and shows loading', async ({ page }) => {
-    await LOCATORS.emailInput(page).fill('john.doe@example.com')
+    await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
     await LOCATORS.searchButton(page).click()
 
-    await expect(page).toHaveURL(/email=john\.doe%40example\.com/)
+    await expect(page).toHaveURL(/email=tomer%40goodparty\.org/)
     await expect(page.getByText('Searching...')).toBeVisible()
   })
 
   test('email search displays single result in table', async ({ page }) => {
-    await LOCATORS.emailInput(page).fill('john.doe@example.com')
+    await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
     await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
-    await expect(page.getByRole('cell', { name: 'John Doe' })).toBeVisible()
     await expect(
-      page.getByRole('cell', { name: 'john.doe@example.com' })
+      page.getByRole('cell', { name: 'Tomer Almog' })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('cell', { name: 'tomer@goodparty.org' })
     ).toBeVisible()
   })
 })
@@ -110,18 +109,18 @@ test.describe('Users Search - Name', () => {
 
   test('searching by name updates URL with query params', async ({ page }) => {
     await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('John')
-    await LOCATORS.lastNameInput(page).fill('Doe')
+    await LOCATORS.firstNameInput(page).fill('Tomer')
+    await LOCATORS.lastNameInput(page).fill('Almog')
     await LOCATORS.searchButton(page).click()
 
-    await expect(page).toHaveURL(/first_name=John/)
-    await expect(page).toHaveURL(/last_name=Doe/)
+    await expect(page).toHaveURL(/first_name=Tomer/)
+    await expect(page).toHaveURL(/last_name=Almog/)
   })
 
   test('name search displays results table', async ({ page }) => {
     await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('John')
-    await LOCATORS.lastNameInput(page).fill('Doe')
+    await LOCATORS.firstNameInput(page).fill('Tomer')
+    await LOCATORS.lastNameInput(page).fill('Almog')
     await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
@@ -135,21 +134,22 @@ test.describe('Users Search - Name', () => {
       page.getByRole('columnheader', { name: 'Phone' })
     ).toBeVisible()
 
-    // TODO: Update when real data is available
-    await expect(page.getByRole('cell', { name: 'John Doe' })).toBeVisible()
     await expect(
-      page.getByRole('cell', { name: 'john.doe@example.com' })
+      page.getByRole('cell', { name: 'Tomer Almog' })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('cell', { name: 'tomer@goodparty.org' })
     ).toBeVisible()
   })
 
   test('clicking user name navigates to user detail', async ({ page }) => {
     await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('John')
-    await LOCATORS.lastNameInput(page).fill('Doe')
+    await LOCATORS.firstNameInput(page).fill('Tomer')
+    await LOCATORS.lastNameInput(page).fill('Almog')
     await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
-    await page.getByRole('link', { name: 'John Doe' }).click()
+    await page.getByRole('link', { name: 'Tomer Almog' }).click()
 
     await expect(page).toHaveURL(/\/dashboard\/users\/\d+/)
   })

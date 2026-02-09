@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { USER_ROLES } from '../types/user'
+import { UserRole } from '@goodparty_org/sdk'
 import {
   BALLOT_LEVELS,
   CAMPAIGN_LAUNCH_STATUS,
@@ -8,14 +8,7 @@ import {
 } from '@/types/campaign'
 import { P2V_STATUS } from '../constants'
 
-export {
-  BALLOT_LEVELS,
-  CAMPAIGN_LAUNCH_STATUS,
-  CAMPAIGN_TIERS,
-  ELECTION_LEVELS,
-  P2V_STATUS,
-  USER_ROLES,
-}
+export const USER_ROLES = Object.values(UserRole)
 
 export const userSchema = z.object({
   firstName: z.string().optional(),
@@ -25,7 +18,7 @@ export const userSchema = z.object({
   phone: z.string().optional(),
   zip: z.string().optional(),
   avatar: z.url().optional().or(z.literal('')),
-  roles: z.array(z.enum(USER_ROLES)).optional(),
+  roles: z.array(z.nativeEnum(UserRole)).optional(),
   metaData: z
     .object({
       hubspotId: z.string().optional(),

@@ -24,7 +24,7 @@ import {
   FORM_MODE,
   type InputType,
 } from '../constants'
-import type { User } from '../../types/user'
+import type { User } from '@goodparty_org/sdk'
 
 type FieldPath = Path<UserFormData>
 
@@ -39,7 +39,6 @@ interface FieldConfig {
 const BASIC_INFO_FIELDS: FieldConfig[] = [
   { key: 'firstName', label: 'First Name', placeholder: 'First name' },
   { key: 'lastName', label: 'Last Name', placeholder: 'Last name' },
-  { key: 'name', label: 'Display Name', placeholder: 'Display name' },
   {
     key: 'email',
     label: 'Email',

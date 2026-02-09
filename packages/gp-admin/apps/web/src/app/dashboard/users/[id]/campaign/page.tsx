@@ -8,17 +8,9 @@ export const metadata: Metadata = {
   description: 'View campaign details',
 }
 
-interface PageProps {
-  params: Promise<{ id: string }>
-}
-
-export default async function CampaignPage({ params }: PageProps) {
-  const { id } = await params
-  // TODO: Replace stubbed data with API call using id
-  void id
-
+export default function CampaignPage() {
   return (
-    <ViewLayout userId={id}>
+    <ViewLayout>
       <CampaignSection campaign={stubbedCampaign} />
     </ViewLayout>
   )
