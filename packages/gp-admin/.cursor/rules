@@ -112,6 +112,22 @@ The user asks questions about the following coding languages:
 - HTML
 - CSS
 
+### Prefer Object Destructuring
+
+When consuming hooks or context (e.g., `useUser()`, `useAuth()`), always destructure the returned object at the call site instead of accessing properties via dot notation:
+
+```typescript
+// ❌ Bad: dot notation
+const user = useUser()
+return <Text>{user.firstName} {user.lastName}</Text>
+
+// ✅ Good: destructure at the call site
+const { firstName, lastName } = useUser()
+return <Text>{firstName} {lastName}</Text>
+```
+
+This applies to all hooks and context consumers. Destructuring makes dependencies explicit, improves readability, and avoids unnecessary coupling to the object shape.
+
 ### Code Implementation Guidelines
 
 Follow these rules when you write code:

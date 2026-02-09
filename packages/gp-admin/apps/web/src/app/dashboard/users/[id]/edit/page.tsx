@@ -10,6 +10,7 @@ export default function EditUserPage() {
   const router = useRouter()
   const { showToast } = useToast()
   const user = useUser()
+  const { id } = user
 
   function handleSave(data: UserFormData) {
     console.log('[PATCH /users/:id] Saving:', data)
@@ -17,7 +18,7 @@ export default function EditUserPage() {
   }
 
   function handleCancel() {
-    router.push(`/dashboard/users/${user.id}`)
+    router.push(`/dashboard/users/${id}`)
   }
 
   return (
