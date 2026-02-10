@@ -1,19 +1,10 @@
-import type { PaginatedList, PaginationOptions } from '../types/result'
-import type { UpdatePasswordInput, User } from '../types/user'
+import type { PaginatedList } from '../types/result'
+import type { ListUsersOptions, UpdatePasswordInput, User } from '../types/user'
 import { BaseResource } from './BaseResource'
 
 export class UsersResource extends BaseResource {
-  list = async (options?: PaginationOptions): Promise<PaginatedList<User>> => {
-    const { data, meta: pagination } = await this.getRequest<{
-      data: User[]
-      meta: { page: number; limit: number; total: number; totalPages: number }
-    }>('/users', options)
-
-    return {
-      data,
-      pagination,
-    }
-  }
+  list = (options?: ListUsersOptions): Promise<PaginatedList<User>> =>
+    this.getRequest<PaginatedList<User>>('/users', options)
 
   get = (id: number): Promise<User> => this.getRequest<User>(`/users/${id}`)
 

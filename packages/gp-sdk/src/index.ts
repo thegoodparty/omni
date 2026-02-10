@@ -8,6 +8,11 @@ export type {
   PaginatedList,
 } from './types/result'
 
-export type { User, UserMetaData, UpdatePasswordInput } from './types/user'
+export type {
+  User,
+  UserMetaData,
+  ListUsersOptions,
+  UpdatePasswordInput,
+} from './types/user'
 
 export { UserRole, WhyBrowsing } from './types/user'

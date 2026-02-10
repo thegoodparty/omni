@@ -11,18 +11,19 @@ export class SdkError extends Error {
 }
 
 export type PaginationOptions = {
-  page?: number
+  offset?: number
   limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export type PaginationMeta = {
-  page: number
-  limit: number
   total: number
-  totalPages: number
+  offset: number
+  limit: number
 }
 
 export type PaginatedList<T> = {
   data: T[]
-  pagination: PaginationMeta
+  meta: PaginationMeta
 }

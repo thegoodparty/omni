@@ -20,7 +20,13 @@ const client = await GoodPartyClient.create({
 
 const user = await client.users.get(1)
 
-const users = await client.users.list({ page: 1, limit: 20 })
+const users = await client.users.list({ offset: 0, limit: 20 })
+
+const filtered = await client.users.list({
+  firstName: 'John',
+  sortBy: 'createdAt',
+  sortOrder: 'desc',
+})
 
 await client.users.updatePassword(1, {
   oldPassword: 'old',

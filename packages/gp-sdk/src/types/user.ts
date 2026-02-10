@@ -1,3 +1,5 @@
+import type { PaginationOptions } from './result'
+
 export enum UserRole {
   admin = 'admin',
   sales = 'sales',
@@ -39,6 +41,12 @@ export type User = {
   hasPassword: boolean
   roles?: UserRole[]
   metaData?: UserMetaData
+}
+
+export type ListUsersOptions = PaginationOptions & {
+  firstName?: string
+  lastName?: string
+  email?: string
 }
 
 export type UpdatePasswordInput = {
