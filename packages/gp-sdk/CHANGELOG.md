@@ -1,5 +1,16 @@
 # @goodparty_org/sdk
 
+## 1.0.0
+
+### Major Changes
+
+- [#17](https://github.com/thegoodparty/gp-sdk/pull/17) [`2457df3`](https://github.com/thegoodparty/gp-sdk/commit/2457df3f1c66a8110fad12baef910cbf4baa6512) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Align users list endpoint with gp-api contract
+  - **BREAKING**: `PaginationOptions` now uses `offset` instead of `page`, adds `sortBy` and `sortOrder`
+  - **BREAKING**: `PaginationMeta` now uses `offset` instead of `page`, removes `totalPages`
+  - **BREAKING**: `PaginatedList<T>` now uses `meta` instead of `pagination`
+  - Add `ListUsersOptions` type with `firstName`, `lastName`, `email` filter fields
+  - Simplify `UsersResource.list` to pass through API response directly
+
 ## 0.1.0
 
 ### Minor Changes
