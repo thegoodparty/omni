@@ -16,18 +16,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const hasSearchParams =
-    searchParams.has(SEARCH_PARAMS.EMAIL) ||
-    searchParams.has(SEARCH_PARAMS.FIRST_NAME) ||
-    searchParams.has(SEARCH_PARAMS.LAST_NAME)
-
   useEffect(() => {
-    if (!hasSearchParams) {
-      setUsers(null)
-      setError(null)
-      return
-    }
-
     const fetchUsers = async () => {
       setIsLoading(true)
       setError(null)
@@ -42,7 +31,7 @@ export default function UsersPage() {
             searchParams.get(SEARCH_PARAMS.LAST_NAME) ?? undefined,
         })
 
-        setUsers(result || [])
+        setUsers(result)
       } catch (err) {
         setError('Failed to search users. Please try again.')
         console.error('Search error:', err)
@@ -52,7 +41,7 @@ export default function UsersPage() {
     }
 
     fetchUsers()
-  }, [searchParams, hasSearchParams])
+  }, [searchParams])
 
   return (
     <Container size="4">
