@@ -3,12 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Container, Heading, Box, Text } from '@radix-ui/themes'
+import type { PaginationMeta } from '@goodparty_org/sdk'
 import { UserSearchForm } from '@/components/UserSearchForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { searchUsers } from '../actions'
 import {
   User,
-  PaginationMeta,
   SEARCH_PARAMS,
   DEFAULT_PER_PAGE,
   PerPageOption,
@@ -81,7 +81,7 @@ export default function UsersPage() {
     }
 
     fetchUsers()
-  }, [searchParams])
+  }, [searchParams, currentPage, perPage, hasSearchParams])
 
   const updateSearchParams = useCallback(
     (updates: SearchParamUpdates) => {

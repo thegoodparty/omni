@@ -1,7 +1,5 @@
 import type { PaginationMeta } from '@goodparty_org/sdk'
 
-export type { PaginationMeta }
-
 export interface User {
   id: number
   email: string
@@ -28,8 +26,7 @@ export function isPerPageOption(value: number): value is PerPageOption {
   return (PER_PAGE_OPTIONS as readonly number[]).includes(value)
 }
 
-export type SearchParamKey =
-  (typeof SEARCH_PARAMS)[keyof typeof SEARCH_PARAMS]
+export type SearchParamKey = (typeof SEARCH_PARAMS)[keyof typeof SEARCH_PARAMS]
 
 export type SearchParamUpdates = Partial<
   Record<SearchParamKey, string | undefined>
