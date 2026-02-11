@@ -2,12 +2,8 @@
 
 import { Select, IconButton, Flex, Text } from '@radix-ui/themes'
 import { HiChevronLeft, HiChevronRight } from 'react-icons/hi'
-import {
-  PaginationMeta,
-  PER_PAGE_OPTIONS,
-  PerPageOption,
-  isPerPageOption,
-} from '../types'
+import type { PaginationMeta } from '@goodparty_org/sdk'
+import { PER_PAGE_OPTIONS, PerPageOption, isPerPageOption } from '../types'
 
 interface PaginationProps {
   meta: PaginationMeta
