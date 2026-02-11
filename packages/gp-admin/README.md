@@ -2,21 +2,7 @@
 
 # GP Admin
 
-A Turborepo monorepo with Next.js frontend and NestJS backend.
-
-## What's inside?
-
-This Turborepo includes the following packages/apps:
-
-### Apps
-
-- `web`: a [Next.js](https://nextjs.org/) 16 app with Tailwind CSS
-- `api`: a [NestJS](https://nestjs.com/) 11 application
-
-### Packages
-
-- `@gp-admin/typescript-config`: shared `tsconfig.json`s used throughout the monorepo
-- `@gp-admin/eslint-config`: shared ESLint configurations
+A Next.js 16 admin application.
 
 ## Getting Started
 
@@ -35,20 +21,17 @@ npm install
 
 ### Development
 
-To develop all apps and packages, run:
+To start the development server:
 
 ```bash
 npm run dev
 ```
 
-This will start:
-
-- Next.js app on [http://localhost:3500](http://localhost:3500)
-- NestJS API on [http://localhost:3501](http://localhost:3501)
+The app will be available at [http://localhost:3500](http://localhost:3500).
 
 ### Build
 
-To build all apps and packages:
+To build the application:
 
 ```bash
 npm run build
@@ -85,9 +68,15 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 
 ### Testing
 
-This project uses [Playwright](https://playwright.dev/) for end-to-end testing.
+#### Unit Tests (Vitest)
 
-#### Running E2E Tests
+```bash
+npm run test             # Run tests
+npm run test:watch       # Watch mode
+npm run test:coverage    # Coverage report
+```
+
+#### E2E Tests (Playwright)
 
 **Prerequisites:**
 
@@ -107,7 +96,7 @@ export CLERK_TEST_MULTI_ORG_EMAIL="your-multi-org@example.com"
 export CLERK_TEST_MULTI_ORG_PASSWORD="password"
 ```
 
-See `env.example` for the full list of test user variables.
+See `.env.example` for the full list of test user variables.
 
 **Option 1: Let Playwright manage the server (simplest)**
 
@@ -159,15 +148,18 @@ E2E tests run automatically on Vercel preview deployments. The workflow:
 
 **Required GitHub Secrets:**
 
-Test user credentials for each role and organization. See `env.example` for the full list.
+Test user credentials for each role and organization. See `.env.example` for the full list.
 
 ### Useful Commands
 
-- `npm run dev` - Start all apps in development mode
-- `npm run build` - Build all apps and packages
-- `npm run lint` - Lint all apps and packages
+- `npm run dev` - Start development server
+- `npm run build` - Build the application
+- `npm run start` - Start production server
+- `npm run lint` - Lint the codebase
 - `npm run format` - Format all files with Prettier
-- `npm run clean` - Clean all build artifacts and node_modules
+- `npm run clean` - Clean build artifacts and node_modules
+- `npm run test` - Run unit tests
+- `npm run test:coverage` - Run unit tests with coverage
 - `npm run test:e2e` - Run Playwright e2e tests
 - `npm run test:e2e:ui` - Run e2e tests with interactive UI
 - `npm run test:e2e:headed` - Run e2e tests in headed browser mode
@@ -175,23 +167,10 @@ Test user credentials for each role and organization. See `env.example` for the 
 
 ## Tech Stack
 
-### Frontend (Next.js)
-
 - **Framework**: Next.js 16 with App Router
+- **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Language**: TypeScript
-
-### Backend (NestJS)
-
-- **Framework**: NestJS 11
-- **Language**: TypeScript
-- **Testing**: Jest
-
-### Testing
-
-- **E2E Testing**: Playwright (chromium)
-
-### Monorepo
-
-- **Build System**: Turborepo
-- **Package Manager**: npm workspaces
+- **UI Components**: Radix UI
+- **Auth**: Clerk
+- **Unit Testing**: Vitest + React Testing Library
+- **E2E Testing**: Playwright
