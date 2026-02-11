@@ -48,12 +48,6 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!hasSearchParams) {
-      setUsers(null)
-      setMeta(null)
-      return
-    }
-
     const fetchUsers = async () => {
       setIsLoading(true)
       setError(null)
@@ -123,15 +117,7 @@ export default function UsersPage() {
         <UserSearchForm />
       </Box>
 
-      {!hasSearchParams && (
-        <Text color="gray" size="3">
-          Use the search form above to find users by email or name.
-        </Text>
-      )}
-
-      {hasSearchParams && isLoading && (
-        <LoadingSpinner>Searching...</LoadingSpinner>
-      )}
+      {isLoading && <LoadingSpinner>Searching...</LoadingSpinner>}
 
       {hasSearchParams && error && (
         <Text color="red" size="3">
@@ -139,7 +125,7 @@ export default function UsersPage() {
         </Text>
       )}
 
-      {hasSearchParams && !isLoading && !error && users !== null && (
+      {!isLoading && !error && users !== null && (
         <>
           <UserList users={users} />
           {meta && (
