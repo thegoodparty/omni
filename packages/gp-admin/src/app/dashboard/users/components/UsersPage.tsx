@@ -13,6 +13,7 @@ import {
   DEFAULT_PER_PAGE,
   PerPageOption,
   isPerPageOption,
+  SearchParamUpdates,
 } from '../types'
 import { UserList } from './UserList'
 import { Pagination } from './Pagination'
@@ -83,7 +84,7 @@ export default function UsersPage() {
   }, [searchParams])
 
   const updateSearchParams = useCallback(
-    (updates: Record<string, string | undefined>) => {
+    (updates: SearchParamUpdates) => {
       const params = new URLSearchParams(searchParams.toString())
       for (const [key, value] of Object.entries(updates)) {
         if (value === undefined) {
