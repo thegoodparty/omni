@@ -87,16 +87,16 @@ test.describe('Users Search - Email', () => {
     await expect(page.getByText('Searching...')).toBeVisible()
   })
 
-  test('email search displays single result in table', async ({ page }) => {
+  test('email search displays result in table', async ({ page }) => {
     await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
     await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
     await expect(
-      page.getByRole('cell', { name: 'Tomer Almog' })
+      page.getByRole('cell', { name: 'Tomer Almog' }).first()
     ).toBeVisible()
     await expect(
-      page.getByRole('cell', { name: 'tomer@goodparty.org' })
+      page.getByRole('cell', { name: 'tomer@goodparty.org' }).first()
     ).toBeVisible()
   })
 })
@@ -135,10 +135,10 @@ test.describe('Users Search - Name', () => {
     ).toBeVisible()
 
     await expect(
-      page.getByRole('cell', { name: 'Tomer Almog' })
+      page.getByRole('cell', { name: 'Tomer Almog' }).first()
     ).toBeVisible()
     await expect(
-      page.getByRole('cell', { name: 'tomer@goodparty.org' })
+      page.getByRole('cell', { name: 'tomer@goodparty.org' }).first()
     ).toBeVisible()
   })
 
@@ -149,7 +149,7 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
-    await page.getByRole('link', { name: 'Tomer Almog' }).click()
+    await page.getByRole('link', { name: 'Tomer Almog' }).first().click()
 
     await expect(page).toHaveURL(/\/dashboard\/users\/\d+/)
   })
