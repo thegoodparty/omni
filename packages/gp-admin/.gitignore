@@ -34,12 +34,12 @@ yarn-error.log*
 # Vercel
 .vercel
 
-# Turbo
-.turbo
-
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Clerk configuration (can include secrets)
+/.clerk/
 
 /.idea
 

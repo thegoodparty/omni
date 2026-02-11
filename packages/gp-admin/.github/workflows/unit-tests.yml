@@ -24,20 +24,20 @@ jobs:
         run: npm ci
 
       - name: Run tests with coverage
-        run: npm run test:coverage -w @gp-admin/web
+        run: npm run test:coverage
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: apps/web/coverage/
+          path: coverage/
           retention-days: 30
 
       - name: Parse coverage summary
         id: coverage
         if: github.event_name == 'pull_request'
         run: |
-          COVERAGE_FILE="apps/web/coverage/coverage-summary.json"
+          COVERAGE_FILE="coverage/coverage-summary.json"
           if [ -f "$COVERAGE_FILE" ]; then
             LINES=$(jq '.total.lines.pct' "$COVERAGE_FILE")
             STATEMENTS=$(jq '.total.statements.pct' "$COVERAGE_FILE")

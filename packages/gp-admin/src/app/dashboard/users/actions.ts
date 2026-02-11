@@ -1,11 +1,7 @@
 'use server'
 
 import { gpAction } from '@/shared/util/gpClient.util'
-import {
-  SearchUsersParams,
-  SearchUsersResult,
-  SEARCH_PARAMS,
-} from './types'
+import { SearchUsersParams, SearchUsersResult, SEARCH_PARAMS } from './types'
 
 const DEFAULT_LIMIT = 30
 
