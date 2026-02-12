@@ -3,7 +3,11 @@
 import { Select, IconButton, Flex, Text } from '@radix-ui/themes'
 import { HiChevronLeft, HiChevronRight } from 'react-icons/hi'
 import type { PaginationMeta } from '@goodparty_org/sdk'
-import { PER_PAGE_OPTIONS, PerPageOption, isPerPageOption } from '../types'
+import {
+  PER_PAGE_OPTIONS,
+  PerPageOption,
+  isPerPageOption,
+} from '../app/dashboard/users/types'
 
 interface PaginationProps {
   meta: PaginationMeta
@@ -83,6 +87,7 @@ export function Pagination({
             disabled={isFirstPage}
             onClick={handlePreviousPage}
             aria-label="Previous page"
+            className="cursor-pointer"
           >
             <HiChevronLeft className="w-4 h-4" />
           </IconButton>
@@ -92,6 +97,7 @@ export function Pagination({
             disabled={isLastPage}
             onClick={handleNextPage}
             aria-label="Next page"
+            className="cursor-pointer"
           >
             <HiChevronRight className="w-4 h-4" />
           </IconButton>

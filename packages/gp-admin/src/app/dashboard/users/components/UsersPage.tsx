@@ -16,7 +16,7 @@ import {
   SearchParamUpdates,
 } from '../types'
 import { UserList } from './UserList'
-import { Pagination } from './Pagination'
+import { Pagination } from '@/components/Pagination'
 
 function parsePageParam(value: string | null): number {
   if (!value) return 1
@@ -36,11 +36,6 @@ export default function UsersPage() {
 
   const currentPage = parsePageParam(searchParams.get(SEARCH_PARAMS.PAGE))
   const perPage = parsePerPageParam(searchParams.get(SEARCH_PARAMS.PER_PAGE))
-
-  const hasSearchParams =
-    searchParams.has(SEARCH_PARAMS.EMAIL) ||
-    searchParams.has(SEARCH_PARAMS.FIRST_NAME) ||
-    searchParams.has(SEARCH_PARAMS.LAST_NAME)
 
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers] = useState<User[] | null>(null)
@@ -75,7 +70,7 @@ export default function UsersPage() {
     }
 
     fetchUsers()
-  }, [searchParams, currentPage, perPage, hasSearchParams])
+  }, [searchParams, currentPage, perPage])
 
   const updateSearchParams = useCallback(
     (updates: SearchParamUpdates) => {
@@ -119,7 +114,7 @@ export default function UsersPage() {
 
       {isLoading && <LoadingSpinner>Searching...</LoadingSpinner>}
 
-      {hasSearchParams && error && (
+      {error && (
         <Text color="red" size="3">
           {error}
         </Text>
