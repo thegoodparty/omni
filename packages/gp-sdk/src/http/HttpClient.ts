@@ -5,11 +5,11 @@ export type OfetchRequestBody = FetchOptions<'json'>['body']
 
 export class HttpClient {
   private baseUrl: string
-  private m2mToken: string
+  private getToken: () => Promise<string>
 
-  constructor(gpApiRootUrl: string, m2mToken: string) {
+  constructor(gpApiRootUrl: string, getToken: () => Promise<string>) {
     this.baseUrl = gpApiRootUrl
-    this.m2mToken = m2mToken
+    this.getToken = getToken
   }
 
   request = async <T>(
@@ -20,7 +20,7 @@ export class HttpClient {
       return await ofetch<T>(path, {
         baseURL: this.baseUrl,
         headers: {
-          Authorization: `Bearer ${this.m2mToken}`,
+          Authorization: `Bearer ${await this.getToken()}`,
           ...(init?.headers ?? {}),
         },
         ...init,

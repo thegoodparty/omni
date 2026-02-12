@@ -34,7 +34,11 @@ await client.users.updatePassword(1, {
 })
 
 await client.users.delete(1)
+
+client.destroy()
 ```
+
+The `destroy()` method cleans up internal token renewal timers. Call it when you are done using the client to prevent leaked timers.
 
 All methods throw `SdkError` on failure:
 

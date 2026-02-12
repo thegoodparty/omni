@@ -1,7 +1,6 @@
-import { createClerkClient } from '@clerk/backend'
 import { HttpClient } from './http/HttpClient'
 import { UsersResource } from './resources/UsersResource'
-import { SdkError } from './types/result'
+import { ClerkService } from './vendor/clerk/clerk.service'
 
 export type GoodPartyClientConfig = {
   m2mSecret: string
@@ -10,9 +9,11 @@ export type GoodPartyClientConfig = {
 
 export class GoodPartyClient {
   readonly users: UsersResource
+  private clerkService: ClerkService
 
-  private constructor(gpApiRootUrl: string, m2mToken: string) {
-    const httpClient = new HttpClient(gpApiRootUrl, m2mToken)
+  private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
+    this.clerkService = clerkService
+    const httpClient = new HttpClient(gpApiRootUrl, clerkService.getToken)
     this.users = new UsersResource(httpClient)
   }
 
@@ -20,28 +21,12 @@ export class GoodPartyClient {
     config: GoodPartyClientConfig,
   ): Promise<GoodPartyClient> => {
     const { m2mSecret, gpApiRootUrl } = config
-    const clerkClient = createClerkClient({})
+    const clerkService = new ClerkService(m2mSecret)
+    await clerkService.getToken()
+    return new GoodPartyClient(clerkService, gpApiRootUrl)
+  }
 
-    let token: string
-    try {
-      const m2mToken = await clerkClient.m2m.createToken({
-        machineSecretKey: m2mSecret,
-      })
-      if (!m2mToken.token) {
-        throw new SdkError(
-          0,
-          'Clerk M2M token creation succeeded but returned no token string',
-        )
-      }
-      token = m2mToken.token
-    } catch (error: unknown) {
-      if (error instanceof SdkError) {
-        throw error
-      }
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      throw new SdkError(0, `Failed to create Clerk M2M token: ${message}`)
-    }
-
-    return new GoodPartyClient(gpApiRootUrl, token)
+  destroy = (): void => {
+    this.clerkService.destroy()
   }
 }
