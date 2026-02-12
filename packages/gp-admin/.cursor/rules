@@ -345,6 +345,15 @@ export default function EditPage() {
 
 Benefits: No type ambiguity, forms are reusable, schema/defaults live with form.
 
+## Always Use `git mv` for File Renames
+
+When renaming or moving a file that is tracked by git, ALWAYS use `git mv old_path new_path` instead of `rm`/`mv`, `git rm`, filesystem rename, or deleting and recreating the file.
+
+- **NEVER** use `rm`, `mv`, `git rm`, or `delete_file` to rename a tracked file
+- **ALWAYS** use `git mv` to preserve the full commit history across renames
+- After `git mv`, make any content changes to the file at its new path
+- Verify the rename succeeded with `git status`
+
 ## Clerk Authentication Types
 
 When working with Clerk authentication:
