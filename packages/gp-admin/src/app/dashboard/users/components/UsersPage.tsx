@@ -1,19 +1,45 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Container, Heading, Box, Text } from '@radix-ui/themes'
+import type { PaginationMeta } from '@goodparty_org/sdk'
 import { UserSearchForm } from '@/components/UserSearchForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { searchUsers } from '../actions'
-import { User, SEARCH_PARAMS } from '../types'
+import {
+  User,
+  SEARCH_PARAMS,
+  DEFAULT_PER_PAGE,
+  PerPageOption,
+  isPerPageOption,
+  SearchParamUpdates,
+} from '../types'
 import { UserList } from './UserList'
+import { Pagination } from '@/components/Pagination'
+
+function parsePageParam(value: string | null): number {
+  if (!value) return 1
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1
+}
+
+function parsePerPageParam(value: string | null): PerPageOption {
+  if (!value) return DEFAULT_PER_PAGE
+  const parsed = Number(value)
+  return isPerPageOption(parsed) ? parsed : DEFAULT_PER_PAGE
+}
 
 export default function UsersPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+
+  const currentPage = parsePageParam(searchParams.get(SEARCH_PARAMS.PAGE))
+  const perPage = parsePerPageParam(searchParams.get(SEARCH_PARAMS.PER_PAGE))
 
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers] = useState<User[] | null>(null)
+  const [meta, setMeta] = useState<PaginationMeta | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -29,9 +55,12 @@ export default function UsersPage() {
             searchParams.get(SEARCH_PARAMS.FIRST_NAME) ?? undefined,
           [SEARCH_PARAMS.LAST_NAME]:
             searchParams.get(SEARCH_PARAMS.LAST_NAME) ?? undefined,
+          [SEARCH_PARAMS.PAGE]: currentPage,
+          [SEARCH_PARAMS.PER_PAGE]: perPage,
         })
 
-        setUsers(result)
+        setUsers(result.data)
+        setMeta(result.meta)
       } catch (err) {
         setError('Failed to search users. Please try again.')
         console.error('Search error:', err)
@@ -41,7 +70,37 @@ export default function UsersPage() {
     }
 
     fetchUsers()
-  }, [searchParams])
+  }, [searchParams, currentPage, perPage])
+
+  const updateSearchParams = useCallback(
+    (updates: SearchParamUpdates) => {
+      const params = new URLSearchParams(searchParams.toString())
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === undefined) {
+          params.delete(key)
+        } else {
+          params.set(key, value)
+        }
+      }
+      const queryString = params.toString()
+      router.push(`/dashboard/users${queryString ? `?${queryString}` : ''}`)
+    },
+    [searchParams, router]
+  )
+
+  const handlePageChange = (page: number) => {
+    updateSearchParams({
+      [SEARCH_PARAMS.PAGE]: page === 1 ? undefined : String(page),
+    })
+  }
+
+  const handlePerPageChange = (newPerPage: PerPageOption) => {
+    updateSearchParams({
+      [SEARCH_PARAMS.PER_PAGE]:
+        newPerPage === DEFAULT_PER_PAGE ? undefined : String(newPerPage),
+      [SEARCH_PARAMS.PAGE]: undefined,
+    })
+  }
 
   return (
     <Container size="4">
@@ -61,7 +120,20 @@ export default function UsersPage() {
         </Text>
       )}
 
-      {!isLoading && !error && users !== null && <UserList users={users} />}
+      {!isLoading && !error && users !== null && (
+        <>
+          <UserList users={users} />
+          {meta && (
+            <Pagination
+              meta={meta}
+              currentPage={currentPage}
+              perPage={perPage}
+              onPageChange={handlePageChange}
+              onPerPageChange={handlePerPageChange}
+            />
+          )}
+        </>
+      )}
     </Container>
   )
 }

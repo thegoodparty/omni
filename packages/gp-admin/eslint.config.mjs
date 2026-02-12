@@ -12,6 +12,11 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettierConfig,
   {
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     plugins: {
       '@next/next': nextPlugin,
       react: reactPlugin,
