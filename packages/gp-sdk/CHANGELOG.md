@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.1.0
+
+### Minor Changes
+
+- [#19](https://github.com/thegoodparty/gp-sdk/pull/19) [`1551a0c`](https://github.com/thegoodparty/gp-sdk/commit/1551a0c11a89965c1ff81fe6d95a6199967c9d46) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Extract M2M token provisioning into ClerkService with automatic renewal before expiration
+
 ## 1.0.0
 
 ### Major Changes
