@@ -28,6 +28,11 @@ const filtered = await client.users.list({
   sortOrder: 'desc',
 })
 
+const updatedUser = await client.users.update(1, {
+  firstName: 'Jane',
+  roles: ['admin'],
+})
+
 await client.users.updatePassword(1, {
   oldPassword: 'old',
   newPassword: 'new',
