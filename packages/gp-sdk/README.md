@@ -32,6 +32,7 @@ const filtered = await client.users.list({
 const updatedUser = await client.users.update(1, {
   firstName: 'Jane',
   roles: ['candidate'],
+  metaData: { hubspotId: 'abc123', textNotifications: true },
 })
 
 await client.users.updatePassword(1, {
