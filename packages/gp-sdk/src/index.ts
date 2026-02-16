@@ -12,6 +12,7 @@ export type {
   User,
   UserMetaData,
   ListUsersOptions,
+  UpdateUserInput,
   UpdatePasswordInput,
 } from './types/user'
 
