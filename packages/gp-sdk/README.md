@@ -28,6 +28,11 @@ const filtered = await client.users.list({
   sortOrder: 'desc',
 })
 
+const updatedUser = await client.users.update(1, {
+  firstName: 'Jane',
+  roles: ['candidate'],
+})
+
 await client.users.updatePassword(1, {
   oldPassword: 'old',
   newPassword: 'new',
@@ -66,15 +71,15 @@ npm install
 
 ### Scripts
 
-| Command              | Description                          |
-| -------------------- | ------------------------------------ |
-| `npm run dev`        | Build in watch mode for local dev    |
-| `npm run build`      | Build the SDK with tsup              |
-| `npm run typecheck`  | Run TypeScript type checking         |
-| `npm run lint`       | Run ESLint                           |
-| `npm run lint:fix`   | Run ESLint with auto-fix             |
-| `npm run format`     | Format code with Prettier            |
-| `npm run format:check` | Check code formatting              |
+| Command                | Description                       |
+| ---------------------- | --------------------------------- |
+| `npm run dev`          | Build in watch mode for local dev |
+| `npm run build`        | Build the SDK with tsup           |
+| `npm run typecheck`    | Run TypeScript type checking      |
+| `npm run lint`         | Run ESLint                        |
+| `npm run lint:fix`     | Run ESLint with auto-fix          |
+| `npm run format`       | Format code with Prettier         |
+| `npm run format:check` | Check code formatting             |
 
 ### Publishing
 

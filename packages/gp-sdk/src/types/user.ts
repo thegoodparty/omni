@@ -15,6 +15,11 @@ export enum WhyBrowsing {
   else = 'else',
 }
 
+export enum SIGN_UP_MODE {
+  CANDIDATE = 'candidate',
+  FACILITATED = 'facilitated',
+}
+
 export type UserMetaData = {
   customerId?: string
   checkoutSessionId?: string | null
@@ -47,6 +52,18 @@ export type ListUsersOptions = PaginationOptions & {
   firstName?: string
   lastName?: string
   email?: string
+}
+
+export type UpdateUserInput = {
+  firstName?: string
+  lastName?: string
+  email?: string
+  name?: string
+  zip?: string
+  phone?: string
+  roles?: UserRole[]
+  signUpMode?: SIGN_UP_MODE
+  allowTexts?: boolean
 }
 
 export type UpdatePasswordInput = {
