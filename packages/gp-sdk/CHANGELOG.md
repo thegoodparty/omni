@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.3.0
+
+### Minor Changes
+
+- [#23](https://github.com/thegoodparty/gp-sdk/pull/23) [`1f44cff`](https://github.com/thegoodparty/gp-sdk/commit/1f44cff62300e325e35b322fdd9e32de66f41a6b) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add CampaignsResource with list and update operations
+
 ## 1.2.0
 
 ### Minor Changes
