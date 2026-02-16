@@ -64,6 +64,7 @@ export type UpdateUserInput = {
   roles?: UserRole[]
   signUpMode?: SIGN_UP_MODE
   allowTexts?: boolean
+  metaData?: UserMetaData
 }
 
 export type UpdatePasswordInput = {
