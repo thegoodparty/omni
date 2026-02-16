@@ -15,7 +15,7 @@ export enum WhyBrowsing {
   else = 'else',
 }
 
-enum SIGN_UP_MODE {
+export enum SIGN_UP_MODE {
   CANDIDATE = 'candidate',
   FACILITATED = 'facilitated',
 }
