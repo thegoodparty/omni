@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.4.0
+
+### Minor Changes
+
+- [#25](https://github.com/thegoodparty/gp-sdk/pull/25) [`7ce5da0`](https://github.com/thegoodparty/gp-sdk/commit/7ce5da0c911651734510c9bd49b51c5a36c99532) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add metaData to UpdateUserInput for updating user metadata via the admin endpoint
+
 ## 1.3.0
 
 ### Minor Changes
