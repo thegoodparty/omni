@@ -1,4 +1,5 @@
 import { HttpClient } from './http/HttpClient'
+import { CampaignsResource } from './resources/CampaignsResource'
 import { UsersResource } from './resources/UsersResource'
 import { ClerkService } from './vendor/clerk/clerk.service'
 
@@ -9,12 +10,14 @@ export type GoodPartyClientConfig = {
 
 export class GoodPartyClient {
   readonly users: UsersResource
+  readonly campaigns: CampaignsResource
   private clerkService: ClerkService
 
   private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
     this.clerkService = clerkService
     const httpClient = new HttpClient(gpApiRootUrl, clerkService.getToken)
     this.users = new UsersResource(httpClient)
+    this.campaigns = new CampaignsResource(httpClient)
   }
 
   static create = async (

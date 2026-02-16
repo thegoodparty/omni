@@ -18,6 +18,7 @@ const client = await GoodPartyClient.create({
   gpApiRootUrl: 'https://gp-api.goodparty.org/v1',
 })
 
+// Users
 const user = await client.users.get(1)
 
 const users = await client.users.list({ offset: 0, limit: 20 })
@@ -39,6 +40,20 @@ await client.users.updatePassword(1, {
 })
 
 await client.users.delete(1)
+
+// Campaigns
+const campaigns = await client.campaigns.list({ offset: 0, limit: 20 })
+
+const byUser = await client.campaigns.list({
+  userId: 42,
+  sortBy: 'createdAt',
+  sortOrder: 'desc',
+})
+
+const updatedCampaign = await client.campaigns.update(1, {
+  isActive: true,
+  details: { office: 'Mayor' },
+})
 
 client.destroy()
 ```

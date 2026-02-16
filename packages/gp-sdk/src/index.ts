@@ -16,3 +16,28 @@ export type {
 } from './types/user'
 
 export { UserRole, WhyBrowsing } from './types/user'
+
+export type {
+  Campaign,
+  CampaignDetails,
+  CampaignData,
+  CampaignAiContent,
+  VoterGoals,
+  CustomVoterFile,
+  AiChatMessage,
+  AiContentInputValues,
+  AiContentGenerationStatus,
+  AiContentData,
+  ListCampaignsOptions,
+  UpdateCampaignInput,
+} from './types/campaign'
+
+export {
+  CampaignTier,
+  BallotReadyPositionLevel,
+  ElectionLevel,
+  CampaignCreatedBy,
+  CampaignLaunchStatus,
+  OnboardingStep,
+  GenerationStatus,
+} from './types/campaign'
