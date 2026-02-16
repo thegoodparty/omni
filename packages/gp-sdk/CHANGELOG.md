@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.2.0
+
+### Minor Changes
+
+- [#21](https://github.com/thegoodparty/gp-sdk/pull/21) [`53c9486`](https://github.com/thegoodparty/gp-sdk/commit/53c94868c56bfe94832d73d74eb505e77d41bec9) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add user update method to UsersResource
+
 ## 1.1.0
 
 ### Minor Changes
