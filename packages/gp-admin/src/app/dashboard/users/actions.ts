@@ -1,6 +1,8 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { gpAction } from '@/shared/util/gpClient.util'
+import type { UpdateUserInput, User } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
   SearchUsersResult,
@@ -28,4 +30,14 @@ export const searchUsers = async (
       data: result.data ?? [],
       meta: result.meta,
     }
+  })
+
+export const updateUser = async (
+  id: number,
+  input: UpdateUserInput
+): Promise<User> =>
+  gpAction(async (client) => {
+    const user = await client.users.update(id, input)
+    revalidatePath(`/dashboard/users/${id}`, 'layout')
+    return user
   })

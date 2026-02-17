@@ -17,7 +17,6 @@ export const userSchema = z.object({
   email: z.email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional(),
   zip: z.string().optional(),
-  avatar: z.url().optional().or(z.literal('')),
   roles: z.array(z.nativeEnum(UserRole)).optional(),
   metaData: z
     .object({

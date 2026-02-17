@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
+import { updateUser } from '../../actions'
 import { useUser } from '../context/UserContext'
 import { UserForm } from './components/UserForm'
 import type { UserFormData } from './schema'
@@ -12,9 +13,23 @@ export default function EditUserPage() {
   const user = useUser()
   const { id } = user
 
-  function handleSave(data: UserFormData) {
-    console.log('[PATCH /users/:id] Saving:', data)
-    showToast('Changes saved (simulated)')
+  async function handleSave(data: UserFormData) {
+    try {
+      const { metaData = {} } = data
+      
+      await updateUser(id, {
+        ...data,
+        metaData: {
+          ...metaData
+        }
+      })
+
+      router.push(`/dashboard/users/${id}`)
+      router.refresh()
+    } catch (error) {
+      showToast('Failed to save changes')
+      throw error
+    }
   }
 
   function handleCancel() {

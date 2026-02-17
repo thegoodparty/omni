@@ -48,12 +48,6 @@ const BASIC_INFO_FIELDS: FieldConfig[] = [
   },
   { key: 'phone', label: 'Phone', placeholder: 'Phone' },
   { key: 'zip', label: 'ZIP Code', placeholder: 'ZIP' },
-  {
-    key: 'avatar',
-    label: 'Avatar URL',
-    placeholder: 'https://...',
-    hasError: true,
-  },
 ]
 
 const USER_SETTINGS_FIELDS: FieldConfig[] = [
@@ -66,7 +60,7 @@ const USER_SETTINGS_FIELDS: FieldConfig[] = [
 
 interface UserFormProps {
   initialData: User
-  onSave: (data: UserFormData) => void
+  onSave: (data: UserFormData) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -76,6 +70,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     watch,
     setValue,
     getValues,
+    reset,
     formState: { errors, isDirty, isValid },
   } = useForm<UserFormData>({
     mode: FORM_MODE.ON_CHANGE,
@@ -87,7 +82,6 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       email: initialData.email ?? '',
       phone: initialData.phone ?? '',
       zip: initialData.zip ?? '',
-      avatar: initialData.avatar ?? '',
       roles: initialData.roles ?? [],
       metaData: {
         hubspotId: initialData.metaData?.hubspotId ?? '',
@@ -103,7 +97,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const data = getValues()
     const result = userSchema.safeParse(data)
 
@@ -112,7 +106,12 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       return
     }
 
-    onSave(data)
+    try {
+      await onSave(data)
+      reset(data)
+    } catch {
+      // Save failed — keep the form dirty so the user can retry
+    }
   }
 
   function toggleRole(role: (typeof USER_ROLES)[number]) {
@@ -124,7 +123,6 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
 
   function getError(key: FieldPath) {
     if (key === 'email') return errors.email
-    if (key === 'avatar') return errors.avatar
     return undefined
   }
 
