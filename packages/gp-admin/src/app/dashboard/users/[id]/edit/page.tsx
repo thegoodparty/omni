@@ -15,18 +15,13 @@ export default function EditUserPage() {
 
   async function handleSave(data: UserFormData) {
     try {
+      const { metaData = {} } = data
+      
       await updateUser(id, {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        zip: data.zip,
-        roles: data.roles,
+        ...data,
         metaData: {
-          hubspotId: data.metaData?.hubspotId,
-          textNotifications: data.metaData?.textNotifications ?? false,
-        },
+          ...metaData
+        }
       })
 
       router.push(`/dashboard/users/${id}`)
