@@ -48,12 +48,6 @@ const BASIC_INFO_FIELDS: FieldConfig[] = [
   },
   { key: 'phone', label: 'Phone', placeholder: 'Phone' },
   { key: 'zip', label: 'ZIP Code', placeholder: 'ZIP' },
-  {
-    key: 'avatar',
-    label: 'Avatar URL',
-    placeholder: 'https://...',
-    hasError: true,
-  },
 ]
 
 const USER_SETTINGS_FIELDS: FieldConfig[] = [
@@ -88,7 +82,6 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       email: initialData.email ?? '',
       phone: initialData.phone ?? '',
       zip: initialData.zip ?? '',
-      avatar: initialData.avatar ?? '',
       roles: initialData.roles ?? [],
       metaData: {
         hubspotId: initialData.metaData?.hubspotId ?? '',
@@ -126,7 +119,6 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
 
   function getError(key: FieldPath) {
     if (key === 'email') return errors.email
-    if (key === 'avatar') return errors.avatar
     return undefined
   }
 
