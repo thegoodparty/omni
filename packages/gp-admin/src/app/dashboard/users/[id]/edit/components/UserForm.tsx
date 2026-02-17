@@ -76,6 +76,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     watch,
     setValue,
     getValues,
+    reset,
     formState: { errors, isDirty, isValid },
   } = useForm<UserFormData>({
     mode: FORM_MODE.ON_CHANGE,
@@ -112,6 +113,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       return
     }
 
+    reset(data)
     onSave(data)
   }
 
