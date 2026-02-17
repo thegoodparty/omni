@@ -60,7 +60,7 @@ const USER_SETTINGS_FIELDS: FieldConfig[] = [
 
 interface UserFormProps {
   initialData: User
-  onSave: (data: UserFormData) => void
+  onSave: (data: UserFormData) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -97,7 +97,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const data = getValues()
     const result = userSchema.safeParse(data)
 
@@ -106,8 +106,12 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       return
     }
 
-    reset(data)
-    onSave(data)
+    try {
+      await onSave(data)
+      reset(data)
+    } catch {
+      // Save failed — keep the form dirty so the user can retry
+    }
   }
 
   function toggleRole(role: (typeof USER_ROLES)[number]) {

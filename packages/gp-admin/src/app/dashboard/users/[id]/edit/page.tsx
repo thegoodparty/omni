@@ -30,8 +30,9 @@ export default function EditUserPage() {
       })
 
       router.push(`/dashboard/users/${id}`)
-    } catch {
+    } catch (error) {
       showToast('Failed to save changes')
+      throw error
     }
   }
 
