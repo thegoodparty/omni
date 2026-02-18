@@ -4,7 +4,6 @@ import { TabNavigation } from './TabNavigation'
 import { UserProvider } from '../context/UserContext'
 import type { User } from '@goodparty_org/sdk'
 
-// Mock next/navigation
 const mockUsePathname = vi.fn()
 
 vi.mock('next/navigation', () => ({

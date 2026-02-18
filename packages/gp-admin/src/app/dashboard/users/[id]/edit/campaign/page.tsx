@@ -1,6 +1,8 @@
 import { Metadata } from 'next'
-import { Heading, Separator, Text } from '@radix-ui/themes'
+import { notFound } from 'next/navigation'
+import { Text } from '@radix-ui/themes'
 import { listCampaigns } from '@/app/dashboard/campaigns/actions'
+import { CampaignList } from '../../components/CampaignList'
 import { EditCampaignClient } from './EditCampaignClient'
 
 export const metadata: Metadata = {
@@ -16,27 +18,20 @@ export default async function EditCampaignPage({
   params,
 }: EditCampaignPageProps) {
   const { id } = await params
-  const { data: campaigns } = await listCampaigns(Number(id))
+  const userId = Number(id)
+  if (Number.isNaN(userId)) {
+    notFound()
+  }
+  const { data: campaigns } = await listCampaigns(userId)
 
   if (campaigns.length === 0) {
     return <Text>No campaign found for this user.</Text>
   }
 
   return (
-    <>
-      {campaigns.map((campaign, index) => (
-        <div key={campaign.id}>
-          {campaigns.length > 1 && (
-            <>
-              {index > 0 && <Separator size="4" />}
-              <Heading as="h2" size="5" mb="4" mt={index > 0 ? '6' : '0'}>
-                Campaign #{index + 1}
-              </Heading>
-            </>
-          )}
-          <EditCampaignClient campaign={campaign} />
-        </div>
-      ))}
-    </>
+    <CampaignList
+      campaigns={campaigns}
+      renderItem={(campaign) => <EditCampaignClient campaign={campaign} />}
+    />
   )
 }

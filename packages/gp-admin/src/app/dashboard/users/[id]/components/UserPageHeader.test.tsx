@@ -16,7 +16,6 @@ vi.mock('@clerk/nextjs', () => ({
   ClerkLoaded: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-// Mock next/navigation
 const mockUsePathname = vi.fn()
 
 vi.mock('next/navigation', () => ({

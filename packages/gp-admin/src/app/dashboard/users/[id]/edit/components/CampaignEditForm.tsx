@@ -60,7 +60,7 @@ export function CampaignEditForm({
       data: {
         launchStatus: data.launchStatus,
         name: data.name ?? '',
-        adminUserEmail: '',
+        adminUserEmail: data.adminUserEmail ?? '',
       },
       details: {
         state: details.state ?? '',
