@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.5.0
+
+### Minor Changes
+
+- [`dbff349`](https://github.com/thegoodparty/gp-sdk/commit/dbff349a52f350e90fdf8f5284b96e59082e20b8) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add named types for campaign sub-objects (CampaignFinance, CampaignPlan, TopIssuePosition, GeoLocation, CustomIssue, Opponent, etc.) and expand CampaignDetails and CampaignData with missing fields to align with the API schema
+
 ## 1.4.0
 
 ### Minor Changes
