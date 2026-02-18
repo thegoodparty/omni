@@ -16,12 +16,12 @@ export default function EditUserPage() {
   async function handleSave(data: UserFormData) {
     try {
       const { metaData = {} } = data
-      
+
       await updateUser(id, {
         ...data,
         metaData: {
-          ...metaData
-        }
+          ...metaData,
+        },
       })
 
       router.push(`/dashboard/users/${id}`)

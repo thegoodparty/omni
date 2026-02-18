@@ -1,31 +1,42 @@
-'use client'
+import { Metadata } from 'next'
+import { Heading, Separator, Text } from '@radix-ui/themes'
+import { listCampaigns } from '@/app/dashboard/campaigns/actions'
+import { EditCampaignClient } from './EditCampaignClient'
 
-import { useRouter } from 'next/navigation'
-import { useToast } from '@/components/Toast'
-import { stubbedCampaign } from '@/data/stubbed-campaign'
-import {
-  CampaignEditForm,
-  type CombinedCampaignFormData,
-} from '../components/CampaignEditForm'
+export const metadata: Metadata = {
+  title: 'Edit Campaign | GP Admin',
+  description: 'Edit campaign details',
+}
 
-export default function EditCampaignPage() {
-  const router = useRouter()
-  const { showToast } = useToast()
+interface EditCampaignPageProps {
+  params: Promise<{ id: string }>
+}
 
-  function handleSave(data: CombinedCampaignFormData) {
-    console.log('[PATCH /campaigns/:id] Saving:', data)
-    showToast('Changes saved (simulated)')
-  }
+export default async function EditCampaignPage({
+  params,
+}: EditCampaignPageProps) {
+  const { id } = await params
+  const { data: campaigns } = await listCampaigns(Number(id))
 
-  function handleCancel() {
-    router.push(`/dashboard/users/${stubbedCampaign.userId}/campaign`)
+  if (campaigns.length === 0) {
+    return <Text>No campaign found for this user.</Text>
   }
 
   return (
-    <CampaignEditForm
-      initialData={stubbedCampaign}
-      onSave={handleSave}
-      onCancel={handleCancel}
-    />
+    <>
+      {campaigns.map((campaign, index) => (
+        <div key={campaign.id}>
+          {campaigns.length > 1 && (
+            <>
+              {index > 0 && <Separator size="4" />}
+              <Heading as="h2" size="5" mb="4" mt={index > 0 ? '6' : '0'}>
+                Campaign #{index + 1}
+              </Heading>
+            </>
+          )}
+          <EditCampaignClient campaign={campaign} />
+        </div>
+      ))}
+    </>
   )
 }

@@ -1,11 +1,17 @@
 import { z } from 'zod'
-import { UserRole } from '@goodparty_org/sdk'
+import type {
+  UseFormRegister,
+  UseFormWatch,
+  UseFormSetValue,
+  FieldErrors,
+} from 'react-hook-form'
 import {
-  BALLOT_LEVELS,
-  CAMPAIGN_LAUNCH_STATUS,
-  CAMPAIGN_TIERS,
-  ELECTION_LEVELS,
-} from '@/types/campaign'
+  UserRole,
+  CampaignTier,
+  BallotReadyPositionLevel,
+  ElectionLevel,
+  CampaignLaunchStatus,
+} from '@goodparty_org/sdk'
 import { P2V_STATUS } from '../constants'
 
 export const USER_ROLES = Object.values(UserRole)
@@ -34,11 +40,11 @@ export const campaignSchema = z.object({
   isPro: z.boolean().optional(),
   isDemo: z.boolean(),
   didWin: z.boolean().optional(),
-  tier: z.enum(CAMPAIGN_TIERS).optional().nullable(),
+  tier: z.nativeEnum(CampaignTier).optional().nullable(),
   canDownloadFederal: z.boolean(),
   data: z
     .object({
-      launchStatus: z.enum(CAMPAIGN_LAUNCH_STATUS).optional(),
+      launchStatus: z.nativeEnum(CampaignLaunchStatus).optional(),
       name: z.string().optional(),
       adminUserEmail: z.email().optional().or(z.literal('')),
     })
@@ -56,8 +62,8 @@ export const campaignDetailsSchema = z.object({
 
   office: z.string().optional(),
   otherOffice: z.string().optional(),
-  ballotLevel: z.enum(BALLOT_LEVELS).optional(),
-  level: z.enum(ELECTION_LEVELS).optional().nullable(),
+  ballotLevel: z.nativeEnum(BallotReadyPositionLevel).optional(),
+  level: z.nativeEnum(ElectionLevel).optional().nullable(),
   officeTermLength: z.string().optional(),
 
   electionDate: z.string().optional(),
@@ -144,3 +150,18 @@ export const electedOfficeSchema = z.object({
 })
 
 export type ElectedOfficeFormData = z.infer<typeof electedOfficeSchema>
+
+// Combined campaign + details schema for the edit form
+export const combinedCampaignSchema = z.object({
+  ...campaignSchema.shape,
+  details: campaignDetailsSchema,
+})
+
+export type CombinedCampaignFormData = z.infer<typeof combinedCampaignSchema>
+
+export interface CampaignFormFieldsProps {
+  register: UseFormRegister<CombinedCampaignFormData>
+  watch: UseFormWatch<CombinedCampaignFormData>
+  setValue: UseFormSetValue<CombinedCampaignFormData>
+  errors: FieldErrors<CombinedCampaignFormData>
+}

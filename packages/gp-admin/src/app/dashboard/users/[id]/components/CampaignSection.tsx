@@ -4,9 +4,13 @@ import { Grid, Text, Badge, Flex, Box, Table } from '@radix-ui/themes'
 import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
-import type { Campaign } from '../types/campaign'
+import type {
+  Campaign,
+  CampaignData,
+  CampaignDetails,
+} from '@goodparty_org/sdk'
 import type { FieldConfig } from '../types/field-config'
-import { CAMPAIGN_PLAN_STATUS } from '@/types/campaign'
+import { CAMPAIGN_PLAN_STATUS } from '../constants'
 
 interface CampaignSectionProps {
   campaign: Campaign
@@ -139,7 +143,8 @@ const PARTY_BACKGROUND_FIELDS: FieldConfig[] = [
 ]
 
 export function CampaignSection({ campaign }: CampaignSectionProps) {
-  const { data, details } = campaign
+  const data: NonNullable<CampaignData> = campaign.data ?? {}
+  const details: NonNullable<CampaignDetails> = campaign.details ?? {}
 
   return (
     <Flex direction="column" gap="6">

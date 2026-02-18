@@ -2,6 +2,7 @@
 
 import { Flex, Heading, Avatar, Button } from '@radix-ui/themes'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { HiPencil, HiArrowLeft } from 'react-icons/hi'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -13,13 +14,19 @@ interface UserPageHeaderProps {
 
 export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
   const { id, firstName, lastName, avatar } = useUser()
+  const pathname = usePathname()
+
+  const basePath = `/dashboard/users/${id}`
+  const subRoute = isEditMode
+    ? pathname.replace(`${basePath}/edit`, '')
+    : pathname.replace(basePath, '')
 
   return (
     <Flex gap="5" align="center" justify="between">
       <Flex gap="4" align="center">
         {isEditMode && (
           <Link
-            href={`/dashboard/users/${id}`}
+            href={`${basePath}${subRoute}`}
             aria-label="Back to user"
             className="text-[var(--gray-11)] hover:text-[var(--gray-12)]"
           >
@@ -42,7 +49,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
           hideWhenUnauthorized
         >
           <Button asChild>
-            <Link href={`/dashboard/users/${id}/edit`}>
+            <Link href={`${basePath}/edit${subRoute}`}>
               <HiPencil className="w-4 h-4" />
               Edit
             </Link>
