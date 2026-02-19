@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.6.0
+
+### Minor Changes
+
+- [#29](https://github.com/thegoodparty/gp-sdk/pull/29) [`3e22bd3`](https://github.com/thegoodparty/gp-sdk/commit/3e22bd35b701f4d4c2ba9f73a9d8e0f643358689) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add PathsToVictory resource with list, get, and update methods, along with supporting types and enums
+
 ## 1.5.1
 
 ### Patch Changes
