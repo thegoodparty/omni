@@ -55,6 +55,15 @@ const updatedCampaign = await client.campaigns.update(1, {
   details: { office: 'Mayor' },
 })
 
+// Paths to Victory
+const p2vs = await client.pathsToVictory.list({ userId: 42, offset: 0, limit: 20 })
+
+const p2v = await client.pathsToVictory.get(1)
+
+const updatedP2v = await client.pathsToVictory.update(1, {
+  data: { p2vStatus: 'Complete', winNumber: 5000 },
+})
+
 client.destroy()
 ```
 
