@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
       config.snapshot = {
         ...config.snapshot,
         managedPaths: (config.snapshot?.managedPaths ?? []).filter(
-          (p: string | RegExp) => !String(p).includes('node_modules'),
+          (p: string | RegExp) => !String(p).includes('node_modules')
         ),
       }
       config.resolve.symlinks = true

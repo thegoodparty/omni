@@ -345,6 +345,20 @@ export default function EditPage() {
 
 Benefits: No type ambiguity, forms are reusable, schema/defaults live with form.
 
+## List → Detail → Edit Pattern
+
+When building CRUD views for entities (users, campaigns, etc.):
+
+1. **List view** (`/dashboard/[entity]`) — Table with search/filter, rows link to detail
+2. **Detail view** (`/dashboard/[entity]/[id]`) — Read-only display, Edit button links to edit
+3. **Edit view** (`/dashboard/[entity]/[id]/edit`) — Self-contained form (UserForm pattern)
+
+For nested entities (campaigns under users):
+
+1. **List view** (`/dashboard/users/[id]/campaign`) — Table of campaigns, rows link to detail
+2. **Detail view** (`/dashboard/users/[id]/campaign/[campaignId]`) — Single campaign read-only
+3. **Edit view** (`/dashboard/users/[id]/edit/campaign/[campaignId]`) — Single campaign form
+
 ## Always Use `git mv` for File Renames
 
 When renaming or moving a file that is tracked by git, ALWAYS use `git mv old_path new_path` instead of `rm`/`mv`, `git rm`, filesystem rename, or deleting and recreating the file.

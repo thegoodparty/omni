@@ -8,6 +8,7 @@ interface FormActionsProps {
   onSubmit: () => void
   isValid: boolean
   isDirty: boolean
+  isSaving?: boolean
 }
 
 export function FormActions({
@@ -15,14 +16,26 @@ export function FormActions({
   onSubmit,
   isValid,
   isDirty,
+  isSaving,
 }: FormActionsProps) {
   return (
     <Flex gap="3" justify="end">
-      <Button type="button" variant="soft" color="gray" onClick={onCancel}>
+      <Button
+        type="button"
+        variant="soft"
+        color="gray"
+        onClick={onCancel}
+        disabled={isSaving}
+      >
         <HiX className="w-4 h-4" />
         Cancel
       </Button>
-      <Button type="button" onClick={onSubmit} disabled={!isValid || !isDirty}>
+      <Button
+        type="button"
+        onClick={onSubmit}
+        disabled={!isValid || !isDirty || isSaving}
+        loading={isSaving}
+      >
         <HiCheck className="w-4 h-4" />
         Save Changes
       </Button>

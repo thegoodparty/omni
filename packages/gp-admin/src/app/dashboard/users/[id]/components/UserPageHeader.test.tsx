@@ -16,6 +16,12 @@ vi.mock('@clerk/nextjs', () => ({
   ClerkLoaded: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
+const mockUsePathname = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockUsePathname(),
+}))
+
 const mockUser: User = {
   id: 123,
   firstName: 'John',
@@ -42,6 +48,7 @@ describe('UserPageHeader', () => {
       orgId: 'org_123',
       has: mockHas,
     })
+    mockUsePathname.mockReturnValue('/dashboard/users/123')
   })
 
   describe('view mode', () => {
@@ -59,12 +66,45 @@ describe('UserPageHeader', () => {
       expect(screen.getByRole('link', { name: /edit/i })).toBeInTheDocument()
     })
 
-    it('Edit button links to edit page', () => {
+    it('Edit button links to edit page on base route', () => {
       renderWithUser(mockUser)
 
       expect(screen.getByRole('link', { name: /edit/i })).toHaveAttribute(
         'href',
         '/dashboard/users/123/edit'
+      )
+    })
+
+    it('Edit button preserves campaign sub-route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/campaign')
+
+      renderWithUser(mockUser)
+
+      expect(screen.getByRole('link', { name: /edit/i })).toHaveAttribute(
+        'href',
+        '/dashboard/users/123/edit/campaign'
+      )
+    })
+
+    it('Edit button preserves p2v sub-route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/p2v')
+
+      renderWithUser(mockUser)
+
+      expect(screen.getByRole('link', { name: /edit/i })).toHaveAttribute(
+        'href',
+        '/dashboard/users/123/edit/p2v'
+      )
+    })
+
+    it('Edit button preserves elected-office sub-route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/elected-office')
+
+      renderWithUser(mockUser)
+
+      expect(screen.getByRole('link', { name: /edit/i })).toHaveAttribute(
+        'href',
+        '/dashboard/users/123/edit/elected-office'
       )
     })
 
@@ -82,12 +122,16 @@ describe('UserPageHeader', () => {
 
   describe('edit mode', () => {
     it('renders user name with Edit prefix', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
+
       renderWithUser(mockUser, { isEditMode: true })
 
       expect(screen.getByText('Edit: John Doe')).toBeInTheDocument()
     })
 
-    it('shows back arrow in edit mode', () => {
+    it('back arrow links to view page on base edit route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
+
       renderWithUser(mockUser, { isEditMode: true })
 
       const backLink = screen.getByRole('link', {
@@ -96,7 +140,47 @@ describe('UserPageHeader', () => {
       expect(backLink).toHaveAttribute('href', '/dashboard/users/123')
     })
 
+    it('back arrow preserves campaign sub-route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit/campaign')
+
+      renderWithUser(mockUser, { isEditMode: true })
+
+      const backLink = screen.getByRole('link', {
+        name: 'Back to user',
+      })
+      expect(backLink).toHaveAttribute('href', '/dashboard/users/123/campaign')
+    })
+
+    it('back arrow preserves p2v sub-route', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit/p2v')
+
+      renderWithUser(mockUser, { isEditMode: true })
+
+      const backLink = screen.getByRole('link', {
+        name: 'Back to user',
+      })
+      expect(backLink).toHaveAttribute('href', '/dashboard/users/123/p2v')
+    })
+
+    it('back arrow preserves elected-office sub-route', () => {
+      mockUsePathname.mockReturnValue(
+        '/dashboard/users/123/edit/elected-office'
+      )
+
+      renderWithUser(mockUser, { isEditMode: true })
+
+      const backLink = screen.getByRole('link', {
+        name: 'Back to user',
+      })
+      expect(backLink).toHaveAttribute(
+        'href',
+        '/dashboard/users/123/elected-office'
+      )
+    })
+
     it('does not show Edit button in edit mode', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
+
       renderWithUser(mockUser, { isEditMode: true })
 
       expect(

@@ -1,6 +1,7 @@
 import { Metadata } from 'next'
-import { stubbedCampaign } from '@/data/stubbed-campaign'
-import { CampaignSection } from '../components/CampaignSection'
+import { notFound } from 'next/navigation'
+import { listCampaigns } from '@/app/dashboard/campaigns/actions'
+import { CampaignListTable } from './components/CampaignListTable'
 import { ViewLayout } from '../components/ViewLayout'
 
 export const metadata: Metadata = {
@@ -8,10 +9,24 @@ export const metadata: Metadata = {
   description: 'View campaign details',
 }
 
-export default function CampaignPage() {
+interface CampaignPageProps {
+  params: Promise<{ id: string }>
+}
+
+export default async function CampaignPage({ params }: CampaignPageProps) {
+  const { id } = await params
+  const userId = Number(id)
+  if (Number.isNaN(userId)) {
+    notFound()
+  }
+  const { data: campaigns } = await listCampaigns(userId)
+
   return (
     <ViewLayout>
-      <CampaignSection campaign={stubbedCampaign} />
+      <CampaignListTable
+        campaigns={campaigns}
+        basePath={`/dashboard/users/${userId}/campaign`}
+      />
     </ViewLayout>
   )
 }

@@ -1,4 +1,10 @@
-import type { Campaign } from '@/app/dashboard/users/[id]/types/campaign'
+import {
+  OnboardingStep,
+  CampaignLaunchStatus,
+  ElectionLevel,
+  BallotReadyPositionLevel,
+} from '@goodparty_org/sdk'
+import type { Campaign } from '@goodparty_org/sdk'
 
 export const stubbedCampaign: Campaign = {
   id: 1,
@@ -14,6 +20,8 @@ export const stubbedCampaign: Campaign = {
   dateVerified: null,
   tier: null,
   canDownloadFederal: false,
+  completedTaskIds: [],
+  hasFreeTextsOffer: false,
   aiContent: {
     launchEmail: {
       name: 'Launch Email2',
@@ -59,7 +67,7 @@ export const stubbedCampaign: Campaign = {
       completed: true,
     },
     hubspotId: '31012600096',
-    currentStep: 'onboarding-complete',
+    currentStep: OnboardingStep.complete,
     lastVisited: 1769658612427,
     campaignPlan: {
       why: '<div class="px-4 py-2">\n  <h1 class="text-3xl">Why I\'m Running</h1>\n  <p>As the CTO of the Good Party, I\'ve spent my career fighting for innovation and progress.</p>\n</div>',
@@ -69,7 +77,7 @@ export const stubbedCampaign: Campaign = {
     },
     hasVoterFile: 'completed',
     lastStepDate: '2024-04-03',
-    launchStatus: 'launched',
+    launchStatus: CampaignLaunchStatus.launched,
     hubSpotUpdates: {
       p2p_sent: '0',
       date_verified: '1744848000000',
@@ -190,8 +198,8 @@ export const stubbedCampaign: Campaign = {
     dob: '1978-04-24',
     zip: '53212',
     city: 'Los Angeles',
-    tier: 3,
-    level: 'city',
+    tier: '3',
+    level: ElectionLevel.city,
     party: 'Independent',
     phone: '13109759102',
     state: 'NC',
@@ -243,7 +251,7 @@ export const stubbedCampaign: Campaign = {
     occupation: 'former CTO of Good Party.',
     otherParty: '',
     positionId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMzMzMzgy',
-    ballotLevel: 'CITY',
+    ballotLevel: BallotReadyPositionLevel.CITY,
     geoLocation: {
       lat: 34.26968,
       lng: -118.78339,

@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignSection } from './CampaignSection'
-import type { Campaign } from '../types/campaign'
+import {
+  CampaignLaunchStatus,
+  OnboardingStep,
+  BallotReadyPositionLevel,
+  ElectionLevel,
+  CampaignTier,
+} from '@goodparty_org/sdk'
+import type { Campaign } from '@goodparty_org/sdk'
 
 const mockCampaign: Campaign = {
   id: 1,
@@ -17,10 +24,13 @@ const mockCampaign: Campaign = {
   dateVerified: null,
   tier: null,
   canDownloadFederal: false,
+  completedTaskIds: [],
+  hasFreeTextsOffer: false,
+  aiContent: {},
   data: {
     name: 'Tomer Almog',
-    launchStatus: 'launched',
-    currentStep: 'onboarding-complete',
+    launchStatus: CampaignLaunchStatus.launched,
+    currentStep: OnboardingStep.complete,
     lastVisited: 1769658612427,
     lastStepDate: '2024-04-03',
     campaignPlanStatus: {
@@ -44,8 +54,8 @@ const mockCampaign: Campaign = {
     zip: '53212',
     office: 'Other',
     otherOffice: 'Hendersonville City Mayor',
-    ballotLevel: 'CITY',
-    level: 'city',
+    ballotLevel: BallotReadyPositionLevel.CITY,
+    level: ElectionLevel.city,
     officeTermLength: '4 years',
     electionDate: '2026-11-03',
     partisanType: 'nonpartisan',
@@ -287,7 +297,7 @@ describe('CampaignSection', () => {
   it('renders tier when present', () => {
     const campaignWithTier: Campaign = {
       ...mockCampaign,
-      tier: 'WIN',
+      tier: CampaignTier.WIN,
     }
 
     render(<CampaignSection campaign={campaignWithTier} />)
@@ -311,7 +321,7 @@ describe('CampaignSection', () => {
       ...mockCampaign,
       details: {
         ...mockCampaign.details,
-        ballotLevel: 'CITY',
+        ballotLevel: BallotReadyPositionLevel.CITY,
         level: undefined,
       },
     }

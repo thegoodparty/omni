@@ -1,31 +1,31 @@
-'use client'
+import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
+import { listCampaigns } from '@/app/dashboard/campaigns/actions'
+import { CampaignListTable } from '../../campaign/components/CampaignListTable'
 
-import { useRouter } from 'next/navigation'
-import { useToast } from '@/components/Toast'
-import { stubbedCampaign } from '@/data/stubbed-campaign'
-import {
-  CampaignEditForm,
-  type CombinedCampaignFormData,
-} from '../components/CampaignEditForm'
+export const metadata: Metadata = {
+  title: 'Edit Campaign | GP Admin',
+  description: 'Edit campaign details',
+}
 
-export default function EditCampaignPage() {
-  const router = useRouter()
-  const { showToast } = useToast()
+interface EditCampaignPageProps {
+  params: Promise<{ id: string }>
+}
 
-  function handleSave(data: CombinedCampaignFormData) {
-    console.log('[PATCH /campaigns/:id] Saving:', data)
-    showToast('Changes saved (simulated)')
+export default async function EditCampaignPage({
+  params,
+}: EditCampaignPageProps) {
+  const { id } = await params
+  const userId = Number(id)
+  if (Number.isNaN(userId)) {
+    notFound()
   }
-
-  function handleCancel() {
-    router.push(`/dashboard/users/${stubbedCampaign.userId}/campaign`)
-  }
+  const { data: campaigns } = await listCampaigns(userId)
 
   return (
-    <CampaignEditForm
-      initialData={stubbedCampaign}
-      onSave={handleSave}
-      onCancel={handleCancel}
+    <CampaignListTable
+      campaigns={campaigns}
+      basePath={`/dashboard/users/${userId}/edit/campaign`}
     />
   )
 }
