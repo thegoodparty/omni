@@ -7,20 +7,21 @@ import type {
 import { BaseResource } from './BaseResource'
 
 export class PathsToVictoryResource extends BaseResource {
+  protected resourceBasePath = '/path-to-victory'
   list = (
     options?: ListPathsToVictoryOptions,
   ): Promise<PaginatedList<PathToVictory>> =>
     this.getRequest<PaginatedList<PathToVictory>>(
-      '/path-to-victory/list',
+      `${this.resourceBasePath}/list`,
       options,
     )
 
   get = (id: number): Promise<PathToVictory> =>
-    this.getRequest<PathToVictory>(`/path-to-victory/${id}`)
+    this.getRequest<PathToVictory>(`${this.resourceBasePath}/${id}`)
 
   update = (
     id: number,
     input: UpdatePathToVictoryInput,
   ): Promise<PathToVictory> =>
-    this.putRequest<PathToVictory>(`/path-to-victory/${id}`, input)
+    this.putRequest<PathToVictory>(`${this.resourceBasePath}/${id}`, input)
 }
