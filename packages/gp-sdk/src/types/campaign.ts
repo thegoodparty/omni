@@ -91,14 +91,6 @@ export type AiContentData = {
   inputValues?: AiContentInputValues
 }
 
-export type TopIssuePosition = {
-  id: number
-  name: string
-  topIssue: { id: number; name: string; createdAt: number; updatedAt: number }
-  createdAt: number
-  updatedAt: number
-}
-
 export type GeoLocation = { geoHash?: string; lng?: number; lat?: number }
 
 export type CustomIssue = { title: string; position: string }
@@ -106,29 +98,6 @@ export type CustomIssue = { title: string; position: string }
 export type Opponent = { name: string; party: string; description: string }
 
 export type HubSpotUpdates = Partial<Record<string, string>>
-
-export type CampaignFinance = {
-  ein?: boolean
-  filing?: boolean
-  management?: boolean
-  regulatory?: boolean
-}
-
-export type CampaignPlan = {
-  why?: string
-  slogan?: string
-  aboutMe?: string
-  messageBox?: string
-  mobilizing?: string
-  pathToVictory?: string
-  policyPlatform?: string
-  communicationsStrategy?: string
-}
-
-export type CampaignPlanStatus = {
-  status: string
-  createdAt: number
-}
 
 export type CampaignDetails = {
   state?: string
@@ -174,25 +143,9 @@ export type CampaignDetails = {
   electionId?: string | null
   tier?: string
   einNumber?: string | null
+  einSupportingDocument?: string | null
   wonGeneral?: boolean
-  dob?: string
-  phone?: string
-  firstName?: string
-  lastName?: string
-  citizen?: string
-  runBefore?: string
-  filedStatement?: string
-  campaignPhone?: string
-  campaignWebsite?: string
-  officeRunBefore?: string
-  articles?: string
-  hasPrimary?: boolean
-  noCommittee?: boolean
-  topIssues?: {
-    positions: TopIssuePosition[]
-    [key: string]: string | TopIssuePosition[]
-  }
-} | null
+}
 
 export type CampaignData = {
   createdBy?: CampaignCreatedBy
@@ -209,18 +162,7 @@ export type CampaignData = {
   adminUserEmail?: string
   hubspotId?: string
   name?: string
-  id?: number
-  team?: { completed: boolean }
-  image?: string
-  launch?: Record<string, boolean>
-  social?: { completed: boolean }
-  finance?: CampaignFinance
-  profile?: { completed: boolean }
-  campaignPlan?: CampaignPlan
-  hasVoterFile?: string
-  campaignPlanStatus?: Record<string, CampaignPlanStatus>
-  path_to_victory_status?: string
-} | null
+}
 
 export type CampaignAiContent = {
   generationStatus?: Record<string, AiContentGenerationStatus>
