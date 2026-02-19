@@ -337,7 +337,6 @@ export function CampaignForm({
   return (
     <>
       <Flex direction="column" gap="6">
-        {/* Status Flags */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.STATUS}>
           <Flex direction="column" gap="4">
             {STATUS_FLAGS.map(({ key, label }) => (
@@ -357,7 +356,6 @@ export function CampaignForm({
           </Flex>
         </InfoCard>
 
-        {/* Tier */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.TIER}>
           <Flex direction="column" gap="1">
             <Text as="label" size="2" weight="medium">
@@ -380,7 +378,6 @@ export function CampaignForm({
           </Flex>
         </InfoCard>
 
-        {/* Campaign Data */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.DATA}>
           <Flex direction="column" gap="4">
             {renderFields([
@@ -420,12 +417,10 @@ export function CampaignForm({
           </Flex>
         </InfoCard>
 
-        {/* Location */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.LOCATION}>
           {renderFields(LOCATION_FIELDS)}
         </InfoCard>
 
-        {/* Office */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.OFFICE}>
           <Flex direction="column" gap="4">
             {renderFields(OFFICE_TEXT_FIELDS)}
@@ -483,22 +478,18 @@ export function CampaignForm({
           </Flex>
         </InfoCard>
 
-        {/* Election */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.ELECTION}>
           {renderFields(ELECTION_FIELDS)}
         </InfoCard>
 
-        {/* Filing Period */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.FILING_PERIOD}>
           {renderFields(FILING_PERIOD_FIELDS)}
         </InfoCard>
 
-        {/* Party */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.PARTY}>
           {renderFields(PARTY_FIELDS)}
         </InfoCard>
 
-        {/* Background */}
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.BACKGROUND}>
           <Flex direction="column" gap="4">
             {renderFields(BACKGROUND_TEXT_FIELDS)}
