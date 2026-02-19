@@ -1,5 +1,13 @@
 # @goodparty_org/sdk
 
+## 1.7.0
+
+### Minor Changes
+
+- [#30](https://github.com/thegoodparty/gp-sdk/pull/30) [`7e5b3e4`](https://github.com/thegoodparty/gp-sdk/commit/7e5b3e4b04b2514c770b817b4c1a46c40dd556a2) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add `campaigns.get(id)` method to fetch a single campaign by ID
+
+- [#32](https://github.com/thegoodparty/gp-sdk/pull/32) [`3723793`](https://github.com/thegoodparty/gp-sdk/commit/3723793b378c70755b49256fd158d09797d5c992) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add abstract `resourceBasePath` to `BaseResource` to enforce path definition on extending classes, replacing hardcoded path strings in `CampaignsResource` and `UsersResource`
+
 ## 1.6.0
 
 ### Minor Changes
