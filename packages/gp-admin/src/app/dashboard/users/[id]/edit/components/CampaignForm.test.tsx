@@ -11,6 +11,7 @@ import {
   ElectionLevel,
   CampaignTier,
 } from '@goodparty_org/sdk'
+import type { CombinedCampaignFormData } from '../schema'
 
 vi.mock('next-navigation-guard', () => ({
   useNavigationGuard: vi.fn(),
@@ -74,12 +75,14 @@ const mockCampaign: Campaign = {
 }
 
 describe('CampaignForm', () => {
-  let onSave: ReturnType<typeof vi.fn>
-  let onCancel: ReturnType<typeof vi.fn>
+  let onSave: ReturnType<
+    typeof vi.fn<(data: CombinedCampaignFormData) => void | Promise<void>>
+  >
+  let onCancel: ReturnType<typeof vi.fn<() => void>>
 
   beforeEach(() => {
-    onSave = vi.fn()
-    onCancel = vi.fn()
+    onSave = vi.fn<(data: CombinedCampaignFormData) => void | Promise<void>>()
+    onCancel = vi.fn<() => void>()
   })
 
   function renderForm(
@@ -220,7 +223,7 @@ describe('CampaignForm', () => {
 
       expect(onSave).toHaveBeenCalledOnce()
       const savedData = onSave.mock.calls[0][0]
-      expect(savedData.data.name).toBe('Updated Campaign')
+      expect(savedData.data?.name).toBe('Updated Campaign')
     })
 
     it('resets dirty state after successful save', async () => {
