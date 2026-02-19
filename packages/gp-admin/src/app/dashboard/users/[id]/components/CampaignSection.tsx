@@ -116,12 +116,6 @@ const OFFICE_FIELDS: FieldConfig[] = [
 const ELECTION_FIELDS: FieldConfig[] = [
   { key: 'details.electionDate', label: 'Election Date', type: 'text' },
   { key: 'details.partisanType', label: 'Partisan Type', type: 'text' },
-  {
-    key: 'details.hasPrimary',
-    label: 'Has Primary',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
 ]
 
 const FILING_PERIOD_FIELDS: FieldConfig[] = [

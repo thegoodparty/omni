@@ -270,7 +270,8 @@ export function CampaignForm({
 
   function getError(key: FieldPath) {
     if (key === 'details.website') return errors.details?.website
-    return errors.data?.adminUserEmail
+    if (key === 'data.adminUserEmail') return errors.data?.adminUserEmail
+    return undefined
   }
 
   function renderFields(fields: FieldConfig[]) {
