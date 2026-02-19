@@ -1,9 +1,7 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { Text } from '@radix-ui/themes'
 import { listCampaigns } from '@/app/dashboard/campaigns/actions'
-import { CampaignList } from '../components/CampaignList'
-import { CampaignSection } from '../components/CampaignSection'
+import { CampaignListTable } from './components/CampaignListTable'
 import { ViewLayout } from '../components/ViewLayout'
 
 export const metadata: Metadata = {
@@ -23,19 +21,11 @@ export default async function CampaignPage({ params }: CampaignPageProps) {
   }
   const { data: campaigns } = await listCampaigns(userId)
 
-  if (campaigns.length === 0) {
-    return (
-      <ViewLayout>
-        <Text>No campaign found for this user.</Text>
-      </ViewLayout>
-    )
-  }
-
   return (
     <ViewLayout>
-      <CampaignList
+      <CampaignListTable
         campaigns={campaigns}
-        renderItem={(campaign) => <CampaignSection campaign={campaign} />}
+        basePath={`/dashboard/users/${userId}/campaign`}
       />
     </ViewLayout>
   )

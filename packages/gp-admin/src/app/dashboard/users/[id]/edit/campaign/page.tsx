@@ -1,9 +1,7 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { Text } from '@radix-ui/themes'
 import { listCampaigns } from '@/app/dashboard/campaigns/actions'
-import { CampaignList } from '../../components/CampaignList'
-import { EditCampaignClient } from './EditCampaignClient'
+import { CampaignListTable } from '../../campaign/components/CampaignListTable'
 
 export const metadata: Metadata = {
   title: 'Edit Campaign | GP Admin',
@@ -24,14 +22,10 @@ export default async function EditCampaignPage({
   }
   const { data: campaigns } = await listCampaigns(userId)
 
-  if (campaigns.length === 0) {
-    return <Text>No campaign found for this user.</Text>
-  }
-
   return (
-    <CampaignList
+    <CampaignListTable
       campaigns={campaigns}
-      renderItem={(campaign) => <EditCampaignClient campaign={campaign} />}
+      basePath={`/dashboard/users/${userId}/edit/campaign`}
     />
   )
 }

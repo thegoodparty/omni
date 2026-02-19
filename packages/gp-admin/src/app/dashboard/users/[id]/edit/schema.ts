@@ -1,10 +1,4 @@
 import { z } from 'zod'
-import type {
-  UseFormRegister,
-  UseFormWatch,
-  UseFormSetValue,
-  FieldErrors,
-} from 'react-hook-form'
 import {
   UserRole,
   CampaignTier,
@@ -158,10 +152,3 @@ export const combinedCampaignSchema = z.object({
 })
 
 export type CombinedCampaignFormData = z.infer<typeof combinedCampaignSchema>
-
-export interface CampaignFormFieldsProps {
-  register: UseFormRegister<CombinedCampaignFormData>
-  watch: UseFormWatch<CombinedCampaignFormData>
-  setValue: UseFormSetValue<CombinedCampaignFormData>
-  errors: FieldErrors<CombinedCampaignFormData>
-}

@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import { updateCampaign } from '@/app/dashboard/campaigns/actions'
-import { CampaignEditForm } from '../components/CampaignEditForm'
-import type { CombinedCampaignFormData } from '../schema'
+import { CampaignForm } from '../../components/CampaignForm'
+import type { CombinedCampaignFormData } from '../../schema'
 import type { Campaign } from '@goodparty_org/sdk'
 
 interface EditCampaignClientProps {
@@ -39,7 +39,7 @@ export function EditCampaignClient({ campaign }: EditCampaignClientProps) {
   }
 
   return (
-    <CampaignEditForm
+    <CampaignForm
       initialData={campaign}
       onSave={handleSave}
       onCancel={handleCancel}
