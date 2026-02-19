@@ -42,6 +42,8 @@ await client.users.updatePassword(1, {
 
 await client.users.delete(1)
 
+const campaign = await client.campaigns.get(1)
+
 const campaigns = await client.campaigns.list({ offset: 0, limit: 20 })
 
 const byUser = await client.campaigns.list({
