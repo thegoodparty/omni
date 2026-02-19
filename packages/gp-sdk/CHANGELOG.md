@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.5.1
+
+### Patch Changes
+
+- [#28](https://github.com/thegoodparty/gp-sdk/pull/28) [`ae92ecb`](https://github.com/thegoodparty/gp-sdk/commit/ae92ecb2e6ee6d7e4283e415471ee8f8fa8f8d92) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Remove incorrect fields from CampaignDetails and CampaignData that were not in the API schema, add missing einSupportingDocument field, and remove unused helper types (TopIssuePosition, CampaignFinance, CampaignPlan, CampaignPlanStatus) to align SDK types with campaign.jsonTypes.d.ts
+
 ## 1.5.0
 
 ### Minor Changes
