@@ -4,6 +4,7 @@ import { SdkError } from '@goodparty_org/sdk'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignSection } from '../../components/CampaignSection'
 import { ViewLayout } from '../../components/ViewLayout'
+import { status } from '@poppanator/http-constants'
 
 export const metadata: Metadata = {
   title: 'Campaign Detail | GP Admin',
@@ -28,7 +29,7 @@ export default async function CampaignDetailPage({
   try {
     campaign = await getCampaign(campaignIdNum)
   } catch (error) {
-    if (error instanceof SdkError && error.status === 404) {
+    if (error instanceof SdkError && error.status === status.NotFound) {
       notFound()
     }
     throw error

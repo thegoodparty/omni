@@ -24,6 +24,7 @@
     "@clerk/types": "^4.101.11",
     "@goodparty_org/sdk": "^1.7.0",
     "@hookform/resolvers": "^5.2.2",
+    "@poppanator/http-constants": "^3.0.0",
     "@radix-ui/react-navigation-menu": "^1.2.14",
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/themes": "^3.2.1",
