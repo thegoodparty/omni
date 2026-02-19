@@ -27,12 +27,6 @@ export const P2V_STATUS = [
 
 export type P2VStatus = (typeof P2V_STATUS)[number]
 
-export const CAMPAIGN_PLAN_STATUS = {
-  COMPLETED: 'completed',
-  FAILED: 'failed',
-  PENDING: 'pending',
-} as const
-
 export const P2V_STATUS_VALUES = {
   WAITING: 'Waiting',
   PROCESSING: 'Processing',
