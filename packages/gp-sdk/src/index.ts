@@ -46,3 +46,13 @@ export {
   OnboardingStep,
   GenerationStatus,
 } from './types/campaign'
+
+export type {
+  PathToVictory,
+  PathToVictoryData,
+  ViabilityScore,
+  ListPathsToVictoryOptions,
+  UpdatePathToVictoryInput,
+} from './types/pathToVictory'
+
+export { P2VStatus, P2VSource } from './types/pathToVictory'
