@@ -7,6 +7,9 @@ import type {
 import { BaseResource } from './BaseResource'
 
 export class CampaignsResource extends BaseResource {
+  get = (id: number): Promise<Campaign> =>
+    this.getRequest<Campaign>(`/campaigns/${id}`)
+
   list = (options?: ListCampaignsOptions): Promise<PaginatedList<Campaign>> =>
     this.getRequest<PaginatedList<Campaign>>('/campaigns/list', options)
 
