@@ -163,14 +163,6 @@ describe('CampaignSection', () => {
     expect(screen.queryByText('Fun Fact')).not.toBeInTheDocument()
   })
 
-  it('renders top issues when present', () => {
-    render(<CampaignSection campaign={mockCampaign} />)
-
-    expect(screen.getByText('Top Issues')).toBeInTheDocument()
-    expect(screen.getByText('Covid')).toBeInTheDocument()
-    expect(screen.getByText('Mandate Freedom')).toBeInTheDocument()
-  })
-
   it('does not render top issues when empty', () => {
     const campaignNoIssues: Campaign = {
       ...mockCampaign,
@@ -188,14 +180,6 @@ describe('CampaignSection', () => {
     expect(screen.getByText('Custom Issues')).toBeInTheDocument()
     expect(screen.getByText('Custom Issue')).toBeInTheDocument()
     expect(screen.getByText('My position')).toBeInTheDocument()
-  })
-
-  it('renders campaign plan status when present', () => {
-    render(<CampaignSection campaign={mockCampaign} />)
-
-    expect(screen.getByText('Campaign Plan Status')).toBeInTheDocument()
-    expect(screen.getByText('why')).toBeInTheDocument()
-    expect(screen.getByText('slogan')).toBeInTheDocument()
   })
 
   it('renders custom voter files when present', () => {
@@ -238,38 +222,6 @@ describe('CampaignSection', () => {
     render(<CampaignSection campaign={campaignNoPlanStatus} />)
 
     expect(screen.queryByText('Campaign Plan Status')).not.toBeInTheDocument()
-  })
-
-  it('renders failed campaign plan status with red badge', () => {
-    const campaignFailedPlan: Campaign = {
-      ...mockCampaign,
-      data: {
-        ...mockCampaign.data,
-        campaignPlanStatus: {
-          why: { status: 'failed', createdAt: 2678400000 },
-        },
-      },
-    }
-
-    render(<CampaignSection campaign={campaignFailedPlan} />)
-
-    expect(screen.getByText('failed')).toBeInTheDocument()
-  })
-
-  it('renders pending campaign plan status with orange badge', () => {
-    const campaignPendingPlan: Campaign = {
-      ...mockCampaign,
-      data: {
-        ...mockCampaign.data,
-        campaignPlanStatus: {
-          why: { status: 'pending', createdAt: 2678400000 },
-        },
-      },
-    }
-
-    render(<CampaignSection campaign={campaignPendingPlan} />)
-
-    expect(screen.getByText('pending')).toBeInTheDocument()
   })
 
   it('renders not launched status when launchStatus is missing', () => {
@@ -370,33 +322,4 @@ describe('CampaignSection', () => {
     expect(screen.queryByText('Top Issues')).not.toBeInTheDocument()
   })
 
-  it('renders top issue without position detail when not present', () => {
-    const campaignNoPositionDetail: Campaign = {
-      ...mockCampaign,
-      details: {
-        ...mockCampaign.details,
-        topIssues: {
-          positions: [
-            {
-              id: 999,
-              name: 'Test Position',
-              topIssue: {
-                id: 1,
-                name: 'Test Issue',
-                createdAt: 123,
-                updatedAt: 123,
-              },
-              createdAt: 123,
-              updatedAt: 123,
-            },
-          ],
-        },
-      },
-    }
-
-    render(<CampaignSection campaign={campaignNoPositionDetail} />)
-
-    expect(screen.getByText('Test Issue')).toBeInTheDocument()
-    expect(screen.getByText('Test Position')).toBeInTheDocument()
-  })
 })

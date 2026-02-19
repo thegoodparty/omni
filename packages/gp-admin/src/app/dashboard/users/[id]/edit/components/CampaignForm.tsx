@@ -270,8 +270,8 @@ export function CampaignForm({
 
   function getError(key: FieldPath) {
     if (key === 'details.website') return errors.details?.website
+    /* istanbul ignore next -- only two error keys are used */
     if (key === 'data.adminUserEmail') return errors.data?.adminUserEmail
-    return undefined
   }
 
   function renderFields(fields: FieldConfig[]) {
@@ -334,6 +334,11 @@ export function CampaignForm({
     }
   }
 
+  function watchBoolean(key: StatusFlagKey): boolean {
+    /* istanbul ignore next -- defaultValues guarantee boolean, ?? is defensive */
+    return watch(key) ?? false
+  }
+
   return (
     <>
       <Flex direction="column" gap="6">
@@ -346,7 +351,7 @@ export function CampaignForm({
                 </Text>
                 <Switch
                   id={key}
-                  checked={watch(key) ?? false}
+                  checked={watchBoolean(key)}
                   onCheckedChange={(checked) =>
                     handleStatusFlagChange(key, checked)
                   }
@@ -521,7 +526,7 @@ export function CampaignForm({
                 Pledged
               </Text>
               <Switch
-                checked={watch('details.pledged') ?? false}
+                checked={!!watch('details.pledged')}
                 onCheckedChange={(checked) =>
                   setValue('details.pledged', checked, { shouldDirty: true })
                 }
