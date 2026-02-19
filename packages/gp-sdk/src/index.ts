@@ -31,14 +31,10 @@ export type {
   AiContentData,
   ListCampaignsOptions,
   UpdateCampaignInput,
-  TopIssuePosition,
   GeoLocation,
   CustomIssue,
   Opponent,
   HubSpotUpdates,
-  CampaignFinance,
-  CampaignPlan,
-  CampaignPlanStatus,
 } from './types/campaign'
 
 export {
