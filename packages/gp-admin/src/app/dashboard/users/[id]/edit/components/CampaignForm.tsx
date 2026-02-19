@@ -346,7 +346,7 @@ export function CampaignForm({
                 </Text>
                 <Switch
                   id={key}
-                  checked={!!watch(key)}
+                  checked={watch(key) ?? false}
                   onCheckedChange={(checked) =>
                     handleStatusFlagChange(key, checked)
                   }
@@ -365,7 +365,7 @@ export function CampaignForm({
               value={watch('tier') ?? SELECT_NONE_VALUE}
               onValueChange={handleTierChange}
             >
-              <Select.Trigger placeholder="Select tier..." />
+              <Select.Trigger aria-label="Tier" placeholder="Select tier..." />
               <Select.Content>
                 <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                 {Object.values(CampaignTier).map((t) => (
@@ -403,7 +403,10 @@ export function CampaignForm({
                 value={watch('data.launchStatus') ?? SELECT_NONE_VALUE}
                 onValueChange={handleLaunchStatusChange}
               >
-                <Select.Trigger placeholder="Select status..." />
+                <Select.Trigger
+                  aria-label="Launch Status"
+                  placeholder="Select status..."
+                />
                 <Select.Content>
                   <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                   {Object.values(CampaignLaunchStatus).map((status) => (
@@ -439,7 +442,10 @@ export function CampaignForm({
                   value={watch('details.ballotLevel') ?? SELECT_NONE_VALUE}
                   onValueChange={handleBallotLevelChange}
                 >
-                  <Select.Trigger placeholder="Select level..." />
+                  <Select.Trigger
+                    aria-label="Ballot Level"
+                    placeholder="Select level..."
+                  />
                   <Select.Content>
                     <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                     {Object.values(BallotReadyPositionLevel).map((level) => (
@@ -463,7 +469,10 @@ export function CampaignForm({
                   value={watch('details.level') ?? SELECT_NONE_VALUE}
                   onValueChange={handleElectionLevelChange}
                 >
-                  <Select.Trigger placeholder="Select level..." />
+                  <Select.Trigger
+                    aria-label="Election Level"
+                    placeholder="Select level..."
+                  />
                   <Select.Content>
                     <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                     {Object.values(ElectionLevel).map((level) => (
@@ -521,7 +530,7 @@ export function CampaignForm({
                 Pledged
               </Text>
               <Switch
-                checked={!!watch('details.pledged')}
+                checked={watch('details.pledged') ?? false}
                 onCheckedChange={(checked) =>
                   setValue('details.pledged', checked, { shouldDirty: true })
                 }

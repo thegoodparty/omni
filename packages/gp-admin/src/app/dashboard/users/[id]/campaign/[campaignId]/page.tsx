@@ -1,6 +1,6 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError, type Campaign } from '@goodparty_org/sdk'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignSection } from '../../components/CampaignSection'
 import { ViewLayout } from '../../components/ViewLayout'
@@ -25,7 +25,7 @@ export default async function CampaignDetailPage({
     notFound()
   }
 
-  let campaign
+  let campaign: Campaign
   try {
     campaign = await getCampaign(campaignIdNum)
   } catch (error) {

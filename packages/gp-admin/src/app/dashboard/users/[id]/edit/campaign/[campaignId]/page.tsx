@@ -1,6 +1,6 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError, type Campaign } from '@goodparty_org/sdk'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { EditCampaignClient } from './EditCampaignClient'
 import { status } from '@poppanator/http-constants'
@@ -24,7 +24,7 @@ export default async function EditCampaignDetailPage({
     notFound()
   }
 
-  let campaign
+  let campaign: Campaign
   try {
     campaign = await getCampaign(campaignIdNum)
   } catch (error) {

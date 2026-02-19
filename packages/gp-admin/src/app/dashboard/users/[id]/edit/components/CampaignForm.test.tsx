@@ -318,8 +318,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(screen.getByRole('combobox', { name: 'Tier' }))
       const option = await screen.findByRole('option', { name: 'LOSE' })
       await user.click(option)
 
@@ -334,8 +333,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(screen.getByRole('combobox', { name: 'Tier' }))
       const noneOption = await screen.findByRole('option', { name: 'None' })
       await user.click(noneOption)
 
@@ -350,8 +348,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[1])
+      await user.click(screen.getByRole('combobox', { name: 'Launch Status' }))
       const noneOption = await screen.findByRole('option', { name: 'None' })
       await user.click(noneOption)
 
@@ -366,8 +363,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[2])
+      await user.click(screen.getByRole('combobox', { name: 'Ballot Level' }))
       const option = await screen.findByRole('option', { name: 'FEDERAL' })
       await user.click(option)
 
@@ -382,8 +378,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[3])
+      await user.click(screen.getByRole('combobox', { name: 'Election Level' }))
       const option = await screen.findByRole('option', { name: 'Federal' })
       await user.click(option)
 
@@ -400,8 +395,7 @@ describe('CampaignForm', () => {
       })
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[1])
+      await user.click(screen.getByRole('combobox', { name: 'Launch Status' }))
       const option = await screen.findByRole('option', { name: 'Launched' })
       await user.click(option)
 
@@ -416,8 +410,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[2])
+      await user.click(screen.getByRole('combobox', { name: 'Ballot Level' }))
       const option = await screen.findByRole('option', { name: 'None' })
       await user.click(option)
 
@@ -432,8 +425,7 @@ describe('CampaignForm', () => {
       renderForm()
       const user = userEvent.setup()
 
-      const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[3])
+      await user.click(screen.getByRole('combobox', { name: 'Election Level' }))
       const option = await screen.findByRole('option', { name: 'None' })
       await user.click(option)
 
@@ -506,10 +498,10 @@ describe('CampaignForm', () => {
         ).toBeEnabled()
       })
 
-      vi.spyOn(combinedCampaignSchema, 'safeParse').mockReturnValueOnce({
-        success: false,
-        error: new Error('validation failed'),
-      } as never)
+      const failedResult = combinedCampaignSchema.safeParse(null)
+      vi.spyOn(combinedCampaignSchema, 'safeParse').mockReturnValueOnce(
+        failedResult
+      )
 
       await user.click(screen.getByRole('button', { name: /save changes/i }))
 
