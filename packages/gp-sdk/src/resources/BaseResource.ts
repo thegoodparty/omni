@@ -3,6 +3,7 @@ import type { HttpClient, OfetchRequestBody } from '../http/HttpClient'
 
 export abstract class BaseResource {
   protected httpClient: HttpClient
+  protected abstract readonly resourceBasePath: string
 
   constructor(httpClient: HttpClient) {
     this.httpClient = httpClient
