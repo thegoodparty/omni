@@ -1,6 +1,6 @@
 'use client'
 
-import { Grid, Text, Badge, Flex, Box, Table } from '@radix-ui/themes'
+import { Grid, Text, Badge, Flex, Box } from '@radix-ui/themes'
 import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
@@ -10,7 +10,6 @@ import type {
   CampaignDetails,
 } from '@goodparty_org/sdk'
 import type { FieldConfig } from '../types/field-config'
-import { CAMPAIGN_PLAN_STATUS } from '../constants'
 
 interface CampaignSectionProps {
   campaign: Campaign
@@ -117,12 +116,6 @@ const OFFICE_FIELDS: FieldConfig[] = [
 const ELECTION_FIELDS: FieldConfig[] = [
   { key: 'details.electionDate', label: 'Election Date', type: 'text' },
   { key: 'details.partisanType', label: 'Partisan Type', type: 'text' },
-  {
-    key: 'details.hasPrimary',
-    label: 'Has Primary',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
 ]
 
 const FILING_PERIOD_FIELDS: FieldConfig[] = [
@@ -196,35 +189,6 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
         )}
       </Grid>
 
-      {details.topIssues?.positions &&
-        details.topIssues.positions.length > 0 && (
-          <InfoCard title="Top Issues">
-            <Flex direction="column" gap="4">
-              {details.topIssues.positions.map((position) => (
-                <Box
-                  key={position.id}
-                  p="3"
-                  className="bg-[var(--gray-2)] rounded-md"
-                >
-                  <Flex direction="column" gap="1">
-                    <Flex gap="2" align="center">
-                      <Badge color="blue">{position.topIssue.name}</Badge>
-                      <Text size="2" weight="medium">
-                        {position.name}
-                      </Text>
-                    </Flex>
-                    {details.topIssues?.[`position-${position.id}`] && (
-                      <Text size="2" color="gray">
-                        {String(details.topIssues[`position-${position.id}`])}
-                      </Text>
-                    )}
-                  </Flex>
-                </Box>
-              ))}
-            </Flex>
-          </InfoCard>
-        )}
-
       {details.customIssues && details.customIssues.length > 0 && (
         <InfoCard title="Custom Issues">
           <Flex direction="column" gap="3">
@@ -233,50 +197,12 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
                 <Text size="2" weight="medium">
                   {issue.title}
                 </Text>
-                <Text size="2" color="gray">
+                <Text size="2" color="gray" ml="2">
                   {issue.position}
                 </Text>
               </Box>
             ))}
           </Flex>
-        </InfoCard>
-      )}
-
-      {data.campaignPlanStatus && (
-        <InfoCard title="Campaign Plan Status">
-          <Table.Root>
-            <Table.Header>
-              <Table.Row>
-                <Table.ColumnHeaderCell>Plan Item</Table.ColumnHeaderCell>
-                <Table.ColumnHeaderCell>Status</Table.ColumnHeaderCell>
-              </Table.Row>
-            </Table.Header>
-            <Table.Body>
-              {Object.entries(data.campaignPlanStatus).map(([key, value]) => (
-                <Table.Row key={key}>
-                  <Table.Cell>
-                    <Text size="2" style={{ textTransform: 'capitalize' }}>
-                      {key.replace(/([A-Z])/g, ' $1').trim()}
-                    </Text>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <Badge
-                      color={
-                        value.status === CAMPAIGN_PLAN_STATUS.COMPLETED
-                          ? 'green'
-                          : value.status === CAMPAIGN_PLAN_STATUS.FAILED
-                            ? 'red'
-                            : 'orange'
-                      }
-                      variant="soft"
-                    >
-                      {value.status}
-                    </Badge>
-                  </Table.Cell>
-                </Table.Row>
-              ))}
-            </Table.Body>
-          </Table.Root>
         </InfoCard>
       )}
 

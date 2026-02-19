@@ -42,40 +42,11 @@ export const stubbedCampaign: Campaign = {
     },
   },
   data: {
-    id: 1,
     name: 'Tomer Almog',
     slug: 'tomer-almog',
-    team: {
-      completed: true,
-    },
-    image: 'https://assets.goodparty.org/candidate-info/g1t9c6ezgl.png',
-    launch: {
-      'media-0': true,
-      'website-0': true,
-      'website-1': true,
-    },
-    social: {
-      completed: true,
-    },
-    finance: {
-      ein: true,
-      filing: true,
-      management: true,
-      regulatory: true,
-    },
-    profile: {
-      completed: true,
-    },
     hubspotId: '31012600096',
     currentStep: OnboardingStep.complete,
     lastVisited: 1769658612427,
-    campaignPlan: {
-      why: '<div class="px-4 py-2">\n  <h1 class="text-3xl">Why I\'m Running</h1>\n  <p>As the CTO of the Good Party, I\'ve spent my career fighting for innovation and progress.</p>\n</div>',
-      slogan:
-        "<p>Join the Good Fight with Tomer Almog for Senate - We're Independent and Unstoppable!</p>",
-      aboutMe: '<div class="text-2xl font-bold mb-4">About Me</div>',
-    },
-    hasVoterFile: 'completed',
     lastStepDate: '2024-04-03',
     launchStatus: CampaignLaunchStatus.launched,
     hubSpotUpdates: {
@@ -118,68 +89,6 @@ export const stubbedCampaign: Campaign = {
       },
     ],
     textCampaignCount: 2,
-    campaignPlanStatus: {
-      why: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      slogan: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      aboutMe: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      timeline: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      messageBox: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      mobilizing: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      launchEmail: {
-        status: 'completed',
-        createdAt: 1697481224619,
-      },
-      pressRelease: {
-        status: 'completed',
-        createdAt: 1696954532654,
-      },
-      getOutTheVote: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      pathToVictory: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      policyPlatform: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      doorKnockScript: {
-        status: 'failed',
-        createdAt: 1697481241410,
-      },
-      operationalPlan: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-      launchSocialMediaCopy: {
-        status: 'completed',
-        createdAt: 1697481192591,
-      },
-      communicationsStrategy: {
-        status: 'completed',
-        createdAt: 2678400000,
-      },
-    },
     reportedVoterGoals: {
       text: 2028,
       calls: 148,
@@ -192,62 +101,23 @@ export const stubbedCampaign: Campaign = {
       doorKnocking: 1293,
       phoneBanking: 700,
     },
-    path_to_victory_status: 'Complete',
   },
   details: {
-    dob: '1978-04-24',
     zip: '53212',
     city: 'Los Angeles',
     tier: '3',
     level: ElectionLevel.city,
     party: 'Independent',
-    phone: '13109759102',
     state: 'NC',
     county: 'Los Angeles',
     office: 'Other',
     raceId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNzcxNjc4',
-    citizen: 'yes',
     funFact:
       "I love playing the guitar and writing songs in my free time. I've even performed at a few local open mic nights!",
     knowRun: 'yes',
     pledged: true,
     website: 'https://tomeralmog.com',
-    articles: '',
-    lastName: 'Almog',
-    firstName: 'Tomer',
-    runBefore: 'no',
-    topIssues: {
-      positions: [
-        {
-          id: 157,
-          name: 'Mandate Freedom',
-          topIssue: {
-            id: 25,
-            name: 'Covid',
-            createdAt: 1649219354821,
-            updatedAt: 1649219354821,
-          },
-          createdAt: 1649226095142,
-          updatedAt: 1649226095142,
-        },
-        {
-          id: 351,
-          name: 'Defending the rights of individuals and groups to peacefully assemble and protest within the boundaries of the law',
-          topIssue: {
-            id: 70,
-            name: ' Free Speech',
-            createdAt: 1684863812527,
-            updatedAt: 1684863812527,
-          },
-          createdAt: 1684863859149,
-          updatedAt: 1684863859149,
-        },
-      ],
-      'position-157': 'Free choice. Investigate the vaccination greed',
-      'position-351': 'dsds',
-    },
     electionId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvRWxlY3Rpb24vNTk5NA==',
-    hasPrimary: true,
     occupation: 'former CTO of Good Party.',
     otherParty: '',
     positionId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMzMzMzgy',
@@ -257,7 +127,6 @@ export const stubbedCampaign: Campaign = {
       lng: -118.78339,
       geoHash: '9q5dcn8e',
     },
-    noCommittee: false,
     otherOffice: 'Hendersonville City Mayor',
     customIssues: [
       {
@@ -268,8 +137,6 @@ export const stubbedCampaign: Campaign = {
     electionDate: '2026-11-03',
     partisanType: 'nonpartisan',
     runForOffice: 'no',
-    campaignPhone: '2076894316',
-    filedStatement: 'no',
     pastExperience: 'dfdf',
     runningAgainst: [
       {
@@ -278,8 +145,6 @@ export const stubbedCampaign: Campaign = {
         description: 'Mike turner is a corrupt politician',
       },
     ],
-    campaignWebsite: '',
-    officeRunBefore: '',
     filingPeriodsEnd: '2026-07-17',
     officeTermLength: '4 years',
     campaignCommittee: '',

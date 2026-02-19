@@ -11,7 +11,12 @@ import {
   ElectionLevel,
   CampaignTier,
 } from '@goodparty_org/sdk'
-import type { CombinedCampaignFormData } from '../schema'
+import {
+  combinedCampaignSchema,
+  type CombinedCampaignFormData,
+} from '../schema'
+import { UNSAVED_CHANGES_MESSAGE } from '../constants'
+import { useNavigationGuard } from 'next-navigation-guard'
 
 vi.mock('next-navigation-guard', () => ({
   useNavigationGuard: vi.fn(),
@@ -24,6 +29,11 @@ class ResizeObserverMock {
 }
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
+
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()
+HTMLElement.prototype.scrollIntoView = vi.fn()
 
 const mockCampaign: Campaign = {
   id: 1,
@@ -274,6 +284,233 @@ describe('CampaignForm', () => {
         ).toBeEnabled()
       })
     })
+
+    it('toggles a status flag switch and makes form dirty', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      const activeSwitch = screen.getByRole('switch', { name: 'Active' })
+      await user.click(activeSwitch)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('toggles Pledged switch and makes form dirty', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      const switches = screen.getAllByRole('switch')
+      const pledgedSwitch = switches[switches.length - 1]
+      await user.click(pledgedSwitch)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('changes tier via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Tier' }))
+      const option = await screen.findByRole('option', { name: 'LOSE' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('sets tier to null when selecting None', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Tier' }))
+      const noneOption = await screen.findByRole('option', { name: 'None' })
+      await user.click(noneOption)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('changes launch status via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Launch Status' }))
+      const noneOption = await screen.findByRole('option', { name: 'None' })
+      await user.click(noneOption)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('changes ballot level via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Ballot Level' }))
+      const option = await screen.findByRole('option', { name: 'FEDERAL' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('changes election level via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Election Level' }))
+      const option = await screen.findByRole('option', { name: 'Federal' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('selects a launch status value via Select dropdown', async () => {
+      renderForm({
+        data: { ...mockCampaign.data, launchStatus: undefined },
+      })
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Launch Status' }))
+      const option = await screen.findByRole('option', { name: 'Launched' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('sets ballot level to None via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Ballot Level' }))
+      const option = await screen.findByRole('option', { name: 'None' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('sets election level to None via Select dropdown', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Election Level' }))
+      const option = await screen.findByRole('option', { name: 'None' })
+      await user.click(option)
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+  })
+
+  describe('navigation guard', () => {
+    it('passes confirm callback that calls window.confirm', () => {
+      renderForm()
+
+      const mockNavGuard = vi.mocked(useNavigationGuard)
+      const lastCall =
+        mockNavGuard.mock.calls[mockNavGuard.mock.calls.length - 1]
+      const options = lastCall[0]
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const result = options.confirm!({ to: '/test', type: 'push' })
+
+      expect(result).toBe(true)
+      expect(window.confirm).toHaveBeenCalledWith(UNSAVED_CHANGES_MESSAGE)
+
+      vi.mocked(window.confirm).mockRestore()
+    })
+  })
+
+  describe('validation', () => {
+    it('shows error for invalid admin email', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      const emailInput = screen.getByDisplayValue('admin@example.com')
+      await user.clear(emailInput)
+      await user.type(emailInput, 'not-an-email')
+
+      await waitFor(() => {
+        expect(screen.getByText('Invalid email address')).toBeInTheDocument()
+      })
+    })
+
+    it('shows error for invalid website URL', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      const websiteInput = screen.getByDisplayValue('https://example.com')
+      await user.clear(websiteInput)
+      await user.type(websiteInput, 'not-a-url')
+
+      await waitFor(() => {
+        expect(screen.getByText('Invalid URL')).toBeInTheDocument()
+      })
+    })
+
+    it('does not call onSave when safeParse fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      renderForm()
+      const user = userEvent.setup()
+
+      const nameInput = screen.getByDisplayValue('Test Campaign')
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Updated')
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+
+      const failedResult = combinedCampaignSchema.safeParse(null)
+      vi.spyOn(combinedCampaignSchema, 'safeParse').mockReturnValueOnce(
+        failedResult
+      )
+
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      expect(consoleSpy).toHaveBeenCalled()
+      expect(onSave).not.toHaveBeenCalled()
+
+      consoleSpy.mockRestore()
+      vi.mocked(combinedCampaignSchema.safeParse).mockRestore()
+    })
   })
 
   describe('defaults for nullable fields', () => {
@@ -282,6 +519,16 @@ describe('CampaignForm', () => {
 
       expect(screen.getByText('Campaign Status')).toBeInTheDocument()
       expect(screen.getByText('Location')).toBeInTheDocument()
+    })
+
+    it('defaults nullable booleans to false when null', () => {
+      renderForm({
+        isVerified: null,
+        isPro: null,
+        didWin: null,
+      })
+
+      expect(screen.getByText('Campaign Status')).toBeInTheDocument()
     })
 
     it('renders with isSaving prop to disable form actions', () => {

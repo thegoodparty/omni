@@ -1,7 +1,9 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import { SdkError, type Campaign } from '@goodparty_org/sdk'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { EditCampaignClient } from './EditCampaignClient'
+import { status } from '@poppanator/http-constants'
 
 export const metadata: Metadata = {
   title: 'Edit Campaign | GP Admin',
@@ -22,9 +24,14 @@ export default async function EditCampaignDetailPage({
     notFound()
   }
 
-  const campaign = await getCampaign(campaignIdNum, userId)
-  if (!campaign) {
-    notFound()
+  let campaign: Campaign
+  try {
+    campaign = await getCampaign(campaignIdNum)
+  } catch (error) {
+    if (error instanceof SdkError && error.status === status.NotFound) {
+      notFound()
+    }
+    throw error
   }
 
   return <EditCampaignClient campaign={campaign} />

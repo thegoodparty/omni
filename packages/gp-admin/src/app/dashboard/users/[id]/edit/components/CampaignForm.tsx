@@ -303,34 +303,34 @@ export function CampaignForm({
   }
 
   function handleTierChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('tier', null, { shouldDirty: true })
-    } else if (isCampaignTier(value)) {
+    if (isCampaignTier(value)) {
       setValue('tier', value, { shouldDirty: true })
+    } else {
+      setValue('tier', null, { shouldDirty: true })
     }
   }
 
   function handleLaunchStatusChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('data.launchStatus', undefined, { shouldDirty: true })
-    } else if (isLaunchStatus(value)) {
+    if (isLaunchStatus(value)) {
       setValue('data.launchStatus', value, { shouldDirty: true })
+    } else {
+      setValue('data.launchStatus', undefined, { shouldDirty: true })
     }
   }
 
   function handleBallotLevelChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('details.ballotLevel', undefined, { shouldDirty: true })
-    } else if (isBallotLevel(value)) {
+    if (isBallotLevel(value)) {
       setValue('details.ballotLevel', value, { shouldDirty: true })
+    } else {
+      setValue('details.ballotLevel', undefined, { shouldDirty: true })
     }
   }
 
   function handleElectionLevelChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('details.level', null, { shouldDirty: true })
-    } else if (isElectionLevel(value)) {
+    if (isElectionLevel(value)) {
       setValue('details.level', value, { shouldDirty: true })
+    } else {
+      setValue('details.level', null, { shouldDirty: true })
     }
   }
 
@@ -365,7 +365,7 @@ export function CampaignForm({
               value={watch('tier') ?? SELECT_NONE_VALUE}
               onValueChange={handleTierChange}
             >
-              <Select.Trigger placeholder="Select tier..." />
+              <Select.Trigger aria-label="Tier" placeholder="Select tier..." />
               <Select.Content>
                 <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                 {Object.values(CampaignTier).map((t) => (
@@ -403,7 +403,10 @@ export function CampaignForm({
                 value={watch('data.launchStatus') ?? SELECT_NONE_VALUE}
                 onValueChange={handleLaunchStatusChange}
               >
-                <Select.Trigger placeholder="Select status..." />
+                <Select.Trigger
+                  aria-label="Launch Status"
+                  placeholder="Select status..."
+                />
                 <Select.Content>
                   <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                   {Object.values(CampaignLaunchStatus).map((status) => (
@@ -439,7 +442,10 @@ export function CampaignForm({
                   value={watch('details.ballotLevel') ?? SELECT_NONE_VALUE}
                   onValueChange={handleBallotLevelChange}
                 >
-                  <Select.Trigger placeholder="Select level..." />
+                  <Select.Trigger
+                    aria-label="Ballot Level"
+                    placeholder="Select level..."
+                  />
                   <Select.Content>
                     <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                     {Object.values(BallotReadyPositionLevel).map((level) => (
@@ -463,7 +469,10 @@ export function CampaignForm({
                   value={watch('details.level') ?? SELECT_NONE_VALUE}
                   onValueChange={handleElectionLevelChange}
                 >
-                  <Select.Trigger placeholder="Select level..." />
+                  <Select.Trigger
+                    aria-label="Election Level"
+                    placeholder="Select level..."
+                  />
                   <Select.Content>
                     <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                     {Object.values(ElectionLevel).map((level) => (

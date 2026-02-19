@@ -15,14 +15,9 @@ export const listCampaigns = async (
     return client.campaigns.list({ userId })
   })
 
-// TODO: replace this with campaign.get by id when the sdk is updated
-export const getCampaign = async (
-  campaignId: number,
-  userId: number
-): Promise<Campaign | undefined> =>
+export const getCampaign = async (campaignId: number): Promise<Campaign> =>
   gpAction(async (client) => {
-    const { data } = await client.campaigns.list({ userId })
-    return data.find((c) => c.id === campaignId)
+    return await client.campaigns.get(campaignId)
   })
 
 export const updateCampaign = async (
