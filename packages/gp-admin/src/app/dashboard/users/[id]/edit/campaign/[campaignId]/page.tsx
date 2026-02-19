@@ -22,7 +22,7 @@ export default async function EditCampaignDetailPage({
     notFound()
   }
 
-  const campaign = await getCampaign(campaignIdNum, userId)
+  const campaign = await getCampaign(campaignIdNum)
   if (!campaign) {
     notFound()
   }
