@@ -270,8 +270,7 @@ export function CampaignForm({
 
   function getError(key: FieldPath) {
     if (key === 'details.website') return errors.details?.website
-    /* istanbul ignore next -- only two error keys are used */
-    if (key === 'data.adminUserEmail') return errors.data?.adminUserEmail
+    return errors.data?.adminUserEmail
   }
 
   function renderFields(fields: FieldConfig[]) {
@@ -303,40 +302,35 @@ export function CampaignForm({
   }
 
   function handleTierChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('tier', null, { shouldDirty: true })
-    } else if (isCampaignTier(value)) {
+    if (isCampaignTier(value)) {
       setValue('tier', value, { shouldDirty: true })
+    } else {
+      setValue('tier', null, { shouldDirty: true })
     }
   }
 
   function handleLaunchStatusChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('data.launchStatus', undefined, { shouldDirty: true })
-    } else if (isLaunchStatus(value)) {
+    if (isLaunchStatus(value)) {
       setValue('data.launchStatus', value, { shouldDirty: true })
+    } else {
+      setValue('data.launchStatus', undefined, { shouldDirty: true })
     }
   }
 
   function handleBallotLevelChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('details.ballotLevel', undefined, { shouldDirty: true })
-    } else if (isBallotLevel(value)) {
+    if (isBallotLevel(value)) {
       setValue('details.ballotLevel', value, { shouldDirty: true })
+    } else {
+      setValue('details.ballotLevel', undefined, { shouldDirty: true })
     }
   }
 
   function handleElectionLevelChange(value: string) {
-    if (value === SELECT_NONE_VALUE) {
-      setValue('details.level', null, { shouldDirty: true })
-    } else if (isElectionLevel(value)) {
+    if (isElectionLevel(value)) {
       setValue('details.level', value, { shouldDirty: true })
+    } else {
+      setValue('details.level', null, { shouldDirty: true })
     }
-  }
-
-  function watchBoolean(key: StatusFlagKey): boolean {
-    /* istanbul ignore next -- defaultValues guarantee boolean, ?? is defensive */
-    return watch(key) ?? false
   }
 
   return (
@@ -351,7 +345,7 @@ export function CampaignForm({
                 </Text>
                 <Switch
                   id={key}
-                  checked={watchBoolean(key)}
+                  checked={!!watch(key)}
                   onCheckedChange={(checked) =>
                     handleStatusFlagChange(key, checked)
                   }

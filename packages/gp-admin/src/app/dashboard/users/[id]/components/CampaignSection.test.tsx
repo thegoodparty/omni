@@ -33,10 +33,6 @@ const mockCampaign: Campaign = {
     currentStep: OnboardingStep.complete,
     lastVisited: 1769658612427,
     lastStepDate: '2024-04-03',
-    campaignPlanStatus: {
-      why: { status: 'completed', createdAt: 2678400000 },
-      slogan: { status: 'completed', createdAt: 2678400000 },
-    },
     customVoterFiles: [
       {
         name: 'Door Knocking - GOTV',
@@ -59,29 +55,11 @@ const mockCampaign: Campaign = {
     officeTermLength: '4 years',
     electionDate: '2026-11-03',
     partisanType: 'nonpartisan',
-    hasPrimary: true,
     party: 'Independent',
     occupation: 'former CTO of Good Party.',
     website: 'https://tomeralmog.com',
     pledged: true,
     funFact: 'I love playing guitar!',
-    topIssues: {
-      positions: [
-        {
-          id: 157,
-          name: 'Mandate Freedom',
-          topIssue: {
-            id: 25,
-            name: 'Covid',
-            createdAt: 1649219354821,
-            updatedAt: 1649219354821,
-          },
-          createdAt: 1649226095142,
-          updatedAt: 1649226095142,
-        },
-      ],
-      'position-157': 'Free choice',
-    },
     customIssues: [{ title: 'Custom Issue', position: 'My position' }],
   },
 }
@@ -163,17 +141,6 @@ describe('CampaignSection', () => {
     expect(screen.queryByText('Fun Fact')).not.toBeInTheDocument()
   })
 
-  it('does not render top issues when empty', () => {
-    const campaignNoIssues: Campaign = {
-      ...mockCampaign,
-      details: { ...mockCampaign.details, topIssues: undefined },
-    }
-
-    render(<CampaignSection campaign={campaignNoIssues} />)
-
-    expect(screen.queryByText('Top Issues')).not.toBeInTheDocument()
-  })
-
   it('renders custom issues when present', () => {
     render(<CampaignSection campaign={mockCampaign} />)
 
@@ -211,17 +178,6 @@ describe('CampaignSection', () => {
     render(<CampaignSection campaign={campaignNoCustomIssues} />)
 
     expect(screen.queryByText('Custom Issues')).not.toBeInTheDocument()
-  })
-
-  it('does not render campaign plan status when missing', () => {
-    const campaignNoPlanStatus: Campaign = {
-      ...mockCampaign,
-      data: { ...mockCampaign.data, campaignPlanStatus: undefined },
-    }
-
-    render(<CampaignSection campaign={campaignNoPlanStatus} />)
-
-    expect(screen.queryByText('Campaign Plan Status')).not.toBeInTheDocument()
   })
 
   it('renders not launched status when launchStatus is missing', () => {
@@ -283,19 +239,6 @@ describe('CampaignSection', () => {
     expect(screen.getAllByText('Not set')).toHaveLength(1)
   })
 
-  it('renders No for hasPrimary when false', () => {
-    const campaignNoPrimary: Campaign = {
-      ...mockCampaign,
-      details: { ...mockCampaign.details, hasPrimary: false },
-    }
-
-    render(<CampaignSection campaign={campaignNoPrimary} />)
-
-    // Find the hasPrimary "No" badge
-    const electionCard = screen.getByText('Election').closest('div')
-    expect(electionCard).toBeInTheDocument()
-  })
-
   it('renders No for pledged when false', () => {
     const campaignNotPledged: Campaign = {
       ...mockCampaign,
@@ -308,18 +251,15 @@ describe('CampaignSection', () => {
     expect(screen.getByText('Party & Background')).toBeInTheDocument()
   })
 
-  it('does not render top issues when positions array is empty', () => {
-    const campaignEmptyPositions: Campaign = {
+  it('handles undefined data and details gracefully', () => {
+    const campaignNoData = {
       ...mockCampaign,
-      details: {
-        ...mockCampaign.details,
-        topIssues: { positions: [] },
-      },
-    }
+      data: undefined,
+      details: undefined,
+    } as unknown as Campaign
 
-    render(<CampaignSection campaign={campaignEmptyPositions} />)
+    render(<CampaignSection campaign={campaignNoData} />)
 
-    expect(screen.queryByText('Top Issues')).not.toBeInTheDocument()
+    expect(screen.getByText('Campaign Status')).toBeInTheDocument()
   })
-
 })

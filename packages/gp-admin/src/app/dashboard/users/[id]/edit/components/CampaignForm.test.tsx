@@ -450,11 +450,12 @@ describe('CampaignForm', () => {
       renderForm()
 
       const mockNavGuard = vi.mocked(useNavigationGuard)
-      const lastCall = mockNavGuard.mock.calls[mockNavGuard.mock.calls.length - 1]
+      const lastCall =
+        mockNavGuard.mock.calls[mockNavGuard.mock.calls.length - 1]
       const options = lastCall[0]
 
       vi.spyOn(window, 'confirm').mockReturnValue(true)
-      const result = options.confirm()
+      const result = options.confirm!({ to: '/test', type: 'push' })
 
       expect(result).toBe(true)
       expect(window.confirm).toHaveBeenCalledWith(UNSAVED_CHANGES_MESSAGE)
@@ -491,9 +492,7 @@ describe('CampaignForm', () => {
     })
 
     it('does not call onSave when safeParse fails', async () => {
-      const consoleSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => {})
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       renderForm()
       const user = userEvent.setup()
 
