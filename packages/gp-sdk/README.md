@@ -57,6 +57,19 @@ const updatedCampaign = await client.campaigns.update(1, {
   details: { office: 'Mayor' },
 })
 
+const offices = await client.electedOffices.list({
+  userId: 42,
+  offset: 0,
+  limit: 20,
+})
+
+const office = await client.electedOffices.get('some-uuid')
+
+const updatedOffice = await client.electedOffices.update('some-uuid', {
+  electedDate: '2026-01-15',
+  isActive: true,
+})
+
 const p2vs = await client.pathsToVictory.list({
   userId: 42,
   offset: 0,
