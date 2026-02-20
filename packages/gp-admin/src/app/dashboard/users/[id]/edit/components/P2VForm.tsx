@@ -292,6 +292,8 @@ export function P2VForm({
   function handleStatusChange(value: string) {
     if (isP2VStatus(value)) {
       setValue('p2vStatus', value, { shouldDirty: true })
+    } else {
+      setValue('p2vStatus', undefined, { shouldDirty: true })
     }
   }
 
