@@ -5,6 +5,7 @@ import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignSection } from '../../components/CampaignSection'
 import { ViewLayout } from '../../components/ViewLayout'
 import { status } from '@poppanator/http-constants'
+import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
 
 export const metadata: Metadata = {
   title: 'Campaign Detail | GP Admin',
@@ -19,11 +20,7 @@ export default async function CampaignDetailPage({
   params,
 }: CampaignDetailPageProps) {
   const { id, campaignId } = await params
-  const userId = Number(id)
-  const campaignIdNum = Number(campaignId)
-  if (Number.isNaN(userId) || Number.isNaN(campaignIdNum)) {
-    notFound()
-  }
+  const [, campaignIdNum] = validateNumericParams(id, campaignId)
 
   let campaign: Campaign
   try {

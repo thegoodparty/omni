@@ -1,8 +1,8 @@
 import { Metadata } from 'next'
-import { notFound } from 'next/navigation'
 import { listPathsToVictory } from '@/app/dashboard/p2v/actions'
 import { P2VListTable } from './components/P2VListTable'
 import { ViewLayout } from '../components/ViewLayout'
+import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
 
 export const metadata: Metadata = {
   title: 'Paths to Victory | GP Admin',
@@ -15,10 +15,7 @@ interface P2VPageProps {
 
 export default async function P2VPage({ params }: P2VPageProps) {
   const { id } = await params
-  const userId = Number(id)
-  if (Number.isNaN(userId)) {
-    notFound()
-  }
+  const [userId] = validateNumericParams(id)
   const { data: pathsToVictory } = await listPathsToVictory(userId)
 
   return (

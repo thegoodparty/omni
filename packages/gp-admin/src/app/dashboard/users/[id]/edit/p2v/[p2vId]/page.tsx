@@ -1,7 +1,7 @@
 import { Metadata } from 'next'
-import { notFound } from 'next/navigation'
 import { getPathToVictoryOrNotFound } from '@/app/dashboard/p2v/getPathToVictoryOrNotFound'
 import { EditP2VClient } from './EditP2VClient'
+import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
 
 export const metadata: Metadata = {
   title: 'Edit Path to Victory | GP Admin',
@@ -16,11 +16,7 @@ export default async function EditP2VDetailPage({
   params,
 }: EditP2VDetailPageProps) {
   const { id, p2vId } = await params
-  const userId = Number(id)
-  const p2vIdNum = Number(p2vId)
-  if (Number.isNaN(userId) || Number.isNaN(p2vIdNum)) {
-    notFound()
-  }
+  const [userId, p2vIdNum] = validateNumericParams(id, p2vId)
 
   const p2v = await getPathToVictoryOrNotFound(p2vIdNum)
 
