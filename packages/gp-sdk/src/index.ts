@@ -48,6 +48,12 @@ export {
 } from './types/campaign'
 
 export type {
+  ElectedOffice,
+  ListElectedOfficesOptions,
+  UpdateElectedOfficeInput,
+} from './types/electedOffice'
+
+export type {
   PathToVictory,
   PathToVictoryData,
   ViabilityScore,
