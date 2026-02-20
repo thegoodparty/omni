@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.8.0
+
+### Minor Changes
+
+- [#35](https://github.com/thegoodparty/gp-sdk/pull/35) [`565f99b`](https://github.com/thegoodparty/gp-sdk/commit/565f99b9722c6beb39fbcacbcdd4826988959b2a) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add ElectedOffice resource with list, get, and update methods
+
 ## 1.7.0
 
 ### Minor Changes
