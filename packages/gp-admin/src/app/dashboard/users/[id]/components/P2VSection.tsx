@@ -5,7 +5,7 @@ import { P2V_STATUS_VALUES } from '../constants'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 import { formatNumberForDisplay } from '@/lib/utils/number'
-import type { PathToVictory } from '../types/p2v'
+import type { PathToVictory } from '@goodparty_org/sdk'
 
 interface P2VSectionProps {
   p2v: PathToVictory | null
@@ -23,11 +23,8 @@ export function P2VSection({ p2v }: P2VSectionProps) {
   }
 
   const data = p2v.data
-  const totalRegistered = data.totalRegisteredVoters || 0
-  const winNumber =
-    typeof data.winNumber === 'string'
-      ? parseFloat(data.winNumber)
-      : data.winNumber || 0
+  const totalRegistered = data.totalRegisteredVoters ?? 0
+  const winNumber = data.winNumber ?? 0
   const winPercentage =
     totalRegistered > 0 ? (winNumber / totalRegistered) * 100 : 0
 
@@ -41,7 +38,7 @@ export function P2VSection({ p2v }: P2VSectionProps) {
             }
             variant="soft"
           >
-            {data.p2vStatus || 'Not set'}
+            {data.p2vStatus ?? 'Not set'}
           </Badge>
         </DataRow>
         <DataRow label="Election Type">{data.electionType}</DataRow>
@@ -223,28 +220,16 @@ export function P2VSection({ p2v }: P2VSectionProps) {
               <Text size="2" color="gray">
                 Incumbent
               </Text>
-              <Badge
-                color={
-                  String(data.viability.isIncumbent) === 'true'
-                    ? 'green'
-                    : 'gray'
-                }
-              >
-                {String(data.viability.isIncumbent) === 'true' ? 'Yes' : 'No'}
+              <Badge color={data.viability.isIncumbent ? 'green' : 'gray'}>
+                {data.viability.isIncumbent ? 'Yes' : 'No'}
               </Badge>
             </Flex>
             <Flex justify="between" align="center">
               <Text size="2" color="gray">
                 Uncontested
               </Text>
-              <Badge
-                color={
-                  String(data.viability.isUncontested) === 'true'
-                    ? 'amber'
-                    : 'gray'
-                }
-              >
-                {String(data.viability.isUncontested) === 'true' ? 'Yes' : 'No'}
+              <Badge color={data.viability.isUncontested ? 'amber' : 'gray'}>
+                {data.viability.isUncontested ? 'Yes' : 'No'}
               </Badge>
             </Flex>
           </Flex>

@@ -1,0 +1,27 @@
+import { Metadata } from 'next'
+import { getPathToVictoryOrNotFound } from '@/app/dashboard/p2v/getPathToVictoryOrNotFound'
+import { P2VSection } from '../../components/P2VSection'
+import { ViewLayout } from '../../components/ViewLayout'
+import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+
+export const metadata: Metadata = {
+  title: 'Path to Victory Detail | GP Admin',
+  description: 'View path to victory detail',
+}
+
+interface P2VDetailPageProps {
+  params: Promise<{ id: string; p2vId: string }>
+}
+
+export default async function P2VDetailPage({ params }: P2VDetailPageProps) {
+  const { id, p2vId } = await params
+  const [, p2vIdNum] = validateNumericParams(id, p2vId)
+
+  const p2v = await getPathToVictoryOrNotFound(p2vIdNum)
+
+  return (
+    <ViewLayout>
+      <P2VSection p2v={p2v} />
+    </ViewLayout>
+  )
+}

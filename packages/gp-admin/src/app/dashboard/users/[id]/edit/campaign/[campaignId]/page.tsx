@@ -4,6 +4,7 @@ import { SdkError, type Campaign } from '@goodparty_org/sdk'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
 import { EditCampaignClient } from './EditCampaignClient'
 import { status } from '@poppanator/http-constants'
+import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
 
 export const metadata: Metadata = {
   title: 'Edit Campaign | GP Admin',
@@ -18,11 +19,7 @@ export default async function EditCampaignDetailPage({
   params,
 }: EditCampaignDetailPageProps) {
   const { id, campaignId } = await params
-  const userId = Number(id)
-  const campaignIdNum = Number(campaignId)
-  if (Number.isNaN(userId) || Number.isNaN(campaignIdNum)) {
-    notFound()
-  }
+  const [, campaignIdNum] = validateNumericParams(id, campaignId)
 
   let campaign: Campaign
   try {

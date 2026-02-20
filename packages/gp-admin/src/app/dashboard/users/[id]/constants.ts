@@ -1,3 +1,5 @@
+import { P2VStatus } from '@goodparty_org/sdk'
+
 export const USER_ROUTES = {
   USER: '',
   CAMPAIGN: '/campaign',
@@ -7,9 +9,9 @@ export const USER_ROUTES = {
 
 export const TAB_LABELS = {
   USER: 'User',
-  CAMPAIGN: 'Campaign',
-  P2V: 'Path to Victory',
-  ELECTED_OFFICE: 'Elected Office',
+  CAMPAIGN: 'Campaigns',
+  P2V: 'Paths to Victory',
+  ELECTED_OFFICE: 'Elected Offices',
 } as const
 
 export const LAUNCH_STATUS = {
@@ -17,20 +19,15 @@ export const LAUNCH_STATUS = {
   NOT_LAUNCHED: 'Not launched',
 } as const
 
-export const P2V_STATUS = [
-  'Waiting',
-  'Processing',
-  'Complete',
-  'Failed',
-  'Not Needed',
-] as const
+export const P2V_STATUS = Object.values(P2VStatus)
 
-export type P2VStatus = (typeof P2V_STATUS)[number]
+export const P2V_STATUS_SET: ReadonlySet<string> = new Set(P2V_STATUS)
 
 export const P2V_STATUS_VALUES = {
-  WAITING: 'Waiting',
-  PROCESSING: 'Processing',
-  COMPLETE: 'Complete',
-  FAILED: 'Failed',
-  NOT_NEEDED: 'Not Needed',
-} as const satisfies Record<string, P2VStatus>
+  COMPLETE: P2VStatus.complete,
+  WAITING: P2VStatus.waiting,
+  FAILED: P2VStatus.failed,
+  DISTRICT_MATCHED: P2VStatus.districtMatched,
+} as const
+
+export const OTHER_OFFICE = 'Other'

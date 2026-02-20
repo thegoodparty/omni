@@ -1,10 +1,21 @@
 import Link from 'next/link'
 import { Table, Text, Badge } from '@radix-ui/themes'
 import type { Campaign } from '@goodparty_org/sdk'
+import { OTHER_OFFICE } from '../../constants'
 
 interface CampaignListTableProps {
   campaigns: Campaign[]
   basePath: string
+}
+
+function resolvedOffice(
+  office: string | undefined,
+  otherOffice: string | undefined
+) {
+  if (office === OTHER_OFFICE && otherOffice) {
+    return otherOffice
+  }
+  return office ?? '—'
 }
 
 export function CampaignListTable({
@@ -42,7 +53,12 @@ export function CampaignListTable({
                 {campaign.data?.name || `Campaign #${campaign.id}`}
               </Link>
             </Table.Cell>
-            <Table.Cell>{campaign.details?.office ?? '—'}</Table.Cell>
+            <Table.Cell>
+              {resolvedOffice(
+                campaign.details?.office,
+                campaign.details?.otherOffice
+              )}
+            </Table.Cell>
             <Table.Cell>
               <Badge
                 color={campaign.isActive ? 'green' : 'gray'}
