@@ -40,12 +40,14 @@ describe('TabNavigation', () => {
       renderWithUser(123)
 
       expect(screen.getByRole('link', { name: 'User' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Campaign' })).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'Path to Victory' })
+        screen.getByRole('link', { name: 'Campaigns' })
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'Elected Office' })
+        screen.getByRole('link', { name: 'Paths to Victory' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'Elected Offices' })
       ).toBeInTheDocument()
     })
 
@@ -58,15 +60,15 @@ describe('TabNavigation', () => {
         'href',
         '/dashboard/users/456'
       )
-      expect(screen.getByRole('link', { name: 'Campaign' })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: 'Campaigns' })).toHaveAttribute(
         'href',
         '/dashboard/users/456/campaign'
       )
       expect(
-        screen.getByRole('link', { name: 'Path to Victory' })
+        screen.getByRole('link', { name: 'Paths to Victory' })
       ).toHaveAttribute('href', '/dashboard/users/456/p2v')
       expect(
-        screen.getByRole('link', { name: 'Elected Office' })
+        screen.getByRole('link', { name: 'Elected Offices' })
       ).toHaveAttribute('href', '/dashboard/users/456/elected-office')
     })
 
@@ -79,7 +81,7 @@ describe('TabNavigation', () => {
         screen.getByRole('link', { name: 'User', current: 'page' })
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'Campaign' })
+        screen.getByRole('link', { name: 'Campaigns' })
       ).not.toHaveAttribute('aria-current')
     })
 
@@ -89,7 +91,7 @@ describe('TabNavigation', () => {
       renderWithUser(123)
 
       expect(
-        screen.getByRole('link', { name: 'Campaign', current: 'page' })
+        screen.getByRole('link', { name: 'Campaigns', current: 'page' })
       ).toBeInTheDocument()
     })
 
@@ -99,7 +101,7 @@ describe('TabNavigation', () => {
       renderWithUser(123)
 
       expect(
-        screen.getByRole('link', { name: 'Path to Victory', current: 'page' })
+        screen.getByRole('link', { name: 'Paths to Victory', current: 'page' })
       ).toBeInTheDocument()
     })
 
@@ -109,7 +111,7 @@ describe('TabNavigation', () => {
       renderWithUser(123)
 
       expect(
-        screen.getByRole('link', { name: 'Elected Office', current: 'page' })
+        screen.getByRole('link', { name: 'Elected Offices', current: 'page' })
       ).toBeInTheDocument()
     })
   })
@@ -124,15 +126,15 @@ describe('TabNavigation', () => {
         'href',
         '/dashboard/users/789/edit'
       )
-      expect(screen.getByRole('link', { name: 'Campaign' })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: 'Campaigns' })).toHaveAttribute(
         'href',
         '/dashboard/users/789/edit/campaign'
       )
       expect(
-        screen.getByRole('link', { name: 'Path to Victory' })
+        screen.getByRole('link', { name: 'Paths to Victory' })
       ).toHaveAttribute('href', '/dashboard/users/789/edit/p2v')
       expect(
-        screen.getByRole('link', { name: 'Elected Office' })
+        screen.getByRole('link', { name: 'Elected Offices' })
       ).toHaveAttribute('href', '/dashboard/users/789/edit/elected-office')
     })
 
@@ -152,7 +154,7 @@ describe('TabNavigation', () => {
       renderWithUser(123, { isEditMode: true })
 
       expect(
-        screen.getByRole('link', { name: 'Campaign', current: 'page' })
+        screen.getByRole('link', { name: 'Campaigns', current: 'page' })
       ).toBeInTheDocument()
     })
   })

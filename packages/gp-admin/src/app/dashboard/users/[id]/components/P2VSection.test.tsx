@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { P2VSection } from './P2VSection'
-import type { PathToVictory } from '../types/p2v'
+import { P2VStatus, P2VSource, type PathToVictory } from '@goodparty_org/sdk'
 
 const mockP2V: PathToVictory = {
   id: 771,
@@ -9,10 +9,10 @@ const mockP2V: PathToVictory = {
   updatedAt: '2025-08-13T20:43:03.191Z',
   campaignId: 1,
   data: {
-    p2vStatus: 'Complete',
+    p2vStatus: P2VStatus.complete,
     electionType: 'City',
     electionLocation: 'HENDERSONVILLE CITY',
-    source: 'ElectionApi',
+    source: P2VSource.ElectionApi,
     p2vCompleteDate: '2025-08-13',
     winNumber: 3142,
     voterContactGoal: 15710,
@@ -32,11 +32,12 @@ const mockP2V: PathToVictory = {
       level: 'city',
       score: 2.25,
       seats: 1,
-      candidates: '',
+      candidates: 0,
       isPartisan: false,
-      isIncumbent: '',
-      isUncontested: '',
-      candidatesPerSeat: '',
+      isIncumbent: false,
+      isUncontested: false,
+      candidatesPerSeat: 0,
+      probOfWin: 0,
     },
   },
 }
@@ -120,20 +121,6 @@ describe('P2VSection', () => {
       expect(screen.getByText('Uncontested')).toBeInTheDocument()
     })
 
-    it('handles string win number', () => {
-      const p2vStringWin: PathToVictory = {
-        ...mockP2V,
-        data: {
-          ...mockP2V.data,
-          winNumber: '5000',
-        },
-      }
-
-      render(<P2VSection p2v={p2vStringWin} />)
-
-      expect(screen.getByText('5,000')).toBeInTheDocument()
-    })
-
     it('handles missing viability data', () => {
       const p2vNoViability: PathToVictory = {
         ...mockP2V,
@@ -167,17 +154,17 @@ describe('P2VSection', () => {
     })
 
     it('renders non-complete P2V status', () => {
-      const p2vProcessing: PathToVictory = {
+      const p2vWaiting: PathToVictory = {
         ...mockP2V,
         data: {
           ...mockP2V.data,
-          p2vStatus: 'Processing',
+          p2vStatus: P2VStatus.waiting,
         },
       }
 
-      render(<P2VSection p2v={p2vProcessing} />)
+      render(<P2VSection p2v={p2vWaiting} />)
 
-      expect(screen.getByText('Processing')).toBeInTheDocument()
+      expect(screen.getByText('Waiting')).toBeInTheDocument()
     })
 
     it('renders Not set when p2vStatus is missing', () => {
@@ -218,7 +205,7 @@ describe('P2VSection', () => {
           ...mockP2V.data,
           viability: {
             ...mockP2V.data.viability!,
-            isIncumbent: 'true',
+            isIncumbent: true,
           },
         },
       }
@@ -235,7 +222,7 @@ describe('P2VSection', () => {
           ...mockP2V.data,
           viability: {
             ...mockP2V.data.viability!,
-            isUncontested: 'true',
+            isUncontested: true,
           },
         },
       }

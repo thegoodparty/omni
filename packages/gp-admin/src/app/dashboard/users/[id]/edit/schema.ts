@@ -5,8 +5,8 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignLaunchStatus,
+  P2VStatus,
 } from '@goodparty_org/sdk'
-import { P2V_STATUS } from '../constants'
 
 export const USER_ROLES = Object.values(UserRole)
 
@@ -89,7 +89,7 @@ const numberOrUndefined = z.any().transform((val): number | undefined => {
 })
 
 export const pathToVictorySchema = z.object({
-  p2vStatus: z.enum(P2V_STATUS).optional(),
+  p2vStatus: z.nativeEnum(P2VStatus).optional(),
   electionType: z.string().optional(),
   electionLocation: z.string().optional(),
 

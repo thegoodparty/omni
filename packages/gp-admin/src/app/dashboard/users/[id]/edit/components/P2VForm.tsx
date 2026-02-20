@@ -9,10 +9,11 @@ import {
   Switch,
   Separator,
 } from '@radix-ui/themes'
-import { useForm } from 'react-hook-form'
+import { useForm, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
-import { P2V_STATUS } from '../../constants'
+import { P2V_STATUS, P2V_STATUS_SET } from '../../constants'
+import { type P2VStatus, type PathToVictory } from '@goodparty_org/sdk'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { FormActions } from './FormActions'
@@ -20,13 +21,22 @@ import {
   INPUT_TYPE,
   P2V_FORM_SECTIONS,
   FORM_MODE,
+  SELECT_NONE_VALUE,
   UNSAVED_CHANGES_MESSAGE,
+  type InputType,
 } from '../constants'
-import type { PathToVictory } from '../../types/p2v'
 
-type P2VStatus = (typeof P2V_STATUS)[number]
+type FieldPath = Path<PathToVictoryFormData>
 
-// Convert empty/NaN values to undefined to match default values
+interface FieldConfig {
+  key: FieldPath
+  label: string
+  placeholder: string
+  type?: InputType
+  step?: string
+  minWidth?: string
+}
+
 const numberFieldOptions = {
   setValueAs: (v: string) => {
     if (v === '' || v === null || v === undefined) return undefined
@@ -35,17 +45,184 @@ const numberFieldOptions = {
   },
 }
 
+const ELECTION_INFO_FIELDS: FieldConfig[] = [
+  {
+    key: 'electionType',
+    label: 'Election Type',
+    placeholder: 'e.g., General, Primary',
+    minWidth: '200px',
+  },
+  {
+    key: 'electionLocation',
+    label: 'Election Location',
+    placeholder: 'Location',
+    minWidth: '200px',
+  },
+]
+
+const TARGET_NUMBER_FIELDS: FieldConfig[] = [
+  {
+    key: 'winNumber',
+    label: 'Win Number',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+  },
+  {
+    key: 'voterContactGoal',
+    label: 'Voter Contact Goal',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+  },
+  {
+    key: 'totalRegisteredVoters',
+    label: 'Total Registered Voters',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+  },
+  {
+    key: 'projectedTurnout',
+    label: 'Projected Turnout',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+  },
+  {
+    key: 'averageTurnout',
+    label: 'Average Turnout',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+  },
+]
+
+const PARTY_FIELDS: FieldConfig[] = [
+  {
+    key: 'republicans',
+    label: 'Republicans',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+  {
+    key: 'democrats',
+    label: 'Democrats',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+  {
+    key: 'indies',
+    label: 'Independents',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+]
+
+const GENDER_FIELDS: FieldConfig[] = [
+  { key: 'men', label: 'Men', placeholder: '0', type: INPUT_TYPE.NUMBER },
+  { key: 'women', label: 'Women', placeholder: '0', type: INPUT_TYPE.NUMBER },
+]
+
+const RACE_FIELDS: FieldConfig[] = [
+  {
+    key: 'white',
+    label: 'White',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+  {
+    key: 'asian',
+    label: 'Asian',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+  {
+    key: 'africanAmerican',
+    label: 'African American',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+  {
+    key: 'hispanic',
+    label: 'Hispanic',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '120px',
+  },
+]
+
+const VIABILITY_FIELDS: FieldConfig[] = [
+  { key: 'viability.level', label: 'Level', placeholder: 'Level' },
+  {
+    key: 'viability.seats',
+    label: 'Seats',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '100px',
+  },
+  {
+    key: 'viability.candidates',
+    label: 'Candidates',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    minWidth: '100px',
+  },
+  {
+    key: 'viability.candidatesPerSeat',
+    label: 'Candidates/Seat',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    step: '0.01',
+    minWidth: '120px',
+  },
+  {
+    key: 'viability.score',
+    label: 'Score',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    step: '0.01',
+    minWidth: '100px',
+  },
+  {
+    key: 'viability.probOfWin',
+    label: 'Prob. of Win',
+    placeholder: '0',
+    type: INPUT_TYPE.NUMBER,
+    step: '0.01',
+    minWidth: '120px',
+  },
+]
+
+type ViabilityBooleanField = 'isPartisan' | 'isIncumbent' | 'isUncontested'
+
+const VIABILITY_BOOLEAN_FIELDS: {
+  key: ViabilityBooleanField
+  label: string
+}[] = [
+  { key: 'isPartisan', label: 'Partisan' },
+  { key: 'isIncumbent', label: 'Incumbent' },
+  { key: 'isUncontested', label: 'Uncontested' },
+]
+
 function isP2VStatus(value: string): value is P2VStatus {
-  return P2V_STATUS.includes(value as P2VStatus)
+  return P2V_STATUS_SET.has(value)
 }
 
 interface P2VFormProps {
   initialData: PathToVictory | null
-  onSave: (data: PathToVictoryFormData) => void
+  onSave: (data: PathToVictoryFormData) => void | Promise<void>
   onCancel: () => void
+  isSaving?: boolean
 }
 
-export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
+export function P2VForm({
+  initialData,
+  onSave,
+  onCancel,
+  isSaving,
+}: P2VFormProps) {
   const p2v = initialData
 
   const {
@@ -53,6 +230,7 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
     watch,
     setValue,
     getValues,
+    reset,
     formState: { isDirty, isValid },
   } = useForm<PathToVictoryFormData>({
     mode: FORM_MODE.ON_CHANGE,
@@ -61,10 +239,8 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
       p2vStatus: p2v?.data?.p2vStatus,
       electionType: p2v?.data?.electionType ?? '',
       electionLocation: p2v?.data?.electionLocation ?? '',
-      winNumber: p2v?.data?.winNumber ? Number(p2v.data.winNumber) : undefined,
-      voterContactGoal: p2v?.data?.voterContactGoal
-        ? Number(p2v.data.voterContactGoal)
-        : undefined,
+      winNumber: p2v?.data?.winNumber ?? undefined,
+      voterContactGoal: p2v?.data?.voterContactGoal ?? undefined,
       totalRegisteredVoters: p2v?.data?.totalRegisteredVoters ?? undefined,
       projectedTurnout: p2v?.data?.projectedTurnout ?? undefined,
       averageTurnout: p2v?.data?.averageTurnout ?? undefined,
@@ -80,17 +256,13 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
       viability: {
         level: p2v?.data?.viability?.level ?? '',
         isPartisan: p2v?.data?.viability?.isPartisan ?? false,
-        isIncumbent: p2v?.data?.viability?.isIncumbent === true,
-        isUncontested: p2v?.data?.viability?.isUncontested === true,
-        candidates: p2v?.data?.viability?.candidates
-          ? Number(p2v.data.viability.candidates)
-          : undefined,
+        isIncumbent: p2v?.data?.viability?.isIncumbent ?? false,
+        isUncontested: p2v?.data?.viability?.isUncontested ?? false,
+        candidates: p2v?.data?.viability?.candidates ?? undefined,
         seats: p2v?.data?.viability?.seats ?? undefined,
-        candidatesPerSeat: p2v?.data?.viability?.candidatesPerSeat
-          ? Number(p2v.data.viability.candidatesPerSeat)
-          : undefined,
+        candidatesPerSeat: p2v?.data?.viability?.candidatesPerSeat ?? undefined,
         score: p2v?.data?.viability?.score ?? undefined,
-        probOfWin: undefined,
+        probOfWin: p2v?.data?.viability?.probOfWin ?? undefined,
       },
     },
   })
@@ -100,7 +272,7 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const data = getValues()
     const result = pathToVictorySchema.safeParse(data)
 
@@ -109,7 +281,12 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
       return
     }
 
-    onSave(data)
+    try {
+      await onSave(data)
+      reset(data)
+    } catch {
+      // Save failed — keep the form dirty so the user can retry
+    }
   }
 
   function handleStatusChange(value: string) {
@@ -119,10 +296,35 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
   }
 
   function handleViabilityBooleanChange(
-    field: 'isPartisan' | 'isIncumbent' | 'isUncontested',
+    field: ViabilityBooleanField,
     checked: boolean
   ) {
     setValue(`viability.${field}`, checked, { shouldDirty: true })
+  }
+
+  function renderFields(fields: FieldConfig[]) {
+    return (
+      <Flex gap="4" wrap="wrap">
+        {fields.map(
+          ({ key, label, placeholder, type, step, minWidth = '150px' }) => (
+            <Box key={key} flexGrow="1" style={{ minWidth }}>
+              <Text as="label" size="2" weight="medium" mb="1">
+                {label}
+              </Text>
+              <TextField.Root
+                {...register(
+                  key,
+                  type === INPUT_TYPE.NUMBER ? numberFieldOptions : undefined
+                )}
+                type={type}
+                placeholder={placeholder}
+                step={step}
+              />
+            </Box>
+          )
+        )}
+      </Flex>
+    )
   }
 
   return (
@@ -135,11 +337,12 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
                 Status
               </Text>
               <Select.Root
-                value={watch('p2vStatus') ?? ''}
+                value={watch('p2vStatus') ?? SELECT_NONE_VALUE}
                 onValueChange={handleStatusChange}
               >
                 <Select.Trigger placeholder="Select status..." />
                 <Select.Content>
+                  <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
                   {P2V_STATUS.map((status) => (
                     <Select.Item key={status} value={status}>
                       {status}
@@ -149,295 +352,47 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
               </Select.Root>
             </Flex>
 
-            <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '200px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Election Type
-                </Text>
-                <TextField.Root
-                  {...register('electionType')}
-                  placeholder="e.g., General, Primary"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '200px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Election Location
-                </Text>
-                <TextField.Root
-                  {...register('electionLocation')}
-                  placeholder="Location"
-                />
-              </Box>
-            </Flex>
+            {renderFields(ELECTION_INFO_FIELDS)}
           </Flex>
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.TARGET_NUMBERS}>
-          <Flex direction="column" gap="4">
-            <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Win Number
-                </Text>
-                <TextField.Root
-                  {...register('winNumber', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Voter Contact Goal
-                </Text>
-                <TextField.Root
-                  {...register('voterContactGoal', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-            </Flex>
-
-            <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Total Registered Voters
-                </Text>
-                <TextField.Root
-                  {...register('totalRegisteredVoters', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Projected Turnout
-                </Text>
-                <TextField.Root
-                  {...register('projectedTurnout', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Average Turnout
-                </Text>
-                <TextField.Root
-                  {...register('averageTurnout', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-            </Flex>
-          </Flex>
+          {renderFields(TARGET_NUMBER_FIELDS)}
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.PARTY_DEMOGRAPHICS}>
-          <Flex gap="4" wrap="wrap">
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Republicans
-              </Text>
-              <TextField.Root
-                {...register('republicans', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Democrats
-              </Text>
-              <TextField.Root
-                {...register('democrats', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Independents
-              </Text>
-              <TextField.Root
-                {...register('indies', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-          </Flex>
+          {renderFields(PARTY_FIELDS)}
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.GENDER_DEMOGRAPHICS}>
-          <Flex gap="4" wrap="wrap">
-            <Box flexGrow="1" style={{ minWidth: '150px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Men
-              </Text>
-              <TextField.Root
-                {...register('men', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '150px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Women
-              </Text>
-              <TextField.Root
-                {...register('women', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-          </Flex>
+          {renderFields(GENDER_FIELDS)}
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.RACE_DEMOGRAPHICS}>
-          <Flex gap="4" wrap="wrap">
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                White
-              </Text>
-              <TextField.Root
-                {...register('white', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Asian
-              </Text>
-              <TextField.Root
-                {...register('asian', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                African American
-              </Text>
-              <TextField.Root
-                {...register('africanAmerican', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-            <Box flexGrow="1" style={{ minWidth: '120px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Hispanic
-              </Text>
-              <TextField.Root
-                {...register('hispanic', numberFieldOptions)}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="0"
-              />
-            </Box>
-          </Flex>
+          {renderFields(RACE_FIELDS)}
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.VIABILITY}>
           <Flex direction="column" gap="4">
-            <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '150px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Level
-                </Text>
-                <TextField.Root
-                  {...register('viability.level')}
-                  placeholder="Level"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '100px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Seats
-                </Text>
-                <TextField.Root
-                  {...register('viability.seats', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '100px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Candidates
-                </Text>
-                <TextField.Root
-                  {...register('viability.candidates', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  placeholder="0"
-                />
-              </Box>
-            </Flex>
+            {renderFields(VIABILITY_FIELDS)}
 
             <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '120px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Candidates/Seat
-                </Text>
-                <TextField.Root
-                  {...register(
-                    'viability.candidatesPerSeat',
-                    numberFieldOptions
-                  )}
-                  type={INPUT_TYPE.NUMBER}
-                  step="0.01"
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '100px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Score
-                </Text>
-                <TextField.Root
-                  {...register('viability.score', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  step="0.01"
-                  placeholder="0"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '120px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Prob. of Win
-                </Text>
-                <TextField.Root
-                  {...register('viability.probOfWin', numberFieldOptions)}
-                  type={INPUT_TYPE.NUMBER}
-                  step="0.01"
-                  placeholder="0"
-                />
-              </Box>
-            </Flex>
-
-            <Flex gap="4" wrap="wrap">
-              <Flex align="center" gap="2" style={{ minWidth: '120px' }}>
-                <Switch
-                  checked={watch('viability.isPartisan') ?? false}
-                  onCheckedChange={(checked) =>
-                    handleViabilityBooleanChange('isPartisan', checked)
-                  }
-                />
-                <Text size="2">Partisan</Text>
-              </Flex>
-              <Flex align="center" gap="2" style={{ minWidth: '120px' }}>
-                <Switch
-                  checked={watch('viability.isIncumbent') ?? false}
-                  onCheckedChange={(checked) =>
-                    handleViabilityBooleanChange('isIncumbent', checked)
-                  }
-                />
-                <Text size="2">Incumbent</Text>
-              </Flex>
-              <Flex align="center" gap="2" style={{ minWidth: '140px' }}>
-                <Switch
-                  checked={watch('viability.isUncontested') ?? false}
-                  onCheckedChange={(checked) =>
-                    handleViabilityBooleanChange('isUncontested', checked)
-                  }
-                />
-                <Text size="2">Uncontested</Text>
-              </Flex>
+              {VIABILITY_BOOLEAN_FIELDS.map(({ key, label }) => (
+                <Flex
+                  key={key}
+                  align="center"
+                  gap="2"
+                  style={{ minWidth: '120px' }}
+                >
+                  <Switch
+                    checked={watch(`viability.${key}`) ?? false}
+                    onCheckedChange={(checked) =>
+                      handleViabilityBooleanChange(key, checked)
+                    }
+                  />
+                  <Text size="2">{label}</Text>
+                </Flex>
+              ))}
             </Flex>
           </Flex>
         </InfoCard>
@@ -450,6 +405,7 @@ export function P2VForm({ initialData, onSave, onCancel }: P2VFormProps) {
         onSubmit={handleSubmit}
         isValid={isValid}
         isDirty={isDirty}
+        isSaving={isSaving}
       />
     </>
   )

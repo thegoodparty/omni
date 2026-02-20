@@ -1,30 +1,29 @@
-'use client'
+import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
+import { listPathsToVictory } from '@/app/dashboard/p2v/actions'
+import { P2VListTable } from '../../p2v/components/P2VListTable'
 
-import { useRouter } from 'next/navigation'
-import { useToast } from '@/components/Toast'
-import { stubbedPathToVictory } from '@/data/stubbed-p2v'
-import { stubbedCampaign } from '@/data/stubbed-campaign'
-import { P2VForm } from '../components/P2VForm'
-import type { PathToVictoryFormData } from '../schema'
+export const metadata: Metadata = {
+  title: 'Edit Path to Victory | GP Admin',
+  description: 'Edit path to victory details',
+}
 
-export default function EditP2VPage() {
-  const router = useRouter()
-  const { showToast } = useToast()
+interface EditP2VPageProps {
+  params: Promise<{ id: string }>
+}
 
-  function handleSave(data: PathToVictoryFormData) {
-    console.log('[PATCH /path-to-victory/:id] Saving:', data)
-    showToast('Changes saved (simulated)')
+export default async function EditP2VPage({ params }: EditP2VPageProps) {
+  const { id } = await params
+  const userId = Number(id)
+  if (Number.isNaN(userId)) {
+    notFound()
   }
-
-  function handleCancel() {
-    router.push(`/dashboard/users/${stubbedCampaign.userId}/p2v`)
-  }
+  const { data: pathsToVictory } = await listPathsToVictory(userId)
 
   return (
-    <P2VForm
-      initialData={stubbedPathToVictory}
-      onSave={handleSave}
-      onCancel={handleCancel}
+    <P2VListTable
+      pathsToVictory={pathsToVictory}
+      basePath={`/dashboard/users/${userId}/edit/p2v`}
     />
   )
 }
