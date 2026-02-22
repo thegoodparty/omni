@@ -26,7 +26,7 @@ import type { ElectedOffice } from '@goodparty_org/sdk'
 
 interface ElectedOfficeFormProps {
   initialData: ElectedOffice | null
-  onSave: (data: ElectedOfficeFormData) => void
+  onSave: (data: ElectedOfficeFormData) => void | Promise<void>
   onCancel: () => void
   isSaving?: boolean
 }
@@ -74,8 +74,8 @@ export function ElectedOfficeForm({
     }
 
     try {
-      await onSave(data)
-      reset(data)
+      await onSave(result.data)
+      reset(result.data)
     } catch {
       // Save failed — keep the form dirty so the user can retry
     }
