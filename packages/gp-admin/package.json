@@ -22,7 +22,7 @@
     "@clerk/nextjs": "^6.36.5",
     "@clerk/themes": "^2.4.48",
     "@clerk/types": "^4.101.11",
-    "@goodparty_org/sdk": "^1.7.0",
+    "@goodparty_org/sdk": "^1.8.0",
     "@hookform/resolvers": "^5.2.2",
     "@poppanator/http-constants": "^3.0.0",
     "@radix-ui/react-navigation-menu": "^1.2.14",
