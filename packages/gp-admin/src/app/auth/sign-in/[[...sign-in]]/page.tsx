@@ -12,7 +12,7 @@ export default function SignInPage() {
     <Flex align="center" justify="center" minHeight="calc(100vh - 64px)">
       <Box p="8">
         <Flex direction="column" align="center" justify="center">
-          <SignIn />
+          <SignIn forceRedirectUrl="/dashboard" />
         </Flex>
       </Box>
     </Flex>
