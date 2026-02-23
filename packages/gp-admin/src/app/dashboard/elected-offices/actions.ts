@@ -16,9 +16,7 @@ export const listElectedOffices = async (
   })
 
 export const getElectedOffice = async (id: string): Promise<ElectedOffice> =>
-  gpAction(async (client) => {
-    return await client.electedOffices.get(id)
-  })
+  gpAction(async (client) => await client.electedOffices.get(id))
 
 export const updateElectedOffice = async (
   id: string,
