@@ -22,18 +22,20 @@ import {
   FORM_MODE,
   UNSAVED_CHANGES_MESSAGE,
 } from '../constants'
-import type { ElectedOffice } from '../../types/elected-office'
+import type { ElectedOffice } from '@goodparty_org/sdk'
 
 interface ElectedOfficeFormProps {
   initialData: ElectedOffice | null
-  onSave: (data: ElectedOfficeFormData) => void
+  onSave: (data: ElectedOfficeFormData) => void | Promise<void>
   onCancel: () => void
+  isSaving?: boolean
 }
 
 export function ElectedOfficeForm({
   initialData,
   onSave,
   onCancel,
+  isSaving,
 }: ElectedOfficeFormProps) {
   const hasElectedOffice = initialData !== null
 
@@ -42,6 +44,7 @@ export function ElectedOfficeForm({
     watch,
     setValue,
     getValues,
+    reset,
     formState: { isDirty, isValid },
   } = useForm<ElectedOfficeFormData>({
     mode: FORM_MODE.ON_CHANGE,
@@ -61,7 +64,7 @@ export function ElectedOfficeForm({
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const data = getValues()
     const result = electedOfficeSchema.safeParse(data)
 
@@ -70,7 +73,12 @@ export function ElectedOfficeForm({
       return
     }
 
-    onSave(data)
+    try {
+      await onSave(result.data)
+      reset(result.data)
+    } catch {
+      // Save failed — keep the form dirty so the user can retry
+    }
   }
 
   if (!hasElectedOffice) {
@@ -169,6 +177,7 @@ export function ElectedOfficeForm({
         onSubmit={handleSubmit}
         isValid={isValid}
         isDirty={isDirty}
+        isSaving={isSaving}
       />
     </>
   )
