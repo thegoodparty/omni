@@ -1,4 +1,8 @@
-// a redirect to dashboard or auth will happen in the layout
+import { redirect } from 'next/navigation'
+import { currentUser } from '@clerk/nextjs/server'
+
 export default async function Home() {
-  return <div>Home</div>
+  const user = await currentUser()
+  if (user) redirect('/dashboard')
+  redirect('/auth')
 }

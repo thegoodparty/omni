@@ -16,7 +16,11 @@ interface P2VPageProps {
 export default async function P2VPage({ params }: P2VPageProps) {
   const { id } = await params
   const [userId] = validateNumericParams(id)
-  const { data: pathsToVictory } = await listPathsToVictory(userId)
+  const { data: pathsToVictory } = await listPathsToVictory(userId).catch(
+    () => ({
+      data: [] as Awaited<ReturnType<typeof listPathsToVictory>>['data'],
+    })
+  )
 
   return (
     <ViewLayout>
