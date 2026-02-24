@@ -1,5 +1,16 @@
 # @goodparty_org/sdk
 
+## 1.9.0
+
+### Minor Changes
+
+- [#37](https://github.com/thegoodparty/gp-sdk/pull/37) [`92d8d65`](https://github.com/thegoodparty/gp-sdk/commit/92d8d6574626e66038e6b38fcd9e4c552166c5a8) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Replace duplicated local types with imports from @goodparty_org/contracts.
+  - User types (ReadUserOutput, UpdatePasswordInput, PaginatedList, PaginationMeta, SIGN_UP_MODE) now come from contracts
+  - Resource files import directly from @goodparty_org/contracts instead of local type files
+  - Removed duplicated type definitions from src/types/user.ts and src/types/result.ts
+  - Added @goodparty_org/contracts as a dependency
+  - Re-export ReadUserOutput as User for backward compatibility
+
 ## 1.8.0
 
 ### Minor Changes
