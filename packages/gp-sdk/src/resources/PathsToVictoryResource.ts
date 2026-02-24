@@ -1,4 +1,4 @@
-import type { PaginatedList } from '../types/result'
+import type { PaginatedList } from '@goodparty_org/contracts'
 import type {
   ListPathsToVictoryOptions,
   PathToVictory,

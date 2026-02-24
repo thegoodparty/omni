@@ -2,18 +2,20 @@ export { GoodPartyClient } from './GoodPartyClient'
 export type { GoodPartyClientConfig } from './GoodPartyClient'
 
 export { SdkError } from './types/result'
-export type {
-  PaginationOptions,
-  PaginationMeta,
-  PaginatedList,
-} from './types/result'
+export type { PaginationOptions } from './types/result'
 
 export type {
-  User,
+  PaginationMeta,
+  PaginatedList,
+  ReadUserOutput,
+  ReadUserOutput as User,
+  UpdatePasswordInput,
+} from '@goodparty_org/contracts'
+
+export type {
   UserMetaData,
   ListUsersOptions,
   UpdateUserInput,
-  UpdatePasswordInput,
 } from './types/user'
 
 export { UserRole, WhyBrowsing } from './types/user'

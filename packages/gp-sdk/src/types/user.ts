@@ -1,4 +1,12 @@
+import { SIGN_UP_MODE } from '@goodparty_org/contracts'
 import type { PaginationOptions } from './result'
+
+export type {
+  ReadUserOutput as User,
+  UpdatePasswordInput,
+} from '@goodparty_org/contracts'
+
+export { SIGN_UP_MODE } from '@goodparty_org/contracts'
 
 export enum UserRole {
   admin = 'admin',
@@ -15,11 +23,6 @@ export enum WhyBrowsing {
   else = 'else',
 }
 
-export enum SIGN_UP_MODE {
-  CANDIDATE = 'candidate',
-  FACILITATED = 'facilitated',
-}
-
 export type UserMetaData = {
   customerId?: string
   checkoutSessionId?: string | null
@@ -33,20 +36,6 @@ export type UserMetaData = {
   profile_updated_count?: number
   textNotifications?: boolean
 } | null
-
-export type User = {
-  id: number
-  firstName: string
-  lastName: string
-  name?: string | null
-  email: string
-  phone?: string | null
-  zip?: string | null
-  avatar?: string | null
-  hasPassword: boolean
-  roles?: UserRole[]
-  metaData?: UserMetaData
-}
 
 export type ListUsersOptions = PaginationOptions & {
   firstName?: string
@@ -65,9 +54,4 @@ export type UpdateUserInput = {
   signUpMode?: SIGN_UP_MODE
   allowTexts?: boolean
   metaData?: UserMetaData
-}
-
-export type UpdatePasswordInput = {
-  oldPassword?: string
-  newPassword: string
 }

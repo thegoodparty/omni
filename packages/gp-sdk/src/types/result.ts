@@ -1,3 +1,5 @@
+export type { PaginationMeta, PaginatedList } from '@goodparty_org/contracts'
+
 export class SdkError extends Error {
   readonly status: number
   readonly response?: Response
@@ -15,15 +17,4 @@ export type PaginationOptions = {
   limit?: number
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
-}
-
-export type PaginationMeta = {
-  total: number
-  offset: number
-  limit: number
-}
-
-export type PaginatedList<T> = {
-  data: T[]
-  meta: PaginationMeta
 }
