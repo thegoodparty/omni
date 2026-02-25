@@ -26,14 +26,14 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/auth\/sign-in/)
   })
 
-  test('authenticated user can sign in and access dashboard', async ({
+  test('authenticated user can sign in and lands on users page', async ({
     page,
   }) => {
     await signIn(page, TEST_USERS.DEV_ADMIN)
 
-    await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page).toHaveURL(/\/dashboard\/users/)
     await expect(
-      page.getByRole('heading', { name: 'Dashboard Page' })
+      page.getByRole('heading', { name: 'Search Users' })
     ).toBeVisible()
   })
 

@@ -26,12 +26,12 @@ test.describe('Role-Based Access Control', () => {
       await signIn(page, TEST_USERS.DEV_SALES)
     })
 
-    test('sales cannot access members page - redirects to dashboard', async ({
+    test('sales cannot access members page - redirects to users', async ({
       page,
     }) => {
       await page.goto('/dashboard/members')
 
-      await expect(page).toHaveURL(/\/dashboard$/)
+      await expect(page).toHaveURL(/\/dashboard\/users/)
     })
   })
 
@@ -40,12 +40,12 @@ test.describe('Role-Based Access Control', () => {
       await signIn(page, TEST_USERS.DEV_READONLY)
     })
 
-    test('readonly cannot access members page - redirects to dashboard', async ({
+    test('readonly cannot access members page - redirects to users', async ({
       page,
     }) => {
       await page.goto('/dashboard/members')
 
-      await expect(page).toHaveURL(/\/dashboard$/)
+      await expect(page).toHaveURL(/\/dashboard\/users/)
     })
   })
 })
