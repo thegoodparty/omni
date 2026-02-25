@@ -13,7 +13,7 @@ export default async function Page() {
   const { has, orgId } = await auth()
 
   if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES }) || !orgId) {
-    redirect('/dashboard')
+    redirect('/dashboard/users')
   }
 
   return <MembersPage />
