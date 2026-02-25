@@ -2,6 +2,7 @@ import { Metadata } from 'next'
 import { listCampaigns } from '@/app/dashboard/campaigns/actions'
 import { CampaignListTable } from '../../campaign/components/CampaignListTable'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+import { listOrEmpty } from '@/shared/util/gpClient.util'
 
 export const metadata: Metadata = {
   title: 'Edit Campaign | GP Admin',
@@ -17,7 +18,7 @@ export default async function EditCampaignPage({
 }: EditCampaignPageProps) {
   const { id } = await params
   const [userId] = validateNumericParams(id)
-  const { data: campaigns } = await listCampaigns(userId)
+  const { data: campaigns } = await listOrEmpty(listCampaigns(userId))
 
   return (
     <CampaignListTable

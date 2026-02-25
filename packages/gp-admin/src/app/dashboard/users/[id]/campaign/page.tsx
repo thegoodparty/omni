@@ -3,6 +3,7 @@ import { listCampaigns } from '@/app/dashboard/campaigns/actions'
 import { CampaignListTable } from './components/CampaignListTable'
 import { ViewLayout } from '../components/ViewLayout'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+import { listOrEmpty } from '@/shared/util/gpClient.util'
 
 export const metadata: Metadata = {
   title: 'Campaign Details | GP Admin',
@@ -16,7 +17,7 @@ interface CampaignPageProps {
 export default async function CampaignPage({ params }: CampaignPageProps) {
   const { id } = await params
   const [userId] = validateNumericParams(id)
-  const { data: campaigns } = await listCampaigns(userId)
+  const { data: campaigns } = await listOrEmpty(listCampaigns(userId))
 
   return (
     <ViewLayout>
