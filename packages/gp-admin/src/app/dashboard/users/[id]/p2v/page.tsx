@@ -3,6 +3,7 @@ import { listPathsToVictory } from '@/app/dashboard/p2v/actions'
 import { P2VListTable } from './components/P2VListTable'
 import { ViewLayout } from '../components/ViewLayout'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+import { listOrEmpty } from '@/shared/util/gpClient.util'
 
 export const metadata: Metadata = {
   title: 'Paths to Victory | GP Admin',
@@ -16,7 +17,7 @@ interface P2VPageProps {
 export default async function P2VPage({ params }: P2VPageProps) {
   const { id } = await params
   const [userId] = validateNumericParams(id)
-  const { data: pathsToVictory } = await listPathsToVictory(userId)
+  const { data: pathsToVictory } = await listOrEmpty(listPathsToVictory(userId))
 
   return (
     <ViewLayout>

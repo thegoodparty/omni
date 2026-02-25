@@ -3,6 +3,7 @@ import { listElectedOffices } from '@/app/dashboard/elected-offices/actions'
 import { ElectedOfficeListTable } from './components/ElectedOfficeListTable'
 import { ViewLayout } from '../components/ViewLayout'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+import { listOrEmpty } from '@/shared/util/gpClient.util'
 
 export const metadata: Metadata = {
   title: 'Elected Offices | GP Admin',
@@ -18,7 +19,7 @@ export default async function ElectedOfficePage({
 }: ElectedOfficePageProps) {
   const { id } = await params
   const [userId] = validateNumericParams(id)
-  const { data: electedOffices } = await listElectedOffices(userId)
+  const { data: electedOffices } = await listOrEmpty(listElectedOffices(userId))
 
   return (
     <ViewLayout>
