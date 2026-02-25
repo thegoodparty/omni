@@ -6,10 +6,10 @@ test.describe('Dashboard', () => {
     await signIn(page, TEST_USERS.DEV_ADMIN)
   })
 
-  test('displays dashboard page with heading', async ({ page }) => {
-    await expect(page).toHaveURL(/\/dashboard/)
+  test('redirects to users page after sign-in', async ({ page }) => {
+    await expect(page).toHaveURL(/\/dashboard\/users/)
     await expect(
-      page.getByRole('heading', { name: 'Dashboard Page' })
+      page.getByRole('heading', { name: 'Search Users' })
     ).toBeVisible()
   })
 
