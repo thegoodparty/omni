@@ -12,7 +12,11 @@ const EMPTY_META = { total: 0, offset: 0, limit: 0 } as const
 export async function listOrEmpty<T>(
   promise: Promise<PaginatedList<T>>
 ): Promise<PaginatedList<T>> {
-  return promise.catch((): PaginatedList<T> => ({ data: [], meta: EMPTY_META }))
+  try {
+    return await promise
+  } catch {
+    return { data: [], meta: EMPTY_META }
+  }
 }
 
 const clientCache = new Map<GpEnvironment, Promise<GoodPartyClient>>()
