@@ -119,7 +119,9 @@ describe('CampaignForm', () => {
       renderForm()
 
       expect(screen.getByText('Campaign Status')).toBeInTheDocument()
-      expect(screen.getByText('Campaign Tier')).toBeInTheDocument()
+      expect(
+        screen.getByText('Elections Results (Campaign Tier)')
+      ).toBeInTheDocument()
       expect(screen.getByText('Campaign Data')).toBeInTheDocument()
       expect(screen.getByText('Location')).toBeInTheDocument()
       // "Office" appears as section heading and field label
