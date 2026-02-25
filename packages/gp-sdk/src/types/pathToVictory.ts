@@ -1,4 +1,4 @@
-import type { PaginationOptions } from './result'
+import type { PaginationOptions } from '@goodparty_org/contracts'
 
 export enum P2VStatus {
   complete = 'Complete',

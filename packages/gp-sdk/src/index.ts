@@ -2,26 +2,19 @@ export { GoodPartyClient } from './GoodPartyClient'
 export type { GoodPartyClientConfig } from './GoodPartyClient'
 
 export { SdkError } from './types/result'
-export type { PaginationOptions } from './types/result'
 
 export type {
   PaginationMeta,
   PaginatedList,
+  PaginationOptions,
   ReadUserOutput,
   ReadUserOutput as User,
   UpdatePasswordInput,
-} from '@goodparty_org/contracts'
-
-export type {
-  UserMetaData,
-  ListUsersOptions,
   UpdateUserInput,
-} from './types/user'
-
-export { UserRole, WhyBrowsing } from './types/user'
-
-export type {
-  Campaign,
+  UserMetaData,
+  ListUsersPagination,
+  ReadCampaignOutput,
+  ReadCampaignOutput as Campaign,
   CampaignDetails,
   CampaignData,
   CampaignAiContent,
@@ -31,23 +24,38 @@ export type {
   AiContentInputValues,
   AiContentGenerationStatus,
   AiContentData,
-  ListCampaignsOptions,
-  UpdateCampaignInput,
   GeoLocation,
   CustomIssue,
   Opponent,
   HubSpotUpdates,
-} from './types/campaign'
+  CampaignFinance,
+  CampaignPlan,
+  CampaignPlanStatus,
+  ListCampaignsPagination,
+  UpdateCampaignM2MInput,
+} from '@goodparty_org/contracts'
 
 export {
-  CampaignTier,
+  USER_ROLE_VALUES,
+  WHY_BROWSING_VALUES,
+  CAMPAIGN_TIER_VALUES,
+  BALLOT_READY_POSITION_LEVEL_VALUES,
+  ELECTION_LEVEL_VALUES,
+  CAMPAIGN_CREATED_BY_VALUES,
+  CAMPAIGN_LAUNCH_STATUS_VALUES,
+  CAMPAIGN_STATUS_VALUES,
+  ONBOARDING_STEP_VALUES,
+  GENERATION_STATUS_VALUES,
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignCreatedBy,
   CampaignLaunchStatus,
+  CampaignStatus,
   OnboardingStep,
   GenerationStatus,
-} from './types/campaign'
+} from '@goodparty_org/contracts'
+
+export { UserRole, WhyBrowsing, CampaignTier } from './enums'
 
 export type {
   ElectedOffice,

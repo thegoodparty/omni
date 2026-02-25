@@ -1,4 +1,4 @@
-import type { PaginationOptions } from './result'
+import type { PaginationOptions } from '@goodparty_org/contracts'
 
 export type ElectedOffice = {
   id: string
