@@ -42,7 +42,7 @@ export const USER_FORM_SECTIONS = {
 
 export const CAMPAIGN_FORM_SECTIONS = {
   STATUS: 'Campaign Status',
-  TIER: 'Campaign Tier',
+  TIER: 'Elections Results (Campaign Tier)',
   DATA: 'Campaign Data',
   LOCATION: 'Location',
   OFFICE: 'Office',
