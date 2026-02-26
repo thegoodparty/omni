@@ -1,5 +1,13 @@
 # @goodparty_org/sdk
 
+## 1.11.3
+
+### Patch Changes
+
+- [#49](https://github.com/thegoodparty/gp-sdk/pull/49) [`6e4453b`](https://github.com/thegoodparty/gp-sdk/commit/6e4453b22d522aea8e273ac228b2b2a9a4c356ce) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Bump @goodparty_org/contracts to pick up CJS interop fix for validator package
+
+- [#49](https://github.com/thegoodparty/gp-sdk/pull/49) [`6e4453b`](https://github.com/thegoodparty/gp-sdk/commit/6e4453b22d522aea8e273ac228b2b2a9a4c356ce) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Pin @goodparty_org/contracts to exact version to prevent npm semver sorting from resolving a stale RC
+
 ## 1.11.2
 
 ### Patch Changes
