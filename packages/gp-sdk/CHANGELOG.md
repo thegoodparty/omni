@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.11.1
+
+### Patch Changes
+
+- [#44](https://github.com/thegoodparty/gp-sdk/pull/44) [`86c6e67`](https://github.com/thegoodparty/gp-sdk/commit/86c6e67d60c90deeaff8abfca5563670ee29b1c6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Rename UpdateCampaignM2MInput export to UpdateCampaignInput for backward compatibility with consumers
+
 ## 1.11.0
 
 ### Minor Changes
