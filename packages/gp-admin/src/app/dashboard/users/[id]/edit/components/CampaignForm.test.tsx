@@ -120,7 +120,7 @@ describe('CampaignForm', () => {
 
       expect(screen.getByText('Campaign Status')).toBeInTheDocument()
       expect(
-        screen.getByText('Elections Results (Campaign Tier)')
+        screen.getByText('Election Results (Campaign Tier)')
       ).toBeInTheDocument()
       expect(screen.getByText('Campaign Data')).toBeInTheDocument()
       expect(screen.getByText('Location')).toBeInTheDocument()
