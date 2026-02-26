@@ -32,7 +32,7 @@ export type {
   CampaignPlan,
   CampaignPlanStatus,
   ListCampaignsPagination,
-  UpdateCampaignM2MInput,
+  UpdateCampaignM2MInput as UpdateCampaignInput,
 } from '@goodparty_org/contracts'
 
 export {
