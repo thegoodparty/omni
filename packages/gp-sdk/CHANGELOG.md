@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.11.2
+
+### Patch Changes
+
+- [#47](https://github.com/thegoodparty/gp-sdk/pull/47) [`0c1ffdb`](https://github.com/thegoodparty/gp-sdk/commit/0c1ffdb0838b5a0a8cc58b2852e1c02d227b3817) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Bump @goodparty_org/contracts to pick up CJS interop fix for validator package
+
 ## 1.11.1
 
 ### Patch Changes
