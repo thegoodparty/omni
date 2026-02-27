@@ -148,7 +148,7 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
           </Flex>
         </InfoCard>
 
-        <InfoCard title="Campaign Tier">
+        <InfoCard title="Election Results (Campaign Tier)">
           <FieldList data={campaign} fields={TIER_FIELDS} />
         </InfoCard>
 
