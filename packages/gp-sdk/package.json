@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^2.30.1",
-    "@goodparty_org/contracts": "0.0.0-rc-develop.6d7d232bf7de0048b9949ce45b6287aa54d3773a",
+    "@goodparty_org/contracts": "^0.0.0-rc-develop.ae674d1852a1ef63798d7da64e74ed68c9851827",
     "ofetch": "^1.5.1"
   }
 }
