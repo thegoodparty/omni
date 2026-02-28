@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.12.0
+
+### Minor Changes
+
+- [#51](https://github.com/thegoodparty/gp-sdk/pull/51) [`79a49fc`](https://github.com/thegoodparty/gp-sdk/commit/79a49fc1ccda2b388c4045778c32d575b26df3cf) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add EcanvasserResource with create, list, syncAll, and delete endpoints
+
 ## 1.11.3
 
 ### Patch Changes
