@@ -82,6 +82,18 @@ const updatedP2v = await client.pathsToVictory.update(1, {
   data: { p2vStatus: 'Complete', winNumber: 5000 },
 })
 
+// Ecanvasser
+const ecanvasser = await client.ecanvasser.create({
+  apiKey: 'ecanvasser-api-key',
+  email: 'user@example.com',
+})
+
+const allEcanvassers = await client.ecanvasser.list()
+
+await client.ecanvasser.syncAll()
+
+await client.ecanvasser.delete(campaignId)
+
 client.destroy()
 ```
 

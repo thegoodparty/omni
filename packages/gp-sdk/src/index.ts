@@ -33,6 +33,9 @@ export type {
   CampaignPlanStatus,
   ListCampaignsPagination,
   UpdateCampaignM2MInput as UpdateCampaignInput,
+  CreateEcanvasserInput,
+  Ecanvasser,
+  EcanvasserSummary,
 } from '@goodparty_org/contracts'
 
 export {
