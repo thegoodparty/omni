@@ -1,4 +1,4 @@
-import { HiUsers, HiCog, HiUserGroup } from 'react-icons/hi'
+import { HiUsers, HiCog, HiUserGroup, HiGlobeAlt } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
 
@@ -21,6 +21,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/members',
     icon: HiUserGroup,
     permission: PERMISSIONS.MANAGE_INVITES,
+  },
+  {
+    title: 'Ecanvasser',
+    href: '/dashboard/ecanvasser',
+    icon: HiGlobeAlt,
+    permission: PERMISSIONS.MANAGE_ECANVASSER,
   },
   {
     title: 'Settings',

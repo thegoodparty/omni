@@ -15,7 +15,7 @@ import { HiSearch, HiX } from 'react-icons/hi'
 import { ErrorText } from './ErrorText'
 import { z } from 'zod'
 import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
-import { FORM_MODE } from '@/app/dashboard/users/[id]/edit/constants'
+import { FORM_MODE } from '@/shared/constants/form'
 
 const emailSchema = z.email()
 
