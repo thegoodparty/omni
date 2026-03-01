@@ -40,7 +40,14 @@ export function ConfirmDialog({
             </Button>
           </AlertDialog.Cancel>
           <AlertDialog.Action>
-            <Button color={color} onClick={onConfirm} loading={loading}>
+            <Button
+              color={color}
+              onClick={(e) => {
+                e.preventDefault()
+                onConfirm()
+              }}
+              loading={loading}
+            >
               {confirmLabel}
             </Button>
           </AlertDialog.Action>

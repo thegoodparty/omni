@@ -7,14 +7,11 @@ import type { EcanvasserSummary } from '@goodparty_org/sdk'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
 import { deleteEcanvasser } from '../actions'
+import { formatNumberForDisplay } from '@/lib/utils/number'
 
 interface EcanvasserTableProps {
   ecanvassers: EcanvasserSummary[]
   onUpdate: () => void
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat().format(value)
 }
 
 function formatDate(dateStr: string | null): string {
@@ -75,9 +72,11 @@ export function EcanvasserTable({
             <Table.Row key={item.campaignId}>
               <Table.Cell>{item.campaignId ?? '—'}</Table.Cell>
               <Table.Cell>{item.email ?? '—'}</Table.Cell>
-              <Table.Cell>{formatNumber(item.contacts)}</Table.Cell>
-              <Table.Cell>{formatNumber(item.houses)}</Table.Cell>
-              <Table.Cell>{formatNumber(item.interactions)}</Table.Cell>
+              <Table.Cell>{formatNumberForDisplay(item.contacts)}</Table.Cell>
+              <Table.Cell>{formatNumberForDisplay(item.houses)}</Table.Cell>
+              <Table.Cell>
+                {formatNumberForDisplay(item.interactions)}
+              </Table.Cell>
               <Table.Cell>{formatDate(item.lastSync)}</Table.Cell>
               <Table.Cell>
                 {item.error ? <Badge color="red">{item.error}</Badge> : '—'}
