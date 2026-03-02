@@ -20,6 +20,7 @@ describe('PERMISSIONS', () => {
       WRITE_CAMPAIGNS: 'org:admin_portal:write_campaigns',
       MANAGE_SETTINGS: 'org:admin_portal:manage_settings',
       MANAGE_INVITES: 'org:admin_portal:manage_invites',
+      MANAGE_ECANVASSER: 'org:admin_portal:manage_ecanvasser',
     })
   })
 })

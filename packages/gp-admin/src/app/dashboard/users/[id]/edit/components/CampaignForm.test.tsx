@@ -37,8 +37,8 @@ HTMLElement.prototype.scrollIntoView = vi.fn()
 
 const mockCampaign: Campaign = {
   id: 1,
-  createdAt: '2023-04-02T05:51:59.450Z',
-  updatedAt: '2026-01-29T03:50:12.433Z',
+  createdAt: new Date('2023-04-02T05:51:59.450Z'),
+  updatedAt: new Date('2026-01-29T03:50:12.433Z'),
   slug: 'test-campaign',
   userId: 595,
   isActive: true,

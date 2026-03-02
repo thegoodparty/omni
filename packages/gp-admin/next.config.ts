@@ -4,7 +4,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // This empty config is intentional to allow for the use of turbopack as the default bundler
   //  while still allowing for the use of webpack for development of linked packages.
-  turbopack: {},
+  turbopack: {
+    root: __dirname,
+  },
   transpilePackages: ['@goodparty_org/sdk'],
   images: {
     remotePatterns: [
