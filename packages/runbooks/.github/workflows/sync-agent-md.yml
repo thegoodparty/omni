@@ -1,0 +1,24 @@
+name: Sync agent.md from CLAUDE.md
+
+on:
+  push:
+    paths:
+      - CLAUDE.md
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy CLAUDE.md to agent.md
+        run: cp CLAUDE.md agent.md
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet agent.md && exit 0
+          git add agent.md
+          git commit -m "sync agent.md from CLAUDE.md"
+          git push

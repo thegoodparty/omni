@@ -1,0 +1,9 @@
+[project]
+name = "runbook-scripts"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "databricks-sql-connector",
+    "pandas",
+    "python-dotenv",
+]
