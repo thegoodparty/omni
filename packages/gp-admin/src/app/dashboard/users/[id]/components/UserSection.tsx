@@ -7,6 +7,11 @@ import { DataRow } from './DataRow'
 import { useUser } from '../context/UserContext'
 import { UserRole } from '@goodparty_org/sdk'
 
+const HUBSPOT_PORTAL_ID = '21589597'
+const HUBSPOT_CONTACT_URL = `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1`
+const AMPLITUDE_USERS_URL =
+  'https://app.amplitude.com/analytics/goodparty/users'
+
 export function UserSection() {
   const {
     id,
@@ -32,7 +37,28 @@ export function UserSection() {
       </InfoCard>
 
       <InfoCard title="Metadata">
-        <DataRow label="HubSpot ID">{hubspotId}</DataRow>
+        <DataRow label="HubSpot ID">
+          {hubspotId ? (
+            <a
+              href={`${HUBSPOT_CONTACT_URL}/${hubspotId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {hubspotId}
+            </a>
+          ) : (
+            'No HubSpot ID'
+          )}
+        </DataRow>
+        <DataRow label="Amplitude Link">
+          <a
+            href={`${AMPLITUDE_USERS_URL}?property=user_id&search=${id}&searchType=search`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View in Amplitude
+          </a>
+        </DataRow>
         <DataRow label="Text Notifications">
           <Badge color={textNotifications ? 'green' : 'gray'} variant="soft">
             {textNotifications ? 'Enabled' : 'Disabled'}
