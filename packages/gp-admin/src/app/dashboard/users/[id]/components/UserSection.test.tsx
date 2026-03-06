@@ -55,10 +55,21 @@ describe('UserSection', () => {
     expect(screen.getByText('Enabled')).toBeInTheDocument()
   })
 
+  it('builds HubSpot link using hubspotId', () => {
+    renderWithUser(mockUser)
+
+    expect(screen.getByRole('link', { name: 'hs_12345' })).toHaveAttribute(
+      'href',
+      'https://app.hubspot.com/contacts/21589597/record/0-1/hs_12345'
+    )
+  })
+
   it('builds Amplitude link using user_id property', () => {
     renderWithUser(mockUser)
 
-    expect(screen.getByRole('link', { name: 'View in Amplitude' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'View in Amplitude' })
+    ).toHaveAttribute(
       'href',
       'https://app.amplitude.com/analytics/goodparty/users?property=user_id&search=123&searchType=search'
     )
@@ -91,6 +102,7 @@ describe('UserSection', () => {
     renderWithUser({ ...mockUser, metaData: undefined })
 
     expect(screen.getByText('Metadata')).toBeInTheDocument()
+    expect(screen.getByText('No HubSpot ID')).toBeInTheDocument()
     expect(screen.getByText('Disabled')).toBeInTheDocument()
   })
 })
