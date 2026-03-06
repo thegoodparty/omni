@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { signIn, TEST_USERS } from './helpers/auth'
+import {
+  signIn,
+  TEST_USERS,
+  expectOnSignInFlow,
+  waitForSignInForm,
+} from './helpers/auth'
 
 test.describe('Authentication', () => {
   test('unauthenticated user visiting root is redirected to sign-in', async ({
@@ -7,7 +12,7 @@ test.describe('Authentication', () => {
   }) => {
     await page.goto('/')
 
-    await expect(page).toHaveURL(/\/auth\/sign-in/)
+    await expectOnSignInFlow(page)
   })
 
   test('unauthenticated user visiting dashboard is redirected to sign-in', async ({
@@ -15,7 +20,7 @@ test.describe('Authentication', () => {
   }) => {
     await page.goto('/dashboard')
 
-    await expect(page).toHaveURL(/\/auth\/sign-in/)
+    await expectOnSignInFlow(page)
   })
 
   test('unauthenticated user visiting protected route is redirected to sign-in', async ({
@@ -23,7 +28,7 @@ test.describe('Authentication', () => {
   }) => {
     await page.goto('/dashboard/members')
 
-    await expect(page).toHaveURL(/\/auth\/sign-in/)
+    await expectOnSignInFlow(page)
   })
 
   test('authenticated user can sign in and lands on users page', async ({
@@ -42,7 +47,6 @@ test.describe('Authentication', () => {
   }) => {
     await page.goto('/auth/sign-in')
 
-    await expect(page).toHaveURL(/\/auth\/sign-in/)
-    await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible()
+    await waitForSignInForm(page)
   })
 })
