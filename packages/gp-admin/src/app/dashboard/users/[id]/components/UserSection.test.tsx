@@ -55,6 +55,15 @@ describe('UserSection', () => {
     expect(screen.getByText('Enabled')).toBeInTheDocument()
   })
 
+  it('builds Amplitude link using user_id property', () => {
+    renderWithUser(mockUser)
+
+    expect(screen.getByRole('link', { name: 'View in Amplitude' })).toHaveAttribute(
+      'href',
+      'https://app.amplitude.com/analytics/goodparty/users?property=user_id&search=123&searchType=search'
+    )
+  })
+
   it('shows Disabled for text notifications when false', () => {
     renderWithUser({
       ...mockUser,
