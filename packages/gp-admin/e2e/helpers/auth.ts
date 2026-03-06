@@ -1,4 +1,4 @@
-import { expect, Page, test } from '@playwright/test'
+import { Page } from '@playwright/test'
 
 /**
  * Test user type constants for different organizations and roles.
@@ -93,66 +93,6 @@ export function getTestUserCredentials(userType: TestUserType): {
   return { email, password }
 }
 
-const SIGN_IN_OR_HANDSHAKE_URL =
-  /\/auth\/sign-in|clerk\.accounts\.[^/]+\/v1\/client\/handshake/
-const CLERK_HANDSHAKE_URL = /clerk\.accounts\.[^/]+\/v1\/client\/handshake/
-
-function isClerkHandshakeUrl(url: string): boolean {
-  return CLERK_HANDSHAKE_URL.test(url)
-}
-
-async function skipIfClerkDnsUnavailable(page: Page): Promise<void> {
-  if (!isClerkHandshakeUrl(page.url())) {
-    return
-  }
-
-  const has1016Error = await page
-    .getByRole('heading', { name: 'Error 1016' })
-    .isVisible()
-    .catch(() => false)
-  const hasDnsErrorHeading = await page
-    .getByRole('heading', { name: /Origin DNS error/i })
-    .isVisible()
-    .catch(() => false)
-
-  if (has1016Error || hasDnsErrorHeading) {
-    test.skip(
-      true,
-      'Clerk hosted auth is unavailable (Cloudflare 1016 DNS error)'
-    )
-  }
-}
-
-async function waitForEmailInputOrSkip(page: Page): Promise<void> {
-  const emailInput = page.getByRole('textbox', { name: /email/i })
-  const timeoutAt = Date.now() + 30000
-
-  while (Date.now() < timeoutAt) {
-    await skipIfClerkDnsUnavailable(page)
-
-    if (await emailInput.isVisible().catch(() => false)) {
-      return
-    }
-
-    await page.waitForTimeout(250)
-  }
-
-  await skipIfClerkDnsUnavailable(page)
-  await emailInput.waitFor({ state: 'visible', timeout: 5000 })
-}
-
-export async function expectOnSignInFlow(page: Page): Promise<void> {
-  await expect
-    .poll(() => page.url(), { timeout: 15000 })
-    .toMatch(SIGN_IN_OR_HANDSHAKE_URL)
-  await skipIfClerkDnsUnavailable(page)
-}
-
-export async function waitForSignInForm(page: Page): Promise<void> {
-  await expectOnSignInFlow(page)
-  await waitForEmailInputOrSkip(page)
-}
-
 /**
  * Signs in a user using Clerk's email/password authentication.
  * @param page - Playwright page object
@@ -165,9 +105,9 @@ export async function signIn(
   const { email, password } = getTestUserCredentials(userType)
 
   await page.goto('/auth/sign-in')
-  await waitForSignInForm(page)
 
   const emailInput = page.getByRole('textbox', { name: /email/i })
+  await emailInput.waitFor({ state: 'visible' })
 
   await emailInput.fill(email)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
