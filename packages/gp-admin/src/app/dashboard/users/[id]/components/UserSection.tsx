@@ -42,19 +42,19 @@ export function UserSection() {
               {hubspotId}
             </a>
           ) : (
-            hubspotId
+            'No HubSpot ID'
           )}
         </DataRow>
         <DataRow label="Amplitude Link">
-          {id ? (
+          {id && (
             <a
-              href={`https://app.amplitude.com/analytics/goodparty/users?property=amplitude_id&search=${id}&searchType=search`}
+              href={`https://app.amplitude.com/analytics/goodparty/users?property=user_id&search=${id}&searchType=search`}
               target="_blank"
               rel="noopener noreferrer"
             >
               View in Amplitude
             </a>
-          ) : null}
+          )}
         </DataRow>
         <DataRow label="Text Notifications">
           <Badge color={textNotifications ? 'green' : 'gray'} variant="soft">
