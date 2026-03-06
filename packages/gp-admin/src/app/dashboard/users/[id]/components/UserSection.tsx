@@ -32,7 +32,30 @@ export function UserSection() {
       </InfoCard>
 
       <InfoCard title="Metadata">
-        <DataRow label="HubSpot ID">{hubspotId}</DataRow>
+        <DataRow label="HubSpot ID">
+          {hubspotId ? (
+            <a
+              href={`https://app.hubspot.com/contacts/21589597/record/0-1/${hubspotId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {hubspotId}
+            </a>
+          ) : (
+            hubspotId
+          )}
+        </DataRow>
+        <DataRow label="Amplitude Link">
+          {id ? (
+            <a
+              href={`https://app.amplitude.com/analytics/goodparty/users?property=amplitude_id&search=${id}&searchType=search`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View in Amplitude
+            </a>
+          ) : null}
+        </DataRow>
         <DataRow label="Text Notifications">
           <Badge color={textNotifications ? 'green' : 'gray'} variant="soft">
             {textNotifications ? 'Enabled' : 'Disabled'}
