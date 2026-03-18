@@ -9,7 +9,8 @@ import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
 import { createImpersonationToken } from '../../actions'
 
-const GP_WEBAPP_URL = process.env.NEXT_PUBLIC_GP_WEBAPP_URL || ''
+const GP_WEBAPP_URL =
+  process.env.NEXT_PUBLIC_GP_WEBAPP_URL || 'https://app.goodparty.org'
 
 interface ImpersonateButtonProps {
   email: string
