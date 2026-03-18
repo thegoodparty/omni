@@ -10,10 +10,19 @@ const mockUseAuth = vi.fn()
 
 vi.mock('@clerk/nextjs', () => ({
   useAuth: () => mockUseAuth(),
+  useSignIn: () => ({ signIn: null, setActive: vi.fn() }),
   ClerkLoading: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
   ClerkLoaded: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('@/components/Toast', () => ({
+  useToast: () => ({ showToast: vi.fn() }),
+}))
+
+vi.mock('../../actions', () => ({
+  createImpersonationToken: vi.fn(),
 }))
 
 const mockUsePathname = vi.fn()
