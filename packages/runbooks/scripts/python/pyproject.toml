@@ -6,5 +6,4 @@ dependencies = [
     "databricks-sql-connector",
     "pandas",
     "python-dotenv",
-    "reportlab",
 ]
