@@ -2,24 +2,18 @@ Query Grafana Cloud for traces, metrics, and alert history via the API.
 
 ## Prerequisites
 
-**Tools**: `curl`, `jq`, `aws` CLI (with SSM access)
-**Access**: AWS SSM parameter `grafana-shared-service-account-token`
+**books/.env variables**: `$AWS_PROFILE`, `$GRAFANA_TOKEN`
+**Tools**: `curl`, `jq`
 
 ## Auth
 
+Set `$GRAFANA_TOKEN` to a Grafana service account token. You can create one from the Grafana web UI under **Administration → Service accounts**.
+
 ```bash
-TOKEN=$(AWS_PROFILE=work aws ssm get-parameter --name "grafana-shared-service-account-token" --with-decryption --query "Parameter.Value" --output text)
+TOKEN=$GRAFANA_TOKEN
 ```
 
 All commands below assume `$TOKEN` is set.
-
-## Instance
-
-| Component | Value |
-|-----------|-------|
-| Grafana | `https://goodparty.grafana.net` |
-| OTLP gateway | `otlp-gateway-prod-us-east-3.grafana.net/otlp` |
-| Cluster | prod-us-east-3 |
 
 ## Datasource UIDs
 
@@ -84,8 +78,9 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ### Custom time window
 
 ```bash
-START=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "2026-03-23T00:00:00" +%s)
-END=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "2026-03-23T01:00:00" +%s)
+# Adjust the ISO timestamps as needed
+START=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "2026-01-01T00:00:00" +%s)
+END=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "2026-01-01T01:00:00" +%s)
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://goodparty.grafana.net/api/datasources/proxy/uid/grafanacloud-traces/api/search?q=%7Bresource.service.name%3D%22gp-api%22%7D&limit=20&start=$START&end=$END" | jq .
 ```
@@ -164,7 +159,6 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 Useful for debugging `histogram_quantile` issues — check what's actually in each bucket.
 
 ```bash
-# Snapshot of bucket counts at a specific time
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://goodparty.grafana.net/api/datasources/proxy/uid/grafanacloud-prom/api/v1/query" \
   --data-urlencode 'query=prisma_connection_duration_milliseconds_bucket{service_name="gp-api", deployment_environment_name="prod"}' \
@@ -192,7 +186,6 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ### Alert state history
 
 ```bash
-# State transitions for a specific alert rule (last 30 days)
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://goodparty.grafana.net/api/v1/rules/history?ruleUID=RULE_UID_HERE&from=$(date -v-30d +%s)&to=$(date +%s)&limit=500" | jq -r '
     [.data.values[0], .data.values[1]] as [$times, $lines] |
@@ -225,3 +218,5 @@ Key URL encodings: `{` = `%7B`, `}` = `%7D`, `=` = `%3D`, `"` = `%22`, `&&` = `%
 **Trace search returns max 50 results** — The `limit` parameter caps at 50 per search. Use narrower time windows or more specific TraceQL filters to find what you need. For authoritative counts, use the Prometheus histogram metrics instead of counting traces.
 
 **`histogram_quantile` returns unrealistic values** — This happens when the distribution is heavily skewed (e.g., 99% of values in the lowest bucket). The function linearly interpolates across wide, sparse buckets and can produce phantom values. Use histogram bucket inspection (above) to verify what's actually in the data, and prefer count-based alerting over percentile-based alerting for skewed distributions.
+
+**macOS vs Linux date commands** — The examples use macOS `date` syntax (`date -v-1H`). On Linux, use `date -d '1 hour ago'` instead. For custom timestamps, Linux uses `date -d "2026-01-01T00:00:00Z" +%s` instead of `date -j -u -f "%Y-%m-%dT%H:%M:%S"`.
