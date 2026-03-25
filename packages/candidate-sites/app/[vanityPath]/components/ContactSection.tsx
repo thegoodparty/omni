@@ -186,8 +186,7 @@ export default function ContactSection({
                   loading ||
                   !formData.name ||
                   !formData.email ||
-                  !formData.message ||
-                  !formData.smsConsent
+                  !formData.message
                 }
                 loading={loading}
                 color="primary"
