@@ -160,6 +160,7 @@ export default function ContactSection({
             </div>
             <div className="flex items-start space-x-2">
               <Checkbox
+                id="sms-consent"
                 checked={formData.smsConsent}
                 onChange={(e) =>
                   handleChange('smsConsent', e.target.checked === true)
