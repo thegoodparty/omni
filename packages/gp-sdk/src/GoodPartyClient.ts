@@ -2,6 +2,7 @@ import { HttpClient } from './http/HttpClient'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { EcanvasserResource } from './resources/EcanvasserResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
+import { ElectionsResource } from './resources/ElectionsResource'
 import { PathsToVictoryResource } from './resources/PathsToVictoryResource'
 import { UsersResource } from './resources/UsersResource'
 import { ClerkService } from './vendor/clerk/clerk.service'
@@ -16,6 +17,7 @@ export class GoodPartyClient {
   readonly campaigns: CampaignsResource
   readonly ecanvasser: EcanvasserResource
   readonly electedOffices: ElectedOfficesResource
+  readonly elections: ElectionsResource
   readonly pathsToVictory: PathsToVictoryResource
   private clerkService: ClerkService
 
@@ -26,6 +28,7 @@ export class GoodPartyClient {
     this.campaigns = new CampaignsResource(httpClient)
     this.ecanvasser = new EcanvasserResource(httpClient)
     this.electedOffices = new ElectedOfficesResource(httpClient)
+    this.elections = new ElectionsResource(httpClient)
     this.pathsToVictory = new PathsToVictoryResource(httpClient)
   }
 
