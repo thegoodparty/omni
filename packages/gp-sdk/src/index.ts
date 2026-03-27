@@ -32,6 +32,7 @@ export type {
   CampaignPlan,
   CampaignPlanStatus,
   ListCampaignsPagination,
+  SetDistrictOutput,
   UpdateCampaignM2MInput as UpdateCampaignInput,
   CreateEcanvasserInput,
   Ecanvasser,
@@ -75,3 +76,11 @@ export type {
 } from './types/pathToVictory'
 
 export { P2VStatus, P2VSource } from './types/pathToVictory'
+
+export type {
+  DistrictTypeItem,
+  DistrictNameItem,
+  ListDistrictTypesOptions,
+  ListDistrictNamesOptions,
+  UpdateDistrictInput,
+} from './types/district'
