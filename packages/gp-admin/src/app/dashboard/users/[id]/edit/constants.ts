@@ -33,6 +33,7 @@ export const CAMPAIGN_FORM_SECTIONS = {
 } as const
 
 export const P2V_FORM_SECTIONS = {
+  DISTRICT: 'District Picker',
   STATUS: 'P2V Status',
   TARGET_NUMBERS: 'Target Numbers',
   PARTY_DEMOGRAPHICS: 'Demographics - Party Affiliation',
