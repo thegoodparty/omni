@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.13.0
+
+### Minor Changes
+
+- [#54](https://github.com/thegoodparty/gp-sdk/pull/54) [`de2caf0`](https://github.com/thegoodparty/gp-sdk/commit/de2caf04a8cfc62f2e7c25952beeed73d2573e42) Thanks [@awardquick](https://github.com/awardquick)! - Add elections resource with district type/name lookups and campaign district update method
+
 ## 1.12.0
 
 ### Minor Changes
