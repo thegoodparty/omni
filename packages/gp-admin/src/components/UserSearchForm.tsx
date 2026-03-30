@@ -12,7 +12,6 @@ import {
   SegmentedControl,
 } from '@radix-ui/themes'
 import { HiSearch, HiX } from 'react-icons/hi'
-import { ErrorText } from './ErrorText'
 import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
 import { FORM_MODE } from '@/shared/constants/form'
 
@@ -43,14 +42,7 @@ export function UserSearchForm() {
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    reset,
-    setValue,
-    formState: { errors, isValid },
-  } = useForm<FormData>({
+  const { register, handleSubmit, watch, reset, setValue } = useForm<FormData>({
     mode: FORM_MODE.ON_CHANGE,
     defaultValues: {
       email: searchParams.get(SEARCH_PARAMS.EMAIL) ?? '',
@@ -62,9 +54,10 @@ export function UserSearchForm() {
   const watchedValues = watch()
 
   // Sync form with URL params when they change externally
+  const skipNextSync = useRef(false)
   useEffect(() => {
-    if (skipNextEmailSync.current) {
-      skipNextEmailSync.current = false
+    if (skipNextSync.current) {
+      skipNextSync.current = false
       return
     }
 
@@ -87,18 +80,17 @@ export function UserSearchForm() {
 
   // Auto-search on email input with debounce
   const emailValue = watchedValues.email
-  const isInitialMount = useRef(true)
-  const skipNextEmailSync = useRef(false)
+  const isInitialEmailMount = useRef(true)
   useEffect(() => {
     if (activeTab !== SEARCH_TAB.EMAIL) return
-    if (isInitialMount.current) {
-      isInitialMount.current = false
+    if (isInitialEmailMount.current) {
+      isInitialEmailMount.current = false
       return
     }
 
     const trimmed = emailValue.trim()
     const timeout = setTimeout(() => {
-      skipNextEmailSync.current = true
+      skipNextSync.current = true
       if (trimmed) {
         router.replace(
           `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
@@ -110,6 +102,31 @@ export function UserSearchForm() {
 
     return () => clearTimeout(timeout)
   }, [emailValue, activeTab, router])
+
+  // Auto-search on name input with debounce
+  const firstNameValue = watchedValues.firstName
+  const lastNameValue = watchedValues.lastName
+  const isInitialNameMount = useRef(true)
+  useEffect(() => {
+    if (activeTab !== SEARCH_TAB.NAME) return
+    if (isInitialNameMount.current) {
+      isInitialNameMount.current = false
+      return
+    }
+
+    const trimmedFirst = firstNameValue.trim()
+    const trimmedLast = lastNameValue.trim()
+    const timeout = setTimeout(() => {
+      const params = new URLSearchParams()
+      if (trimmedFirst) params.set(SEARCH_PARAMS.FIRST_NAME, trimmedFirst)
+      if (trimmedLast) params.set(SEARCH_PARAMS.LAST_NAME, trimmedLast)
+      skipNextSync.current = true
+      const qs = params.toString()
+      router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
+    }, 300)
+
+    return () => clearTimeout(timeout)
+  }, [firstNameValue, lastNameValue, activeTab, router])
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)
@@ -146,21 +163,6 @@ export function UserSearchForm() {
   const showClear =
     watchedValues.email || watchedValues.firstName || watchedValues.lastName
 
-  const nameValidation =
-    activeTab === SEARCH_TAB.NAME
-      ? {
-          required: 'This field is required',
-          minLength: { value: 2, message: 'Must be at least 2 characters' },
-        }
-      : {}
-
-  const hasRequiredValues =
-    activeTab === SEARCH_TAB.EMAIL
-      ? watchedValues.email.trim()
-      : watchedValues.firstName.trim() && watchedValues.lastName.trim()
-
-  const canSubmit = hasRequiredValues && isValid
-
   return (
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -190,13 +192,11 @@ export function UserSearchForm() {
               <TextField.Root
                 placeholder="Enter email address..."
                 {...register('email')}
-                color={errors.email ? 'red' : undefined}
               >
                 <TextField.Slot>
                   <HiSearch className="w-4 h-4" />
                 </TextField.Slot>
               </TextField.Root>
-              {errors.email && <ErrorText>{errors.email.message}</ErrorText>}
             </Box>
           ) : (
             <Flex gap="4" wrap="wrap">
@@ -206,16 +206,12 @@ export function UserSearchForm() {
                 </Text>
                 <TextField.Root
                   placeholder="Enter first name..."
-                  {...register('firstName', nameValidation)}
-                  color={errors.firstName ? 'red' : undefined}
+                  {...register('firstName')}
                 >
                   <TextField.Slot>
                     <HiSearch className="w-4 h-4" />
                   </TextField.Slot>
                 </TextField.Root>
-                {errors.firstName && (
-                  <ErrorText>{errors.firstName.message}</ErrorText>
-                )}
               </Box>
 
               <Box flexGrow="1" style={{ minWidth: '180px' }}>
@@ -224,16 +220,12 @@ export function UserSearchForm() {
                 </Text>
                 <TextField.Root
                   placeholder="Enter last name..."
-                  {...register('lastName', nameValidation)}
-                  color={errors.lastName ? 'red' : undefined}
+                  {...register('lastName')}
                 >
                   <TextField.Slot>
                     <HiSearch className="w-4 h-4" />
                   </TextField.Slot>
                 </TextField.Root>
-                {errors.lastName && (
-                  <ErrorText>{errors.lastName.message}</ErrorText>
-                )}
               </Box>
             </Flex>
           )}
@@ -248,12 +240,6 @@ export function UserSearchForm() {
               >
                 <HiX className="w-4 h-4" />
                 Clear
-              </Button>
-            )}
-            {activeTab === SEARCH_TAB.NAME && (
-              <Button type="submit" disabled={!canSubmit}>
-                <HiSearch className="w-4 h-4" />
-                Search
               </Button>
             )}
           </Flex>

@@ -91,14 +91,12 @@ describe('UserSearchForm', () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
-      // Switch to name tab
       await user.click(screen.getByRole('radio', { name: 'Name' }))
       await user.type(
         screen.getByPlaceholderText('Enter first name...'),
         'John'
       )
 
-      // Switch back to email tab
       await user.click(screen.getByRole('radio', { name: 'Email' }))
 
       expect(
@@ -110,16 +108,12 @@ describe('UserSearchForm', () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
-      // Type email
       await user.type(
         screen.getByPlaceholderText('Enter email address...'),
         'test@example.com'
       )
 
-      // Switch to name tab
       await user.click(screen.getByRole('radio', { name: 'Name' }))
-
-      // Switch back to email - email should be cleared
       await user.click(screen.getByRole('radio', { name: 'Email' }))
 
       expect(screen.getByPlaceholderText('Enter email address...')).toHaveValue(
@@ -187,22 +181,8 @@ describe('UserSearchForm', () => {
     })
   })
 
-  describe('name validation', () => {
-    it('shows error when name is too short', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.click(screen.getByRole('radio', { name: 'Name' }))
-      await user.type(screen.getByPlaceholderText('Enter first name...'), 'A')
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('Must be at least 2 characters')
-        ).toBeInTheDocument()
-      })
-    })
-
-    it('requires both first and last name', async () => {
+  describe('name auto-search', () => {
+    it('searches with just first name', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -212,11 +192,28 @@ describe('UserSearchForm', () => {
         'John'
       )
 
-      // Only first name filled - button should be disabled
-      expect(screen.getByRole('button', { name: /search/i })).toBeDisabled()
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John'
+        )
+      })
     })
 
-    it('enables submit when both names are valid', async () => {
+    it('searches with just last name', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?last_name=Doe'
+        )
+      })
+    })
+
+    it('searches with both first and last name', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -228,9 +225,36 @@ describe('UserSearchForm', () => {
       await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
 
       await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John&last_name=Doe'
+        )
+      })
+    })
+
+    it('debounces rapid input and only searches once per field', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(
+        screen.getByPlaceholderText('Enter first name...'),
+        'John'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('navigates to base path when both name fields are cleared', async () => {
+      const user = userEvent.setup()
+      mockSearchParamsValues['first_name'] = 'John'
+      render(<UserSearchForm />)
+
+      await user.clear(screen.getByPlaceholderText('Enter first name...'))
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
       })
     })
   })
@@ -244,36 +268,12 @@ describe('UserSearchForm', () => {
       await user.type(screen.getByPlaceholderText('Enter first name...'), '  ')
       await user.type(screen.getByPlaceholderText('Enter last name...'), '  ')
 
-      // Submit form directly — bypasses disabled button
+      // Submit form directly — bypasses auto-search, exercises onSubmit handler
       fireEvent.submit(container.querySelector('form')!)
 
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith('/dashboard/users')
       })
-    })
-
-    it('submits name search and navigates', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.click(screen.getByRole('radio', { name: 'Name' }))
-      await user.type(
-        screen.getByPlaceholderText('Enter first name...'),
-        'John'
-      )
-      await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
-      })
-
-      await user.click(screen.getByRole('button', { name: /search/i }))
-
-      expect(mockPush).toHaveBeenCalledWith(
-        '/dashboard/users?first_name=John&last_name=Doe'
-      )
     })
   })
 
