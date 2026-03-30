@@ -63,6 +63,11 @@ export function UserSearchForm() {
 
   // Sync form with URL params when they change externally
   useEffect(() => {
+    if (skipNextEmailSync.current) {
+      skipNextEmailSync.current = false
+      return
+    }
+
     const emailParam = searchParams.get(SEARCH_PARAMS.EMAIL)
     const firstNameParam = searchParams.get(SEARCH_PARAMS.FIRST_NAME)
     const lastNameParam = searchParams.get(SEARCH_PARAMS.LAST_NAME)
@@ -83,6 +88,7 @@ export function UserSearchForm() {
   // Auto-search on email input with debounce
   const emailValue = watchedValues.email
   const isInitialMount = useRef(true)
+  const skipNextEmailSync = useRef(false)
   useEffect(() => {
     if (activeTab !== SEARCH_TAB.EMAIL) return
     if (isInitialMount.current) {
@@ -93,6 +99,7 @@ export function UserSearchForm() {
     const trimmed = emailValue.trim()
     if (trimmed.length > 0 && trimmed.length < 2) return
     const timeout = setTimeout(() => {
+      skipNextEmailSync.current = true
       if (trimmed) {
         router.replace(
           `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
