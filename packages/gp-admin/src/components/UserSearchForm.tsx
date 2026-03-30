@@ -97,7 +97,6 @@ export function UserSearchForm() {
     }
 
     const trimmed = emailValue.trim()
-    if (trimmed.length > 0 && trimmed.length < 2) return
     const timeout = setTimeout(() => {
       skipNextEmailSync.current = true
       if (trimmed) {

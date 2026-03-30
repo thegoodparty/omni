@@ -5,6 +5,7 @@ import { UserSearchForm } from './UserSearchForm'
 
 // Create stable mock objects
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 const mockSearchParamsValues: Record<string, string | null> = {}
 
 const mockSearchParams = {
@@ -15,6 +16,7 @@ const mockSearchParams = {
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
+    replace: mockReplace,
   }),
   useSearchParams: () => mockSearchParams,
 }))
@@ -22,6 +24,7 @@ vi.mock('next/navigation', () => ({
 describe('UserSearchForm', () => {
   beforeEach(() => {
     mockPush.mockClear()
+    mockReplace.mockClear()
     mockSearchParams.get.mockClear()
     // Reset search params
     Object.keys(mockSearchParamsValues).forEach(
@@ -125,36 +128,61 @@ describe('UserSearchForm', () => {
     })
   })
 
-  describe('email validation', () => {
-    it('shows error for invalid email', async () => {
+  describe('email auto-search', () => {
+    it('auto-searches via router.replace after debounce delay', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
       await user.type(
         screen.getByPlaceholderText('Enter email address...'),
-        'invalid'
+        'jo'
       )
 
       await waitFor(() => {
-        expect(
-          screen.getByText('Please enter a valid email address')
-        ).toBeInTheDocument()
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users?email=jo')
       })
     })
 
-    it('enables submit button with valid email', async () => {
+    it('searches with a single character', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
       await user.type(
         screen.getByPlaceholderText('Enter email address...'),
-        'valid@example.com'
+        'j'
       )
 
       await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users?email=j')
+      })
+    })
+
+    it('debounces rapid input and only searches once', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.type(
+        screen.getByPlaceholderText('Enter email address...'),
+        'test@example.com'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledTimes(1)
+      })
+      expect(mockReplace).toHaveBeenCalledWith(
+        '/dashboard/users?email=test%40example.com'
+      )
+    })
+
+    it('navigates to base path when email is cleared', async () => {
+      const user = userEvent.setup()
+      mockSearchParamsValues['email'] = 'test@example.com'
+      render(<UserSearchForm />)
+
+      await user.clear(screen.getByPlaceholderText('Enter email address...'))
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
       })
     })
   })
@@ -208,28 +236,6 @@ describe('UserSearchForm', () => {
   })
 
   describe('form submission', () => {
-    it('submits email search and navigates', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.type(
-        screen.getByPlaceholderText('Enter email address...'),
-        'test@example.com'
-      )
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
-      })
-
-      await user.click(screen.getByRole('button', { name: /search/i }))
-
-      expect(mockPush).toHaveBeenCalledWith(
-        '/dashboard/users?email=test%40example.com'
-      )
-    })
-
     it('navigates to base path when submitted values trim to empty', async () => {
       const user = userEvent.setup()
       const { container } = render(<UserSearchForm />)
