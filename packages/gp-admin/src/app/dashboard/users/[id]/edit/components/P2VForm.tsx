@@ -25,6 +25,7 @@ import {
   UNSAVED_CHANGES_MESSAGE,
   type InputType,
 } from '../constants'
+import { DistrictPicker } from './DistrictPicker'
 
 type FieldPath = Path<PathToVictoryFormData>
 
@@ -44,21 +45,6 @@ const numberFieldOptions = {
     return isNaN(num) ? undefined : num
   },
 }
-
-const ELECTION_INFO_FIELDS: FieldConfig[] = [
-  {
-    key: 'electionType',
-    label: 'Election Type',
-    placeholder: 'e.g., General, Primary',
-    minWidth: '200px',
-  },
-  {
-    key: 'electionLocation',
-    label: 'Election Location',
-    placeholder: 'Location',
-    minWidth: '200px',
-  },
-]
 
 const TARGET_NUMBER_FIELDS: FieldConfig[] = [
   {
@@ -215,6 +201,13 @@ interface P2VFormProps {
   onSave: (data: PathToVictoryFormData) => void | Promise<void>
   onCancel: () => void
   isSaving?: boolean
+  district?: {
+    state: string
+    electionYear: number
+    campaignId: number
+    userId: number
+    onDistrictSaved?: () => void
+  }
 }
 
 export function P2VForm({
@@ -222,6 +215,7 @@ export function P2VForm({
   onSave,
   onCancel,
   isSaving,
+  district,
 }: P2VFormProps) {
   const p2v = initialData
 
@@ -354,7 +348,40 @@ export function P2VForm({
               </Select.Root>
             </Flex>
 
-            {renderFields(ELECTION_INFO_FIELDS)}
+            {district && (
+              <DistrictPicker
+                state={district.state}
+                electionYear={district.electionYear}
+                campaignId={district.campaignId}
+                userId={district.userId}
+                initialElectionType={p2v?.data?.electionType}
+                initialElectionLocation={p2v?.data?.electionLocation}
+                onDistrictSaved={district.onDistrictSaved}
+              />
+            )}
+
+            <Flex gap="4" wrap="wrap">
+              <Box flexGrow="1" style={{ minWidth: '200px' }}>
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Election Type
+                </Text>
+                <TextField.Root
+                  value={watch('electionType') ?? ''}
+                  disabled
+                  placeholder="Set via District Picker"
+                />
+              </Box>
+              <Box flexGrow="1" style={{ minWidth: '200px' }}>
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Election Location
+                </Text>
+                <TextField.Root
+                  value={watch('electionLocation') ?? ''}
+                  disabled
+                  placeholder="Set via District Picker"
+                />
+              </Box>
+            </Flex>
           </Flex>
         </InfoCard>
 
