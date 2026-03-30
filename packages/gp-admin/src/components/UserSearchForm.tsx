@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import {
   TextField,
@@ -13,11 +13,8 @@ import {
 } from '@radix-ui/themes'
 import { HiSearch, HiX } from 'react-icons/hi'
 import { ErrorText } from './ErrorText'
-import { z } from 'zod'
 import { SEARCH_PARAMS } from '@/app/dashboard/users/types'
 import { FORM_MODE } from '@/shared/constants/form'
-
-const emailSchema = z.email()
 
 const USERS_PATH = '/dashboard/users'
 
@@ -83,6 +80,30 @@ export function UserSearchForm() {
     }
   }, [searchParams, reset])
 
+  // Auto-search on email input with debounce
+  const emailValue = watchedValues.email
+  const isInitialMount = useRef(true)
+  useEffect(() => {
+    if (activeTab !== SEARCH_TAB.EMAIL) return
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+
+    const trimmed = emailValue.trim()
+    const timeout = setTimeout(() => {
+      if (trimmed) {
+        router.push(
+          `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
+        )
+      } else {
+        router.push(USERS_PATH)
+      }
+    }, 300)
+
+    return () => clearTimeout(timeout)
+  }, [emailValue, activeTab, router])
+
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)
     if (tab === SEARCH_TAB.EMAIL) {
@@ -118,14 +139,10 @@ export function UserSearchForm() {
   const showClear =
     watchedValues.email || watchedValues.firstName || watchedValues.lastName
 
-  // Validation rules based on active tab
   const emailValidation =
     activeTab === SEARCH_TAB.EMAIL
       ? {
           required: 'Email is required',
-          validate: (value: string) =>
-            emailSchema.safeParse(value).success ||
-            'Please enter a valid email address',
         }
       : {}
 
@@ -233,10 +250,12 @@ export function UserSearchForm() {
                 Clear
               </Button>
             )}
-            <Button type="submit" disabled={!canSubmit}>
-              <HiSearch className="w-4 h-4" />
-              Search
-            </Button>
+            {activeTab === SEARCH_TAB.NAME && (
+              <Button type="submit" disabled={!canSubmit}>
+                <HiSearch className="w-4 h-4" />
+                Search
+              </Button>
+            )}
           </Flex>
         </Flex>
       </form>
