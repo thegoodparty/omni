@@ -91,13 +91,14 @@ export function UserSearchForm() {
     }
 
     const trimmed = emailValue.trim()
+    if (trimmed.length > 0 && trimmed.length < 2) return
     const timeout = setTimeout(() => {
       if (trimmed) {
-        router.push(
+        router.replace(
           `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
         )
       } else {
-        router.push(USERS_PATH)
+        router.replace(USERS_PATH)
       }
     }, 300)
 
@@ -138,13 +139,6 @@ export function UserSearchForm() {
 
   const showClear =
     watchedValues.email || watchedValues.firstName || watchedValues.lastName
-
-  const emailValidation =
-    activeTab === SEARCH_TAB.EMAIL
-      ? {
-          required: 'Email is required',
-        }
-      : {}
 
   const nameValidation =
     activeTab === SEARCH_TAB.NAME
@@ -189,7 +183,7 @@ export function UserSearchForm() {
               </Text>
               <TextField.Root
                 placeholder="Enter email address..."
-                {...register('email', emailValidation)}
+                {...register('email')}
                 color={errors.email ? 'red' : undefined}
               >
                 <TextField.Slot>
