@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { UserSearchForm } from './UserSearchForm'
@@ -30,6 +30,10 @@ describe('UserSearchForm', () => {
     Object.keys(mockSearchParamsValues).forEach(
       (key) => delete mockSearchParamsValues[key]
     )
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('rendering', () => {
@@ -151,7 +155,7 @@ describe('UserSearchForm', () => {
       })
     })
 
-    it('debounces rapid input and only searches once', async () => {
+    it('searches with the final value after rapid input', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -161,11 +165,10 @@ describe('UserSearchForm', () => {
       )
 
       await waitFor(() => {
-        expect(mockReplace).toHaveBeenCalledTimes(1)
+        expect(mockReplace).toHaveBeenLastCalledWith(
+          '/dashboard/users?email=test%40example.com'
+        )
       })
-      expect(mockReplace).toHaveBeenCalledWith(
-        '/dashboard/users?email=test%40example.com'
-      )
     })
 
     it('navigates to base path when email is cleared', async () => {
@@ -231,7 +234,7 @@ describe('UserSearchForm', () => {
       })
     })
 
-    it('debounces rapid input and only searches once per field', async () => {
+    it('searches with the final value after rapid input', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -242,7 +245,9 @@ describe('UserSearchForm', () => {
       )
 
       await waitFor(() => {
-        expect(mockReplace).toHaveBeenCalledTimes(1)
+        expect(mockReplace).toHaveBeenLastCalledWith(
+          '/dashboard/users?first_name=John'
+        )
       })
     })
 
