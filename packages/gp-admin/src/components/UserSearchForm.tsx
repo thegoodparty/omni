@@ -94,6 +94,7 @@ export function UserSearchForm() {
       isInitialEmailMount.current = false
       return
     }
+    if (debouncedEmail !== emailValue) return
 
     const trimmed = debouncedEmail.trim()
     skipNextSync.current = true
@@ -104,7 +105,7 @@ export function UserSearchForm() {
     } else {
       router.replace(USERS_PATH)
     }
-  }, [debouncedEmail, activeTab, router])
+  }, [debouncedEmail, emailValue, activeTab, router])
 
   const isInitialNameMount = useRef(true)
   useEffect(() => {
@@ -113,6 +114,11 @@ export function UserSearchForm() {
       isInitialNameMount.current = false
       return
     }
+    if (
+      debouncedFirstName !== firstNameValue ||
+      debouncedLastName !== lastNameValue
+    )
+      return
 
     const params = new URLSearchParams()
     if (debouncedFirstName.trim())
@@ -122,7 +128,14 @@ export function UserSearchForm() {
     skipNextSync.current = true
     const qs = params.toString()
     router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
-  }, [debouncedFirstName, debouncedLastName, activeTab, router])
+  }, [
+    debouncedFirstName,
+    debouncedLastName,
+    firstNameValue,
+    lastNameValue,
+    activeTab,
+    router,
+  ])
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)
