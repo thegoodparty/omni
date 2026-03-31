@@ -9,6 +9,7 @@ import {
   Switch,
   Separator,
 } from '@radix-ui/themes'
+import { useEffect, useRef } from 'react'
 import { useForm, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
@@ -36,6 +37,7 @@ interface FieldConfig {
   type?: InputType
   step?: string
   minWidth?: string
+  formula?: boolean
 }
 
 const numberFieldOptions = {
@@ -52,12 +54,14 @@ const TARGET_NUMBER_FIELDS: FieldConfig[] = [
     label: 'Win Number',
     placeholder: '0',
     type: INPUT_TYPE.NUMBER,
+    formula: true,
   },
   {
     key: 'voterContactGoal',
     label: 'Voter Contact Goal',
     placeholder: '0',
     type: INPUT_TYPE.NUMBER,
+    formula: true,
   },
   {
     key: 'totalRegisteredVoters',
@@ -219,6 +223,8 @@ export function P2VForm({
 }: P2VFormProps) {
   const p2v = initialData
 
+  const isFirstRender = useRef(true)
+
   const {
     register,
     watch,
@@ -298,11 +304,33 @@ export function P2VForm({
     setValue(`viability.${field}`, checked, { shouldDirty: true })
   }
 
+  const projectedTurnout = watch('projectedTurnout')
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    const pt = projectedTurnout ?? 0
+    const winNumber = pt > 0 ? Math.floor(pt * 0.5) + 1 : 0
+    const voterContactGoal = pt > 0 ? pt * 5 : 0
+    setValue('winNumber', winNumber, { shouldDirty: true })
+    setValue('voterContactGoal', voterContactGoal, { shouldDirty: true })
+  }, [projectedTurnout, setValue])
+
   function renderFields(fields: FieldConfig[]) {
     return (
       <Flex gap="4" wrap="wrap">
         {fields.map(
-          ({ key, label, placeholder, type, step, minWidth = '150px' }) => (
+          ({
+            key,
+            label,
+            placeholder,
+            type,
+            step,
+            minWidth = '150px',
+            formula,
+          }) => (
             <Box key={key} flexGrow="1" style={{ minWidth }}>
               <Text as="label" size="2" weight="medium" mb="1">
                 {label}
@@ -315,6 +343,10 @@ export function P2VForm({
                 type={type}
                 placeholder={placeholder}
                 step={step}
+                readOnly={formula}
+                style={
+                  formula ? { opacity: 0.6, cursor: 'not-allowed' } : undefined
+                }
               />
             </Box>
           )
