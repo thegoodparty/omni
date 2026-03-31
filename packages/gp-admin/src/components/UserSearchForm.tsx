@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
+import { useDebounce } from '@/lib/hooks/useDebounce'
 import { useForm } from 'react-hook-form'
 import {
   TextField,
@@ -78,8 +79,14 @@ export function UserSearchForm() {
     }
   }, [searchParams, reset])
 
-  // Auto-search on email input with debounce
   const emailValue = watchedValues.email
+  const firstNameValue = watchedValues.firstName
+  const lastNameValue = watchedValues.lastName
+
+  const debouncedEmail = useDebounce(emailValue, 300)
+  const debouncedFirstName = useDebounce(firstNameValue, 300)
+  const debouncedLastName = useDebounce(lastNameValue, 300)
+
   const isInitialEmailMount = useRef(true)
   useEffect(() => {
     if (activeTab !== SEARCH_TAB.EMAIL) return
@@ -88,24 +95,17 @@ export function UserSearchForm() {
       return
     }
 
-    const trimmed = emailValue.trim()
-    const timeout = setTimeout(() => {
-      skipNextSync.current = true
-      if (trimmed) {
-        router.replace(
-          `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
-        )
-      } else {
-        router.replace(USERS_PATH)
-      }
-    }, 300)
+    const trimmed = debouncedEmail.trim()
+    skipNextSync.current = true
+    if (trimmed) {
+      router.replace(
+        `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
+      )
+    } else {
+      router.replace(USERS_PATH)
+    }
+  }, [debouncedEmail, activeTab, router])
 
-    return () => clearTimeout(timeout)
-  }, [emailValue, activeTab, router])
-
-  // Auto-search on name input with debounce
-  const firstNameValue = watchedValues.firstName
-  const lastNameValue = watchedValues.lastName
   const isInitialNameMount = useRef(true)
   useEffect(() => {
     if (activeTab !== SEARCH_TAB.NAME) return
@@ -114,19 +114,15 @@ export function UserSearchForm() {
       return
     }
 
-    const trimmedFirst = firstNameValue.trim()
-    const trimmedLast = lastNameValue.trim()
-    const timeout = setTimeout(() => {
-      const params = new URLSearchParams()
-      if (trimmedFirst) params.set(SEARCH_PARAMS.FIRST_NAME, trimmedFirst)
-      if (trimmedLast) params.set(SEARCH_PARAMS.LAST_NAME, trimmedLast)
-      skipNextSync.current = true
-      const qs = params.toString()
-      router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
-    }, 300)
-
-    return () => clearTimeout(timeout)
-  }, [firstNameValue, lastNameValue, activeTab, router])
+    const params = new URLSearchParams()
+    if (debouncedFirstName.trim())
+      params.set(SEARCH_PARAMS.FIRST_NAME, debouncedFirstName.trim())
+    if (debouncedLastName.trim())
+      params.set(SEARCH_PARAMS.LAST_NAME, debouncedLastName.trim())
+    skipNextSync.current = true
+    const qs = params.toString()
+    router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
+  }, [debouncedFirstName, debouncedLastName, activeTab, router])
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)
