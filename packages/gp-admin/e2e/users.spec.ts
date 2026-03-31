@@ -38,21 +38,17 @@ test.describe('Users Page', () => {
     await expect(LOCATORS.lastNameInput(page)).toBeVisible()
   })
 
-  test('search button is disabled without valid input', async ({ page }) => {
+  test('search button is disabled without valid name input', async ({
+    page,
+  }) => {
+    await LOCATORS.nameModeButton(page).click()
     await expect(LOCATORS.searchButton(page)).toBeDisabled()
   })
 
-  test('shows validation error for invalid email', async ({ page }) => {
-    await LOCATORS.emailInput(page).fill('invalid-email')
-
-    await expect(
-      page.getByText('Please enter a valid email address')
-    ).toBeVisible()
-    await expect(LOCATORS.searchButton(page)).toBeDisabled()
-  })
-
-  test('enables search button with valid email', async ({ page }) => {
-    await LOCATORS.emailInput(page).fill('test@example.com')
+  test('enables search button with valid name inputs', async ({ page }) => {
+    await LOCATORS.nameModeButton(page).click()
+    await LOCATORS.firstNameInput(page).fill('John')
+    await LOCATORS.lastNameInput(page).fill('Doe')
 
     await expect(LOCATORS.searchButton(page)).toBeEnabled()
   })
@@ -62,14 +58,6 @@ test.describe('Users Page', () => {
     await LOCATORS.firstNameInput(page).fill('J')
 
     await expect(page.getByText('Must be at least 2 characters')).toBeVisible()
-  })
-
-  test('enables search button with valid name inputs', async ({ page }) => {
-    await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('John')
-    await LOCATORS.lastNameInput(page).fill('Doe')
-
-    await expect(LOCATORS.searchButton(page)).toBeEnabled()
   })
 })
 
@@ -81,7 +69,6 @@ test.describe('Users Search - Email', () => {
 
   test('searching by email updates URL and shows loading', async ({ page }) => {
     await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
-    await LOCATORS.searchButton(page).click()
 
     await expect(page).toHaveURL(/email=tomer%40goodparty\.org/)
     await expect(page.getByText('Searching...')).toBeVisible()
@@ -89,7 +76,6 @@ test.describe('Users Search - Email', () => {
 
   test('email search displays result in table', async ({ page }) => {
     await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
-    await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
     await expect(
