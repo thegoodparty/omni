@@ -1,204 +1,30 @@
 'use client'
 
-import {
-  TextField,
-  Text,
-  Box,
-  Flex,
-  Select,
-  Switch,
-  Separator,
-} from '@radix-ui/themes'
+import { Flex, Switch, Text, Separator } from '@radix-ui/themes'
 import { useEffect, useRef } from 'react'
-import { useForm, type Path } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { pathToVictorySchema, type PathToVictoryFormData } from '../schema'
-import { P2V_STATUS, P2V_STATUS_SET } from '../../constants'
-import { type P2VStatus, type PathToVictory } from '@goodparty_org/sdk'
+import { type PathToVictory } from '@goodparty_org/sdk'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { FormActions } from './FormActions'
 import {
-  INPUT_TYPE,
   P2V_FORM_SECTIONS,
   FORM_MODE,
-  SELECT_NONE_VALUE,
   UNSAVED_CHANGES_MESSAGE,
-  type InputType,
 } from '../constants'
-import { DistrictPicker } from './DistrictPicker'
-
-type FieldPath = Path<PathToVictoryFormData>
-
-interface FieldConfig {
-  key: FieldPath
-  label: string
-  placeholder: string
-  type?: InputType
-  step?: string
-  minWidth?: string
-  formula?: boolean
-}
-
-const numberFieldOptions = {
-  setValueAs: (v: string) => {
-    if (v === '' || v === null || v === undefined) return undefined
-    const num = Number(v)
-    return isNaN(num) ? undefined : num
-  },
-}
-
-const TARGET_NUMBER_FIELDS: FieldConfig[] = [
-  {
-    key: 'winNumber',
-    label: 'Win Number',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    formula: true,
-  },
-  {
-    key: 'voterContactGoal',
-    label: 'Voter Contact Goal',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    formula: true,
-  },
-  {
-    key: 'totalRegisteredVoters',
-    label: 'Total Registered Voters',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-  },
-  {
-    key: 'projectedTurnout',
-    label: 'Projected Turnout',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-  },
-  {
-    key: 'averageTurnout',
-    label: 'Average Turnout',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-  },
-]
-
-const PARTY_FIELDS: FieldConfig[] = [
-  {
-    key: 'republicans',
-    label: 'Republicans',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-  {
-    key: 'democrats',
-    label: 'Democrats',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-  {
-    key: 'indies',
-    label: 'Independents',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-]
-
-const GENDER_FIELDS: FieldConfig[] = [
-  { key: 'men', label: 'Men', placeholder: '0', type: INPUT_TYPE.NUMBER },
-  { key: 'women', label: 'Women', placeholder: '0', type: INPUT_TYPE.NUMBER },
-]
-
-const RACE_FIELDS: FieldConfig[] = [
-  {
-    key: 'white',
-    label: 'White',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-  {
-    key: 'asian',
-    label: 'Asian',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-  {
-    key: 'africanAmerican',
-    label: 'African American',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-  {
-    key: 'hispanic',
-    label: 'Hispanic',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '120px',
-  },
-]
-
-const VIABILITY_FIELDS: FieldConfig[] = [
-  { key: 'viability.level', label: 'Level', placeholder: 'Level' },
-  {
-    key: 'viability.seats',
-    label: 'Seats',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '100px',
-  },
-  {
-    key: 'viability.candidates',
-    label: 'Candidates',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    minWidth: '100px',
-  },
-  {
-    key: 'viability.candidatesPerSeat',
-    label: 'Candidates/Seat',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    step: '0.01',
-    minWidth: '120px',
-  },
-  {
-    key: 'viability.score',
-    label: 'Score',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    step: '0.01',
-    minWidth: '100px',
-  },
-  {
-    key: 'viability.probOfWin',
-    label: 'Prob. of Win',
-    placeholder: '0',
-    type: INPUT_TYPE.NUMBER,
-    step: '0.01',
-    minWidth: '120px',
-  },
-]
-
-type ViabilityBooleanField = 'isPartisan' | 'isIncumbent' | 'isUncontested'
-
-const VIABILITY_BOOLEAN_FIELDS: {
-  key: ViabilityBooleanField
-  label: string
-}[] = [
-  { key: 'isPartisan', label: 'Partisan' },
-  { key: 'isIncumbent', label: 'Incumbent' },
-  { key: 'isUncontested', label: 'Uncontested' },
-]
-
-function isP2VStatus(value: string): value is P2VStatus {
-  return P2V_STATUS_SET.has(value)
-}
+import { P2VFieldGroup } from './P2VFieldGroup'
+import { P2VStatusSection } from './P2VStatusSection'
+import {
+  TARGET_NUMBER_FIELDS,
+  PARTY_FIELDS,
+  GENDER_FIELDS,
+  RACE_FIELDS,
+  VIABILITY_FIELDS,
+  VIABILITY_BOOLEAN_FIELDS,
+  type ViabilityBooleanField,
+} from './fieldConfigs'
 
 interface P2VFormProps {
   initialData: PathToVictory | null
@@ -222,7 +48,6 @@ export function P2VForm({
   district,
 }: P2VFormProps) {
   const p2v = initialData
-
   const isFirstRender = useRef(true)
 
   const {
@@ -272,6 +97,20 @@ export function P2VForm({
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
+  const projectedTurnout = watch('projectedTurnout')
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    const pt = projectedTurnout ?? 0
+    setValue('winNumber', pt > 0 ? Math.floor(pt * 0.5) + 1 : 0, {
+      shouldDirty: true,
+    })
+    setValue('voterContactGoal', pt > 0 ? pt * 5 : 0, { shouldDirty: true })
+  }, [projectedTurnout, setValue])
+
   async function handleSubmit() {
     const data = getValues()
     const result = pathToVictorySchema.safeParse(data)
@@ -289,14 +128,6 @@ export function P2VForm({
     }
   }
 
-  function handleStatusChange(value: string) {
-    if (isP2VStatus(value)) {
-      setValue('p2vStatus', value, { shouldDirty: true })
-    } else {
-      setValue('p2vStatus', undefined, { shouldDirty: true })
-    }
-  }
-
   function handleViabilityBooleanChange(
     field: ViabilityBooleanField,
     checked: boolean
@@ -304,139 +135,42 @@ export function P2VForm({
     setValue(`viability.${field}`, checked, { shouldDirty: true })
   }
 
-  const projectedTurnout = watch('projectedTurnout')
-
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
-    }
-    const pt = projectedTurnout ?? 0
-    const winNumber = pt > 0 ? Math.floor(pt * 0.5) + 1 : 0
-    const voterContactGoal = pt > 0 ? pt * 5 : 0
-    setValue('winNumber', winNumber, { shouldDirty: true })
-    setValue('voterContactGoal', voterContactGoal, { shouldDirty: true })
-  }, [projectedTurnout, setValue])
-
-  function renderFields(fields: FieldConfig[]) {
-    return (
-      <Flex gap="4" wrap="wrap">
-        {fields.map(
-          ({
-            key,
-            label,
-            placeholder,
-            type,
-            step,
-            minWidth = '150px',
-            formula,
-          }) => (
-            <Box key={key} flexGrow="1" style={{ minWidth }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                {label}
-              </Text>
-              <TextField.Root
-                {...register(
-                  key,
-                  type === INPUT_TYPE.NUMBER ? numberFieldOptions : undefined
-                )}
-                type={type}
-                placeholder={placeholder}
-                step={step}
-                readOnly={formula}
-                style={
-                  formula ? { opacity: 0.6, cursor: 'not-allowed' } : undefined
-                }
-              />
-            </Box>
-          )
-        )}
-      </Flex>
-    )
-  }
-
   return (
     <>
       <Flex direction="column" gap="4">
         <InfoCard title={P2V_FORM_SECTIONS.STATUS}>
-          <Flex direction="column" gap="4">
-            <Flex direction="column" gap="1">
-              <Text as="label" size="2" weight="medium">
-                Status
-              </Text>
-              <Select.Root
-                value={watch('p2vStatus') ?? SELECT_NONE_VALUE}
-                onValueChange={handleStatusChange}
-              >
-                <Select.Trigger placeholder="Select status..." />
-                <Select.Content>
-                  <Select.Item value={SELECT_NONE_VALUE}>None</Select.Item>
-                  {P2V_STATUS.map((status) => (
-                    <Select.Item key={status} value={status}>
-                      {status}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-            </Flex>
-
-            {district && (
-              <DistrictPicker
-                state={district.state}
-                electionYear={district.electionYear}
-                campaignId={district.campaignId}
-                userId={district.userId}
-                initialElectionType={p2v?.data?.electionType}
-                initialElectionLocation={p2v?.data?.electionLocation}
-                onDistrictSaved={district.onDistrictSaved}
-              />
-            )}
-
-            <Flex gap="4" wrap="wrap">
-              <Box flexGrow="1" style={{ minWidth: '200px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Election Type
-                </Text>
-                <TextField.Root
-                  value={watch('electionType') ?? ''}
-                  disabled
-                  placeholder="Set via District Picker"
-                />
-              </Box>
-              <Box flexGrow="1" style={{ minWidth: '200px' }}>
-                <Text as="label" size="2" weight="medium" mb="1">
-                  Election Location
-                </Text>
-                <TextField.Root
-                  value={watch('electionLocation') ?? ''}
-                  disabled
-                  placeholder="Set via District Picker"
-                />
-              </Box>
-            </Flex>
-          </Flex>
+          <P2VStatusSection
+            watch={watch}
+            setValue={setValue}
+            district={
+              district && {
+                ...district,
+                initialElectionType: p2v?.data?.electionType,
+                initialElectionLocation: p2v?.data?.electionLocation,
+              }
+            }
+          />
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.TARGET_NUMBERS}>
-          {renderFields(TARGET_NUMBER_FIELDS)}
+          <P2VFieldGroup fields={TARGET_NUMBER_FIELDS} register={register} />
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.PARTY_DEMOGRAPHICS}>
-          {renderFields(PARTY_FIELDS)}
+          <P2VFieldGroup fields={PARTY_FIELDS} register={register} />
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.GENDER_DEMOGRAPHICS}>
-          {renderFields(GENDER_FIELDS)}
+          <P2VFieldGroup fields={GENDER_FIELDS} register={register} />
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.RACE_DEMOGRAPHICS}>
-          {renderFields(RACE_FIELDS)}
+          <P2VFieldGroup fields={RACE_FIELDS} register={register} />
         </InfoCard>
 
         <InfoCard title={P2V_FORM_SECTIONS.VIABILITY}>
           <Flex direction="column" gap="4">
-            {renderFields(VIABILITY_FIELDS)}
-
+            <P2VFieldGroup fields={VIABILITY_FIELDS} register={register} />
             <Flex gap="4" wrap="wrap">
               {VIABILITY_BOOLEAN_FIELDS.map(({ key, label }) => (
                 <Flex
