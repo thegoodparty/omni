@@ -104,11 +104,20 @@ export function P2VForm({
       isFirstRender.current = false
       return
     }
-    const pt = projectedTurnout ?? 0
-    setValue('winNumber', pt > 0 ? Math.floor(pt * 0.5) + 1 : 0, {
-      shouldDirty: true,
-    })
-    setValue('voterContactGoal', pt > 0 ? pt * 5 : 0, { shouldDirty: true })
+    const pt = projectedTurnout
+    setValue(
+      'winNumber',
+      pt != null && pt > 0 ? Math.floor(pt * 0.5) + 1 : undefined,
+      { shouldDirty: true }
+    )
+    setValue(
+      'voterContactGoal',
+      pt != null && pt > 0 ? Math.floor(pt * 5) : undefined,
+      { shouldDirty: true }
+    )
+    return () => {
+      isFirstRender.current = true
+    }
   }, [projectedTurnout, setValue])
 
   async function handleSubmit() {
