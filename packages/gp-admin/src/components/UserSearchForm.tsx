@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
-import { useDebounce } from '@/lib/hooks/useDebounce'
+import { useDebouncedCallback } from '@/lib/hooks/useDebouncedCallback'
 import { useForm } from 'react-hook-form'
 import {
   TextField,
@@ -83,59 +83,39 @@ export function UserSearchForm() {
   const firstNameValue = watchedValues.firstName
   const lastNameValue = watchedValues.lastName
 
-  const debouncedEmail = useDebounce(emailValue, 300)
-  const debouncedFirstName = useDebounce(firstNameValue, 300)
-  const debouncedLastName = useDebounce(lastNameValue, 300)
+  const debouncedNavigate = useDebouncedCallback(
+    (tab: Tab, email: string, firstName: string, lastName: string) => {
+      skipNextSync.current = true
+      if (tab === SEARCH_TAB.EMAIL) {
+        const trimmed = email.trim()
+        if (trimmed) {
+          router.replace(
+            `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
+          )
+        } else {
+          router.replace(USERS_PATH)
+        }
+      } else {
+        const params = new URLSearchParams()
+        if (firstName.trim())
+          params.set(SEARCH_PARAMS.FIRST_NAME, firstName.trim())
+        if (lastName.trim())
+          params.set(SEARCH_PARAMS.LAST_NAME, lastName.trim())
+        const qs = params.toString()
+        router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
+      }
+    },
+    300
+  )
 
-  const isInitialEmailMount = useRef(true)
+  const isInitialMount = useRef(true)
   useEffect(() => {
-    if (activeTab !== SEARCH_TAB.EMAIL) return
-    if (isInitialEmailMount.current) {
-      isInitialEmailMount.current = false
+    if (isInitialMount.current) {
+      isInitialMount.current = false
       return
     }
-    if (debouncedEmail !== emailValue) return
-
-    const trimmed = debouncedEmail.trim()
-    skipNextSync.current = true
-    if (trimmed) {
-      router.replace(
-        `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
-      )
-    } else {
-      router.replace(USERS_PATH)
-    }
-  }, [debouncedEmail, emailValue, activeTab, router])
-
-  const isInitialNameMount = useRef(true)
-  useEffect(() => {
-    if (activeTab !== SEARCH_TAB.NAME) return
-    if (isInitialNameMount.current) {
-      isInitialNameMount.current = false
-      return
-    }
-    if (
-      debouncedFirstName !== firstNameValue ||
-      debouncedLastName !== lastNameValue
-    )
-      return
-
-    const params = new URLSearchParams()
-    if (debouncedFirstName.trim())
-      params.set(SEARCH_PARAMS.FIRST_NAME, debouncedFirstName.trim())
-    if (debouncedLastName.trim())
-      params.set(SEARCH_PARAMS.LAST_NAME, debouncedLastName.trim())
-    skipNextSync.current = true
-    const qs = params.toString()
-    router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
-  }, [
-    debouncedFirstName,
-    debouncedLastName,
-    firstNameValue,
-    lastNameValue,
-    activeTab,
-    router,
-  ])
+    debouncedNavigate(activeTab, emailValue, firstNameValue, lastNameValue)
+  }, [activeTab, emailValue, firstNameValue, lastNameValue, debouncedNavigate])
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)

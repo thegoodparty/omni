@@ -124,6 +124,33 @@ describe('UserSearchForm', () => {
         ''
       )
     })
+
+    it('does not navigate with stale values when switching back to a previously visited tab', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(
+        screen.getByPlaceholderText('Enter first name...'),
+        'John'
+      )
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John'
+        )
+      })
+      mockReplace.mockClear()
+
+      await user.click(screen.getByRole('radio', { name: 'Email' }))
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
+      })
+      expect(mockReplace).not.toHaveBeenCalledWith(
+        expect.stringContaining('first_name=John')
+      )
+    })
   })
 
   describe('email auto-search', () => {
