@@ -5,7 +5,6 @@ const LOCATORS = {
   emailInput: (page: Page) => page.getByPlaceholder('Enter email address...'),
   firstNameInput: (page: Page) => page.getByPlaceholder('Enter first name...'),
   lastNameInput: (page: Page) => page.getByPlaceholder('Enter last name...'),
-  searchButton: (page: Page) => page.getByRole('button', { name: 'Search' }),
   clearButton: (page: Page) => page.getByRole('button', { name: 'Clear' }),
   emailModeButton: (page: Page) => page.getByRole('radio', { name: 'Email' }),
   nameModeButton: (page: Page) => page.getByRole('radio', { name: 'Name' }),
@@ -38,26 +37,11 @@ test.describe('Users Page', () => {
     await expect(LOCATORS.lastNameInput(page)).toBeVisible()
   })
 
-  test('search button is disabled without valid name input', async ({
-    page,
-  }) => {
-    await LOCATORS.nameModeButton(page).click()
-    await expect(LOCATORS.searchButton(page)).toBeDisabled()
-  })
-
-  test('enables search button with valid name inputs', async ({ page }) => {
+  test('auto-searches after typing in name fields', async ({ page }) => {
     await LOCATORS.nameModeButton(page).click()
     await LOCATORS.firstNameInput(page).fill('John')
-    await LOCATORS.lastNameInput(page).fill('Doe')
 
-    await expect(LOCATORS.searchButton(page)).toBeEnabled()
-  })
-
-  test('shows validation error for short name', async ({ page }) => {
-    await LOCATORS.nameModeButton(page).click()
-    await LOCATORS.firstNameInput(page).fill('J')
-
-    await expect(page.getByText('Must be at least 2 characters')).toBeVisible()
+    await expect(page).toHaveURL(/first_name=John/)
   })
 })
 
@@ -97,7 +81,6 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.nameModeButton(page).click()
     await LOCATORS.firstNameInput(page).fill('Tomer')
     await LOCATORS.lastNameInput(page).fill('Almog')
-    await LOCATORS.searchButton(page).click()
 
     await expect(page).toHaveURL(/first_name=Tomer/)
     await expect(page).toHaveURL(/last_name=Almog/)
@@ -107,7 +90,6 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.nameModeButton(page).click()
     await LOCATORS.firstNameInput(page).fill('Tomer')
     await LOCATORS.lastNameInput(page).fill('Almog')
-    await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
 
@@ -132,7 +114,6 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.nameModeButton(page).click()
     await LOCATORS.firstNameInput(page).fill('Tomer')
     await LOCATORS.lastNameInput(page).fill('Almog')
-    await LOCATORS.searchButton(page).click()
 
     await expect(LOCATORS.resultsTable(page)).toBeVisible()
     await page.getByRole('link', { name: 'Tomer Almog' }).first().click()
