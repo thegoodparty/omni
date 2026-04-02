@@ -48,7 +48,7 @@ export function P2VForm({
   district,
 }: P2VFormProps) {
   const p2v = initialData
-  const isFirstRender = useRef(true)
+  const didInit = useRef(false)
 
   const {
     register,
@@ -100,8 +100,8 @@ export function P2VForm({
   const projectedTurnout = watch('projectedTurnout')
 
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
+    if (!didInit.current) {
+      didInit.current = true
       return
     }
     const pt = projectedTurnout
@@ -115,9 +115,6 @@ export function P2VForm({
       pt != null && pt > 0 ? Math.floor(pt * 5) : undefined,
       { shouldDirty: true }
     )
-    return () => {
-      isFirstRender.current = true
-    }
   }, [projectedTurnout, setValue])
 
   async function handleSubmit() {
