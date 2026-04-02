@@ -48,7 +48,7 @@ export function P2VForm({
   district,
 }: P2VFormProps) {
   const p2v = initialData
-  const initialProjectedTurnout = useRef(p2v?.data?.projectedTurnout ?? undefined)
+  const didInit = useRef(false)
 
   const {
     register,
@@ -100,7 +100,10 @@ export function P2VForm({
   const projectedTurnout = watch('projectedTurnout')
 
   useEffect(() => {
-    if (projectedTurnout === initialProjectedTurnout.current) return
+    if (!didInit.current) {
+      didInit.current = true
+      return
+    }
     const pt = projectedTurnout
     setValue(
       'winNumber',
