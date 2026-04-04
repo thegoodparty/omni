@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useSignIn } from '@clerk/nextjs'
+import { useClerk } from '@clerk/nextjs'
 import { Button } from '@radix-ui/themes'
 import { HiUsers } from 'react-icons/hi'
 import { ProtectedContent } from '@/components/ProtectedContent'
@@ -17,24 +17,34 @@ interface ImpersonateButtonProps {
 }
 
 export function ImpersonateButton({ email }: ImpersonateButtonProps) {
-  const { signIn, setActive } = useSignIn()
+  const clerk = useClerk()
   const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
 
   async function handleImpersonate() {
-    if (!signIn || !setActive) return
+    if (!clerk.loaded) return
 
     setLoading(true)
     try {
       const { token } = await createImpersonationToken(email)
 
-      const result = await signIn.create({
+      await clerk.signOut()
+
+      const result = await clerk.client.signIn.create({
         strategy: 'ticket',
         ticket: token,
       })
 
-      await setActive({ session: result.createdSessionId })
-      window.location.href = GP_WEBAPP_URL
+      if (!result.createdSessionId) {
+        throw new Error('Impersonation did not create a session')
+      }
+
+      await clerk.setActive({
+        session: result.createdSessionId,
+        navigate: () => {
+          window.location.assign(GP_WEBAPP_URL)
+        },
+      })
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to impersonate user'
