@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { UserSearchForm } from './UserSearchForm'
 
 // Create stable mock objects
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 const mockSearchParamsValues: Record<string, string | null> = {}
 
 const mockSearchParams = {
@@ -15,6 +16,7 @@ const mockSearchParams = {
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
+    replace: mockReplace,
   }),
   useSearchParams: () => mockSearchParams,
 }))
@@ -22,11 +24,16 @@ vi.mock('next/navigation', () => ({
 describe('UserSearchForm', () => {
   beforeEach(() => {
     mockPush.mockClear()
+    mockReplace.mockClear()
     mockSearchParams.get.mockClear()
     // Reset search params
     Object.keys(mockSearchParamsValues).forEach(
       (key) => delete mockSearchParamsValues[key]
     )
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('rendering', () => {
@@ -88,14 +95,12 @@ describe('UserSearchForm', () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
-      // Switch to name tab
       await user.click(screen.getByRole('radio', { name: 'Name' }))
       await user.type(
         screen.getByPlaceholderText('Enter first name...'),
         'John'
       )
 
-      // Switch back to email tab
       await user.click(screen.getByRole('radio', { name: 'Email' }))
 
       expect(
@@ -107,74 +112,107 @@ describe('UserSearchForm', () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
-      // Type email
       await user.type(
         screen.getByPlaceholderText('Enter email address...'),
         'test@example.com'
       )
 
-      // Switch to name tab
       await user.click(screen.getByRole('radio', { name: 'Name' }))
-
-      // Switch back to email - email should be cleared
       await user.click(screen.getByRole('radio', { name: 'Email' }))
 
       expect(screen.getByPlaceholderText('Enter email address...')).toHaveValue(
         ''
       )
     })
-  })
 
-  describe('email validation', () => {
-    it('shows error for invalid email', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.type(
-        screen.getByPlaceholderText('Enter email address...'),
-        'invalid'
-      )
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('Please enter a valid email address')
-        ).toBeInTheDocument()
-      })
-    })
-
-    it('enables submit button with valid email', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.type(
-        screen.getByPlaceholderText('Enter email address...'),
-        'valid@example.com'
-      )
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
-      })
-    })
-  })
-
-  describe('name validation', () => {
-    it('shows error when name is too short', async () => {
+    it('does not navigate with stale values when switching back to a previously visited tab', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
       await user.click(screen.getByRole('radio', { name: 'Name' }))
-      await user.type(screen.getByPlaceholderText('Enter first name...'), 'A')
+      await user.type(
+        screen.getByPlaceholderText('Enter first name...'),
+        'John'
+      )
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John'
+        )
+      })
+      mockReplace.mockClear()
+
+      await user.click(screen.getByRole('radio', { name: 'Email' }))
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
 
       await waitFor(() => {
-        expect(
-          screen.getByText('Must be at least 2 characters')
-        ).toBeInTheDocument()
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
+      })
+      expect(mockReplace).not.toHaveBeenCalledWith(
+        expect.stringContaining('first_name=John')
+      )
+    })
+  })
+
+  describe('email auto-search', () => {
+    it('auto-searches via router.replace after debounce delay', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.type(
+        screen.getByPlaceholderText('Enter email address...'),
+        'jo'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users?email=jo')
       })
     })
 
-    it('requires both first and last name', async () => {
+    it('searches with a single character', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.type(
+        screen.getByPlaceholderText('Enter email address...'),
+        'j'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users?email=j')
+      })
+    })
+
+    it('searches with the final value after rapid input', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.type(
+        screen.getByPlaceholderText('Enter email address...'),
+        'test@example.com'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenLastCalledWith(
+          '/dashboard/users?email=test%40example.com'
+        )
+      })
+    })
+
+    it('navigates to base path when email is cleared', async () => {
+      const user = userEvent.setup()
+      mockSearchParamsValues['email'] = 'test@example.com'
+      render(<UserSearchForm />)
+
+      await user.clear(screen.getByPlaceholderText('Enter email address...'))
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
+      })
+    })
+  })
+
+  describe('name auto-search', () => {
+    it('searches with just first name', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -184,11 +222,28 @@ describe('UserSearchForm', () => {
         'John'
       )
 
-      // Only first name filled - button should be disabled
-      expect(screen.getByRole('button', { name: /search/i })).toBeDisabled()
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John'
+        )
+      })
     })
 
-    it('enables submit when both names are valid', async () => {
+    it('searches with just last name', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?last_name=Doe'
+        )
+      })
+    })
+
+    it('searches with both first and last name', async () => {
       const user = userEvent.setup()
       render(<UserSearchForm />)
 
@@ -200,36 +255,43 @@ describe('UserSearchForm', () => {
       await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
 
       await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/dashboard/users?first_name=John&last_name=Doe'
+        )
+      })
+    })
+
+    it('searches with the final value after rapid input', async () => {
+      const user = userEvent.setup()
+      render(<UserSearchForm />)
+
+      await user.click(screen.getByRole('radio', { name: 'Name' }))
+      await user.type(
+        screen.getByPlaceholderText('Enter first name...'),
+        'John'
+      )
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenLastCalledWith(
+          '/dashboard/users?first_name=John'
+        )
+      })
+    })
+
+    it('navigates to base path when both name fields are cleared', async () => {
+      const user = userEvent.setup()
+      mockSearchParamsValues['first_name'] = 'John'
+      render(<UserSearchForm />)
+
+      await user.clear(screen.getByPlaceholderText('Enter first name...'))
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/dashboard/users')
       })
     })
   })
 
   describe('form submission', () => {
-    it('submits email search and navigates', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.type(
-        screen.getByPlaceholderText('Enter email address...'),
-        'test@example.com'
-      )
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
-      })
-
-      await user.click(screen.getByRole('button', { name: /search/i }))
-
-      expect(mockPush).toHaveBeenCalledWith(
-        '/dashboard/users?email=test%40example.com'
-      )
-    })
-
     it('navigates to base path when submitted values trim to empty', async () => {
       const user = userEvent.setup()
       const { container } = render(<UserSearchForm />)
@@ -238,36 +300,12 @@ describe('UserSearchForm', () => {
       await user.type(screen.getByPlaceholderText('Enter first name...'), '  ')
       await user.type(screen.getByPlaceholderText('Enter last name...'), '  ')
 
-      // Submit form directly — bypasses disabled button
+      // Submit form directly — bypasses auto-search, exercises onSubmit handler
       fireEvent.submit(container.querySelector('form')!)
 
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith('/dashboard/users')
       })
-    })
-
-    it('submits name search and navigates', async () => {
-      const user = userEvent.setup()
-      render(<UserSearchForm />)
-
-      await user.click(screen.getByRole('radio', { name: 'Name' }))
-      await user.type(
-        screen.getByPlaceholderText('Enter first name...'),
-        'John'
-      )
-      await user.type(screen.getByPlaceholderText('Enter last name...'), 'Doe')
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /search/i })
-        ).not.toBeDisabled()
-      })
-
-      await user.click(screen.getByRole('button', { name: /search/i }))
-
-      expect(mockPush).toHaveBeenCalledWith(
-        '/dashboard/users?first_name=John&last_name=Doe'
-      )
     })
   })
 

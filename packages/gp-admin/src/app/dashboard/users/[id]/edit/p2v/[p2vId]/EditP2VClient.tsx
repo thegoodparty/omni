@@ -39,9 +39,18 @@ function toPathToVictoryData(
 interface EditP2VClientProps {
   p2v: PathToVictory
   userId: number
+  campaignId: number
+  state: string
+  electionYear: number
 }
 
-export function EditP2VClient({ p2v, userId }: EditP2VClientProps) {
+export function EditP2VClient({
+  p2v,
+  userId,
+  campaignId,
+  state,
+  electionYear,
+}: EditP2VClientProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
@@ -67,12 +76,23 @@ export function EditP2VClient({ p2v, userId }: EditP2VClientProps) {
     router.push(`/dashboard/users/${userId}/p2v`)
   }
 
+  function handleDistrictSaved() {
+    router.refresh()
+  }
+
   return (
     <P2VForm
       initialData={p2v}
       onSave={handleSave}
       onCancel={handleCancel}
       isSaving={isSaving}
+      district={{
+        state,
+        electionYear,
+        campaignId,
+        userId,
+        onDistrictSaved: handleDistrictSaved,
+      }}
     />
   )
 }

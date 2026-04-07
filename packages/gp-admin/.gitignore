@@ -22,6 +22,7 @@ dist/
 *.code-workspace
 temp-docs/
 CLAUDE.md
+.claude/
 
 # Debug
 npm-debug.log*
