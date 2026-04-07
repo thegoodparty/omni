@@ -10,6 +10,7 @@ const mockUseAuth = vi.fn()
 
 vi.mock('@clerk/nextjs', () => ({
   useAuth: () => mockUseAuth(),
+  useClerk: () => ({ loaded: false, signOut: vi.fn(), setActive: vi.fn(), client: { signIn: { create: vi.fn() } } }),
   useSignIn: () => ({ signIn: null, setActive: vi.fn() }),
   ClerkLoading: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
