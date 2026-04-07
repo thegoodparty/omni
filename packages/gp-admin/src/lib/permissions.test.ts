@@ -21,6 +21,7 @@ describe('PERMISSIONS', () => {
       MANAGE_SETTINGS: 'org:admin_portal:manage_settings',
       MANAGE_INVITES: 'org:admin_portal:manage_invites',
       MANAGE_ECANVASSER: 'org:admin_portal:manage_ecanvasser',
+      IMPERSONATE_USERS: 'org:admin_portal:impersonate_users',
     })
   })
 })

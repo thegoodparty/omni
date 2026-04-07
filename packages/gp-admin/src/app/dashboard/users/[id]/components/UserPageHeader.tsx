@@ -7,13 +7,14 @@ import { HiPencil, HiArrowLeft } from 'react-icons/hi'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useUser } from '../context/UserContext'
+import { ImpersonateButton } from './ImpersonateButton'
 
 interface UserPageHeaderProps {
   isEditMode?: boolean
 }
 
 export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
-  const { id, firstName, lastName, avatar } = useUser()
+  const { id, firstName, lastName, avatar, email } = useUser()
   const pathname = usePathname()
 
   const basePath = `/dashboard/users/${id}`
@@ -44,17 +45,20 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
         </Heading>
       </Flex>
       {!isEditMode && (
-        <ProtectedContent
-          requiredPermission={PERMISSIONS.WRITE_USERS}
-          hideWhenUnauthorized
-        >
-          <Button asChild>
-            <Link href={`${basePath}/edit${subRoute}`}>
-              <HiPencil className="w-4 h-4" />
-              Edit
-            </Link>
-          </Button>
-        </ProtectedContent>
+        <Flex gap="3" align="center">
+          <ImpersonateButton email={email} />
+          <ProtectedContent
+            requiredPermission={PERMISSIONS.WRITE_USERS}
+            hideWhenUnauthorized
+          >
+            <Button asChild>
+              <Link href={`${basePath}/edit${subRoute}`}>
+                <HiPencil className="w-4 h-4" />
+                Edit
+              </Link>
+            </Button>
+          </ProtectedContent>
+        </Flex>
       )}
     </Flex>
   )
