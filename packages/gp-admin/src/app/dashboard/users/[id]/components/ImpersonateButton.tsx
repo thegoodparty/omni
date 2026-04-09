@@ -30,7 +30,6 @@ export function ImpersonateButton({ userId }: ImpersonateButtonProps) {
       showToast(
         error instanceof Error ? error.message : 'Failed to impersonate user'
       )
-    } finally {
       setLoading(false)
     }
   }

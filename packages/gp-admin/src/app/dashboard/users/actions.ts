@@ -91,5 +91,9 @@ export const createImpersonationToken = async (
     )
   }
 
-  return response.json()
+  const data = await response.json()
+  if (!data.token) {
+    throw new Error('Unexpected response shape from impersonation endpoint')
+  }
+  return data
 }
