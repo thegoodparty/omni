@@ -23,9 +23,11 @@ export function ImpersonateButton({ userId }: ImpersonateButtonProps) {
     setLoading(true)
     try {
       const { token } = await createImpersonationToken(userId)
-      window.location.assign(
-        `${GP_WEBAPP_URL}/impersonate?__clerk_ticket=${token}`
+      window.open(
+        `${GP_WEBAPP_URL}/impersonate?__clerk_ticket=${token}`,
+        '_blank'
       )
+      setLoading(false)
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to impersonate user'
