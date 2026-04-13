@@ -12,36 +12,17 @@ vi.mock('@clerk/nextjs/server', () => ({
   auth: () => mockAuth(),
 }))
 
-// --- Clerk backend (M2M token) ---
-const mockCreateToken = vi.fn()
-vi.mock('@clerk/backend', () => ({
-  createClerkClient: vi.fn(() => ({
-    m2m: { createToken: mockCreateToken },
-  })),
-}))
-
-// --- GP environment helpers ---
-vi.mock('@/shared/util/gpEnvironment', () => ({
-  resolveEnvironment: vi.fn(() => 'dev'),
-  getEnvironmentConfig: vi.fn(() => ({
-    gpApiRootUrl: 'http://localhost:3000/v1',
-    m2mSecret: 'ak_test_secret',
-  })),
-}))
-
-// --- GP API client (not used by createImpersonationToken but imported by module) ---
+// --- GP API client ---
+const mockImpersonateUser = vi.fn()
 vi.mock('@/shared/util/gpClient.util', () => ({
-  gpAction: vi.fn(),
+  gpAction: vi.fn(async (fn: (client: unknown) => unknown) =>
+    fn({ admin: { impersonateUser: mockImpersonateUser } })
+  ),
 }))
-
-// --- fetch ---
-const mockFetch = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
 
 function makeAuthResult(overrides: Record<string, unknown> = {}) {
   return {
     userId: 'user_admin_123',
-    orgId: 'org_dev',
     has: mockHas,
     ...overrides,
   }
@@ -52,11 +33,7 @@ describe('createImpersonationToken', () => {
     vi.clearAllMocks()
     mockHas.mockReturnValue(true)
     mockAuth.mockReturnValue(makeAuthResult())
-    mockCreateToken.mockResolvedValue({ token: 'mt_impersonate_token' })
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ token: 'clerk_ticket_xyz' }),
-    })
+    mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
   })
 
   describe('auth guards', () => {
@@ -65,14 +42,6 @@ describe('createImpersonationToken', () => {
 
       await expect(createImpersonationToken(1)).rejects.toThrow(
         'Not authenticated'
-      )
-    })
-
-    it('throws No active organization when no orgId', async () => {
-      mockAuth.mockReturnValue(makeAuthResult({ orgId: null }))
-
-      await expect(createImpersonationToken(1)).rejects.toThrow(
-        'No active organization'
       )
     })
 
@@ -93,92 +62,26 @@ describe('createImpersonationToken', () => {
     })
   })
 
-  describe('M2M token creation', () => {
-    it('creates M2M token using the environment machine secret', async () => {
-      await createImpersonationToken(1)
-
-      expect(mockCreateToken).toHaveBeenCalledWith({
-        machineSecretKey: 'ak_test_secret',
-      })
-    })
-  })
-
-  describe('gp-api call', () => {
-    it('calls the correct impersonation endpoint for the target user', async () => {
+  describe('gp-api delegation', () => {
+    it('calls client.admin.impersonateUser with correct args', async () => {
+      mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       await createImpersonationToken(99)
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/v1/admin/users/impersonate/99',
-        expect.any(Object)
-      )
-    })
-
-    it('uses POST method', async () => {
-      await createImpersonationToken(1)
-
-      const [, options] = mockFetch.mock.calls[0]
-      expect(options.method).toBe('POST')
-    })
-
-    it('sends Authorization: Bearer with the M2M token', async () => {
-      await createImpersonationToken(1)
-
-      const [, options] = mockFetch.mock.calls[0]
-      expect(options.headers['Authorization']).toBe(
-        'Bearer mt_impersonate_token'
-      )
-    })
-
-    it('sends actorClerkId in the request body', async () => {
-      await createImpersonationToken(1)
-
-      const [, options] = mockFetch.mock.calls[0]
-      const body = JSON.parse(options.body)
-      expect(body.actorClerkId).toBe('user_admin_123')
-    })
-
-    it('sets Content-Type to application/json', async () => {
-      await createImpersonationToken(1)
-
-      const [, options] = mockFetch.mock.calls[0]
-      expect(options.headers['Content-Type']).toBe('application/json')
+      expect(mockImpersonateUser).toHaveBeenCalledWith(99, 'user_admin_123')
     })
   })
 
   describe('response handling', () => {
-    it('returns the token from a successful response', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ token: 'clerk_ticket_xyz' }),
-      })
-
+    it('returns token on success', async () => {
+      mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       const result = await createImpersonationToken(1)
 
       expect(result).toEqual({ token: 'clerk_ticket_xyz' })
     })
 
-    it('throws with status code when gp-api returns a non-ok response', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 403,
-        text: async () => 'Forbidden',
-      })
-
-      await expect(createImpersonationToken(1)).rejects.toThrow(
-        'Failed to create impersonation token: 403 Forbidden'
-      )
-    })
-
-    it('throws with status code when gp-api returns 500', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 500,
-        text: async () => 'Internal Server Error',
-      })
-
-      await expect(createImpersonationToken(1)).rejects.toThrow(
-        'Failed to create impersonation token: 500 Internal Server Error'
-      )
+    it('propagates errors from the SDK', async () => {
+      mockImpersonateUser.mockRejectedValue(new Error('SDK error'))
+      await expect(createImpersonationToken(1)).rejects.toThrow('SDK error')
     })
   })
 })

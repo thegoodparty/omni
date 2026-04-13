@@ -2,14 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { auth } from '@clerk/nextjs/server'
-import { createClerkClient } from '@clerk/backend'
 import { gpAction } from '@/shared/util/gpClient.util'
-import {
-  resolveEnvironment,
-  getEnvironmentConfig,
-} from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import type { UpdateUserInput, User, ImpersonateUserOutput } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
   SearchUsersResult,
@@ -51,49 +46,15 @@ export const updateUser = async (
 
 export const createImpersonationToken = async (
   targetUserId: number
-): Promise<{ token: string }> => {
-  const { userId: adminClerkId, orgId, has } = await auth()
+): Promise<ImpersonateUserOutput> => {
+  const { userId: adminClerkId, has } = await auth()
 
   if (!adminClerkId) throw new Error('Not authenticated')
-  if (!orgId) throw new Error('No active organization')
   if (!has({ permission: PERMISSIONS.IMPERSONATE_USERS })) {
     throw new Error('Missing impersonate permission')
   }
 
-  const environment = resolveEnvironment(orgId)
-  const { gpApiRootUrl, m2mSecret } = getEnvironmentConfig(environment)
-
-  // m2mSecret is a Clerk machine secret key — use it to create a proper
-  // mt_-prefixed M2M token, same as the SDK does internally
-  const clerkClient = createClerkClient({
-    secretKey: process.env.CLERK_SECRET_KEY,
-  })
-  const { token } = await clerkClient.m2m.createToken({
-    machineSecretKey: m2mSecret,
-  })
-
-  const response = await fetch(
-    `${gpApiRootUrl}/admin/users/impersonate/${targetUserId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ actorClerkId: adminClerkId }),
-    }
+  return gpAction((client) =>
+    client.admin.impersonateUser(targetUserId, adminClerkId)
   )
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(
-      `Failed to create impersonation token: ${response.status} ${text}`
-    )
-  }
-
-  const data = await response.json()
-  if (!data.token) {
-    throw new Error('Unexpected response shape from impersonation endpoint')
-  }
-  return data
 }
