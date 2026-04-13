@@ -37,13 +37,9 @@ vi.mock('../../actions', () => ({
     mockCreateImpersonationToken(...args),
 }))
 
-// --- window.location.assign mock ---
+// --- window.open mock ---
 const mockAssign = vi.fn()
-Object.defineProperty(window, 'location', {
-  value: { assign: mockAssign },
-  configurable: true,
-  writable: true,
-})
+vi.stubGlobal('open', mockAssign)
 
 function renderButton(userId = 42) {
   return render(
@@ -130,7 +126,8 @@ describe('ImpersonateButton', () => {
 
       await waitFor(() => {
         expect(mockAssign).toHaveBeenCalledWith(
-          expect.stringContaining('__clerk_ticket=tok_abc')
+          expect.stringContaining('__clerk_ticket=tok_abc'),
+          '_blank'
         )
       })
     })
@@ -143,7 +140,8 @@ describe('ImpersonateButton', () => {
 
       await waitFor(() => {
         expect(mockAssign).toHaveBeenCalledWith(
-          expect.stringContaining('/impersonate')
+          expect.stringContaining('/impersonate'),
+          '_blank'
         )
       })
     })
