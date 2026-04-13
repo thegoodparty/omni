@@ -199,6 +199,50 @@ describe('UserPageHeader', () => {
     })
   })
 
+  describe('impersonate button', () => {
+    it('renders ImpersonateButton in view mode', () => {
+      renderWithUser(mockUser)
+
+      expect(
+        screen.getByRole('button', { name: /impersonate/i })
+      ).toBeInTheDocument()
+    })
+
+    it('does not render ImpersonateButton in edit mode', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
+
+      renderWithUser(mockUser, { isEditMode: true })
+
+      expect(
+        screen.queryByRole('button', { name: /impersonate/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides ImpersonateButton when user lacks IMPERSONATE_USERS permission', () => {
+      mockHas.mockReturnValue(false)
+
+      renderWithUser(mockUser)
+
+      expect(
+        screen.queryByRole('button', { name: /impersonate/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('still shows Edit button when ImpersonateButton is hidden', () => {
+      mockHas.mockImplementation(
+        ({ permission }: { permission?: string; role?: string }) =>
+          permission !== 'org:admin_portal:impersonate_users'
+      )
+
+      renderWithUser(mockUser)
+
+      expect(screen.getByRole('link', { name: /edit/i })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /impersonate/i })
+      ).not.toBeInTheDocument()
+    })
+  })
+
   describe('edge cases', () => {
     it('renders without crashing when avatar is missing', () => {
       renderWithUser({ ...mockUser, avatar: null })

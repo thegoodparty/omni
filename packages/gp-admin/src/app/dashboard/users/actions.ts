@@ -1,10 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { auth, clerkClient } from '@clerk/nextjs/server'
+import { auth } from '@clerk/nextjs/server'
 import { gpAction } from '@/shared/util/gpClient.util'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import type { UpdateUserInput, User, ImpersonateUserOutput } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
   SearchUsersResult,
@@ -45,36 +45,16 @@ export const updateUser = async (
   })
 
 export const createImpersonationToken = async (
-  targetUserEmail: string
-): Promise<{ token: string }> => {
-  const { userId, has } = await auth()
+  targetUserId: number
+): Promise<ImpersonateUserOutput> => {
+  const { userId: adminClerkId, has } = await auth()
 
-  if (!userId) throw new Error('Not authenticated')
+  if (!adminClerkId) throw new Error('Not authenticated')
   if (!has({ permission: PERMISSIONS.IMPERSONATE_USERS })) {
     throw new Error('Missing impersonate permission')
   }
 
-  const client = await clerkClient()
-
-  const { data: clerkUsers } = await client.users.getUserList({
-    emailAddress: [targetUserEmail],
-    limit: 1,
-  })
-
-  const targetClerkUser = clerkUsers[0]
-  if (!targetClerkUser) {
-    throw new Error('User not found in Clerk')
-  }
-
-  const actorToken = await client.actorTokens.create({
-    userId: targetClerkUser.id,
-    actor: { sub: userId },
-    expiresInSeconds: 3600,
-  })
-
-  if (!actorToken.token) {
-    throw new Error('Failed to create impersonation token')
-  }
-
-  return { token: actorToken.token }
+  return gpAction((client) =>
+    client.admin.impersonateUser(targetUserId, adminClerkId)
+  )
 }

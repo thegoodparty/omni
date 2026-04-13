@@ -14,7 +14,7 @@ interface UserPageHeaderProps {
 }
 
 export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
-  const { id, firstName, lastName, avatar, email } = useUser()
+  const { id, firstName, lastName, avatar } = useUser()
   const pathname = usePathname()
 
   const basePath = `/dashboard/users/${id}`
@@ -46,7 +46,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
       </Flex>
       {!isEditMode && (
         <Flex gap="3" align="center">
-          <ImpersonateButton email={email} />
+          <ImpersonateButton userId={id} />
           <ProtectedContent
             requiredPermission={PERMISSIONS.WRITE_USERS}
             hideWhenUnauthorized
