@@ -14,7 +14,7 @@ interface UserPageHeaderProps {
 }
 
 export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
-  const { id, firstName, lastName, avatar, email } = useUser()
+  const { id, firstName, lastName, avatar } = useUser()
   const pathname = usePathname()
 
   const basePath = `/dashboard/users/${id}`
