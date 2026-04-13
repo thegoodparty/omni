@@ -84,3 +84,5 @@ export type {
   ListDistrictNamesOptions,
   UpdateDistrictInput,
 } from './types/district'
+
+export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
