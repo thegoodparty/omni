@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 1.14.0
+
+### Minor Changes
+
+- [#56](https://github.com/thegoodparty/gp-sdk/pull/56) [`f035cad`](https://github.com/thegoodparty/gp-sdk/commit/f035cadfe26baed6761f0f5d6bc80b7212f1bd9d) Thanks [@awardquick](https://github.com/awardquick)! - Add AdminResource with impersonateUser method to GoodPartyClient
+
 ## 1.13.0
 
 ### Minor Changes
