@@ -20,9 +20,20 @@ vi.mock('@/shared/util/gpClient.util', () => ({
   ),
 }))
 
+// --- GP Environment mock ---
+vi.mock('@/shared/util/gpEnvironment', () => ({
+  resolveEnvironment: vi.fn().mockReturnValue('dev'),
+  getEnvironmentConfig: vi.fn().mockReturnValue({
+    gpApiRootUrl: 'http://localhost:3000/v1',
+    m2mSecret: 'secret',
+    webappUrl: 'http://localhost:4000',
+  }),
+}))
+
 function makeAuthResult(overrides: Record<string, unknown> = {}) {
   return {
     userId: 'user_admin_123',
+    orgId: 'org_dev_123',
     has: mockHas,
     ...overrides,
   }
@@ -43,6 +54,11 @@ describe('createImpersonationToken', () => {
       await expect(createImpersonationToken(1)).rejects.toThrow(
         'Not authenticated'
       )
+    })
+
+    it('throws Not authenticated when no orgId', async () => {
+      mockAuth.mockReturnValue(makeAuthResult({ orgId: null }))
+      await expect(createImpersonationToken(1)).rejects.toThrow('Not authenticated')
     })
 
     it('throws Missing impersonate permission when has() returns false', async () => {
@@ -75,8 +91,13 @@ describe('createImpersonationToken', () => {
     it('returns token on success', async () => {
       mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       const result = await createImpersonationToken(1)
+      expect(result).toEqual({ token: 'clerk_ticket_xyz', webappUrl: 'http://localhost:4000' })
+    })
 
-      expect(result).toEqual({ token: 'clerk_ticket_xyz' })
+    it('returns webappUrl alongside the token', async () => {
+      mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
+      const result = await createImpersonationToken(1)
+      expect(result).toEqual({ token: 'clerk_ticket_xyz', webappUrl: 'http://localhost:4000' })
     })
 
     it('propagates errors from the SDK', async () => {

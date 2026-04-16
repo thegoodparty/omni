@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@clerk/nextjs/server'
 import { gpAction } from '@/shared/util/gpClient.util'
+import { resolveEnvironment, getEnvironmentConfig } from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { UpdateUserInput, User, ImpersonateUserOutput } from '@goodparty_org/sdk'
+import type { UpdateUserInput, User } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
   SearchUsersResult,
@@ -46,15 +47,17 @@ export const updateUser = async (
 
 export const createImpersonationToken = async (
   targetUserId: number
-): Promise<ImpersonateUserOutput> => {
-  const { userId: adminClerkId, has } = await auth()
+): Promise<{ token: string; webappUrl: string }> => {
+  const { userId: adminClerkId, orgId, has } = await auth()
 
-  if (!adminClerkId) throw new Error('Not authenticated')
+  if (!adminClerkId || !orgId) throw new Error('Not authenticated')
   if (!has({ permission: PERMISSIONS.IMPERSONATE_USERS })) {
     throw new Error('Missing impersonate permission')
   }
 
-  return gpAction((client) =>
+  const { webappUrl } = getEnvironmentConfig(resolveEnvironment(orgId))
+  const { token } = await gpAction((client) =>
     client.admin.impersonateUser(targetUserId, adminClerkId)
   )
+  return { token, webappUrl }
 }
