@@ -9,6 +9,13 @@ import {
   type GpEnvironment,
 } from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
+import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import {
+  SearchUsersParams,
+  SearchUsersResult,
+  SEARCH_PARAMS,
+  DEFAULT_PER_PAGE,
+} from './types'
 
 function getWebappUrl(env: GpEnvironment): string {
   const urls: Record<GpEnvironment, string | undefined> = {
@@ -20,13 +27,6 @@ function getWebappUrl(env: GpEnvironment): string {
   if (!url) throw new Error(`Webapp URL not configured for environment: ${env}`)
   return url
 }
-import type { UpdateUserInput, User } from '@goodparty_org/sdk'
-import {
-  SearchUsersParams,
-  SearchUsersResult,
-  SEARCH_PARAMS,
-  DEFAULT_PER_PAGE,
-} from './types'
 
 export const searchUsers = async (
   params: SearchUsersParams
