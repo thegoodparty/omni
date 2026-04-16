@@ -40,22 +40,26 @@ const ENV_CONFIG_KEYS: Record<
   [GP_ENVIRONMENT.DEV]: {
     domain: 'GP_DEV_API_DOMAIN',
     secret: 'GP_DEV_MACHINE_SECRET',
-    webapp: 'GP_DEV_WEBAPP_URL',
+    webapp: 'NEXT_PUBLIC_GP_DEV_WEBAPP_URL',
   },
   [GP_ENVIRONMENT.QA]: {
     domain: 'GP_QA_API_DOMAIN',
     secret: 'GP_QA_MACHINE_SECRET',
-    webapp: 'GP_QA_WEBAPP_URL',
+    webapp: 'NEXT_PUBLIC_GP_QA_WEBAPP_URL',
   },
   [GP_ENVIRONMENT.PROD]: {
     domain: 'GP_PROD_API_DOMAIN',
     secret: 'GP_PROD_MACHINE_SECRET',
-    webapp: 'GP_PROD_WEBAPP_URL',
+    webapp: 'NEXT_PUBLIC_GP_WEBAPP_URL',
   },
 }
 
 export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
-  const { domain: domainKey, secret: secretKey, webapp: webappKey } = ENV_CONFIG_KEYS[env]
+  const {
+    domain: domainKey,
+    secret: secretKey,
+    webapp: webappKey,
+  } = ENV_CONFIG_KEYS[env]
 
   const domain = process.env[domainKey]
   const m2mSecret = process.env[secretKey]

@@ -8,9 +8,6 @@ import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
 import { createImpersonationToken } from '../../actions'
 
-const GP_WEBAPP_URL =
-  process.env.NEXT_PUBLIC_GP_WEBAPP_URL || 'https://app.goodparty.org'
-
 interface ImpersonateButtonProps {
   userId: number
 }
@@ -22,11 +19,8 @@ export function ImpersonateButton({ userId }: ImpersonateButtonProps) {
   async function handleImpersonate() {
     setLoading(true)
     try {
-      const { token } = await createImpersonationToken(userId)
-      window.open(
-        `${GP_WEBAPP_URL}/impersonate?__clerk_ticket=${token}`,
-        '_blank'
-      )
+      const { token, webappUrl } = await createImpersonationToken(userId)
+      window.open(`${webappUrl}/impersonate?__clerk_ticket=${token}`, '_blank')
       setLoading(false)
     } catch (error) {
       showToast(
