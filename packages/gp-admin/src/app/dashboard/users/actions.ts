@@ -3,11 +3,15 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@clerk/nextjs/server'
 import { gpAction } from '@/shared/util/gpClient.util'
-import { resolveEnvironment, GP_ENVIRONMENT } from '@/shared/util/gpEnvironment'
+import {
+  resolveEnvironment,
+  GP_ENVIRONMENT,
+  type GpEnvironment,
+} from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
 
-function getWebappUrl(env: string): string {
-  const urls: Record<string, string | undefined> = {
+function getWebappUrl(env: GpEnvironment): string {
+  const urls: Record<GpEnvironment, string | undefined> = {
     [GP_ENVIRONMENT.DEV]: process.env.NEXT_PUBLIC_GP_DEV_WEBAPP_URL,
     [GP_ENVIRONMENT.QA]: process.env.NEXT_PUBLIC_GP_QA_WEBAPP_URL,
     [GP_ENVIRONMENT.PROD]: process.env.NEXT_PUBLIC_GP_WEBAPP_URL,
