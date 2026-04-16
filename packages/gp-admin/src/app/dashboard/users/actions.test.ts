@@ -95,12 +95,6 @@ describe('createImpersonationToken', () => {
       expect(result).toEqual({ token: 'clerk_ticket_xyz', webappUrl: 'http://localhost:4000' })
     })
 
-    it('returns webappUrl alongside the token', async () => {
-      mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
-      const result = await createImpersonationToken(1)
-      expect(result).toEqual({ token: 'clerk_ticket_xyz', webappUrl: 'http://localhost:4000' })
-    })
-
     it('propagates errors from the SDK', async () => {
       mockImpersonateUser.mockRejectedValue(new Error('SDK error'))
       await expect(createImpersonationToken(1)).rejects.toThrow('SDK error')
