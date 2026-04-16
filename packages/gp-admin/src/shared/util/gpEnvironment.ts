@@ -11,6 +11,7 @@ export type GpEnvironment = (typeof GP_ENVIRONMENT)[keyof typeof GP_ENVIRONMENT]
 export type GpEnvironmentConfig = {
   gpApiRootUrl: string
   m2mSecret: string
+  webappUrl: string
 }
 
 const ORG_ID_ENV_KEYS: Record<GpEnvironment, string> = {
@@ -34,27 +35,31 @@ export function resolveEnvironment(orgId: string): GpEnvironment {
 
 const ENV_CONFIG_KEYS: Record<
   GpEnvironment,
-  { domain: string; secret: string }
+  { domain: string; secret: string; webapp: string }
 > = {
   [GP_ENVIRONMENT.DEV]: {
     domain: 'GP_DEV_API_DOMAIN',
     secret: 'GP_DEV_MACHINE_SECRET',
+    webapp: 'GP_DEV_WEBAPP_URL',
   },
   [GP_ENVIRONMENT.QA]: {
     domain: 'GP_QA_API_DOMAIN',
     secret: 'GP_QA_MACHINE_SECRET',
+    webapp: 'GP_QA_WEBAPP_URL',
   },
   [GP_ENVIRONMENT.PROD]: {
     domain: 'GP_PROD_API_DOMAIN',
     secret: 'GP_PROD_MACHINE_SECRET',
+    webapp: 'GP_PROD_WEBAPP_URL',
   },
 }
 
 export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
-  const { domain: domainKey, secret: secretKey } = ENV_CONFIG_KEYS[env]
+  const { domain: domainKey, secret: secretKey, webapp: webappKey } = ENV_CONFIG_KEYS[env]
 
   const domain = process.env[domainKey]
   const m2mSecret = process.env[secretKey]
+  const webappUrl = process.env[webappKey]
   const protocol = process.env.GP_API_PROTOCOL
   const port = process.env.GP_API_PORT
   const rootPath = process.env.GP_API_ROOT_PATH
@@ -64,6 +69,9 @@ export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
   }
   if (!m2mSecret) {
     throw new Error(`${secretKey} is not set`)
+  }
+  if (!webappUrl) {
+    throw new Error(`${webappKey} is not set`)
   }
   if (!protocol) {
     throw new Error('GP_API_PROTOCOL is not set')
@@ -76,5 +84,5 @@ export function getEnvironmentConfig(env: GpEnvironment): GpEnvironmentConfig {
     rootPath,
   }).toString()
 
-  return { gpApiRootUrl, m2mSecret }
+  return { gpApiRootUrl, m2mSecret, webappUrl }
 }
