@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createImpersonationToken } from './actions'
 import { PERMISSIONS } from '@/lib/permissions'
 
@@ -23,11 +23,7 @@ vi.mock('@/shared/util/gpClient.util', () => ({
 // --- GP Environment mock ---
 vi.mock('@/shared/util/gpEnvironment', () => ({
   resolveEnvironment: vi.fn().mockReturnValue('dev'),
-  getEnvironmentConfig: vi.fn().mockReturnValue({
-    gpApiRootUrl: 'http://localhost:3000/v1',
-    m2mSecret: 'secret',
-    webappUrl: 'http://localhost:4000',
-  }),
+  GP_ENVIRONMENT: { DEV: 'dev', QA: 'qa', PROD: 'prod' },
 }))
 
 function makeAuthResult(overrides: Record<string, unknown> = {}) {
@@ -42,9 +38,14 @@ function makeAuthResult(overrides: Record<string, unknown> = {}) {
 describe('createImpersonationToken', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('NEXT_PUBLIC_GP_DEV_WEBAPP_URL', 'http://localhost:4000')
     mockHas.mockReturnValue(true)
     mockAuth.mockReturnValue(makeAuthResult())
     mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   describe('auth guards', () => {

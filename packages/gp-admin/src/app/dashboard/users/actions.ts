@@ -6,11 +6,16 @@ import { gpAction } from '@/shared/util/gpClient.util'
 import { resolveEnvironment, GP_ENVIRONMENT } from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
 
-const WEBAPP_URLS = {
-  [GP_ENVIRONMENT.DEV]: process.env.NEXT_PUBLIC_GP_DEV_WEBAPP_URL,
-  [GP_ENVIRONMENT.QA]: process.env.NEXT_PUBLIC_GP_QA_WEBAPP_URL,
-  [GP_ENVIRONMENT.PROD]: process.env.NEXT_PUBLIC_GP_WEBAPP_URL,
-} as const
+function getWebappUrl(env: string): string {
+  const urls: Record<string, string | undefined> = {
+    [GP_ENVIRONMENT.DEV]: process.env.NEXT_PUBLIC_GP_DEV_WEBAPP_URL,
+    [GP_ENVIRONMENT.QA]: process.env.NEXT_PUBLIC_GP_QA_WEBAPP_URL,
+    [GP_ENVIRONMENT.PROD]: process.env.NEXT_PUBLIC_GP_WEBAPP_URL,
+  }
+  const url = urls[env]
+  if (!url) throw new Error(`Webapp URL not configured for environment: ${env}`)
+  return url
+}
 import type { UpdateUserInput, User } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
@@ -60,10 +65,7 @@ export const createImpersonationToken = async (targetUserId: number) => {
   }
 
   const env = resolveEnvironment(orgId)
-  const webappUrl = WEBAPP_URLS[env]
-  if (!webappUrl) {
-    throw new Error(`Webapp URL not configured for environment: ${env}`)
-  }
+  const webappUrl = getWebappUrl(env)
 
   const { token } = await gpAction((client) =>
     client.admin.impersonateUser(targetUserId, adminClerkId)
