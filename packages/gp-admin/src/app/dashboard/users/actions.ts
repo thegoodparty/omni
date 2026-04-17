@@ -3,14 +3,30 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@clerk/nextjs/server'
 import { gpAction } from '@/shared/util/gpClient.util'
+import {
+  resolveEnvironment,
+  GP_ENVIRONMENT,
+  type GpEnvironment,
+} from '@/shared/util/gpEnvironment'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { UpdateUserInput, User, ImpersonateUserOutput } from '@goodparty_org/sdk'
+import type { UpdateUserInput, User } from '@goodparty_org/sdk'
 import {
   SearchUsersParams,
   SearchUsersResult,
   SEARCH_PARAMS,
   DEFAULT_PER_PAGE,
 } from './types'
+
+function getWebappUrl(env: GpEnvironment): string {
+  const urls: Record<GpEnvironment, string | undefined> = {
+    [GP_ENVIRONMENT.DEV]: process.env.NEXT_PUBLIC_GP_DEV_WEBAPP_URL,
+    [GP_ENVIRONMENT.QA]: process.env.NEXT_PUBLIC_GP_QA_WEBAPP_URL,
+    [GP_ENVIRONMENT.PROD]: process.env.NEXT_PUBLIC_GP_WEBAPP_URL,
+  }
+  const url = urls[env]
+  if (!url) throw new Error(`Webapp URL not configured for environment: ${env}`)
+  return url
+}
 
 export const searchUsers = async (
   params: SearchUsersParams
@@ -44,17 +60,19 @@ export const updateUser = async (
     return user
   })
 
-export const createImpersonationToken = async (
-  targetUserId: number
-): Promise<ImpersonateUserOutput> => {
-  const { userId: adminClerkId, has } = await auth()
+export const createImpersonationToken = async (targetUserId: number) => {
+  const { userId: adminClerkId, orgId, has } = await auth()
 
-  if (!adminClerkId) throw new Error('Not authenticated')
+  if (!adminClerkId || !orgId) throw new Error('Not authenticated')
   if (!has({ permission: PERMISSIONS.IMPERSONATE_USERS })) {
     throw new Error('Missing impersonate permission')
   }
 
-  return gpAction((client) =>
+  const env = resolveEnvironment(orgId)
+  const webappUrl = getWebappUrl(env)
+
+  const { token } = await gpAction((client) =>
     client.admin.impersonateUser(targetUserId, adminClerkId)
   )
+  return { token, webappUrl }
 }

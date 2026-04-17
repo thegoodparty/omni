@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createImpersonationToken } from './actions'
 import { PERMISSIONS } from '@/lib/permissions'
 
@@ -20,9 +20,16 @@ vi.mock('@/shared/util/gpClient.util', () => ({
   ),
 }))
 
+// --- GP Environment mock ---
+vi.mock('@/shared/util/gpEnvironment', () => ({
+  resolveEnvironment: vi.fn().mockReturnValue('dev'),
+  GP_ENVIRONMENT: { DEV: 'dev', QA: 'qa', PROD: 'prod' },
+}))
+
 function makeAuthResult(overrides: Record<string, unknown> = {}) {
   return {
     userId: 'user_admin_123',
+    orgId: 'org_dev_123',
     has: mockHas,
     ...overrides,
   }
@@ -31,9 +38,14 @@ function makeAuthResult(overrides: Record<string, unknown> = {}) {
 describe('createImpersonationToken', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('NEXT_PUBLIC_GP_DEV_WEBAPP_URL', 'http://localhost:4000')
     mockHas.mockReturnValue(true)
     mockAuth.mockReturnValue(makeAuthResult())
     mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   describe('auth guards', () => {
@@ -43,6 +55,11 @@ describe('createImpersonationToken', () => {
       await expect(createImpersonationToken(1)).rejects.toThrow(
         'Not authenticated'
       )
+    })
+
+    it('throws Not authenticated when no orgId', async () => {
+      mockAuth.mockReturnValue(makeAuthResult({ orgId: null }))
+      await expect(createImpersonationToken(1)).rejects.toThrow('Not authenticated')
     })
 
     it('throws Missing impersonate permission when has() returns false', async () => {
@@ -75,8 +92,7 @@ describe('createImpersonationToken', () => {
     it('returns token on success', async () => {
       mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       const result = await createImpersonationToken(1)
-
-      expect(result).toEqual({ token: 'clerk_ticket_xyz' })
+      expect(result).toEqual({ token: 'clerk_ticket_xyz', webappUrl: 'http://localhost:4000' })
     })
 
     it('propagates errors from the SDK', async () => {
