@@ -6,4 +6,10 @@ dependencies = [
     "databricks-sql-connector",
     "pandas",
     "python-dotenv",
+    "requests",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]
