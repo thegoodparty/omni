@@ -62,8 +62,9 @@ describe('ImpersonateButton', () => {
 
   describe('visibility', () => {
     it('renders button when user has IMPERSONATE_USERS permission', () => {
-      mockHas.mockImplementation(({ permission }: { permission: string }) =>
-        permission === PERMISSIONS.IMPERSONATE_USERS
+      mockHas.mockImplementation(
+        ({ permission }: { permission: string }) =>
+          permission === PERMISSIONS.IMPERSONATE_USERS
       )
 
       renderButton()
@@ -96,15 +97,17 @@ describe('ImpersonateButton', () => {
     it('shows Impersonate label', () => {
       renderButton()
 
-      expect(screen.getByRole('button', { name: /impersonate/i })).toHaveTextContent(
-        'Impersonate'
-      )
+      expect(
+        screen.getByRole('button', { name: /impersonate/i })
+      ).toHaveTextContent('Impersonate')
     })
 
     it('is not disabled', () => {
       renderButton()
 
-      expect(screen.getByRole('button', { name: /impersonate/i })).not.toBeDisabled()
+      expect(
+        screen.getByRole('button', { name: /impersonate/i })
+      ).not.toBeDisabled()
     })
   })
 
@@ -113,7 +116,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockResolvedValue({ token: 'tok_abc' })
 
       renderButton(99)
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       expect(mockCreateImpersonationToken).toHaveBeenCalledWith(99)
     })
@@ -122,7 +127,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockResolvedValue({ token: 'tok_abc' })
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() => {
         expect(mockAssign).toHaveBeenCalledWith(
@@ -136,7 +143,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockResolvedValue({ token: 'tok_abc' })
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() => {
         expect(mockAssign).toHaveBeenCalledWith(
@@ -150,7 +159,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockResolvedValue({ token: 'tok_abc' })
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() => expect(mockAssign).toHaveBeenCalled())
       expect(mockShowToast).not.toHaveBeenCalled()
@@ -167,10 +178,16 @@ describe('ImpersonateButton', () => {
       )
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
-      expect(await screen.findByRole('button', { name: /impersonating/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /impersonating/i })).toBeDisabled()
+      expect(
+        await screen.findByRole('button', { name: /impersonating/i })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /impersonating/i })
+      ).toBeDisabled()
 
       // Clean up pending promise
       resolve!({ token: 'done' })
@@ -180,11 +197,11 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockResolvedValue({ token: 'tok_abc' })
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
-
-      await waitFor(() =>
-        expect(screen.getByRole('button')).not.toBeDisabled()
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
       )
+
+      await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled())
     })
   })
 
@@ -195,10 +212,14 @@ describe('ImpersonateButton', () => {
       )
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() =>
-        expect(mockShowToast).toHaveBeenCalledWith('Missing impersonate permission')
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Missing impersonate permission'
+        )
       )
     })
 
@@ -206,7 +227,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockRejectedValue('unexpected string error')
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() =>
         expect(mockShowToast).toHaveBeenCalledWith('Failed to impersonate user')
@@ -217,10 +240,14 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockRejectedValue(new Error('fail'))
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: /impersonate/i })).not.toBeDisabled()
+        expect(
+          screen.getByRole('button', { name: /impersonate/i })
+        ).not.toBeDisabled()
       )
     })
 
@@ -228,7 +255,9 @@ describe('ImpersonateButton', () => {
       mockCreateImpersonationToken.mockRejectedValue(new Error('fail'))
 
       renderButton()
-      await userEvent.click(screen.getByRole('button', { name: /impersonate/i }))
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
 
       await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
       expect(mockAssign).not.toHaveBeenCalled()
