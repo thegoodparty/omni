@@ -52,11 +52,7 @@ export function DistrictPicker({
     if (!state || !electionYear) return
     setLoadingTypes(true)
     try {
-      const data = await fetchDistrictTypes(
-        state,
-        electionYear,
-        excludeInvalid
-      )
+      const data = await fetchDistrictTypes(state, electionYear, excludeInvalid)
       setTypes(data)
     } catch (error) {
       console.error('Failed to load district types:', error)
@@ -122,9 +118,7 @@ export function DistrictPicker({
   }
 
   const canSave =
-    selectedType !== SELECT_NONE &&
-    selectedName !== SELECT_NONE &&
-    !saving
+    selectedType !== SELECT_NONE && selectedName !== SELECT_NONE && !saving
 
   const hasNoState = !state
   const hasNoElectionYear = !electionYear
@@ -178,9 +172,7 @@ export function DistrictPicker({
               value={selectedName}
               onValueChange={setSelectedName}
               disabled={
-                loadingNames ||
-                !selectedType ||
-                selectedType === SELECT_NONE
+                loadingNames || !selectedType || selectedType === SELECT_NONE
               }
             >
               <Select.Trigger
@@ -212,11 +204,7 @@ export function DistrictPicker({
         </Flex>
 
         <Flex justify="end">
-          <Button
-            onClick={handleSave}
-            disabled={!canSave}
-            loading={saving}
-          >
+          <Button onClick={handleSave} disabled={!canSave} loading={saving}>
             Save District
           </Button>
         </Flex>

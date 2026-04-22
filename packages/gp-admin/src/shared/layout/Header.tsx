@@ -31,12 +31,7 @@ export function Header() {
         <Flex justify="between" align="center" gap="4" height="100%">
           <Flex align="center" gap="4">
             <Link href="/">
-              <Image
-                src="/logo.png"
-                alt="logo"
-                width={40}
-                height={40}
-              />
+              <Image src="/logo.png" alt="logo" width={40} height={40} />
             </Link>
             {isSignedIn && <SidebarTrigger />}
           </Flex>

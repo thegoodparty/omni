@@ -34,17 +34,29 @@ interface FieldConfig {
   placeholder: string
   type?: InputType
   hasError?: boolean
+  readOnly?: boolean
 }
 
 const BASIC_INFO_FIELDS: FieldConfig[] = [
-  { key: 'firstName', label: 'First Name', placeholder: 'First name' },
-  { key: 'lastName', label: 'Last Name', placeholder: 'Last name' },
+  {
+    key: 'firstName',
+    label: 'First Name',
+    placeholder: 'First name',
+    readOnly: true,
+  },
+  {
+    key: 'lastName',
+    label: 'Last Name',
+    placeholder: 'Last name',
+    readOnly: true,
+  },
   {
     key: 'email',
     label: 'Email',
     placeholder: 'email@example.com',
     type: INPUT_TYPE.EMAIL,
     hasError: true,
+    readOnly: true,
   },
   { key: 'phone', label: 'Phone', placeholder: 'Phone' },
   { key: 'zip', label: 'ZIP Code', placeholder: 'ZIP' },
@@ -129,7 +141,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
   function renderFields(fields: FieldConfig[]) {
     return (
       <Flex gap="4" wrap="wrap">
-        {fields.map(({ key, label, placeholder, type, hasError }) => {
+        {fields.map(({ key, label, placeholder, type, hasError, readOnly }) => {
           const error = hasError ? getError(key) : undefined
           return (
             <Box key={key} flexGrow="1" style={{ minWidth: '200px' }}>
@@ -137,10 +149,13 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
                 {label}
               </Text>
               <TextField.Root
-                {...register(key)}
-                type={type}
-                placeholder={placeholder}
-                color={error ? 'red' : undefined}
+                {...{
+                  ...register(key),
+                  type,
+                  placeholder,
+                  color: error ? 'red' : undefined,
+                  readOnly,
+                }}
               />
               {error && <ErrorText>{error.message}</ErrorText>}
             </Box>
