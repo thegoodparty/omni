@@ -6,6 +6,7 @@ export interface User {
   firstName: string
   lastName: string
   phone?: string | null
+  isPro: boolean
 }
 
 export const SEARCH_PARAMS = {
