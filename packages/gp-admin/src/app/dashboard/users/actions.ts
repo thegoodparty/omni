@@ -44,8 +44,22 @@ export const searchUsers = async (
       email: params[SEARCH_PARAMS.EMAIL],
     })
 
+    const users = result.data ?? []
+    const proFlags = await Promise.all(
+      users.map(async ({ id }) => {
+        try {
+          const { data: campaigns } = await client.campaigns.list({
+            userId: id,
+          })
+          return campaigns.some((c) => c.isPro === true)
+        } catch {
+          return false
+        }
+      })
+    )
+
     return {
-      data: result.data ?? [],
+      data: users.map((user, i) => ({ ...user, isPro: proFlags[i] })),
       meta: result.meta,
     }
   })
