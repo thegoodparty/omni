@@ -1,5 +1,6 @@
-@import "@radix-ui/themes/styles.css";
+@import 'tailwindcss';
+@import '@radix-ui/themes/styles.css' layer(components);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@source '../';
+
+@custom-variant dark (&:where(.dark, .dark *));
