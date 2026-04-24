@@ -42,7 +42,10 @@ export const searchUsers = async (
       firstName: params[SEARCH_PARAMS.FIRST_NAME],
       lastName: params[SEARCH_PARAMS.LAST_NAME],
       email: params[SEARCH_PARAMS.EMAIL],
-    })
+      ...(params[SEARCH_PARAMS.IS_PRO] !== undefined
+        ? { isPro: params[SEARCH_PARAMS.IS_PRO] }
+        : {}),
+    } as Parameters<(typeof client)['users']['list']>[0])
 
     const users = result.data ?? []
     const proFlags = await Promise.all(

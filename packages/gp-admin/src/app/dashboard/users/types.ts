@@ -15,6 +15,7 @@ export const SEARCH_PARAMS = {
   LAST_NAME: 'last_name',
   PAGE: 'page',
   PER_PAGE: 'per_page',
+  IS_PRO: 'is_pro',
 } as const
 
 export const DEFAULT_PER_PAGE = 20
@@ -39,6 +40,7 @@ export interface SearchUsersParams {
   [SEARCH_PARAMS.LAST_NAME]?: string
   [SEARCH_PARAMS.PAGE]?: number
   [SEARCH_PARAMS.PER_PAGE]?: number
+  [SEARCH_PARAMS.IS_PRO]?: boolean
 }
 
 export interface SearchUsersResult {

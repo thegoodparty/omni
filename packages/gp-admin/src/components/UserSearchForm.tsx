@@ -2,7 +2,11 @@
 
 import { Button, Flex, Box, Text, SegmentedControl } from '@radix-ui/themes'
 import { HiX } from 'react-icons/hi'
-import { useUserSearch, SEARCH_TAB } from '@/lib/hooks/useUserSearch'
+import {
+  useUserSearch,
+  SEARCH_TAB,
+  type ProFilter,
+} from '@/lib/hooks/useUserSearch'
 import { EmailSearchInput } from './EmailSearchInput'
 import { NameSearchInput } from './NameSearchInput'
 
@@ -15,11 +19,13 @@ export function UserSearchForm() {
     onSubmit,
     handleClear,
     showClear,
+    proFilter,
+    setProFilter,
   } = useUserSearch()
 
   return (
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
-      <form onSubmit={handleSubmit(onSubmit)}>
+      <form autoComplete="off" onSubmit={handleSubmit(onSubmit)}>
         <Flex direction="column" gap="4">
           <Box>
             <Text as="label" size="2" weight="medium" mb="2" mr="2">
@@ -46,6 +52,22 @@ export function UserSearchForm() {
               lastNameRegistration={register('lastName')}
             />
           )}
+
+          <Box>
+            <Text as="label" size="2" weight="medium" mb="2" mr="2">
+              Pro status
+            </Text>
+            <SegmentedControl.Root
+              value={proFilter}
+              onValueChange={(v) => setProFilter(v as ProFilter)}
+            >
+              <SegmentedControl.Item value="all">All</SegmentedControl.Item>
+              <SegmentedControl.Item value="pro">Pro</SegmentedControl.Item>
+              <SegmentedControl.Item value="not_pro">
+                Not Pro
+              </SegmentedControl.Item>
+            </SegmentedControl.Root>
+          </Box>
 
           <Flex gap="2" justify="end">
             {showClear && (

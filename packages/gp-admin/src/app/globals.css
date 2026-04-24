@@ -1,6 +1,20 @@
 @import 'tailwindcss';
 @import '@radix-ui/themes/styles.css' layer(components);
 
+@layer components {
+  .rt-BaseButton:where(:not([data-disabled])) {
+    cursor: pointer;
+  }
+
+  .rt-SegmentedControlItem:where(:not([disabled])) {
+    cursor: pointer;
+  }
+
+  .rt-SegmentedControlRoot:where([data-disabled]) .rt-SegmentedControlItem {
+    cursor: not-allowed;
+  }
+}
+
 @source '../';
 
 @custom-variant dark (&:where(.dark, .dark *));
