@@ -5,19 +5,23 @@ import type {
   SetDistrictOutput,
   UpdateCampaignM2MInput,
 } from '@goodparty_org/contracts'
+import type {
+  CampaignWithLiveContext,
+  CampaignWithPositionName,
+} from '../types/campaign'
 import type { UpdateDistrictInput } from '../types/district'
 import { BaseResource } from './BaseResource'
 
 export class CampaignsResource extends BaseResource {
   protected readonly resourceBasePath = '/campaigns'
 
-  get = (id: number): Promise<ReadCampaignOutput> =>
-    this.getRequest<ReadCampaignOutput>(`${this.resourceBasePath}/${id}`)
+  get = (id: number): Promise<CampaignWithLiveContext> =>
+    this.getRequest<CampaignWithLiveContext>(`${this.resourceBasePath}/${id}`)
 
   list = (
     options?: ListCampaignsPagination,
-  ): Promise<PaginatedList<ReadCampaignOutput>> =>
-    this.getRequest<PaginatedList<ReadCampaignOutput>>(
+  ): Promise<PaginatedList<CampaignWithPositionName>> =>
+    this.getRequest<PaginatedList<CampaignWithPositionName>>(
       `${this.resourceBasePath}/list`,
       options,
     )

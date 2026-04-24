@@ -70,16 +70,23 @@ const updatedOffice = await client.electedOffices.update('some-uuid', {
   isActive: true,
 })
 
-const p2vs = await client.pathsToVictory.list({
-  userId: 42,
-  offset: 0,
-  limit: 20,
-})
+const officeWithDistrict = await client.electedOffices.updateDistrict(
+  'some-uuid',
+  {
+    state: 'CA',
+    L2DistrictType: 'CITY',
+    L2DistrictName: 'OAKLAND',
+  },
+)
 
-const p2v = await client.pathsToVictory.get(1)
+// Organizations (admin / M2M)
+const org = await client.organizations.get('campaign-123')
 
-const updatedP2v = await client.pathsToVictory.update(1, {
-  data: { p2vStatus: 'Complete', winNumber: 5000 },
+const orgs = await client.organizations.list({ email: 'owner@example.com' })
+
+const patched = await client.organizations.patch('campaign-123', {
+  customPositionName: 'Mayor',
+  overrideDistrictId: 'district-uuid',
 })
 
 // Ecanvasser

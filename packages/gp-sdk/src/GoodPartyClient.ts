@@ -4,7 +4,7 @@ import { CampaignsResource } from './resources/CampaignsResource'
 import { EcanvasserResource } from './resources/EcanvasserResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
 import { ElectionsResource } from './resources/ElectionsResource'
-import { PathsToVictoryResource } from './resources/PathsToVictoryResource'
+import { OrganizationsResource } from './resources/OrganizationsResource'
 import { UsersResource } from './resources/UsersResource'
 import { ClerkService } from './vendor/clerk/clerk.service'
 
@@ -20,7 +20,7 @@ export class GoodPartyClient {
   readonly ecanvasser: EcanvasserResource
   readonly electedOffices: ElectedOfficesResource
   readonly elections: ElectionsResource
-  readonly pathsToVictory: PathsToVictoryResource
+  readonly organizations: OrganizationsResource
   private clerkService: ClerkService
 
   private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
@@ -32,7 +32,7 @@ export class GoodPartyClient {
     this.ecanvasser = new EcanvasserResource(httpClient)
     this.electedOffices = new ElectedOfficesResource(httpClient)
     this.elections = new ElectionsResource(httpClient)
-    this.pathsToVictory = new PathsToVictoryResource(httpClient)
+    this.organizations = new OrganizationsResource(httpClient)
   }
 
   static create = async (

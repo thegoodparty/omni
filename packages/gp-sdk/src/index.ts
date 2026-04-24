@@ -64,18 +64,10 @@ export { UserRole, WhyBrowsing, CampaignTier } from './enums'
 export type {
   ElectedOffice,
   ListElectedOfficesOptions,
+  SetElectedOfficeDistrictOutput,
+  UpdateElectedOfficeDistrictInput,
   UpdateElectedOfficeInput,
 } from './types/electedOffice'
-
-export type {
-  PathToVictory,
-  PathToVictoryData,
-  ViabilityScore,
-  ListPathsToVictoryOptions,
-  UpdatePathToVictoryInput,
-} from './types/pathToVictory'
-
-export { P2VStatus, P2VSource } from './types/pathToVictory'
 
 export type {
   DistrictTypeItem,
@@ -85,4 +77,20 @@ export type {
   UpdateDistrictInput,
 } from './types/district'
 
+export type {
+  CampaignWithLiveContext,
+  CampaignWithPositionName,
+  RaceTargetMetrics,
+} from './types/campaign'
+
 export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
+
+export type {
+  Organization,
+  OrgDistrict,
+  OrgPosition,
+  OrganizationListItem,
+  OrganizationOwnerSummary,
+  ListOrganizationsOptions,
+  PatchOrganizationInput,
+} from './types/organization'

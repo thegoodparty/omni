@@ -26,3 +26,14 @@ export type UpdateElectedOfficeInput = {
   termLengthDays?: number | null
   isActive?: boolean
 }
+
+export type UpdateElectedOfficeDistrictInput = {
+  state: string
+  L2DistrictType: string
+  L2DistrictName: string
+}
+
+export type SetElectedOfficeDistrictOutput = {
+  electedOfficeId: string
+  overrideDistrictId: string | null
+}

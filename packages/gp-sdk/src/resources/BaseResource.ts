@@ -24,6 +24,11 @@ export abstract class BaseResource {
     body: OfetchRequestBody,
   ): Promise<T> => this.httpClient.request<T>(path, { method: 'PUT', body })
 
+  protected patchRequest = <T>(
+    path: string,
+    body: OfetchRequestBody,
+  ): Promise<T> => this.httpClient.request<T>(path, { method: 'PATCH', body })
+
   protected deleteRequest = <T>(path: string): Promise<T> =>
     this.httpClient.request<T>(path, { method: 'DELETE' })
 }
