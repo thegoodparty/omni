@@ -9,6 +9,10 @@ const LOCATORS = {
   emailModeButton: (page: Page) => page.getByRole('radio', { name: 'Email' }),
   nameModeButton: (page: Page) => page.getByRole('radio', { name: 'Name' }),
   resultsTable: (page: Page) => page.getByRole('table'),
+  proAllButton: (page: Page) => page.getByRole('radio', { name: 'All' }),
+  proYesButton: (page: Page) =>
+    page.getByRole('radio', { name: 'Pro', exact: true }),
+  proNoButton: (page: Page) => page.getByRole('radio', { name: 'Not Pro' }),
 }
 
 test.describe('Users Page', () => {
@@ -143,5 +147,52 @@ test.describe('Users Search - Clear', () => {
 
     await expect(page).toHaveURL('/dashboard/users')
     await expect(LOCATORS.emailInput(page)).toHaveValue('')
+  })
+})
+
+test.describe('Users Search - Pro filter', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, TEST_USERS.DEV_ADMIN)
+    await page.goto('/dashboard/users')
+  })
+
+  test('renders Pro status segmented control with All/Pro/Not Pro', async ({
+    page,
+  }) => {
+    await expect(page.getByText('Pro status')).toBeVisible()
+    await expect(LOCATORS.proAllButton(page)).toBeVisible()
+    await expect(LOCATORS.proYesButton(page)).toBeVisible()
+    await expect(LOCATORS.proNoButton(page)).toBeVisible()
+  })
+
+  test('selecting Pro sets is_pro=true in URL', async ({ page }) => {
+    await LOCATORS.proYesButton(page).click()
+    await expect(page).toHaveURL(/is_pro=true/)
+  })
+
+  test('selecting Not Pro sets is_pro=false in URL', async ({ page }) => {
+    await LOCATORS.proNoButton(page).click()
+    await expect(page).toHaveURL(/is_pro=false/)
+  })
+
+  test('selecting All removes the is_pro param', async ({ page }) => {
+    await LOCATORS.proYesButton(page).click()
+    await expect(page).toHaveURL(/is_pro=true/)
+    await LOCATORS.proAllButton(page).click()
+    await expect(page).not.toHaveURL(/is_pro=/)
+  })
+
+  test('Pro filter combines with email filter in URL', async ({ page }) => {
+    await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
+    await LOCATORS.proYesButton(page).click()
+    await expect(page).toHaveURL(/email=tomer%40goodparty\.org/)
+    await expect(page).toHaveURL(/is_pro=true/)
+  })
+
+  test('Clear resets Pro filter back to All', async ({ page }) => {
+    await page.goto('/dashboard/users?is_pro=true')
+    await LOCATORS.clearButton(page).click()
+    await expect(page).toHaveURL('/dashboard/users')
+    await expect(LOCATORS.proAllButton(page)).toBeChecked()
   })
 })

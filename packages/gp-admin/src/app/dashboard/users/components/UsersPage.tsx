@@ -36,6 +36,9 @@ export default function UsersPage() {
 
   const currentPage = parsePageParam(searchParams.get(SEARCH_PARAMS.PAGE))
   const perPage = parsePerPageParam(searchParams.get(SEARCH_PARAMS.PER_PAGE))
+  const isProParam = searchParams.get(SEARCH_PARAMS.IS_PRO)
+  const isPro =
+    isProParam === 'true' ? true : isProParam === 'false' ? false : undefined
 
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers] = useState<User[] | null>(null)
@@ -57,6 +60,7 @@ export default function UsersPage() {
             searchParams.get(SEARCH_PARAMS.LAST_NAME) ?? undefined,
           [SEARCH_PARAMS.PAGE]: currentPage,
           [SEARCH_PARAMS.PER_PAGE]: perPage,
+          [SEARCH_PARAMS.IS_PRO]: isPro,
         })
 
         setUsers(result.data)
@@ -70,7 +74,7 @@ export default function UsersPage() {
     }
 
     fetchUsers()
-  }, [searchParams, currentPage, perPage])
+  }, [searchParams, currentPage, perPage, isPro])
 
   const updateSearchParams = useCallback(
     (updates: SearchParamUpdates) => {

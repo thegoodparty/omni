@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { PERMISSIONS } from '@/lib/permissions'
-import { MembersPage } from './components/MembersPage'
+import { MembersPage } from '../components/MembersPage'
 import { Metadata } from 'next'
 
 export const metadata: Metadata = {

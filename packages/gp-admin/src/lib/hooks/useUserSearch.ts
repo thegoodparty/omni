@@ -16,13 +16,44 @@ export const SEARCH_TAB = {
 
 export type Tab = (typeof SEARCH_TAB)[keyof typeof SEARCH_TAB]
 
+export type ProFilter = 'all' | 'pro' | 'not_pro'
+
+const PRO_FILTER_TO_PARAM: Record<ProFilter, string | undefined> = {
+  all: undefined,
+  pro: 'true',
+  not_pro: 'false',
+}
+
+type NavState = {
+  email: string
+  firstName: string
+  lastName: string
+  proFilter: ProFilter
+}
+
+const buildUsersUrl = ({ email, firstName, lastName, proFilter }: NavState) => {
+  const entries: ReadonlyArray<readonly [string, string | undefined]> = [
+    [SEARCH_PARAMS.EMAIL, email.trim() || undefined],
+    [SEARCH_PARAMS.FIRST_NAME, firstName.trim() || undefined],
+    [SEARCH_PARAMS.LAST_NAME, lastName.trim() || undefined],
+    [SEARCH_PARAMS.IS_PRO, PRO_FILTER_TO_PARAM[proFilter]],
+  ]
+  const params = new URLSearchParams()
+  for (const [k, v] of entries) if (v !== undefined) params.set(k, v)
+  const qs = params.toString()
+  return `${USERS_PATH}${qs ? `?${qs}` : ''}`
+}
+
+const proFilterFromParam = (value: string | null): ProFilter =>
+  value === 'true' ? 'pro' : value === 'false' ? 'not_pro' : 'all'
+
 interface FormData {
   email: string
   firstName: string
   lastName: string
 }
 
-export function useUserSearch() {
+export const useUserSearch = () => {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -33,6 +64,9 @@ export function useUserSearch() {
       : SEARCH_TAB.EMAIL
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
+  const [proFilter, setProFilter] = useState<ProFilter>(() =>
+    proFilterFromParam(searchParams.get(SEARCH_PARAMS.IS_PRO))
+  )
 
   const { register, handleSubmit, watch, reset, setValue } = useForm<FormData>({
     mode: FORM_MODE.ON_CHANGE,
@@ -62,6 +96,8 @@ export function useUserSearch() {
       lastName: lastNameParam ?? '',
     })
 
+    setProFilter(proFilterFromParam(searchParams.get(SEARCH_PARAMS.IS_PRO)))
+
     if (firstNameParam || lastNameParam) {
       setActiveTab(SEARCH_TAB.NAME)
     } else if (emailParam) {
@@ -73,30 +109,10 @@ export function useUserSearch() {
   const firstNameValue = watchedValues.firstName
   const lastNameValue = watchedValues.lastName
 
-  const debouncedNavigate = useDebouncedCallback(
-    (tab: Tab, email: string, firstName: string, lastName: string) => {
-      skipNextSync.current = true
-      if (tab === SEARCH_TAB.EMAIL) {
-        const trimmed = email.trim()
-        if (trimmed) {
-          router.replace(
-            `${USERS_PATH}?${SEARCH_PARAMS.EMAIL}=${encodeURIComponent(trimmed)}`
-          )
-        } else {
-          router.replace(USERS_PATH)
-        }
-      } else {
-        const params = new URLSearchParams()
-        if (firstName.trim())
-          params.set(SEARCH_PARAMS.FIRST_NAME, firstName.trim())
-        if (lastName.trim())
-          params.set(SEARCH_PARAMS.LAST_NAME, lastName.trim())
-        const qs = params.toString()
-        router.replace(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
-      }
-    },
-    300
-  )
+  const debouncedNavigate = useDebouncedCallback((state: NavState) => {
+    skipNextSync.current = true
+    router.replace(buildUsersUrl(state))
+  }, 300)
 
   const isInitialMount = useRef(true)
   useEffect(() => {
@@ -104,8 +120,13 @@ export function useUserSearch() {
       isInitialMount.current = false
       return
     }
-    debouncedNavigate(activeTab, emailValue, firstNameValue, lastNameValue)
-  }, [activeTab, emailValue, firstNameValue, lastNameValue, debouncedNavigate])
+    debouncedNavigate({
+      email: emailValue,
+      firstName: firstNameValue,
+      lastName: lastNameValue,
+      proFilter,
+    })
+  }, [emailValue, firstNameValue, lastNameValue, proFilter, debouncedNavigate])
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab as Tab)
@@ -117,23 +138,21 @@ export function useUserSearch() {
     }
   }
 
-  const onSubmit = (data: FormData) => {
-    const params = new URLSearchParams()
-    if (data.email.trim()) params.set(SEARCH_PARAMS.EMAIL, data.email.trim())
-    if (data.firstName.trim())
-      params.set(SEARCH_PARAMS.FIRST_NAME, data.firstName.trim())
-    if (data.lastName.trim())
-      params.set(SEARCH_PARAMS.LAST_NAME, data.lastName.trim())
-    const qs = params.toString()
-    router.push(`${USERS_PATH}${qs ? `?${qs}` : ''}`)
-  }
+  const onSubmit = (data: FormData) =>
+    router.push(buildUsersUrl({ ...data, proFilter }))
 
   const handleClear = () => {
     reset({ email: '', firstName: '', lastName: '' })
+    setProFilter('all')
     router.push(USERS_PATH)
   }
 
-  const showClear = !!(emailValue || firstNameValue || lastNameValue)
+  const showClear = !!(
+    emailValue ||
+    firstNameValue ||
+    lastNameValue ||
+    proFilter !== 'all'
+  )
 
   return {
     activeTab,
@@ -143,5 +162,7 @@ export function useUserSearch() {
     onSubmit,
     handleClear,
     showClear,
+    proFilter,
+    setProFilter,
   }
 }
