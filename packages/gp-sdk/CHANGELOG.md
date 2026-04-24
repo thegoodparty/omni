@@ -1,5 +1,27 @@
 # @goodparty_org/sdk
 
+## 2.0.0
+
+### Major Changes
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - Drop the `pathsToVictory` resource and related types (`PathToVictory`, `PathToVictoryData`, `ViabilityScore`, `ListPathsToVictoryOptions`, `UpdatePathToVictoryInput`, `P2VStatus`, `P2VSource`).
+
+  The underlying `gp-api` `path_to_victory` table has been removed; race-target metrics are now computed live and exposed through the enriched campaign endpoints. Consumers that previously called `client.pathsToVictory.list/get/update` should read `raceTargetMetrics` off the campaign returned by `client.campaigns.get(id)` instead.
+
+### Minor Changes
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `client.organizations` resource with `get(slug)`, `list(options?)`, and `patch(slug, input)` methods. These call the M2M-capable admin endpoints (`GET /organizations/admin/:slug`, `GET /organizations/admin/list`, `PATCH /organizations/admin/:slug`) so SDK consumers can read and update any organization without a user context.
+  - Export the related types: `Organization`, `OrgPosition`, `OrgDistrict`, `OrganizationListItem`, `OrganizationOwnerSummary`, `ListOrganizationsOptions`, `PatchOrganizationInput`.
+  - Add a `patchRequest` helper to the internal `BaseResource` so resources can issue PATCH requests.
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `CampaignWithPositionName` type, modeling the enriched per-item response from `GET /campaigns/list` (M2M), which now includes `positionName` resolved from each campaign's organization.
+  - `client.campaigns.list()` now returns `PaginatedList<CampaignWithPositionName>` instead of `PaginatedList<ReadCampaignOutput>`. This is type-only and additive: `CampaignWithPositionName extends ReadCampaignOutput`, so existing field access continues to work.
+  - Live race-target metrics are intentionally omitted from list responses to keep them cheap; use `client.campaigns.get(id)` to fetch `raceTargetMetrics` for a single campaign.
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `client.electedOffices.updateDistrict(id, { state, L2DistrictType, L2DistrictName })` for the M2M `PUT /elected-office/:id/district` endpoint, along with the `UpdateElectedOfficeDistrictInput` and `SetElectedOfficeDistrictOutput` types.
+  - Add `CampaignWithLiveContext` and `RaceTargetMetrics` types to model the enriched response from `GET /campaigns/:id` (M2M), which now includes `positionName` and live-computed `raceTargetMetrics`.
+  - `client.campaigns.get(id)` now returns `CampaignWithLiveContext` instead of `ReadCampaignOutput`. This is type-only and additive: `CampaignWithLiveContext extends ReadCampaignOutput`, so existing field access continues to work.
+
 ## 1.14.0
 
 ### Minor Changes
