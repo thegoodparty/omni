@@ -13,7 +13,6 @@ interface TabNavigationProps {
 const tabs = [
   { key: 'USER', route: USER_ROUTES.USER, label: TAB_LABELS.USER },
   { key: 'CAMPAIGN', route: USER_ROUTES.CAMPAIGN, label: TAB_LABELS.CAMPAIGN },
-  { key: 'P2V', route: USER_ROUTES.P2V, label: TAB_LABELS.P2V },
   {
     key: 'ELECTED_OFFICE',
     route: USER_ROUTES.ELECTED_OFFICE,

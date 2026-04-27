@@ -1,0 +1,49 @@
+---
+description: Plans must include +/- code diffs for every proposed change
+globs: "**/*"
+alwaysApply: true
+---
+
+# Plans Must Show +/- Code Diffs
+
+CRITICAL REQUIREMENT:
+- Whenever you produce a Plan (in Plan mode, or any proposed change summary before implementation), you MUST include code snippets presented as unified +/- diffs for every file that will be changed.
+- The diffs MUST make it unambiguously clear what will be removed (`-` lines) and what will be added (`+` lines) if the Plan is implemented.
+
+REQUIRED FORMAT:
+- Use fenced diff code blocks (```diff) so the `+` and `-` lines render with syntax highlighting.
+- Prefix each changed line with `+` (addition) or `-` (removal).
+- Include enough surrounding context lines (unchanged) to make the location of the change obvious.
+- Group diffs by file, and clearly label the file path above each diff block.
+
+EXAMPLE:
+
+For a change to `src/components/Example.tsx`:
+
+```diff
+   const Example = () => {
+-    return <div>Hello</div>
++    return <div>Hello, world!</div>
+   }
+```
+
+REQUIRED BEHAVIOR:
+- Every file that the Plan proposes to modify MUST have a corresponding diff snippet.
+- For newly created files, show the full new file content as `+` lines inside a ```diff block.
+- For deleted files, show the removed content as `-` lines inside a ```diff block.
+- Do NOT describe changes only in prose — prose descriptions MUST be accompanied by the corresponding diff snippet.
+
+PROHIBITED:
+- Producing a Plan that only describes changes in natural language without diffs.
+- Showing only the "after" state of code without indicating what was removed.
+- Omitting diffs for any file that will be touched by the Plan.
+- Using ambiguous phrasing like "update X" or "tweak Y" without a concrete diff.
+
+RATIONALE:
+- Diffs make the exact scope of a proposed change reviewable at a glance.
+- They prevent ambiguity about what will be added, removed, or left untouched.
+- They allow faster and more confident approval of Plans before implementation.
+
+ENFORCEMENT:
+- Before presenting any Plan, review it to confirm every proposed file change has an associated +/- diff snippet.
+- If a Plan is produced without diffs, treat it as incomplete and revise it to include them before sharing.

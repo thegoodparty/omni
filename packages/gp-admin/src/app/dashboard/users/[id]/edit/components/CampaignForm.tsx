@@ -16,6 +16,8 @@ import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
 import { FormActions } from './FormActions'
+import { DistrictPicker } from '@/shared/district/DistrictPicker'
+import { updateCampaignDistrict } from '@/shared/district/district-actions'
 import {
   combinedCampaignSchema,
   type CombinedCampaignFormData,
@@ -26,25 +28,21 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
 } from '@goodparty_org/sdk'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
 import {
   FORM_MODE,
   INPUT_TYPE,
   CAMPAIGN_FORM_SECTIONS,
   SELECT_NONE_VALUE,
   UNSAVED_CHANGES_MESSAGE,
-  type InputType,
 } from '../constants'
+import {
+  CAMPAIGN_FIELDS,
+  buildEditFields,
+  type EditFieldConfig,
+} from '../../campaign-fields'
 
 type FieldPath = Path<CombinedCampaignFormData>
-
-interface FieldConfig {
-  key: FieldPath
-  label: string
-  placeholder: string
-  type?: InputType
-  hasError?: boolean
-}
 
 type StatusFlagKey =
   | 'isActive'
@@ -54,99 +52,65 @@ type StatusFlagKey =
   | 'didWin'
   | 'canDownloadFederal'
 
-interface StatusFlag {
-  key: StatusFlagKey
-  label: string
+const STATUS_FLAG_KEYS: readonly StatusFlagKey[] = [
+  'isActive',
+  'isVerified',
+  'isPro',
+  'isDemo',
+  'didWin',
+  'canDownloadFederal',
+] as const
+
+const STATUS_FLAGS: { key: StatusFlagKey; label: string }[] =
+  STATUS_FLAG_KEYS.map((key) => ({ key, label: CAMPAIGN_FIELDS[key].label }))
+
+const DATA_FIELDS = buildEditFields<FieldPath>([
+  'data.name',
+  'data.adminUserEmail',
+])
+
+const LOCATION_FIELDS = buildEditFields<FieldPath>([
+  'details.state',
+  'details.city',
+  'details.county',
+  'details.zip',
+])
+
+const OFFICE_TEXT_FIELDS = buildEditFields<FieldPath>([
+  'details.officeTermLength',
+])
+
+const ELECTION_FIELDS = buildEditFields<FieldPath>([
+  'details.electionDate',
+  'details.primaryElectionDate',
+  'details.partisanType',
+])
+
+const FILING_PERIOD_FIELDS = buildEditFields<FieldPath>([
+  'details.filingPeriodsStart',
+  'details.filingPeriodsEnd',
+])
+
+const PARTY_FIELDS = buildEditFields<FieldPath>([
+  'details.party',
+  'details.otherParty',
+])
+
+const BACKGROUND_TEXT_FIELDS = buildEditFields<FieldPath>([
+  'details.occupation',
+  'details.website',
+])
+
+// Map our shared catalog's input kind to the form's InputType union
+const INPUT_KIND_TO_TYPE: Record<
+  NonNullable<EditFieldConfig['inputType']>,
+  (typeof INPUT_TYPE)[keyof typeof INPUT_TYPE]
+> = {
+  text: INPUT_TYPE.TEXT,
+  date: INPUT_TYPE.DATE,
+  email: INPUT_TYPE.EMAIL,
 }
 
-const STATUS_FLAGS: StatusFlag[] = [
-  { key: 'isActive', label: 'Active' },
-  { key: 'isVerified', label: 'Verified' },
-  { key: 'isPro', label: 'Pro' },
-  { key: 'isDemo', label: 'Demo' },
-  { key: 'didWin', label: 'Won Election' },
-  { key: 'canDownloadFederal', label: 'Can Download Federal' },
-]
-
-const LOCATION_FIELDS: FieldConfig[] = [
-  { key: 'details.state', label: 'State', placeholder: 'State' },
-  { key: 'details.city', label: 'City', placeholder: 'City' },
-  { key: 'details.county', label: 'County', placeholder: 'County' },
-  { key: 'details.zip', label: 'ZIP', placeholder: 'ZIP' },
-  { key: 'details.district', label: 'District', placeholder: 'District' },
-]
-
-const OFFICE_TEXT_FIELDS: FieldConfig[] = [
-  { key: 'details.office', label: 'Office', placeholder: 'Office' },
-  {
-    key: 'details.otherOffice',
-    label: 'Other Office',
-    placeholder: 'Other office',
-  },
-  {
-    key: 'details.officeTermLength',
-    label: 'Term Length',
-    placeholder: 'e.g., 4 years',
-  },
-]
-
-const ELECTION_FIELDS: FieldConfig[] = [
-  {
-    key: 'details.electionDate',
-    label: 'Election Date',
-    placeholder: '',
-    type: INPUT_TYPE.DATE,
-  },
-  {
-    key: 'details.primaryElectionDate',
-    label: 'Primary Election Date',
-    placeholder: '',
-    type: INPUT_TYPE.DATE,
-  },
-  {
-    key: 'details.partisanType',
-    label: 'Partisan Type',
-    placeholder: 'e.g., partisan, nonpartisan',
-  },
-]
-
-const FILING_PERIOD_FIELDS: FieldConfig[] = [
-  {
-    key: 'details.filingPeriodsStart',
-    label: 'Filing Start',
-    placeholder: '',
-    type: INPUT_TYPE.DATE,
-  },
-  {
-    key: 'details.filingPeriodsEnd',
-    label: 'Filing End',
-    placeholder: '',
-    type: INPUT_TYPE.DATE,
-  },
-]
-
-const PARTY_FIELDS: FieldConfig[] = [
-  { key: 'details.party', label: 'Party', placeholder: 'Party' },
-  {
-    key: 'details.otherParty',
-    label: 'Other Party',
-    placeholder: 'Other party',
-  },
-]
-
-const BACKGROUND_TEXT_FIELDS: FieldConfig[] = [
-  {
-    key: 'details.occupation',
-    label: 'Occupation',
-    placeholder: 'Occupation',
-  },
-  {
-    key: 'details.website',
-    label: 'Website',
-    placeholder: 'https://...',
-    hasError: true,
-  },
-]
 
 function isCampaignTier(value: string): value is CampaignTier {
   return Object.values(CampaignTier).includes(value as CampaignTier)
@@ -168,8 +132,16 @@ function isElectionLevel(value: string): value is ElectionLevel {
   return Object.values(ElectionLevel).includes(value as ElectionLevel)
 }
 
+function parseElectionYear(electionDate: string | null | undefined): number {
+  if (!electionDate) return 0
+  const year = Number(electionDate.split('-')[0])
+  return Number.isFinite(year) ? year : 0
+}
+
 interface CampaignFormProps {
-  initialData: Campaign
+  initialData: CampaignWithLiveContext
+  initialDistrictType?: string
+  initialDistrictName?: string
   onSave: (data: CombinedCampaignFormData) => void | Promise<void>
   onCancel: () => void
   isSaving?: boolean
@@ -177,6 +149,8 @@ interface CampaignFormProps {
 
 export function CampaignForm({
   initialData,
+  initialDistrictType,
+  initialDistrictName,
   onSave,
   onCancel,
   isSaving,
@@ -192,6 +166,7 @@ export function CampaignForm({
   } = initialData
   const data = initialData.data ?? {}
   const details = initialData.details ?? {}
+  const positionName = initialData.positionName ?? null
 
   const {
     register,
@@ -221,9 +196,6 @@ export function CampaignForm({
         city: details.city ?? '',
         county: details.county ?? '',
         zip: details.zip ?? '',
-        district: details.district ?? '',
-        office: details.office ?? '',
-        otherOffice: details.otherOffice ?? '',
         ballotLevel: details.ballotLevel,
         level: details.level ?? null,
         officeTermLength: details.officeTermLength ?? '',
@@ -274,11 +246,12 @@ export function CampaignForm({
     return undefined
   }
 
-  function renderFields(fields: FieldConfig[]) {
+  function renderFields(fields: EditFieldConfig<FieldPath>[]) {
     return (
       <Flex gap="4" wrap="wrap">
-        {fields.map(({ key, label, placeholder, type, hasError }) => {
+        {fields.map(({ key, label, placeholder, inputType, hasError }) => {
           const error = hasError ? getError(key) : undefined
+          const type = inputType ? INPUT_KIND_TO_TYPE[inputType] : undefined
           return (
             <Box key={key} flexGrow="1" style={{ minWidth: '200px' }}>
               <Text as="label" size="2" weight="medium" mb="1">
@@ -380,20 +353,7 @@ export function CampaignForm({
 
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.DATA}>
           <Flex direction="column" gap="4">
-            {renderFields([
-              {
-                key: 'data.name',
-                label: 'Campaign Name',
-                placeholder: 'Campaign name',
-              },
-              {
-                key: 'data.adminUserEmail',
-                label: 'Admin User Email',
-                placeholder: 'admin@example.com',
-                type: INPUT_TYPE.EMAIL,
-                hasError: true,
-              },
-            ])}
+            {renderFields(DATA_FIELDS)}
 
             <Flex direction="column" gap="1">
               <Text as="label" size="2" weight="medium">
@@ -424,8 +384,34 @@ export function CampaignForm({
           {renderFields(LOCATION_FIELDS)}
         </InfoCard>
 
+        <DistrictPicker
+          state={watch('details.state') ?? ''}
+          electionYear={parseElectionYear(watch('details.electionDate'))}
+          initialL2DistrictType={initialDistrictType}
+          initialL2DistrictName={initialDistrictName}
+          onSave={async ({ L2DistrictType, L2DistrictName }) => {
+            await updateCampaignDistrict(
+              initialData.id,
+              L2DistrictType,
+              L2DistrictName,
+              initialData.userId
+            )
+          }}
+        />
+
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.OFFICE}>
           <Flex direction="column" gap="4">
+            <Box>
+              <Text as="label" size="2" weight="medium" mb="1">
+                Position
+              </Text>
+              <TextField.Root value={positionName ?? ''} readOnly disabled />
+              <Text as="p" size="1" color="gray" mt="1">
+                Position is managed on the organization. Edit it from the
+                organization page.
+              </Text>
+            </Box>
+
             {renderFields(OFFICE_TEXT_FIELDS)}
 
             <Flex gap="4" wrap="wrap">

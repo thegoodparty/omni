@@ -1,11 +1,15 @@
 'use client'
 
 import { ClerkLoaded, ClerkLoading, useAuth } from '@clerk/nextjs'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { AuthCallout } from './AuthCallout'
 import { LoadingSpinner } from './LoadingSpinner'
 
-function OrganizationRequiredContent({ children }: { children: ReactNode }) {
+const OrganizationRequiredContent = ({
+  children,
+}: {
+  children: ReactNode
+}) => {
   const { orgId, isSignedIn } = useAuth()
 
   if (!isSignedIn) {
@@ -25,8 +29,13 @@ function OrganizationRequiredContent({ children }: { children: ReactNode }) {
   return children
 }
 
-export function OrganizationRequired({ children }: { children: ReactNode }) {
-  return (
+export const OrganizationRequired = ({ children }: { children: ReactNode }) => {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  return !mounted ? (
+    <LoadingSpinner />
+  ) : (
     <>
       <ClerkLoading>
         <LoadingSpinner />

@@ -1,0 +1,19 @@
+---
+description: CRUD routing convention — list, detail, and edit views for entities
+globs: "src/app/**/*"
+alwaysApply: true
+---
+
+# List → Detail → Edit Pattern
+
+When building CRUD views for entities (users, campaigns, etc.):
+
+1. **List view** (`/dashboard/[entity]`) — Table with search/filter, rows link to detail
+2. **Detail view** (`/dashboard/[entity]/[id]`) — Read-only display, Edit button links to edit
+3. **Edit view** (`/dashboard/[entity]/[id]/edit`) — Self-contained form (UserForm pattern)
+
+For nested entities (campaigns under users):
+
+1. **List view** (`/dashboard/users/[id]/campaign`) — Table of campaigns, rows link to detail
+2. **Detail view** (`/dashboard/users/[id]/campaign/[campaignId]`) — Single campaign read-only
+3. **Edit view** (`/dashboard/users/[id]/edit/campaign/[campaignId]`) — Single campaign form

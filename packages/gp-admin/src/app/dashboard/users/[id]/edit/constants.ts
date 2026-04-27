@@ -32,15 +32,7 @@ export const CAMPAIGN_FORM_SECTIONS = {
   BACKGROUND: 'Background',
 } as const
 
-export const P2V_FORM_SECTIONS = {
-  DISTRICT: 'District Picker',
-  STATUS: 'P2V Status',
-  TARGET_NUMBERS: 'Target Numbers',
-  PARTY_DEMOGRAPHICS: 'Demographics - Party Affiliation',
-  GENDER_DEMOGRAPHICS: 'Demographics - Gender',
-  RACE_DEMOGRAPHICS: 'Demographics - Race/Ethnicity',
-  VIABILITY: 'Viability Analysis',
-} as const
+export const DISTRICT_FORM_SECTION_TITLE = 'District Picker'
 
 export const ELECTED_OFFICE_FORM_SECTIONS = {
   TERM_INFO: 'Term Information',

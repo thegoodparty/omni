@@ -8,9 +8,9 @@ import {
   ElectionLevel,
   CampaignTier,
 } from '@goodparty_org/sdk'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
 
-const mockCampaign: Campaign = {
+const mockCampaign: CampaignWithLiveContext = {
   id: 1,
   createdAt: new Date('2023-04-02T05:51:59.450Z'),
   updatedAt: new Date('2026-01-29T03:50:12.433Z'),
@@ -27,6 +27,8 @@ const mockCampaign: Campaign = {
   completedTaskIds: [],
   hasFreeTextsOffer: false,
   aiContent: {},
+  positionName: 'Hendersonville City Mayor',
+  raceTargetMetrics: null,
   data: {
     name: 'Tomer Almog',
     launchStatus: CampaignLaunchStatus.launched,
@@ -48,8 +50,6 @@ const mockCampaign: Campaign = {
     city: 'Los Angeles',
     county: 'Los Angeles',
     zip: '53212',
-    office: 'Other',
-    otherOffice: 'Hendersonville City Mayor',
     ballotLevel: BallotReadyPositionLevel.CITY,
     level: ElectionLevel.city,
     officeTermLength: '4 years',
@@ -98,9 +98,8 @@ describe('CampaignSection', () => {
   it('renders office card', () => {
     render(<CampaignSection campaign={mockCampaign} />)
 
-    // "Office" appears as card title and as DataRow label
-    expect(screen.getAllByText('Office')).toHaveLength(2)
-    // "Other" appears twice: as office value and in "Other Office" label
+    expect(screen.getByText('Office')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.getByText('Hendersonville City Mayor')).toBeInTheDocument()
     expect(screen.getByText('CITY')).toBeInTheDocument()
     expect(screen.getByText('4 years')).toBeInTheDocument()
@@ -131,7 +130,7 @@ describe('CampaignSection', () => {
   })
 
   it('does not render fun fact when missing', () => {
-    const campaignNoFunFact: Campaign = {
+    const campaignNoFunFact: CampaignWithLiveContext = {
       ...mockCampaign,
       details: { ...mockCampaign.details, funFact: undefined },
     }
@@ -159,7 +158,7 @@ describe('CampaignSection', () => {
   })
 
   it('does not render custom voter files when empty', () => {
-    const campaignNoVoterFiles: Campaign = {
+    const campaignNoVoterFiles: CampaignWithLiveContext = {
       ...mockCampaign,
       data: { ...mockCampaign.data, customVoterFiles: [] },
     }
@@ -170,7 +169,7 @@ describe('CampaignSection', () => {
   })
 
   it('does not render custom issues when empty', () => {
-    const campaignNoCustomIssues: Campaign = {
+    const campaignNoCustomIssues: CampaignWithLiveContext = {
       ...mockCampaign,
       details: { ...mockCampaign.details, customIssues: [] },
     }
@@ -181,7 +180,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders not launched status when launchStatus is missing', () => {
-    const campaignNotLaunched: Campaign = {
+    const campaignNotLaunched: CampaignWithLiveContext = {
       ...mockCampaign,
       data: { ...mockCampaign.data, launchStatus: undefined },
     }
@@ -192,7 +191,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders dateVerified when present', () => {
-    const campaignVerified: Campaign = {
+    const campaignVerified: CampaignWithLiveContext = {
       ...mockCampaign,
       dateVerified: new Date('2024-06-15T12:00:00.000Z'),
     }
@@ -203,7 +202,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders tier when present', () => {
-    const campaignWithTier: Campaign = {
+    const campaignWithTier: CampaignWithLiveContext = {
       ...mockCampaign,
       tier: CampaignTier.WIN,
     }
@@ -214,7 +213,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders Not set when ballotLevel is missing', () => {
-    const campaignNoBallotLevel: Campaign = {
+    const campaignNoBallotLevel: CampaignWithLiveContext = {
       ...mockCampaign,
       details: { ...mockCampaign.details, ballotLevel: undefined },
     }
@@ -225,7 +224,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders Not set when level is missing', () => {
-    const campaignNoLevel: Campaign = {
+    const campaignNoLevel: CampaignWithLiveContext = {
       ...mockCampaign,
       details: {
         ...mockCampaign.details,
@@ -240,7 +239,7 @@ describe('CampaignSection', () => {
   })
 
   it('renders No for pledged when false', () => {
-    const campaignNotPledged: Campaign = {
+    const campaignNotPledged: CampaignWithLiveContext = {
       ...mockCampaign,
       details: { ...mockCampaign.details, pledged: false },
     }
@@ -256,7 +255,7 @@ describe('CampaignSection', () => {
       ...mockCampaign,
       data: undefined,
       details: undefined,
-    } as unknown as Campaign
+    } as unknown as CampaignWithLiveContext
 
     render(<CampaignSection campaign={campaignNoData} />)
 

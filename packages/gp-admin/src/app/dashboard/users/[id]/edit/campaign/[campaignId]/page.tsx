@@ -1,7 +1,8 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { SdkError, type Campaign } from '@goodparty_org/sdk'
-import { getCampaign } from '@/app/dashboard/campaigns/actions'
+import { SdkError } from '@goodparty_org/sdk'
+import { getCampaign, type EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
+import { getOrganization } from '@/app/dashboard/organizations/actions'
 import { EditCampaignClient } from './EditCampaignClient'
 import { status } from '@poppanator/http-constants'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
@@ -21,7 +22,7 @@ export default async function EditCampaignDetailPage({
   const { id, campaignId } = await params
   const [, campaignIdNum] = validateNumericParams(id, campaignId)
 
-  let campaign: Campaign
+  let campaign: EnrichedCampaign
   try {
     campaign = await getCampaign(campaignIdNum)
   } catch (error) {
@@ -31,5 +32,13 @@ export default async function EditCampaignDetailPage({
     throw error
   }
 
-  return <EditCampaignClient campaign={campaign} />
+  const organization = await getOrganization(`campaign-${campaign.id}`)
+
+  return (
+    <EditCampaignClient
+      campaign={campaign}
+      initialDistrictType={organization?.district?.l2Type}
+      initialDistrictName={organization?.district?.l2Name}
+    />
+  )
 }

@@ -5,7 +5,6 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignLaunchStatus,
-  P2VStatus,
 } from '@goodparty_org/sdk'
 
 export const USER_ROLES = Object.values(UserRole)
@@ -52,10 +51,7 @@ export const campaignDetailsSchema = z.object({
   city: z.string().optional(),
   county: z.string().optional(),
   zip: z.string().optional(),
-  district: z.string().optional(),
 
-  office: z.string().optional(),
-  otherOffice: z.string().optional(),
   ballotLevel: z.nativeEnum(BallotReadyPositionLevel).optional(),
   level: z.nativeEnum(ElectionLevel).optional().nullable(),
   officeTermLength: z.string().optional(),
@@ -81,52 +77,6 @@ export const campaignDetailsSchema = z.object({
 })
 
 export type CampaignDetailsFormData = z.infer<typeof campaignDetailsSchema>
-
-const numberOrUndefined = z.any().transform((val): number | undefined => {
-  if (val === undefined || val === null || val === '') return undefined
-  const num = Number(val)
-  return isNaN(num) ? undefined : num
-})
-
-export const pathToVictorySchema = z.object({
-  p2vStatus: z.nativeEnum(P2VStatus).optional(),
-  electionType: z.string().optional(),
-  electionLocation: z.string().optional(),
-
-  winNumber: numberOrUndefined,
-  voterContactGoal: numberOrUndefined,
-  totalRegisteredVoters: numberOrUndefined,
-  projectedTurnout: numberOrUndefined,
-  averageTurnout: numberOrUndefined,
-
-  republicans: numberOrUndefined,
-  democrats: numberOrUndefined,
-  indies: numberOrUndefined,
-
-  men: numberOrUndefined,
-  women: numberOrUndefined,
-
-  white: numberOrUndefined,
-  asian: numberOrUndefined,
-  africanAmerican: numberOrUndefined,
-  hispanic: numberOrUndefined,
-
-  viability: z
-    .object({
-      level: z.string().optional(),
-      isPartisan: z.boolean().optional(),
-      isIncumbent: z.boolean().optional(),
-      isUncontested: z.boolean().optional(),
-      candidates: numberOrUndefined,
-      seats: numberOrUndefined,
-      candidatesPerSeat: numberOrUndefined,
-      score: numberOrUndefined,
-      probOfWin: numberOrUndefined,
-    })
-    .optional(),
-})
-
-export type PathToVictoryFormData = z.infer<typeof pathToVictorySchema>
 
 const numberOrNull = z.any().transform((val): number | null => {
   if (val === null || val === undefined || val === '') return null

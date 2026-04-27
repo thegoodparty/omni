@@ -1,0 +1,31 @@
+---
+description: Use @clerk/types for explicit Clerk authentication typing
+globs: "**/*.{ts,tsx}"
+alwaysApply: true
+---
+
+# Clerk Authentication Types
+
+When working with Clerk authentication:
+
+1. **Use `@clerk/types` for explicit typing**: Import types from `@clerk/types` when defining interfaces, props, or utility functions that work with Clerk data.
+
+   ```typescript
+   import type { UserResource, UseUserReturn } from '@clerk/types'
+   ```
+
+2. **Available types**:
+   - `UserResource` - Client-side user object (from hooks like `useUser().user`)
+   - `UseUserReturn` - Full return type from `useUser()` hook
+   - `SessionResource` - Session data from `useSession()`
+   - `OrganizationResource` - Organization data if using Clerk orgs
+
+3. **When to use explicit types**:
+   - ✅ Defining prop interfaces: `interface Props { user: UserResource }`
+   - ✅ Typing hook results: `const user: UseUserReturn = useUser()`
+   - ✅ Utility functions: `function formatUser(user: UserResource): string`
+   - ❌ Server-side `currentUser()` - let TypeScript infer (type not exported)
+
+4. **Import pattern**:
+   - Use `type` imports: `import type { UserResource } from '@clerk/types'`
+   - Keep Clerk component imports separate from type imports

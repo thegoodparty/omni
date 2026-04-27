@@ -1,0 +1,21 @@
+---
+description: Project basics and workflow for gp-admin
+globs: "**/*"
+alwaysApply: true
+---
+
+# Project Basics
+
+This is a TypeScript project (gp-admin). Always ensure files are created in the correct project directory. Double-check file paths before writing.
+
+## Workflow Rules
+
+After generating or editing code, always run the build/lint check (`npm run build` or equivalent) before presenting the result as complete. Fix any type errors, import issues, or lint failures before moving on.
+
+## Code Quality Standards
+
+Prefer reusable, senior-level patterns: generic wrappers, singletons, shared utilities. Avoid one-off implementations or prop drilling. If building a server action or SDK integration, make it generic and reusable from the start.
+
+## General Rules
+
+Avoid obvious comments that just explains what the code does

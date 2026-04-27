@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Theme } from '@radix-ui/themes'
+import { renderWithProviders } from '@/lib/test-utils'
 import { CampaignForm } from './CampaignForm'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
@@ -35,7 +35,7 @@ Element.prototype.setPointerCapture = vi.fn()
 Element.prototype.releasePointerCapture = vi.fn()
 HTMLElement.prototype.scrollIntoView = vi.fn()
 
-const mockCampaign: Campaign = {
+const mockCampaign: CampaignWithLiveContext = {
   id: 1,
   createdAt: new Date('2023-04-02T05:51:59.450Z'),
   updatedAt: new Date('2026-01-29T03:50:12.433Z'),
@@ -64,8 +64,6 @@ const mockCampaign: Campaign = {
     county: 'Los Angeles',
     zip: '90001',
     district: '5',
-    office: 'Mayor',
-    otherOffice: '',
     ballotLevel: BallotReadyPositionLevel.CITY,
     level: ElectionLevel.city,
     officeTermLength: '4 years',
@@ -82,6 +80,8 @@ const mockCampaign: Campaign = {
     website: 'https://example.com',
     pledged: true,
   },
+  positionName: 'Mayor',
+  raceTargetMetrics: null,
 }
 
 describe('CampaignForm', () => {
@@ -96,21 +96,19 @@ describe('CampaignForm', () => {
   })
 
   function renderForm(
-    overrides?: Partial<Campaign>,
+    overrides?: Partial<CampaignWithLiveContext>,
     props?: { isSaving?: boolean }
   ) {
     const campaign = overrides
       ? { ...mockCampaign, ...overrides }
       : mockCampaign
-    return render(
-      <Theme>
-        <CampaignForm
-          initialData={campaign}
-          onSave={onSave}
-          onCancel={onCancel}
-          {...props}
-        />
-      </Theme>
+    return renderWithProviders(
+      <CampaignForm
+        initialData={campaign}
+        onSave={onSave}
+        onCancel={onCancel}
+        {...props}
+      />
     )
   }
 
@@ -141,7 +139,7 @@ describe('CampaignForm', () => {
       expect(screen.getByLabelText('Active')).toBeInTheDocument()
       expect(screen.getByLabelText('Verified')).toBeInTheDocument()
       expect(screen.getByLabelText('Pro')).toBeInTheDocument()
-      expect(screen.getByLabelText('Demo')).toBeInTheDocument()
+      expect(screen.getByLabelText('Demo Account')).toBeInTheDocument()
       expect(screen.getByLabelText('Won Election')).toBeInTheDocument()
       expect(screen.getByLabelText('Can Download Federal')).toBeInTheDocument()
     })

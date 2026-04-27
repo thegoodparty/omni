@@ -1,0 +1,33 @@
+---
+description: Use JSX spread-object pattern when a JSX element has 3 or more props
+globs: "**/*.{tsx,jsx}"
+alwaysApply: true
+---
+
+# JSX Spread-Object Prop Pattern
+
+When a JSX element has more than 2 props, ALWAYS use the spread-object pattern instead of individual prop attributes.
+
+```tsx
+// ✅ GOOD — 3+ props → spread-object
+<Image {...{
+  src: '/images/heart.svg',
+  alt: '',
+  width: 12,
+  height: 10,
+  unoptimized: true,
+}} />
+
+// ❌ BAD — individual attributes when 3+ props
+<Image
+  src="/images/heart.svg"
+  alt=""
+  width={12}
+  height={10}
+  unoptimized
+/>
+```
+
+- 2 props or fewer: individual attributes are fine
+- 3 or more props: MUST use `{...{ key: value }}` spread-object syntax
+- Boolean props must be explicit: `unoptimized: true`, not shorthand `unoptimized`

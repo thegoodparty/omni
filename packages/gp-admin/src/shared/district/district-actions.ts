@@ -3,9 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { gpAction } from '@/shared/util/gpClient.util'
 import type {
-  DistrictTypeItem,
   DistrictNameItem,
-  ReadCampaignOutput,
+  DistrictTypeItem,
 } from '@goodparty_org/sdk'
 
 export async function fetchDistrictTypes(
@@ -38,7 +37,7 @@ export async function fetchDistrictNames(
   })
 }
 
-export async function updateDistrict(
+export async function updateCampaignDistrict(
   campaignId: number,
   L2DistrictType: string,
   L2DistrictName: string,
@@ -53,10 +52,32 @@ export async function updateDistrict(
   })
 }
 
-export async function getCampaign(
-  campaignId: number
-): Promise<ReadCampaignOutput> {
-  return gpAction(async (client) => {
-    return client.campaigns.get(campaignId)
+export async function updateElectedOfficeDistrict(
+  electedOfficeId: string,
+  state: string,
+  L2DistrictType: string,
+  L2DistrictName: string,
+  userId: number
+): Promise<void> {
+  await gpAction(async (client) => {
+    // The SDK does not yet expose an electedOffices.updateDistrict method.
+    // Call the M2M-capable PUT /elected-office/:id/district directly via the
+    // SDK's underlying httpClient. Once the SDK is bumped to a release that
+    // adds `client.electedOffices.updateDistrict`, swap this call.
+    const httpClient = (
+      client.electedOffices as unknown as {
+        httpClient: {
+          request: <T>(
+            path: string,
+            init: { method: string; body: unknown }
+          ) => Promise<T>
+        }
+      }
+    ).httpClient
+    await httpClient.request(`/elected-office/${electedOfficeId}/district`, {
+      method: 'PUT',
+      body: { state, L2DistrictType, L2DistrictName },
+    })
+    revalidatePath(`/dashboard/users/${userId}`, 'layout')
   })
 }

@@ -16,6 +16,8 @@ import { useNavigationGuard } from 'next-navigation-guard'
 import { electedOfficeSchema, type ElectedOfficeFormData } from '../schema'
 import { InfoCard } from '../../components/InfoCard'
 import { FormActions } from './FormActions'
+import { DistrictPicker } from '@/shared/district/DistrictPicker'
+import { updateElectedOfficeDistrict } from '@/shared/district/district-actions'
 import {
   INPUT_TYPE,
   ELECTED_OFFICE_FORM_SECTIONS,
@@ -26,6 +28,11 @@ import type { ElectedOffice } from '@goodparty_org/sdk'
 
 interface ElectedOfficeFormProps {
   initialData: ElectedOffice | null
+  userId?: number
+  state?: string
+  electionYear?: number
+  initialDistrictType?: string
+  initialDistrictName?: string
   onSave: (data: ElectedOfficeFormData) => void | Promise<void>
   onCancel: () => void
   isSaving?: boolean
@@ -33,6 +40,11 @@ interface ElectedOfficeFormProps {
 
 export function ElectedOfficeForm({
   initialData,
+  userId,
+  state,
+  electionYear,
+  initialDistrictType,
+  initialDistrictName,
   onSave,
   onCancel,
   isSaving,
@@ -168,6 +180,25 @@ export function ElectedOfficeForm({
             />
           </Flex>
         </InfoCard>
+
+        {initialData && userId !== undefined && (
+          <DistrictPicker
+            state={state ?? ''}
+            electionYear={electionYear ?? 0}
+            initialL2DistrictType={initialDistrictType}
+            initialL2DistrictName={initialDistrictName}
+            defaultExcludeInvalid={false}
+            onSave={async ({ L2DistrictType, L2DistrictName }) => {
+              await updateElectedOfficeDistrict(
+                initialData.id,
+                state ?? '',
+                L2DistrictType,
+                L2DistrictName,
+                userId
+              )
+            }}
+          />
+        )}
       </Flex>
 
       <Separator size="4" my="6" />

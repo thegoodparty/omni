@@ -6,13 +6,19 @@ import { useToast } from '@/components/Toast'
 import { updateCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignForm } from '../../components/CampaignForm'
 import type { CombinedCampaignFormData } from '../../schema'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
 
 interface EditCampaignClientProps {
-  campaign: Campaign
+  campaign: CampaignWithLiveContext
+  initialDistrictType?: string
+  initialDistrictName?: string
 }
 
-export function EditCampaignClient({ campaign }: EditCampaignClientProps) {
+export function EditCampaignClient({
+  campaign,
+  initialDistrictType,
+  initialDistrictName,
+}: EditCampaignClientProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
@@ -41,6 +47,8 @@ export function EditCampaignClient({ campaign }: EditCampaignClientProps) {
   return (
     <CampaignForm
       initialData={campaign}
+      initialDistrictType={initialDistrictType}
+      initialDistrictName={initialDistrictName}
       onSave={handleSave}
       onCancel={handleCancel}
       isSaving={isSaving}

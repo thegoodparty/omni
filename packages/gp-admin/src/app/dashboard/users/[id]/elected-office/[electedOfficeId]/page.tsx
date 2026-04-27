@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { getElectedOfficeOrNotFound } from '@/app/dashboard/elected-offices/getElectedOfficeOrNotFound'
+import { getOrganization } from '@/app/dashboard/organizations/actions'
 import { ElectedOfficeDisplaySection } from '../../components/ElectedOfficeDisplaySection'
 import { ViewLayout } from '../../components/ViewLayout'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
@@ -20,10 +21,20 @@ export default async function ElectedOfficeDetailPage({
   validateNumericParams(id)
 
   const electedOffice = await getElectedOfficeOrNotFound(electedOfficeId)
+  const organization = await getOrganization(`eo-${electedOffice.id}`)
+
+  console.log('[DEBUG elected-office page]', {
+    electedOfficeId: electedOffice.id,
+    organization,
+  })
 
   return (
     <ViewLayout>
-      <ElectedOfficeDisplaySection electedOffice={electedOffice} />
+      <ElectedOfficeDisplaySection
+        electedOffice={electedOffice}
+        district={organization?.district ?? null}
+        positionName={organization?.positionName ?? null}
+      />
     </ViewLayout>
   )
 }

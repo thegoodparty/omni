@@ -48,23 +48,30 @@ export const searchUsers = async (
     } as Parameters<(typeof client)['users']['list']>[0])
 
     const users = result.data ?? []
-    const proFlags = await Promise.all(
-      users.map(async ({ id }) => {
+
+    return {
+      data: users.map((user) => ({ ...user, isPro: false })),
+      meta: result.meta,
+    }
+  })
+
+export const getUsersProFlags = async (
+  userIds: readonly number[]
+): Promise<Record<number, boolean>> =>
+  gpAction(async (client) => {
+    const entries = await Promise.all(
+      userIds.map(async (id): Promise<readonly [number, boolean]> => {
         try {
           const { data: campaigns } = await client.campaigns.list({
             userId: id,
           })
-          return campaigns.some((c) => c.isPro === true)
+          return [id, campaigns.some((c) => c.isPro === true)] as const
         } catch {
-          return false
+          return [id, false] as const
         }
       })
     )
-
-    return {
-      data: users.map((user, i) => ({ ...user, isPro: proFlags[i] })),
-      meta: result.meta,
-    }
+    return Object.fromEntries(entries)
   })
 
 export const updateUser = async (

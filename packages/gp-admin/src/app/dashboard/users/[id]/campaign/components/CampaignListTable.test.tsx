@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignListTable } from './CampaignListTable'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithPositionName } from '@goodparty_org/sdk'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
@@ -9,7 +9,7 @@ import {
   ElectionLevel,
 } from '@goodparty_org/sdk'
 
-const baseCampaign: Campaign = {
+const baseCampaign: CampaignWithPositionName = {
   id: 1,
   createdAt: new Date('2023-04-02T05:51:59.450Z'),
   updatedAt: new Date('2026-01-29T03:50:12.433Z'),
@@ -32,14 +32,14 @@ const baseCampaign: Campaign = {
     currentStep: OnboardingStep.complete,
   },
   details: {
-    office: 'Mayor',
     state: 'CA',
     ballotLevel: BallotReadyPositionLevel.CITY,
     level: ElectionLevel.city,
   },
+  positionName: 'Mayor',
 }
 
-const mockCampaigns: Campaign[] = [
+const mockCampaigns: CampaignWithPositionName[] = [
   baseCampaign,
   {
     ...baseCampaign,
@@ -47,8 +47,9 @@ const mockCampaigns: Campaign[] = [
     slug: 'second-campaign',
     isActive: false,
     data: { name: 'Second Campaign' },
-    details: { office: 'Governor' },
-    tier: 'WIN' as Campaign['tier'],
+    details: {},
+    positionName: 'Governor',
+    tier: 'WIN' as CampaignWithPositionName['tier'],
   },
 ]
 
@@ -87,7 +88,7 @@ describe('CampaignListTable', () => {
 
     expect(screen.getByText('ID')).toBeInTheDocument()
     expect(screen.getByText('Campaign')).toBeInTheDocument()
-    expect(screen.getByText('Office')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.getByText('Status')).toBeInTheDocument()
     expect(screen.getByText('Tier')).toBeInTheDocument()
   })
@@ -119,7 +120,7 @@ describe('CampaignListTable', () => {
   })
 
   it('falls back to Campaign #ID when name is missing', () => {
-    const noNameCampaign: Campaign = {
+    const noNameCampaign: CampaignWithPositionName = {
       ...baseCampaign,
       id: 99,
       data: {},
@@ -147,7 +148,7 @@ describe('CampaignListTable', () => {
   })
 
   it('shows Inactive badge for inactive campaigns', () => {
-    const inactiveCampaign: Campaign = {
+    const inactiveCampaign: CampaignWithPositionName = {
       ...baseCampaign,
       isActive: false,
     }
@@ -162,15 +163,15 @@ describe('CampaignListTable', () => {
     expect(screen.getByText('Inactive')).toBeInTheDocument()
   })
 
-  it('shows dash when office is missing', () => {
-    const noOfficeCampaign: Campaign = {
+  it('shows dash when positionName is null', () => {
+    const noPositionCampaign: CampaignWithPositionName = {
       ...baseCampaign,
-      details: {},
+      positionName: null,
     }
 
     render(
       <CampaignListTable
-        campaigns={[noOfficeCampaign]}
+        campaigns={[noPositionCampaign]}
         basePath="/dashboard/users/1/campaign"
       />
     )

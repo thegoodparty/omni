@@ -7,12 +7,21 @@ import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
 import type { ElectedOffice } from '@goodparty_org/sdk'
 
+interface DistrictView {
+  l2Type: string
+  l2Name: string
+}
+
 interface ElectedOfficeDisplaySectionProps {
   electedOffice: ElectedOffice | null
+  district?: DistrictView | null
+  positionName?: string | null
 }
 
 export function ElectedOfficeDisplaySection({
   electedOffice,
+  district,
+  positionName,
 }: ElectedOfficeDisplaySectionProps) {
   if (!electedOffice) {
     return (
@@ -70,6 +79,14 @@ export function ElectedOfficeDisplaySection({
       <InfoCard title="Timestamps">
         <DataRow label="Created">{formatDate(electedOffice.createdAt)}</DataRow>
         <DataRow label="Updated">{formatDate(electedOffice.updatedAt)}</DataRow>
+      </InfoCard>
+
+      <InfoCard title="District">
+        <DataRow label="Position">{positionName ?? '—'}</DataRow>
+        <DataRow label="District Type">
+          {district?.l2Type ? district.l2Type.replace(/_/g, ' ') : '—'}
+        </DataRow>
+        <DataRow label="District Name">{district?.l2Name ?? '—'}</DataRow>
       </InfoCard>
     </Grid>
   )

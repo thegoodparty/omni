@@ -1,143 +1,93 @@
 'use client'
 
 import { Grid, Text, Badge, Flex, Box } from '@radix-ui/themes'
-import { LAUNCH_STATUS } from '../constants'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
-import type {
-  Campaign,
-  CampaignData,
-  CampaignDetails,
-} from '@goodparty_org/sdk'
-import type { FieldConfig } from '../types/field-config'
+import { DataRow } from './DataRow'
+import type { CampaignData, CampaignDetails } from '@goodparty_org/sdk'
+import type { EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
+import { formatDate } from '@/lib/utils/date'
+import { buildDisplayFields } from '../campaign-fields'
 
-interface CampaignSectionProps {
-  campaign: Campaign
+interface DistrictView {
+  l2Type: string
+  l2Name: string
 }
 
-const STATUS_FLAGS: FieldConfig[] = [
-  {
-    key: 'isActive',
-    label: 'Active',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
-  {
-    key: 'isVerified',
-    label: 'Verified',
-    type: 'boolean',
-    trueBadgeColor: 'blue',
-  },
-  { key: 'isPro', label: 'Pro', type: 'boolean', trueBadgeColor: 'violet' },
-  {
-    key: 'isDemo',
-    label: 'Demo Account',
-    type: 'boolean',
-    trueBadgeColor: 'amber',
-  },
-  {
-    key: 'didWin',
-    label: 'Won Election',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
-  {
-    key: 'canDownloadFederal',
-    label: 'Can Download Federal',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
-]
+interface CampaignSectionProps {
+  campaign: EnrichedCampaign
+  district?: DistrictView | null
+}
 
-const TIER_FIELDS: FieldConfig[] = [
-  {
-    key: 'tier',
-    label: 'Tier',
-    type: 'badge',
-    badgeColor: 'blue',
-    fallback: 'None',
-  },
-]
+function fmtNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  return value.toLocaleString()
+}
 
-const CAMPAIGN_DATA_FIELDS: FieldConfig[] = [
-  { key: 'data.name', label: 'Campaign Name', type: 'text' },
-  { key: 'slug', label: 'Slug', type: 'text' },
-  {
-    key: 'data.launchStatus',
-    label: 'Launch Status',
-    type: 'badge',
-    colorMap: { [LAUNCH_STATUS.LAUNCHED]: 'green' },
-    defaultColor: 'orange',
-    fallback: LAUNCH_STATUS.NOT_LAUNCHED,
-  },
-]
+const STATUS_FLAGS = buildDisplayFields([
+  'isActive',
+  'isVerified',
+  'isPro',
+  'isDemo',
+  'didWin',
+  'canDownloadFederal',
+])
 
-const TIMELINE_FIELDS: FieldConfig[] = [
-  { key: 'createdAt', label: 'Created', type: 'date' },
-  { key: 'updatedAt', label: 'Updated', type: 'date' },
-  {
-    key: 'dateVerified',
-    label: 'Date Verified',
-    type: 'date',
-    fallback: 'Not verified',
-  },
-  { key: 'data.lastVisited', label: 'Last Visited', type: 'date' },
-  { key: 'data.lastStepDate', label: 'Last Step Date', type: 'text' },
-  { key: 'data.currentStep', label: 'Current Step', type: 'text' },
-]
+const TIER_FIELDS = buildDisplayFields(['tier'])
 
-const LOCATION_FIELDS: FieldConfig[] = [
-  { key: 'details.state', label: 'State', type: 'text' },
-  { key: 'details.city', label: 'City', type: 'text' },
-  { key: 'details.county', label: 'County', type: 'text' },
-  { key: 'details.zip', label: 'ZIP', type: 'text' },
-]
+const CAMPAIGN_DATA_FIELDS = buildDisplayFields([
+  'data.name',
+  'slug',
+  'data.launchStatus',
+])
 
-const OFFICE_FIELDS: FieldConfig[] = [
-  { key: 'details.office', label: 'Office', type: 'text' },
-  { key: 'details.otherOffice', label: 'Other Office', type: 'text' },
-  {
-    key: 'details.ballotLevel',
-    label: 'Ballot Level',
-    type: 'badge',
-    badgeColor: 'blue',
-    fallback: 'Not set',
-  },
-  {
-    key: 'details.level',
-    label: 'Election Level',
-    type: 'badge',
-    badgeColor: 'iris',
-    fallback: 'Not set',
-  },
-  { key: 'details.officeTermLength', label: 'Term Length', type: 'text' },
-]
+const TIMELINE_FIELDS = buildDisplayFields([
+  'createdAt',
+  'updatedAt',
+  'dateVerified',
+  'data.lastVisited',
+  'data.lastStepDate',
+  'data.currentStep',
+])
 
-const ELECTION_FIELDS: FieldConfig[] = [
-  { key: 'details.electionDate', label: 'Election Date', type: 'text' },
-  { key: 'details.partisanType', label: 'Partisan Type', type: 'text' },
-]
+const LOCATION_FIELDS = buildDisplayFields([
+  'details.state',
+  'details.city',
+  'details.county',
+  'details.zip',
+])
 
-const FILING_PERIOD_FIELDS: FieldConfig[] = [
-  { key: 'details.filingPeriodsStart', label: 'Start', type: 'text' },
-  { key: 'details.filingPeriodsEnd', label: 'End', type: 'text' },
-]
+const OFFICE_FIELDS = buildDisplayFields([
+  'details.ballotLevel',
+  'details.level',
+  'details.officeTermLength',
+])
 
-const PARTY_BACKGROUND_FIELDS: FieldConfig[] = [
-  { key: 'details.party', label: 'Party', type: 'text' },
-  { key: 'details.occupation', label: 'Occupation', type: 'text' },
-  { key: 'details.website', label: 'Website', type: 'text' },
-  {
-    key: 'details.pledged',
-    label: 'Pledged',
-    type: 'boolean',
-    trueBadgeColor: 'green',
-  },
-]
+const ELECTION_FIELDS = buildDisplayFields([
+  'details.electionDate',
+  'details.partisanType',
+])
 
-export function CampaignSection({ campaign }: CampaignSectionProps) {
+const FILING_PERIOD_FIELDS = buildDisplayFields([
+  'details.filingPeriodsStart',
+  'details.filingPeriodsEnd',
+])
+
+const PARTY_BACKGROUND_FIELDS = buildDisplayFields([
+  'details.party',
+  'details.occupation',
+  'details.website',
+  'details.pledged',
+])
+
+export function CampaignSection({
+  campaign,
+  district,
+}: CampaignSectionProps) {
   const data: NonNullable<CampaignData> = campaign.data ?? {}
   const details: NonNullable<CampaignDetails> = campaign.details ?? {}
+  const metrics = campaign.raceTargetMetrics ?? null
+  const positionName = campaign.positionName ?? null
 
   return (
     <Flex direction="column" gap="6">
@@ -162,11 +112,43 @@ export function CampaignSection({ campaign }: CampaignSectionProps) {
       </Grid>
 
       <Grid columns={{ initial: '1', md: '2' }} gap="4">
+        <InfoCard title="District">
+          <DataRow label="District Type">
+            {district?.l2Type ? district.l2Type.replace(/_/g, ' ') : '—'}
+          </DataRow>
+          <DataRow label="District Name">{district?.l2Name ?? '—'}</DataRow>
+        </InfoCard>
+
+        <InfoCard title="Race Targets">
+          <DataRow label="Election Date">
+            {details.electionDate ? formatDate(details.electionDate) : '—'}
+          </DataRow>
+          {metrics ? (
+            <>
+              <DataRow label="Projected Turnout">
+                {fmtNumber(metrics.projectedTurnout)}
+              </DataRow>
+              <DataRow label="Win Number">
+                {fmtNumber(metrics.winNumber)}
+              </DataRow>
+              <DataRow label="Voter Contact Goal">
+                {fmtNumber(metrics.voterContactGoal)}
+              </DataRow>
+            </>
+          ) : (
+            <Text size="2" color="gray">
+              Set an election date and a district/position on this campaign to
+              compute live race targets.
+            </Text>
+          )}
+        </InfoCard>
+
         <InfoCard title="Location">
           <FieldList data={campaign} fields={LOCATION_FIELDS} />
         </InfoCard>
 
         <InfoCard title="Office">
+          <DataRow label="Position">{positionName ?? '—'}</DataRow>
           <FieldList data={campaign} fields={OFFICE_FIELDS} />
         </InfoCard>
 

@@ -101,17 +101,6 @@ describe('UserPageHeader', () => {
       )
     })
 
-    it('Edit button preserves p2v sub-route', () => {
-      mockUsePathname.mockReturnValue('/dashboard/users/123/p2v')
-
-      renderWithUser(mockUser)
-
-      expect(screen.getByRole('link', { name: /edit/i })).toHaveAttribute(
-        'href',
-        '/dashboard/users/123/edit/p2v'
-      )
-    })
-
     it('Edit button preserves elected-office sub-route', () => {
       mockUsePathname.mockReturnValue('/dashboard/users/123/elected-office')
 
@@ -164,17 +153,6 @@ describe('UserPageHeader', () => {
         name: 'Back to user',
       })
       expect(backLink).toHaveAttribute('href', '/dashboard/users/123/campaign')
-    })
-
-    it('back arrow preserves p2v sub-route', () => {
-      mockUsePathname.mockReturnValue('/dashboard/users/123/edit/p2v')
-
-      renderWithUser(mockUser, { isEditMode: true })
-
-      const backLink = screen.getByRole('link', {
-        name: 'Back to user',
-      })
-      expect(backLink).toHaveAttribute('href', '/dashboard/users/123/p2v')
     })
 
     it('back arrow preserves elected-office sub-route', () => {

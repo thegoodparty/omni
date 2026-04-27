@@ -1,0 +1,44 @@
+---
+description: Form components should own their useForm config, validation, and submission logic
+globs: "**/*.{tsx,jsx}"
+alwaysApply: true
+---
+
+# Self-Contained Form Components
+
+Form components should be self-contained, owning their `useForm` configuration, validation, and submission logic. Pages pass initial data and callbacks:
+
+```typescript
+// ✅ Good: Form owns everything
+interface UserFormProps {
+  initialData: User
+  onSave: (data: UserFormData) => void
+  onCancel: () => void
+}
+
+export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
+  const form = useForm<UserFormData>({
+    resolver: zodResolver(userSchema),
+    defaultValues: { firstName: initialData.firstName ?? '' },
+  })
+
+  return (
+    <>
+      {/* Form fields using form.register() directly */}
+      <Button onClick={() => onSave(form.getValues())}>Save</Button>
+    </>
+  )
+}
+
+// ❌ Bad: Form config split between page and form component
+export default function EditPage() {
+  const form = useForm<FormData>({ ... })  // Config in page
+  return (
+    <FormProvider {...form}>
+      <MyForm />  // Uses useFormContext - type ambiguity
+    </FormProvider>
+  )
+}
+```
+
+Benefits: No type ambiguity, forms are reusable, schema/defaults live with form.

@@ -44,8 +44,8 @@ describe('TabNavigation', () => {
         screen.getByRole('link', { name: 'Campaigns' })
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'Paths to Victory' })
-      ).toBeInTheDocument()
+        screen.queryByRole('link', { name: 'Paths to Victory' })
+      ).not.toBeInTheDocument()
       expect(
         screen.getByRole('link', { name: 'Elected Offices' })
       ).toBeInTheDocument()
@@ -64,9 +64,6 @@ describe('TabNavigation', () => {
         'href',
         '/dashboard/users/456/campaign'
       )
-      expect(
-        screen.getByRole('link', { name: 'Paths to Victory' })
-      ).toHaveAttribute('href', '/dashboard/users/456/p2v')
       expect(
         screen.getByRole('link', { name: 'Elected Offices' })
       ).toHaveAttribute('href', '/dashboard/users/456/elected-office')
@@ -92,16 +89,6 @@ describe('TabNavigation', () => {
 
       expect(
         screen.getByRole('link', { name: 'Campaigns', current: 'page' })
-      ).toBeInTheDocument()
-    })
-
-    it('marks P2V tab as current page on p2v route', () => {
-      mockUsePathname.mockReturnValue('/dashboard/users/123/p2v')
-
-      renderWithUser(123)
-
-      expect(
-        screen.getByRole('link', { name: 'Paths to Victory', current: 'page' })
       ).toBeInTheDocument()
     })
 
@@ -131,8 +118,8 @@ describe('TabNavigation', () => {
         '/dashboard/users/789/edit/campaign'
       )
       expect(
-        screen.getByRole('link', { name: 'Paths to Victory' })
-      ).toHaveAttribute('href', '/dashboard/users/789/edit/p2v')
+        screen.queryByRole('link', { name: 'Paths to Victory' })
+      ).not.toBeInTheDocument()
       expect(
         screen.getByRole('link', { name: 'Elected Offices' })
       ).toHaveAttribute('href', '/dashboard/users/789/edit/elected-office')

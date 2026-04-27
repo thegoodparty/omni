@@ -6,7 +6,7 @@ import { Container, Heading, Box, Text } from '@radix-ui/themes'
 import type { PaginationMeta } from '@goodparty_org/sdk'
 import { UserSearchForm } from '@/components/UserSearchForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
-import { searchUsers } from '../actions'
+import { searchUsers, getUsersProFlags } from '../actions'
 import {
   User,
   SEARCH_PARAMS,
@@ -46,6 +46,8 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
     const fetchUsers = async () => {
       setIsLoading(true)
       setError(null)
@@ -63,17 +65,39 @@ export default function UsersPage() {
           [SEARCH_PARAMS.IS_PRO]: isPro,
         })
 
+        if (cancelled) return
+
         setUsers(result.data)
         setMeta(result.meta)
+        setIsLoading(false)
+
+        const ids = result.data.map((u) => u.id)
+        if (ids.length === 0) return
+
+        try {
+          const flags = await getUsersProFlags(ids)
+          if (cancelled) return
+          setUsers((prev) =>
+            prev
+              ? prev.map((u) => ({ ...u, isPro: flags[u.id] ?? false }))
+              : prev
+          )
+        } catch (flagsErr) {
+          console.error('Failed to load Pro flags:', flagsErr)
+        }
       } catch (err) {
+        if (cancelled) return
         setError('Failed to search users. Please try again.')
         console.error('Search error:', err)
-      } finally {
         setIsLoading(false)
       }
     }
 
     fetchUsers()
+
+    return () => {
+      cancelled = true
+    }
   }, [searchParams, currentPage, perPage, isPro])
 
   const updateSearchParams = useCallback(

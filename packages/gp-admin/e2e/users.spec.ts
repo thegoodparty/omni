@@ -65,7 +65,8 @@ test.describe('Users Search - Email', () => {
   test('email search displays result in table', async ({ page }) => {
     await LOCATORS.emailInput(page).fill('tomer@goodparty.org')
 
-    await expect(LOCATORS.resultsTable(page)).toBeVisible()
+    await expect(page).toHaveURL(/email=tomer%40goodparty\.org/)
+    await expect(LOCATORS.resultsTable(page)).toBeVisible({ timeout: 15000 })
     await expect(
       page.getByRole('cell', { name: 'Tomer Almog' }).first()
     ).toBeVisible()
@@ -95,7 +96,9 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.firstNameInput(page).fill('Tomer')
     await LOCATORS.lastNameInput(page).fill('Almog')
 
-    await expect(LOCATORS.resultsTable(page)).toBeVisible()
+    await expect(page).toHaveURL(/first_name=Tomer/)
+    await expect(page).toHaveURL(/last_name=Almog/)
+    await expect(LOCATORS.resultsTable(page)).toBeVisible({ timeout: 15000 })
 
     await expect(page.getByRole('columnheader', { name: 'ID' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible()
@@ -119,7 +122,9 @@ test.describe('Users Search - Name', () => {
     await LOCATORS.firstNameInput(page).fill('Tomer')
     await LOCATORS.lastNameInput(page).fill('Almog')
 
-    await expect(LOCATORS.resultsTable(page)).toBeVisible()
+    await expect(page).toHaveURL(/first_name=Tomer/)
+    await expect(page).toHaveURL(/last_name=Almog/)
+    await expect(LOCATORS.resultsTable(page)).toBeVisible({ timeout: 15000 })
     await page.getByRole('link', { name: 'Tomer Almog' }).first().click()
 
     await expect(page).toHaveURL(/\/dashboard\/users\/\d+/)

@@ -27,22 +27,36 @@ export function UserSearchForm() {
     <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
       <form autoComplete="off" onSubmit={handleSubmit(onSubmit)}>
         <Flex direction="column" gap="4">
-          <Box>
-            <Text as="label" size="2" weight="medium" mb="2" mr="2">
-              Search by
-            </Text>
-            <SegmentedControl.Root
-              value={activeTab}
-              onValueChange={handleTabChange}
-            >
-              <SegmentedControl.Item value={SEARCH_TAB.EMAIL}>
-                Email
-              </SegmentedControl.Item>
-              <SegmentedControl.Item value={SEARCH_TAB.NAME}>
-                Name
-              </SegmentedControl.Item>
-            </SegmentedControl.Root>
-          </Box>
+          <Flex align="center" justify="between" gap="2">
+            <Box>
+              <Text as="label" size="2" weight="medium" mb="2" mr="2">
+                Search by
+              </Text>
+              <SegmentedControl.Root
+                value={activeTab}
+                onValueChange={handleTabChange}
+              >
+                <SegmentedControl.Item value={SEARCH_TAB.EMAIL}>
+                  Email
+                </SegmentedControl.Item>
+                <SegmentedControl.Item value={SEARCH_TAB.NAME}>
+                  Name
+                </SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </Box>
+
+            {showClear && (
+              <Button
+                type="button"
+                variant="soft"
+                color="gray"
+                onClick={handleClear}
+              >
+                <HiX className="w-4 h-4" />
+                Clear
+              </Button>
+            )}
+          </Flex>
 
           {activeTab === SEARCH_TAB.EMAIL ? (
             <EmailSearchInput registration={register('email')} />
@@ -68,20 +82,6 @@ export function UserSearchForm() {
               </SegmentedControl.Item>
             </SegmentedControl.Root>
           </Box>
-
-          <Flex gap="2" justify="end">
-            {showClear && (
-              <Button
-                type="button"
-                variant="soft"
-                color="gray"
-                onClick={handleClear}
-              >
-                <HiX className="w-4 h-4" />
-                Clear
-              </Button>
-            )}
-          </Flex>
         </Flex>
       </form>
     </Box>

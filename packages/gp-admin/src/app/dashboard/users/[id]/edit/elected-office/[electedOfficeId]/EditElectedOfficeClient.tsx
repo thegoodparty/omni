@@ -11,11 +11,19 @@ import type { ElectedOffice } from '@goodparty_org/sdk'
 interface EditElectedOfficeClientProps {
   electedOffice: ElectedOffice
   userId: number
+  state: string
+  electionYear: number
+  initialDistrictType?: string
+  initialDistrictName?: string
 }
 
 export function EditElectedOfficeClient({
   electedOffice,
   userId,
+  state,
+  electionYear,
+  initialDistrictType,
+  initialDistrictName,
 }: EditElectedOfficeClientProps) {
   const router = useRouter()
   const { showToast } = useToast()
@@ -43,6 +51,11 @@ export function EditElectedOfficeClient({
   return (
     <ElectedOfficeForm
       initialData={electedOffice}
+      userId={userId}
+      state={state}
+      electionYear={electionYear}
+      initialDistrictType={initialDistrictType}
+      initialDistrictName={initialDistrictName}
       onSave={handleSave}
       onCancel={handleCancel}
       isSaving={isSaving}

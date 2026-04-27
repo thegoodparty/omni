@@ -3,34 +3,39 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Text, Box, Flex, Select, Button, Checkbox } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
-import { InfoCard } from '../../components/InfoCard'
-import {
-  fetchDistrictTypes,
-  fetchDistrictNames,
-  updateDistrict,
-} from '@/app/dashboard/p2v/district-actions'
-import { P2V_FORM_SECTIONS } from '../constants'
+import { InfoCard } from '@/app/dashboard/users/[id]/components/InfoCard'
+import { fetchDistrictTypes, fetchDistrictNames } from './district-actions'
+import { DISTRICT_FORM_SECTION_TITLE } from '@/app/dashboard/users/[id]/edit/constants'
 import type { DistrictTypeItem, DistrictNameItem } from '@goodparty_org/sdk'
 
 const SELECT_NONE = '__none__'
 
-interface DistrictPickerProps {
+export interface DistrictPickerProps {
   state: string
   electionYear: number
-  campaignId: number
-  userId: number
-  initialElectionType?: string
-  initialElectionLocation?: string
+  initialL2DistrictType?: string
+  initialL2DistrictName?: string
+  /**
+   * When true (default), the picker initially hides districts that have no
+   * `projectedTurnout` available. Set to false for contexts (e.g. elected
+   * offices) where projected turnout is not relevant and admins should be
+   * able to pick any district.
+   */
+  defaultExcludeInvalid?: boolean
+  onSave: (input: {
+    L2DistrictType: string
+    L2DistrictName: string
+  }) => Promise<void>
   onDistrictSaved?: () => void
 }
 
 export function DistrictPicker({
   state,
   electionYear,
-  campaignId,
-  userId,
-  initialElectionType,
-  initialElectionLocation,
+  initialL2DistrictType,
+  initialL2DistrictName,
+  defaultExcludeInvalid = true,
+  onSave,
   onDistrictSaved,
 }: DistrictPickerProps) {
   const { showToast } = useToast()
@@ -38,15 +43,15 @@ export function DistrictPicker({
   const [types, setTypes] = useState<DistrictTypeItem[]>([])
   const [names, setNames] = useState<DistrictNameItem[]>([])
   const [selectedType, setSelectedType] = useState<string>(
-    initialElectionType ?? SELECT_NONE
+    initialL2DistrictType ?? SELECT_NONE
   )
   const [selectedName, setSelectedName] = useState<string>(
-    initialElectionLocation ?? SELECT_NONE
+    initialL2DistrictName ?? SELECT_NONE
   )
   const [loadingTypes, setLoadingTypes] = useState(false)
   const [loadingNames, setLoadingNames] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [excludeInvalid, setExcludeInvalid] = useState(true)
+  const [excludeInvalid, setExcludeInvalid] = useState(defaultExcludeInvalid)
 
   const loadTypes = useCallback(async () => {
     if (!state || !electionYear) return
@@ -106,7 +111,10 @@ export function DistrictPicker({
 
     setSaving(true)
     try {
-      await updateDistrict(campaignId, selectedType, selectedName, userId)
+      await onSave({
+        L2DistrictType: selectedType,
+        L2DistrictName: selectedName,
+      })
       showToast('District updated')
       onDistrictSaved?.()
     } catch (error) {
@@ -125,17 +133,17 @@ export function DistrictPicker({
 
   if (hasNoState || hasNoElectionYear) {
     return (
-      <InfoCard title={P2V_FORM_SECTIONS.DISTRICT}>
+      <InfoCard title={DISTRICT_FORM_SECTION_TITLE}>
         <Text size="2" color="gray">
-          Campaign is missing {hasNoState ? 'state' : 'election date'} — cannot
-          load districts.
+          Missing {hasNoState ? 'state' : 'election date'} — cannot load
+          districts.
         </Text>
       </InfoCard>
     )
   }
 
   return (
-    <InfoCard title={P2V_FORM_SECTIONS.DISTRICT}>
+    <InfoCard title={DISTRICT_FORM_SECTION_TITLE}>
       <Flex direction="column" gap="4">
         <Flex gap="4" wrap="wrap">
           <Box flexGrow="1" style={{ minWidth: '200px' }}>
