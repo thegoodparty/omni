@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 2.1.0
+
+### Minor Changes
+
+- [#59](https://github.com/thegoodparty/gp-sdk/pull/59) [`1e7311f`](https://github.com/thegoodparty/gp-sdk/commit/1e7311fb7d4b29ddbe534d304e839a1684154aef) Thanks [@awardquick](https://github.com/awardquick)! - Change `AdminResource.impersonateUser` parameter from `actorClerkId` to `actorEmail`. The API now accepts an email address and resolves it to the correct Clerk ID server-side, enabling cross-Clerk-instance impersonation.
+
 ## 2.0.0
 
 ### Major Changes
