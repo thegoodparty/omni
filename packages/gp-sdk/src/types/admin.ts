@@ -1,5 +1,5 @@
 export type ImpersonateUserInput = {
-  actorClerkId: string
+  actorEmail: string
 }
 
 export type ImpersonateUserOutput = {
