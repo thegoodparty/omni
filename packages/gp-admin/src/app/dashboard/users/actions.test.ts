@@ -8,8 +8,10 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 // --- Clerk server auth ---
 const mockHas = vi.fn()
 const mockAuth = vi.fn()
+const mockCurrentUser = vi.fn()
 vi.mock('@clerk/nextjs/server', () => ({
   auth: () => mockAuth(),
+  currentUser: () => mockCurrentUser(),
 }))
 
 // --- GP API client ---
@@ -41,6 +43,9 @@ describe('createImpersonationToken', () => {
     vi.stubEnv('NEXT_PUBLIC_GP_DEV_WEBAPP_URL', 'http://localhost:4000')
     mockHas.mockReturnValue(true)
     mockAuth.mockReturnValue(makeAuthResult())
+    mockCurrentUser.mockResolvedValue({
+      primaryEmailAddress: { emailAddress: 'admin@goodparty.org' },
+    })
     mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
   })
 
@@ -49,8 +54,8 @@ describe('createImpersonationToken', () => {
   })
 
   describe('auth guards', () => {
-    it('throws Not authenticated when no userId', async () => {
-      mockAuth.mockReturnValue(makeAuthResult({ userId: null }))
+    it('throws Not authenticated when no user', async () => {
+      mockCurrentUser.mockResolvedValue(null)
 
       await expect(createImpersonationToken(1)).rejects.toThrow(
         'Not authenticated'
@@ -86,7 +91,7 @@ describe('createImpersonationToken', () => {
       mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       await createImpersonationToken(99)
 
-      expect(mockImpersonateUser).toHaveBeenCalledWith(99, 'user_admin_123')
+      expect(mockImpersonateUser).toHaveBeenCalledWith(99, 'admin@goodparty.org')
     })
   })
 

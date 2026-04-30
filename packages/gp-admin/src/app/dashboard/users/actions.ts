@@ -1,20 +1,20 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { auth } from '@clerk/nextjs/server'
+import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 import {
-  resolveEnvironment,
   GP_ENVIRONMENT,
+  resolveEnvironment,
   type GpEnvironment,
 } from '@/shared/util/gpEnvironment'
-import { PERMISSIONS } from '@/lib/permissions'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import { revalidatePath } from 'next/cache'
 import {
+  DEFAULT_PER_PAGE,
+  SEARCH_PARAMS,
   SearchUsersParams,
   SearchUsersResult,
-  SEARCH_PARAMS,
-  DEFAULT_PER_PAGE,
 } from './types'
 
 function getWebappUrl(env: GpEnvironment): string {
@@ -85,18 +85,22 @@ export const updateUser = async (
   })
 
 export const createImpersonationToken = async (targetUserId: number) => {
-  const { userId: adminClerkId, orgId, has } = await auth()
+  const { orgId, has } = await auth()
+  const user = await currentUser()
 
-  if (!adminClerkId || !orgId) throw new Error('Not authenticated')
+  if (!user || !orgId) throw new Error('Not authenticated')
   if (!has({ permission: PERMISSIONS.IMPERSONATE_USERS })) {
     throw new Error('Missing impersonate permission')
   }
+
+  const actorEmail = user.primaryEmailAddress?.emailAddress
+  if (!actorEmail) throw new Error('Could not determine actor email')
 
   const env = resolveEnvironment(orgId)
   const webappUrl = getWebappUrl(env)
 
   const { token } = await gpAction((client) =>
-    client.admin.impersonateUser(targetUserId, adminClerkId)
+    client.admin.impersonateUser(targetUserId, actorEmail)
   )
   return { token, webappUrl }
 }

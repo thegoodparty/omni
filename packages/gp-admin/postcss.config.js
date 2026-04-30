@@ -1,5 +1,5 @@
-const tailwindcssPostcss = require('@tailwindcss/postcss')
-
 module.exports = {
-  plugins: [tailwindcssPostcss],
+  plugins: {
+    '@tailwindcss/postcss': {},
+  },
 }
