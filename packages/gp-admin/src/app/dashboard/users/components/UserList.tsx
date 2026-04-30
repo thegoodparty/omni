@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Table, Text } from '@radix-ui/themes'
 import { ProBadge } from '@/shared/components/ProBadge'
+import { formatPhone } from '@/lib/utils/phone'
 import { User } from '../types'
 
 interface UserListProps {
@@ -40,7 +41,7 @@ export function UserList({ users }: UserListProps) {
               </Link>
             </Table.Cell>
             <Table.Cell>{user.email}</Table.Cell>
-            <Table.Cell>{user.phone ?? '—'}</Table.Cell>
+            <Table.Cell>{formatPhone(user.phone)}</Table.Cell>
             <Table.Cell>{user.isPro && <ProBadge />}</Table.Cell>
           </Table.Row>
         ))}
