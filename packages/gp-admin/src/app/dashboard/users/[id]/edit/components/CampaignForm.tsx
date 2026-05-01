@@ -111,7 +111,6 @@ const INPUT_KIND_TO_TYPE: Record<
   email: INPUT_TYPE.EMAIL,
 }
 
-
 function isCampaignTier(value: string): value is CampaignTier {
   return Object.values(CampaignTier).includes(value as CampaignTier)
 }

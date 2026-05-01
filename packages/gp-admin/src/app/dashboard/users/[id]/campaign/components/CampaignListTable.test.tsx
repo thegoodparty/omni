@@ -86,7 +86,7 @@ describe('CampaignListTable', () => {
       />
     )
 
-    expect(screen.getByText('ID')).toBeInTheDocument()
+    expect(screen.getByText('Campaign ID')).toBeInTheDocument()
     expect(screen.getByText('Campaign')).toBeInTheDocument()
     expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.getByText('Status')).toBeInTheDocument()

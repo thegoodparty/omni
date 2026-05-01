@@ -6,7 +6,8 @@ import { Box } from '@radix-ui/themes'
 export function MembersPage() {
   return (
     <Box className="-m-4 w-full h-full">
-        <OrganizationProfile {...{
+      <OrganizationProfile
+        {...{
           appearance: {
             variables: {
               borderRadius: 'none',
@@ -16,8 +17,9 @@ export function MembersPage() {
               rootBox: 'w-full! h-full! border-none! max-w-full!',
               cardBox: 'w-full! h-full! border-none! shadow-none! max-w-full!',
             },
-          }
-        }} />
-      </Box>
+          },
+        }}
+      />
+    </Box>
   )
 }

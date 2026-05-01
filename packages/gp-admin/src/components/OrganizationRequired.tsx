@@ -5,11 +5,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { AuthCallout } from './AuthCallout'
 import { LoadingSpinner } from './LoadingSpinner'
 
-const OrganizationRequiredContent = ({
-  children,
-}: {
-  children: ReactNode
-}) => {
+const OrganizationRequiredContent = ({ children }: { children: ReactNode }) => {
   const { orgId, isSignedIn } = useAuth()
 
   if (!isSignedIn) {

@@ -2,10 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { gpAction } from '@/shared/util/gpClient.util'
-import type {
-  DistrictNameItem,
-  DistrictTypeItem,
-} from '@goodparty_org/sdk'
+import type { DistrictNameItem, DistrictTypeItem } from '@goodparty_org/sdk'
 
 export async function fetchDistrictTypes(
   state: string,

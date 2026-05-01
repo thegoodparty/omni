@@ -80,10 +80,7 @@ const PARTY_BACKGROUND_FIELDS = buildDisplayFields([
   'details.pledged',
 ])
 
-export function CampaignSection({
-  campaign,
-  district,
-}: CampaignSectionProps) {
+export function CampaignSection({ campaign, district }: CampaignSectionProps) {
   const data: NonNullable<CampaignData> = campaign.data ?? {}
   const details: NonNullable<CampaignDetails> = campaign.details ?? {}
   const metrics = campaign.raceTargetMetrics ?? null

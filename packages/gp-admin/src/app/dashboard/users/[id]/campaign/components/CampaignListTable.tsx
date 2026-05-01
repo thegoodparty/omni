@@ -23,7 +23,7 @@ export function CampaignListTable({
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.ColumnHeaderCell>ID</Table.ColumnHeaderCell>
+          <Table.ColumnHeaderCell>Campaign ID</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Position</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Status</Table.ColumnHeaderCell>

@@ -24,7 +24,7 @@ export function ElectedOfficeListTable({
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.ColumnHeaderCell>ID</Table.ColumnHeaderCell>
+          <Table.ColumnHeaderCell>Record ID</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Campaign ID</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Elected Date</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Term End Date</Table.ColumnHeaderCell>

@@ -1,7 +1,10 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { SdkError } from '@goodparty_org/sdk'
-import { getCampaign, type EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
+import {
+  getCampaign,
+  type EnrichedCampaign,
+} from '@/app/dashboard/campaigns/actions'
 import { getOrganization } from '@/app/dashboard/organizations/actions'
 import { EditCampaignClient } from './EditCampaignClient'
 import { status } from '@poppanator/http-constants'

@@ -225,7 +225,7 @@ export interface EditFieldConfig<TKey extends string = string> {
  * shared catalog honest.
  */
 export function buildDisplayFields(
-  keys: readonly CampaignFieldKey[],
+  keys: readonly CampaignFieldKey[]
 ): DisplayFieldConfig[] {
   return keys.map((key) => {
     const spec: FieldSpec = CAMPAIGN_FIELDS[key]
@@ -241,7 +241,7 @@ export function buildDisplayFields(
  * lets callers narrow `key` to their form's `Path<TFormData>` type.
  */
 export function buildEditFields<TKey extends string = string>(
-  keys: readonly CampaignFieldKey[],
+  keys: readonly CampaignFieldKey[]
 ): EditFieldConfig<TKey>[] {
   return keys.map((key) => {
     const spec: FieldSpec = CAMPAIGN_FIELDS[key]

@@ -23,11 +23,6 @@ export default async function ElectedOfficeDetailPage({
   const electedOffice = await getElectedOfficeOrNotFound(electedOfficeId)
   const organization = await getOrganization(`eo-${electedOffice.id}`)
 
-  console.log('[DEBUG elected-office page]', {
-    electedOfficeId: electedOffice.id,
-    organization,
-  })
-
   return (
     <ViewLayout>
       <ElectedOfficeDisplaySection

@@ -21,7 +21,7 @@ export function UserList({ users }: UserListProps) {
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.ColumnHeaderCell>ID</Table.ColumnHeaderCell>
+          <Table.ColumnHeaderCell>User ID</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Name</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Email</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Phone</Table.ColumnHeaderCell>

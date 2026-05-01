@@ -91,7 +91,10 @@ describe('createImpersonationToken', () => {
       mockImpersonateUser.mockResolvedValue({ token: 'clerk_ticket_xyz' })
       await createImpersonationToken(99)
 
-      expect(mockImpersonateUser).toHaveBeenCalledWith(99, 'admin@goodparty.org')
+      expect(mockImpersonateUser).toHaveBeenCalledWith(
+        99,
+        'admin@goodparty.org'
+      )
     })
   })
 
