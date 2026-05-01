@@ -6,21 +6,24 @@ A standalone collection of reusable runbooks and scripts for AI agents.
 
 ```
 runbooks/
-├── books/               # Procedures and reference docs (markdown)
-│   ├── INDEX.md         # Routing table — read this first to find the right book
+├── books/               # Procedures and reference docs (markdown) — read-only-when-asked
+│   ├── INDEX.md         # Routing table — read this first to find the right procedure (covers books/ AND commands/)
 │   ├── .env.example     # Non-sensitive config (paths, regions, org names)
 │   └── .env             # AI agents MAY read this
+├── commands/            # Procedures that ALSO register as Claude Code slash commands via install.sh
+│                        # Same shape as books/; difference is invocation surface, not content
 ├── scripts/
-│   ├── INDEX.md         # Script inventory — what each script does and which book uses it
+│   ├── INDEX.md         # Script inventory — what each script does and which procedure uses it
 │   ├── .env.example     # Secrets and credentials for script execution
 │   ├── .env             # AI agents MUST NOT read this
 │   ├── python/          # Python scripts — managed by uv (pyproject.toml)
 │   ├── node/            # Node scripts — managed by nvm + npm (package.json, .nvmrc)
 │   └── shell/           # Shell scripts — no runtime manager
+├── install.sh           # Symlinks (or copies) commands/*.md into a Claude Code commands dir
 └── CLAUDE.md
 ```
 
-When given a task, start by reading `books/INDEX.md` to find the relevant runbook.
+When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to both `books/` and `commands/` — the agent should treat both the same way when reading.
 
 ## Rules
 
@@ -49,6 +52,20 @@ Books are markdown files in `books/`. There are two types:
 - Should be self-explanatory without requiring external context
 - Books can reference other books (`see books/vpn.md`) but should still work standalone
 - Avoid deep reference chains — if book A requires B which requires C, something's wrong
+
+### Commands
+
+Commands are markdown procedures in `commands/` that *also* register as Claude Code slash commands via `install.sh`. Same shape as books — the difference is invocation surface, not content.
+
+- A `commands/<name>.md` file is invokable as `/<name>` after the user runs `./install.sh`
+- Without install, agents read `commands/<name>.md` directly the same way they read books
+- All **shared rules for books** above apply to commands as well — one-line summary, kebab-case naming, self-explanatory, no deep reference chains
+- Commands are usually procedures (`proc`); they should not be references (`ref`)
+- Commands run from arbitrary working directories (the user invoked `/<name>` from some other project), so each command must include a "Where this runs" block at the top that resolves the runbooks repo path via `$RUNBOOKS_DIR` (with fallbacks)
+- Add a row to `books/INDEX.md` under `Procedure: commands/<name>.md` with trigger keywords, same as for books
+- When adding a new command, no `install.sh` change is required — it picks up `commands/*.md` automatically
+- Commands header convention: start the file with `<!-- v<N> — <YYYY-MM-DD> -->` so reviewers can spot major revisions in the file itself
+- The "Where this runs" / `$RUNBOOKS_DIR` resolution block is duplicated by design (slash commands run with only their own file in context, so a shared helper file would create a chicken-and-egg dependency). Each copy is wrapped in `<!-- BEGIN: resolve-runbooks-dir -->` … `<!-- END: resolve-runbooks-dir -->` markers so future bulk-edits across `commands/*.md` are mechanical — keep them in sync
 
 ### Scripts
 - Reusable code that books reference
@@ -90,12 +107,13 @@ Books are markdown files in `books/`. There are two types:
 - Procedures: name by the action (`query-voter-data.md`, `debug-peerly-errors.md`)
 - References: name by the topic (`platform-overview.md`, `aws-infrastructure.md`)
 
-### Adding a New Book
+### Adding a New Book or Command
 
-1. Create the markdown file in `books/` following the appropriate template below
-2. Add a row to `books/INDEX.md` with type, trigger keywords, path, and description
-3. If the book references a new script, create it in the appropriate `scripts/` subdirectory and add it to `scripts/INDEX.md`
-4. If the book or script needs new env vars, add them to the appropriate `.env.example`
+1. Create the markdown file in `books/` (read-when-asked) **or** `commands/` (also `/<name>`-invokable) following the appropriate template below
+2. Add a row to `books/INDEX.md` with type, trigger keywords, path (`books/...` or `commands/...`), and description
+3. If it references a new script, create it in the appropriate `scripts/` subdirectory and add it to `scripts/INDEX.md`
+4. If it needs new env vars, add them to the appropriate `.env.example`
+5. Commands only: prepend the `<!-- v1 — <YYYY-MM-DD> -->` header and include the "Where this runs" block that resolves `$RUNBOOKS_DIR`
 
 **Procedure template:**
 
