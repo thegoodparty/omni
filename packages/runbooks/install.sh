@@ -32,9 +32,15 @@ Notes:
   that same env so it installs into the right place.
 
   After install, set $RUNBOOKS_DIR in your shell profile so the slash commands
-  can find this repo from any working directory:
+  can find this repo from any working directory. The exact line to add (with
+  this repo's absolute path baked in) is printed at the end of install. It
+  looks like:
 
-    export RUNBOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    export RUNBOOKS_DIR="/absolute/path/to/runbooks"
+
+  Do NOT use a $(dirname "${BASH_SOURCE[0]}") trick in your shell profile —
+  inside ~/.zshrc or ~/.bashrc that resolves to the profile's own directory
+  (typically $HOME), not this repo.
 
 Examples:
   ./install.sh                        # symlink, user-level (honors CLAUDE_CONFIG_DIR)
