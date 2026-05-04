@@ -1,4 +1,4 @@
-<!-- v1 — 2026-05-01 -->
+<!-- v2 — 2026-05-04 -->
 
 # /clickup-epic-create
 
@@ -56,6 +56,8 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
    - **Trivial / small** — a one-paragraph description of a small change (typo fix, copy update, single-component refactor). Proceed without forcing a tech design — the ceremony isn't worth it for tasks that don't have meaningful architecture decisions.
 
    Don't paraphrase the input back as a "tech design" yourself — if it's actually a PRD, the value is in the team-blessed architecture review, not in the agent silently inventing it during Phase 2.
+
+   **Extract milestones from the input.** If the input is a blessed tech design produced by `/prd-to-tech-design`, parse its `milestones:` frontmatter array and `## Milestones` section body. Carry these milestones forward — they shape the Epic body, the per-task `milestone:` field, and the milestone marker tasks created in Phase 6. If the tech design has no milestones (or the input is a hybrid/trivial doc that didn't pass through `/prd-to-tech-design`), that's a valid state — you'll confirm in Phase 3 whether any apply. Never fabricate milestones the source didn't specify.
 
 3. **Get the GitHub repo.** From `$ARGUMENTS` or by asking. Accept either:
    - **Local checkout path** (e.g., `~/code/api`) → use directly.
@@ -119,6 +121,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
    - **Conventions to honor**: "Any patterns in this codebase I should mimic, or any to avoid?"
    - **Testing expectations**: "What level of test coverage per task — unit only, or integration too? Anything currently untested I shouldn't bother adding tests for?"
    - **Priority/timeline**: "Target completion? Any tasks more urgent than others?"
+   - **Milestones**: If the source extracted milestones in Phase 1, restate them and confirm: "I see milestones M1 (<name>, due <date>), M2 (<name>, due <date>). Use as-is, adjust dates/scope, or drop?". If the source had none, ask once: "Any dated milestones or phasing for this Epic, or single delivery?" — then drop it. Don't pressure for milestones if the user says no.
 
    Skip any question already answered by the design doc, `$ARGUMENTS`, or the codebase scan. Batch the rest into one message.
 
@@ -155,6 +158,9 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     epicCustomItemId: <id or empty>
     designDoc: <path or URL>
     githubRepo: <url or path>
+    milestones:
+      - { name: "<M1 name>", dueDate: "<YYYY-MM-DD or empty>", scope: "<one-line>" }
+      - { name: "<M2 name>", dueDate: "<YYYY-MM-DD or empty>", scope: "<one-line>" }
     staged: <YYYY-MM-DD>
     ---
 
@@ -175,6 +181,15 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     ## Success Metrics
 
     - How we'll know this worked.
+
+    ## Milestones
+
+    Carried over from the tech design (or confirmed with the user in Phase 3). Each work task is tagged to a milestone via its `milestone:` frontmatter field. If no milestones apply, write **"No milestones — single delivery."** here, set `milestones: []` in the frontmatter, and skip milestone marker creation in Phase 6.
+
+    | Milestone | Due | Scope |
+    |-----------|-----|-------|
+    | M1: <name> | <YYYY-MM-DD or "TBD"> | <one-line> |
+    | M2: <name> | ... | ... |
 
     ## Task Breakdown
 
@@ -200,6 +215,8 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     priority: <urgent|high|normal|low>
     estimateHours: <number or empty>
     dependencies: [<order numbers of tasks this depends on>]
+    milestone: <milestone name from epic.md, or empty if Epic has no milestones / task spans all>
+    dueDate: <YYYY-MM-DD or empty — defaults to the milestone's dueDate if `milestone:` is set>
     tags: [<tag>, <tag>]
     assignee: <username or empty>
     ---
@@ -375,11 +392,26 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     pri = {"urgent": 1, "high": 2, "normal": 3, "low": 4}.get(priority_str)
     if pri is not None:
         payload["priority"] = pri
-    # Same rule for any other optional field (time_estimate, due_date, assignees):
+    # If the task has `dueDate` in frontmatter (or inherits from its milestone),
+    # convert ISO date → epoch ms (UTC midnight) and include:
+    #   from datetime import datetime, timezone
+    #   dt = datetime.fromisoformat(due_date_iso).replace(tzinfo=timezone.utc)
+    #   payload["due_date"] = int(dt.timestamp() * 1000)
+    # Same rule for any other optional field (time_estimate, assignees):
     # build the dict, then conditionally add the key. Never include `null` or "".
     ```
 
     Then `POST list/$CLICKUP_LIST_ID/task @<temp.json>` and capture each returned `id`, keyed by `order` number, so dependencies can reference real IDs in the next step.
+
+    **If the Epic has milestones** (non-empty `milestones:` in `epic.md` frontmatter), after every work task is created, create one **milestone marker task** per milestone — also a subtask of the Epic, same POST endpoint and payload shape, with these distinguishing fields:
+
+    - `name`: `"Milestone: <milestone name>"` (e.g., `"Milestone: M1 — Auth"`)
+    - `markdown_description`: a brief block listing the work tasks rolled up into this milestone, by title
+    - `milestone`: `true` — marks the task as a ClickUp milestone (renders with the flag icon in Gantt/Timeline views)
+    - `due_date`: epoch ms (only if the milestone has a `dueDate`; convert ISO → epoch ms as above). Omit the key entirely when no date.
+    - `priority`: omit unless the milestone carries explicit urgency
+
+    Capture each milestone task's returned `id`, keyed by milestone name, for the dependency wiring in step 22. If `milestones: []` (or missing), skip this entire sub-step — no milestone markers should be created.
 
 22. **Wire up dependencies.** For each task with a non-empty `dependencies` list in its frontmatter:
 
@@ -388,7 +420,15 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     # where /tmp/dep.json is: {"depends_on": "<dependency_task_id>"}
     ```
 
-    A failure here is non-fatal — log it, keep going, surface in the final report.
+    **Then wire milestone roll-ups.** For each milestone marker task created in step 21, post a dependency for every work task whose frontmatter has `milestone: <that milestone's name>` — the milestone `depends_on` each of its work tasks, so the milestone can't close until all the work in it is done:
+
+    ```bash
+    # For each work task tagged to the milestone:
+    # /tmp/dep.json: {"depends_on": "<work_task_id>"}
+    cd scripts/python && uv run clickup_api.py POST task/<milestone_task_id>/dependency @/tmp/dep.json
+    ```
+
+    A failure here is non-fatal (work-task or milestone roll-up) — log it, keep going, surface in the final report.
 
 ### Phase 7: Save plan, clean up, report
 
@@ -407,8 +447,11 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
     listId: <list id>
     teamId: <team id>
     tasks:
-      - { id: <task_id>, order: 01, title: "<...>" }
-      - { id: <task_id>, order: 02, title: "<...>" }
+      - { id: <task_id>, order: 01, title: "<...>", milestone: "<M1 name or empty>" }
+      - { id: <task_id>, order: 02, title: "<...>", milestone: "<M2 name or empty>" }
+    milestones:
+      - { id: <milestone_task_id>, name: "<M1 name>", dueDate: "<YYYY-MM-DD or empty>" }
+      - { id: <milestone_task_id>, name: "<M2 name>", dueDate: "<YYYY-MM-DD or empty>" }
     designDoc: <path or URL>
     githubRepo: <url or path>
     created: <YYYY-MM-DD>
@@ -423,8 +466,9 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
 
 25. **Report to the user:**
     - Epic: `<title>` — `<EPIC_TASK_ID>` — `https://app.clickup.com/t/<EPIC_TASK_ID>`
-    - Tasks: bulleted list with `<id>`, title, and link
-    - Any dependency-wire failures
+    - Milestones (if any): bulleted list with milestone name, due date, ClickUp task ID, and link
+    - Tasks: bulleted list with `<id>`, title, milestone (if tagged), and link
+    - Any dependency-wire failures (work-task and/or milestone roll-up)
     - Plan saved at `$CLICKUP_PLANS_DIR/<EPIC_TASK_ID>-plan.md`
     - Suggest next step: "Pick up a task with `/work-on-clickup <task_id>`."
 
@@ -437,6 +481,7 @@ Tasks created via this procedure must clear all of:
 3. **Atomic.** A task does one coherent thing. If "and then" appears in the title, split it.
 4. **Testable.** Acceptance criteria describe externally observable behavior. The test plan names the actual framework and points at the test directory that exists in this repo.
 5. **Honest about uncertainty.** Open questions go in `Notes / Gotchas` explicitly — never papered over.
+6. **Milestone-aligned.** If the source tech design specified milestones, every work task is tagged to one (or explicitly tagged empty for cross-milestone work), milestone marker tasks exist in ClickUp with `milestone: true` and `due_date`, and each marker depends on its work tasks. If the source had no milestones, the Epic frontmatter says so explicitly (`milestones: []`) — empty is fine; missing the key, or a fabricated milestone the source didn't specify, is a smell.
 
 If any drafted task fails this bar, fix it before opening the editor for the user. Burning a review cycle on obvious gaps is a worse experience than taking one more pass.
 
@@ -448,6 +493,8 @@ If any drafted task fails this bar, fix it before opening the editor for the use
 - Staged draft directories persist under `$CLICKUP_DRAFTS_DIR` until the Epic is created (then cleaned up) or manually removed.
 - If the repo is large, prefer targeted `rg` queries over reading whole directories. Spend agent context on the files that matter.
 - If the design doc references endpoints/screens/entities that **don't** exist in the repo, surface that finding to the user before drafting tasks for them.
+- **Milestones are individual ClickUp tasks**, not a separate object — there's no `/milestone` endpoint. Each milestone in the Epic's `milestones:` list becomes one subtask under the Epic with `milestone: true` and `due_date` set. The milestone task `depends_on` every work task tagged to it; when all work closes, the milestone can close. ClickUp uses **epoch milliseconds (UTC)** for `due_date` — convert at API-call time only, never store epoch in the markdown drafts (use ISO `YYYY-MM-DD` there for human readability).
+- **Don't fabricate milestones.** If the tech design said "no milestones," carry that through — `milestones: []` in `epic.md` frontmatter, "No milestones — single delivery." in the body section, and zero milestone marker tasks in ClickUp.
 
 ## Troubleshooting
 
@@ -460,3 +507,6 @@ If any drafted task fails this bar, fix it before opening the editor for the use
 | `markdown_description` shows raw `**asterisks**` in the UI | You sent it under `description` instead of `markdown_description`.                                            |
 | Dependency POST returns 400                                | Verify `depends_on` is a _task ID_, not the task's `custom_id`. Both fields exist; only `id` works here.      |
 | Long design doc context overruns memory mid-procedure      | Stage early (`stage` verb), summarize the doc into `plan.md` Architecture Notes, resume with `resume <slug>`. |
+| `due_date` rejected as not a number | ClickUp expects epoch milliseconds (UTC), not ISO. Convert with `int(datetime.fromisoformat(date).replace(tzinfo=timezone.utc).timestamp() * 1000)`. |
+| Milestone task created but doesn't show the milestone flag | Verify the payload sent `"milestone": true` (boolean, not string `"true"`). The flag icon only appears in views that render milestones — confirm in Gantt or Timeline view, not the default List view. |
+| Milestone marker has no roll-up dependencies                | Step 22 dependency POSTs failed silently — re-check the per-task `milestone:` frontmatter values match a milestone name exactly (case-sensitive). Mismatched names mean no work tasks were found to wire. |

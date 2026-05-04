@@ -1,4 +1,4 @@
-<!-- v1 — 2026-05-01 -->
+<!-- v2 — 2026-05-04 -->
 # /prd-to-tech-design
 
 Take a PRD or product spec plus the **set of repos** the work touches, scan each codebase, surface architecture options with tradeoffs, and produce a **tech design doc** that engineering can review and bless **before** tasks are created. The output ships as both a local markdown file *and* a published page in ClickUp under the PRD (so product/eng reviewers see it in the same place they read the PRD), accompanied by a `.drawio.xml` data flow diagram. This sits between the PRD (what/why) and `/clickup-epic-create` (how, broken into tickets).
@@ -44,7 +44,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
    - **URL** → fetch it via web fetch tools, or `curl` for Confluence/Notion exports the user has access to.
    - **Pasted text** → use as-is.
 
-   Confirm in 2–3 sentences: "Here's what I think this PRD is asking for: [problem, target users, headline goal, key non-goals]. Did I get that right?". Don't proceed until the user confirms.
+   Confirm in 2–3 sentences: "Here's what I think this PRD is asking for: [problem, target users, headline goal, key non-goals, any milestones / dated phases]. Did I get that right?". Don't proceed until the user confirms.
 
 3. **Identify the ClickUp publish target.** The blessed tech design will be published as a page under the PRD in ClickUp so reviewers see it next to the source. Ask the user for the PRD's location in ClickUp (or accept a flag for "external / no ClickUp"):
 
@@ -69,6 +69,8 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
    - Failure / DR: what's the blast radius if this breaks? Data loss tolerance? Recovery path?
 
    Don't ask the user about these yet — these are the questions the tech design will answer.
+
+   **Also extract, in the same pass: milestones the PRD _does_ specify.** PRDs commonly phase delivery — words like "Phase 1 / Phase 2", "MVP", "V1 / V2", "by end of Q3", or explicit dated checkpoints. Capture each as a `{name, dueDate, scope}` triple — these carry through to the tech design's Milestones section and ultimately to the ClickUp Epic via `/clickup-epic-create`. If the PRD has no milestones, note that and move on; **don't manufacture them**.
 
 ### Phase 2: Codebase reconnaissance (multi-repo)
 
@@ -189,6 +191,9 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     repos:
       - { name: <name>, path: <local path>, role: <one-line> }
       - { name: <name>, path: <local path>, role: <one-line> }
+    milestones:
+      - { name: "<M1 short name>", dueDate: "<YYYY-MM-DD or empty>", scope: "<one-line>" }
+      - { name: "<M2 short name>", dueDate: "<YYYY-MM-DD or empty>", scope: "<one-line>" }
     dataFlowDiagram: <slug>-data-flow.drawio.xml
     staged: <YYYY-MM-DD>
     status: draft
@@ -204,6 +209,14 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
 
     ## Non-Goals
     - Things explicitly out of scope. If the PRD didn't say "out of scope" but you're treating it as such, say why.
+
+    ## Milestones
+    Carry forward from the PRD if it specified phasing or dated checkpoints. If the PRD did not specify milestones, write **"No milestones in source PRD."** and move on — don't invent them here.
+
+    | Milestone | Due | Scope |
+    |-----------|-----|-------|
+    | M1: <name> | <YYYY-MM-DD or "TBD"> | <one-line of what this milestone delivers> |
+    | M2: <name> | ... | ... |
 
     ## Constraints
     - Budget, deadline, team capacity, infra/platform limits, regulatory.
@@ -326,6 +339,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     - **Options are real.** If they all collapse to the same architecture, just describe one and say so.
     - **Required sections are populated, not stub.** Inputs/Outputs, DB Changes, and Disaster Recovery each have concrete content, even if "N/A" with a reason.
     - **Repos in Scope matches what was confirmed in step 6.** No phantom repos that didn't get scanned.
+    - **Milestones preserved.** Every milestone the PRD specified is in the Milestones section with its due date and scope, and mirrored in the `milestones:` frontmatter array. If the PRD specified none, both the section and the frontmatter say so explicitly (`milestones: []`) — empty/missing without comment is a smell.
 
 ### Phase 6: Generate the data flow diagram
 
@@ -476,6 +490,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     - Data flow diagram at `$CLICKUP_DESIGNS_DIR/<slug>-data-flow.drawio.xml`
     - Recommended approach: <Option X>
     - Repos in scope: <list>
+    - Milestones carried forward: <count> (or "none — PRD didn't specify any")
     - ClickUp page URL (if published): <url>
     - Open questions to resolve before tasks are created: <count> (or "none")
     - Suggested next steps:
