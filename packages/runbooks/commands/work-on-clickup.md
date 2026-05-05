@@ -1,4 +1,4 @@
-<!-- v1 — 2026-05-01 -->
+<!-- v2 — 2026-05-04 -->
 # /work-on-clickup
 
 Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan if available, set up a focused working context, and start implementing. Designed to feel like "open a ticket and just go" — but with the safety nets of a clear scope confirmation, todo list seeded from acceptance criteria, and explicit verification before claiming done.
@@ -72,7 +72,18 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
    ```
    If we're not in the right repo (`pwd` ≠ the named repo path), tell the user and offer to `cd` there before continuing. Don't start editing files in the wrong place.
 
-7. **Check task dependencies.** Source of truth is the **API response's `.dependencies`** array (frontmatter is stripped before tasks are POSTed to ClickUp, so the body in ClickUp will not contain a `dependencies:` block). For each entry's `depends_on` ID, fetch its status:
+7. **Load repo conventions.** Before implementing, scan the working repo for project-level rules and load every one that exists:
+
+   ```bash
+   [ -d ".cursor/rules" ] && echo "Found .cursor/rules/" && ls .cursor/rules/
+   [ -f ".cursorrules" ] && echo "Found .cursorrules"
+   [ -f "CLAUDE.md" ] && echo "Found CLAUDE.md"
+   [ -d "ai-rules" ] && echo "Found ai-rules/" && ls ai-rules/
+   ```
+
+   Read each file or directory that exists (recursively for `.cursor/rules/` and `ai-rules/`) before writing code. These define style, tooling, naming, and architectural conventions specific to the repo — implementation must follow them. If a convention conflicts with the task body, surface the conflict to the user and ask which wins; don't silently pick one. If none of these exist, note that explicitly so the user knows you checked.
+
+8. **Check task dependencies.** Source of truth is the **API response's `.dependencies`** array (frontmatter is stripped before tasks are POSTed to ClickUp, so the body in ClickUp will not contain a `dependencies:` block). For each entry's `depends_on` ID, fetch its status:
 
    ```bash
    # Pseudo-loop: for each dep_id in the task's .dependencies[].depends_on:
@@ -82,7 +93,7 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
 
    If any are not in a `closed` / `done`-type status, warn the user — they may want to do those first or accept that this task may be blocked partway through.
 
-8. **Confirm scope with the user** before doing any work. Present the brief plus four explicit options — don't ask an open-ended "anything to adjust?" — most users won't know which levers exist:
+9. **Confirm scope with the user** before doing any work. Present the brief plus four explicit options — don't ask an open-ended "anything to adjust?" — most users won't know which levers exist:
 
    > Going to:
    > - Implement: <one-line summary>
@@ -104,22 +115,23 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
 
 ### Phase 3: Plan and implement
 
-9. **Seed a todo list from the acceptance criteria.** Each AC checkbox becomes a todo. Add prep todos at the front (e.g., "scan files X, Y to confirm current pattern") and verification todos at the back (e.g., "run unit tests", "manual verification per task body"). Update todos as you go — never batch.
+10. **Seed a todo list from the acceptance criteria.** Each AC checkbox becomes a todo. Add prep todos at the front (e.g., "scan files X, Y to confirm current pattern") and verification todos at the back (e.g., "run unit tests", "manual verification per task body"). Update todos as you go — never batch.
 
-10. **Follow the implementation details from the task body.** They were drafted to be enough; if they aren't, that's a real signal — surface the gap to the user rather than papering over it with guessing. Common moves:
+11. **Follow the implementation details from the task body.** They were drafted to be enough; if they aren't, that's a real signal — surface the gap to the user rather than papering over it with guessing. Common moves:
     - Read the referenced files first; confirm the pattern the ticket says to follow actually exists.
     - If a file path in the ticket is wrong (renamed/moved/deleted), fix it as you go and mention this to the user — the ticket may need a small correction back in ClickUp.
+    - Adhere to the conventions loaded in step 7 (`.cursor/rules`, `CLAUDE.md`, `ai-rules/`). If the task body contradicts them, pause and ask the user which to follow.
     - Stick to the scope. New ideas / nice-to-haves go in `Notes / Gotchas` for later, not into this PR.
 
-11. **Run the test plan as written.** If unit tests exist for the touched code, run only those for fast feedback during development; run the broader suite once you think you're done. Don't claim "tests pass" without seeing the actual command output.
+12. **Run the test plan as written.** If unit tests exist for the touched code, run only those for fast feedback during development; run the broader suite once you think you're done. Don't claim "tests pass" without seeing the actual command output.
 
 ### Phase 4: Verify and wrap
 
-12. **Walk the acceptance criteria** as a checklist before declaring done:
+13. **Walk the acceptance criteria** as a checklist before declaring done:
     - For each `[ ]`, demonstrate it's met (test output, manual run, or the code change itself).
     - If any AC can't be met as written, stop and ask the user — either revise the AC, split out a follow-up, or rethink the approach. Don't silently downgrade.
 
-13. **Offer to update ClickUp** with progress / completion. Don't update silently — the user may want to control timing / phrasing:
+14. **Offer to update ClickUp** with progress / completion. Don't update silently — the user may want to control timing / phrasing:
 
     > Want me to:
     > - Post a comment summarizing the work? (recommended — links the PR / commit, lists what was done)
@@ -138,7 +150,7 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
     # /tmp/status.json: {"status": "in review"}
     ```
 
-14. **Offer to update the local Epic plan** — the plan is a living document, not a one-shot artifact. If a plan was loaded from `$CLICKUP_PLANS_DIR/...`, ask whether to refresh it now:
+15. **Offer to update the local Epic plan** — the plan is a living document, not a one-shot artifact. If a plan was loaded from `$CLICKUP_PLANS_DIR/...`, ask whether to refresh it now:
 
     > Want me to update `<plan path>` to reflect what we did?
     > - Mark this task's AC as completed in the plan's task list
@@ -150,10 +162,11 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
 
     If no plan was loaded (the task wasn't created via `/clickup-epic-create`), skip this step.
 
-15. **Final report.**
+16. **Final report.**
     - Files changed (one line each)
     - Tests run + result
     - AC status (✓ all met, or list the unmet ones)
+    - Conventions check: confirm adherence to the rules loaded in step 7 (`.cursor/rules` / `CLAUDE.md` / `ai-rules/`), or note "none found"
     - ClickUp updates applied (if any)
     - Plan file updates (if any)
     - Suggested next step: "Open a PR?" / "Move on to task `<next id>` (next in dep graph)?" / "Run `/clickup-epic-edit` to update the Epic if scope shifted." — pick what's actually applicable, not all three.
