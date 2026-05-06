@@ -25,10 +25,18 @@ runbooks/
 
 When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to both `books/` and `commands/` — the agent should treat both the same way when reading.
 
+## Used by the delegate worker
+
+The `ops/delegate/worker` clones this repo at boot via the GitHub App token and sets `RUNBOOKS_DIR=/app/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.
+
+This is the only first-party consumer that pins specific paths into this repo's content. Other consumers should treat the repo as cloneable to anywhere.
+
 ## Rules
 
 ### Standalone Project
-This repo is self-contained. Do not reference or link to external repositories, file paths outside this repo, or project-specific directories. Users clone this repo wherever they want — never assume a specific path.
+Procedures and references in `books/` and `commands/` are self-contained. Do not reference or link to external repositories, file paths outside this repo, or project-specific directories from those documents. Users clone this repo wherever they want — never assume a specific path.
+
+Exception: the top-level `CLAUDE.md` may include a dedicated "Used by" section that names first-party consumers (e.g., bots and services that clone this repo at boot), so maintainers know where the runbooks are read from. Keep individual procedures clean.
 
 ### Books
 
