@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://runbooks.goodparty.org/experiments/_schema/manifest.schema.json",
+  "title": "PMF Experiment Manifest",
+  "description": "Defines a single PMF experiment that the runner, dispatch Lambda, gp-api, and gp-webapp all consume from S3.",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "model",
+    "max_turns",
+    "timeout_seconds",
+    "input_schema",
+    "output_schema"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to the meta-schema. Lets editors (VSCode, JetBrains) auto-complete fields and show per-field descriptions on hover. Not consumed by runtime."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable identifier. Snake_case. Used in EXPERIMENT_ID env var, S3 paths, and as foreign key in ExperimentRun rows."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bump on every published change. Surfaced in index.json so consumers can detect drift."
+    },
+    "model": {
+      "type": "string",
+      "enum": ["sonnet", "opus", "haiku"],
+      "description": "Claude model the harness drives."
+    },
+    "max_turns": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Agent loop budget. Sonnet typically needs 25-50 for non-trivial experiments; 100 for multi-step web+databricks. Not strictly enforced — agent may exceed slightly."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 14400,
+      "description": "Wall-clock cap on the Fargate runner. After this, runner exits and emits `failed` callback. Default 1200 (20 min); 3000 for heavy multi-step."
+    },
+    "input_schema": {
+      "type": "object",
+      "description": "JSON Schema Draft-07 for the params dict the dispatcher passes the agent (PARAMS_JSON env var). Lambda validates the SQS message's params against this before launching Fargate. Replaces the older `required_params` field — supports types + patterns + constraints, not just key names."
+    },
+    "output_schema": {
+      "type": "object",
+      "description": "JSON Schema Draft-07 for the artifact JSON the agent writes to /workspace/output/<id>.json. The runner validates the artifact against this before publishing to s3://gp-agent-artifacts-{env}/{id}/{run_id}/artifact.json. Used for codegen of TS interfaces in gp-webapp."
+    },
+    "output_constraints": {
+      "type": "object",
+      "description": "Optional cross-field constraints on the output (array_length, equals, enums, ranges, exact_ids) the bare schema can't express.",
+      "additionalProperties": true
+    },
+    "scope": {
+      "type": "object",
+      "description": "Per-experiment broker scope: which Databricks tables the runner is allowed to query, and the per-query row cap. Omitted = no Databricks access (web-only experiment).",
+      "additionalProperties": false,
+      "required": ["allowed_tables", "max_rows"],
+      "properties": {
+        "allowed_tables": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]*\\.[a-z_][a-z0-9_]*\\.[a-z_][a-z0-9_]*$"
+          },
+          "description": "Fully-qualified Databricks table names (catalog.schema.table). Broker SQL rewriter rejects queries against tables not on this list."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "Per-query row cap enforced by the broker."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "districtInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "city", "l2DistrictType", "l2DistrictName"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "2-letter state code (e.g. NC)."
+        },
+        "city": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full city name (e.g. Fayetteville)."
+        },
+        "l2DistrictType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "L2 voter file column name for district (e.g. City_Ward)."
+        },
+        "l2DistrictName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "L2 district value to match (e.g. FAYETTEVILLE CITY WARD 2)."
+        }
+      }
+    }
+  }
+}

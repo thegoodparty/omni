@@ -1,0 +1,142 @@
+name: Publish PMF experiments
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/**'
+      - 'scripts/python/publish_experiments.py'
+      - 'scripts/python/test_experiment_manifests.py'
+      - '.github/workflows/publish-experiments.yml'
+  # Branch-per-env auto-publish:
+  #   push to dev  → publishes to dev  S3 bucket
+  #   push to qa   → publishes to qa   S3 bucket
+  #   push to main → publishes to prod S3 bucket
+  # OIDC trust is pinned per branch so a feature-branch push or workflow_dispatch
+  # against the wrong env can't mint credentials.
+  push:
+    branches: [dev, qa, main]
+    paths:
+      - 'experiments/**'
+      - 'scripts/python/publish_experiments.py'
+      - '.github/workflows/publish-experiments.yml'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated experiment IDs to publish (blank = all). Env is derived from the branch you ran this workflow against.'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write   # OIDC: assume AWS role without long-lived creds
+  contents: read    # Checkout the repo
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate manifests against meta-schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install dev deps
+        working-directory: scripts/python
+        run: uv sync --frozen
+
+      - name: Run meta-schema tests (locks the contract)
+        working-directory: scripts/python
+        run: uv run pytest test_experiment_manifests.py -v
+
+  publish:
+    # Triggered on push to dev/qa/main, or manual workflow_dispatch from one of
+    # those branches. Env is derived from the branch — no choice input —
+    # because OIDC trust is per-branch (you can't publish to prod from the dev
+    # branch even if you tried).
+    if: |
+      (github.event_name == 'push' && (
+        github.ref == 'refs/heads/dev' ||
+        github.ref == 'refs/heads/qa' ||
+        github.ref == 'refs/heads/main'
+      )) ||
+      github.event_name == 'workflow_dispatch'
+    name: Publish manifests
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install runtime deps
+        working-directory: scripts/python
+        run: uv sync --frozen
+
+      - name: Resolve target env from branch
+        id: target
+        run: |
+          case "${{ github.ref }}" in
+            refs/heads/dev)  ENV="dev"  ;;
+            refs/heads/qa)   ENV="qa"   ;;
+            refs/heads/main) ENV="prod" ;;
+            *)
+              echo "::error::Refusing to publish from ${{ github.ref }} — only dev/qa/main branches map to envs."
+              exit 1
+              ;;
+          esac
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "Target env: $ENV (from branch ${{ github.ref }})"
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/agent-experiment-metadata-publish-${{ steps.target.outputs.env }}
+          aws-region: us-west-2
+
+      - name: Build --only flag (if specified)
+        id: only
+        env:
+          ONLY_INPUT: ${{ github.event.inputs.only }}
+        run: |
+          ONLY_FLAG=""
+          if [[ -n "$ONLY_INPUT" ]]; then
+            for id in $(echo "$ONLY_INPUT" | tr ',' ' '); do
+              if [[ ! "$id" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "::error::Invalid experiment id: $id" >&2
+                exit 1
+              fi
+              ONLY_FLAG="$ONLY_FLAG --only=$id"
+            done
+          fi
+          echo "flag=$ONLY_FLAG" >> $GITHUB_OUTPUT
+
+      - name: Publish manifests to S3
+        working-directory: scripts/python
+        run: uv run python publish_experiments.py --env=${{ steps.target.outputs.env }} ${{ steps.only.outputs.flag }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Experiment publish failed: env=${{ steps.target.outputs.env }} commit=${{ github.sha }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Experiment publish failed*\n*Env:* `${{ steps.target.outputs.env }}`\n*Commit:* `${{ github.sha }}`\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_AI_SERVICE_FAILURES_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

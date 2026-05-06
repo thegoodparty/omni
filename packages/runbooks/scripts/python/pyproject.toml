@@ -3,6 +3,7 @@ name = "runbook-scripts"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.43.0",
     "databricks-sql-connector",
     "pandas",
     "python-dotenv",
@@ -11,5 +12,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "pytest>=9.0.3",
 ]

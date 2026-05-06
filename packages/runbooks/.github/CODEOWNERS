@@ -1,0 +1,19 @@
+# Code Owners for paths that publish to S3.
+#
+# This file auto-requests reviewers on PRs that touch the listed paths. To
+# ENFORCE that the listed reviewer must approve before merge (vs just being
+# tagged), enable a branch protection rule in the GitHub UI:
+#   Settings → Branches → main → "Require pull request reviews" + "Require
+#   review from Code Owners".
+#
+# The branch-per-env publish workflow means a merge to main triggers a publish
+# to prod S3 — same with merges to dev/qa. CODEOWNERS guards prod by gating
+# merges to main; we deliberately don't gate dev/qa to keep iteration fast.
+
+# Anything that produces what gets shipped to candidates.
+experiments/                                @Collin-GP
+scripts/python/publish_experiments.py       @Collin-GP
+scripts/python/test_publish_experiments.py  @Collin-GP
+scripts/python/test_experiment_manifests.py @Collin-GP
+.github/workflows/publish-experiments.yml   @Collin-GP
+.github/CODEOWNERS                          @Collin-GP
