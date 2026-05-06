@@ -39,7 +39,10 @@ def test_at_least_one_experiment_exists():
 def test_manifest_validates_against_meta_schema(manifest_path: Path):
     meta = _load_meta_schema()
     manifest = json.loads(manifest_path.read_text())
-    errors = sorted(Draft7Validator(meta).iter_errors(manifest), key=lambda e: e.path)
+    errors = sorted(
+        Draft7Validator(meta).iter_errors(manifest),
+        key=lambda e: [str(p) for p in e.absolute_path],
+    )
     if errors:
         msgs = [f"  - {'.'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.message}" for e in errors]
         pytest.fail(f"{manifest_path.relative_to(REPO_ROOT)} fails meta-schema:\n" + "\n".join(msgs))

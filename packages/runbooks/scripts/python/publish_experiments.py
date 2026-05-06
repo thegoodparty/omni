@@ -85,7 +85,10 @@ def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
             print(f"  ✗ {d.name}: manifest.json invalid JSON: {e}", file=sys.stderr)
             failed = True
             continue
-        errors = sorted(validator.iter_errors(manifest), key=lambda e: list(e.absolute_path))
+        # absolute_path mixes strings (object keys) and ints (array indices);
+        # coerce to str so Python 3 doesn't raise TypeError on mixed-type
+        # comparison mid-sort and crash CI on a malformed manifest.
+        errors = sorted(validator.iter_errors(manifest), key=lambda e: [str(p) for p in e.absolute_path])
         if errors:
             print(f"  ✗ {d.name}: {len(errors)} schema violation(s):", file=sys.stderr)
             for err in errors:
