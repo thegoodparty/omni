@@ -196,7 +196,7 @@ The agent only sees its tools, your `output_schema`, your instruction, and the p
 **Web (URL discovery + retrieval)** — include if your runbook calls the web:
 
 - **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
-- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). Verbatim:
+- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). The response is a **plain dict** (`{"status": int, "headers": dict, "body": str}`) — not a `requests.Response`. Calling `r.status_code` or `r.text` raises `AttributeError`. Verbatim:
   ```python
   from pmf_runtime import http
   r = http.get("https://example.com/article")

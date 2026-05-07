@@ -53,8 +53,11 @@ Given a state + district, produce the top 5 issues voters there care about and p
   ```python
   from pmf_runtime import http
   r = http.get("https://example.com/article")
-  print(r.status_code, r.text[:500])
+  # r = {"status": 200, "headers": {...}, "body": "<html>…</html>"}
+  print(r["body"][:2000])
   ```
+
+  The response is a **plain dict** — `r["status"]` (int), `r["headers"]` (dict), `r["body"]` (str). It is NOT a `requests.Response`. Calling `r.status_code` or `r.text` raises `AttributeError`.
 
 - The broker enforces an SSRF guard and URL allowlist on `http.get`. Private IPs and internal hostnames are blocked.
 

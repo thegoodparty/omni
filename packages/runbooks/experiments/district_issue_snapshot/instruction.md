@@ -15,9 +15,9 @@ For one district + one issue keyword, produce a JSON artifact combining (a) the 
 
 1. Parse `PARAMS_JSON` into `STATE`, `CITY`, `L2_TYPE`, `L2_NAME`, `ISSUE_KEYWORD`.
 2. Discover candidate `hs_*` columns whose names semantically match `ISSUE_KEYWORD` (`information_schema.columns` query).
-3. Pick ONE matched column → `matched_hs_column`. If none match, set it to `null` and skip step 4.
-4. Run a single aggregation query over `int__l2_nationwide_uniform_w_haystaq` to count `total_active_voters` and `aligned_voter_count` (`hs_<chosen> >= 50`) for the district.
-5. Compute `aligned_voter_percentage = aligned_voter_count / total_active_voters * 100` (one decimal place). If `total_active_voters == 0`, set both `aligned_voter_count` and `aligned_voter_percentage` to `null`.
+3. Pick ONE matched column → `matched_hs_column`. If none match, set it to `null`.
+4. Run a single aggregation query over `int__l2_nationwide_uniform_w_haystaq`. **Always** select `COUNT(*) AS total_active_voters` for the district (this populates the required `total_active_voters` field even when no `hs_*` column matched). **If `matched_hs_column` is non-null,** also select `SUM(CASE WHEN \`<col>\` >= 50 THEN 1 ELSE 0 END) AS aligned_voter_count`; otherwise set `aligned_voter_count = None` in Python without that part of the query.
+5. Compute `aligned_voter_percentage = aligned_voter_count / total_active_voters * 100` (one decimal place). If `matched_hs_column is None` OR `total_active_voters == 0`, set both `aligned_voter_count` and `aligned_voter_percentage` to `null`.
 6. Build `issue_label` (title-case + parenthetical angle if the column suffix encodes one).
 7. Use `WebSearch` to find one local news article on the issue + city within the last ~12 months. Confirm the page actually mentions the issue + city via `pmf_runtime.http.get(url)`.
 8. Assemble the JSON artifact (including ISO-8601 UTC `generated_at`) and write it to `/workspace/output/district_issue_snapshot.json`.
@@ -49,12 +49,12 @@ For one district + one issue keyword, produce a JSON artifact combining (a) the 
 ### Web (URL discovery + retrieval)
 
 - **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
-- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). Verbatim:
+- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). The response is a **plain dict** — not a `requests.Response`. `r.status_code` / `r.text` raise `AttributeError`. Verbatim:
   ```python
   from pmf_runtime import http
   r = http.get("https://example.com/article")
   # r = {"status": 200, "headers": {...}, "body": "<html>…</html>"}
-  print(r["body"][:2000])
+  print(r["status"], r["body"][:2000])
   ```
 - The broker enforces an SSRF guard and URL allowlist on `http.get`. Private IPs and internal hostnames are blocked.
 
@@ -106,40 +106,55 @@ Pick ONE column from `candidates`:
 - If multiple match equally well, prefer the shortest name and avoid suffixes like `_oppose`/`_against` (those score the OPPOSITE alignment).
 - If `candidates` is empty, set `matched_hs_column = None` and skip Step 3 — the artifact will still be valid (`aligned_voter_count`/`aligned_voter_percentage` become `null`).
 
-### Step 3 — Count aligned voters in the district
+### Step 3 — Count district voters (and alignment if a column matched)
 
-Substitute the chosen column name AND the L2 district column name directly into the SQL string (named placeholders cannot parameterize identifiers). Both are constrained: the column came from `information_schema`, and `L2_TYPE` came from the param schema.
+Substitute the chosen column name (if any) AND the L2 district column name directly into the SQL string (named placeholders cannot parameterize identifiers). Both are constrained: the column came from `information_schema`, and `L2_TYPE` came from the param schema.
+
+`total_active_voters` is **always** queried — even when `matched_hs_column is None` — because the `total_active_voters` field in the artifact is required (a non-null integer) by the output schema.
 
 ```python
-matched_hs_column = "hs_affordable_housing_gov_has_role"  # ← replace with your pick
+matched_hs_column = "hs_affordable_housing_gov_has_role"  # ← replace with your pick, or None if Step 2 matched nothing
 
-assert matched_hs_column.startswith("hs_") and matched_hs_column.replace("_", "").isalnum(), \
-    "matched_hs_column must look like hs_<alnum_underscore>"
 assert L2_TYPE.replace("_", "").isalnum(), "L2_TYPE must be a bare identifier"
 
+if matched_hs_column is not None:
+    assert matched_hs_column.startswith("hs_") and matched_hs_column.replace("_", "").isalnum(), \
+        "matched_hs_column must look like hs_<alnum_underscore>"
+    select_clause = (
+        "COUNT(*) AS total_active_voters, "
+        f"SUM(CASE WHEN `{matched_hs_column}` >= 50 THEN 1 ELSE 0 END) AS aligned_voter_count"
+    )
+else:
+    # No matching hs_* column for this issue keyword — query the district headcount
+    # only. aligned_voter_count / aligned_voter_percentage stay null in the artifact.
+    select_clause = "COUNT(*) AS total_active_voters"
+
 q = f"""
-SELECT
-  COUNT(*) AS total_active_voters,
-  SUM(CASE WHEN `{matched_hs_column}` >= 50 THEN 1 ELSE 0 END) AS aligned_voter_count
+SELECT {select_clause}
 FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
 WHERE `{L2_TYPE}` = :l2_name
   AND Voters_Active = 'A'
 """
 cur.execute(q, {"l2_name": L2_NAME})
 row = cur.fetchone()
-total_active_voters, aligned_voter_count = int(row[0]), (int(row[1]) if row[1] is not None else 0)
+total_active_voters = int(row[0])
+if matched_hs_column is not None:
+    aligned_voter_count = int(row[1]) if row[1] is not None else 0
+else:
+    aligned_voter_count = None
 print(total_active_voters, aligned_voter_count)
 ```
 
 Compute the percentage:
 ```python
-if total_active_voters > 0 and matched_hs_column is not None:
+if matched_hs_column is not None and total_active_voters > 0:
     aligned_voter_percentage = round(aligned_voter_count / total_active_voters * 100, 1)
 else:
+    # Either no column matched, or the district returned zero active voters.
+    # aligned_voter_count and aligned_voter_percentage are both null. total_active_voters
+    # remains a real integer (possibly 0) — never null.
     aligned_voter_count, aligned_voter_percentage = None, None
 ```
-
-If `matched_hs_column is None`, also set `aligned_voter_count = None` and `aligned_voter_percentage = None`.
 
 ### Step 4 — Build `issue_label`
 
