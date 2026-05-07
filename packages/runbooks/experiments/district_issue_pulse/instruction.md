@@ -16,14 +16,26 @@ Given a state + district, produce the top 5 issues voters there care about and p
 3. Run a distribution check on 3 sample `hs_*` columns to confirm they are 0-100 continuous scores (not binary).
 4. Run ONE batched aggregation query that returns `total_active` plus per-candidate `SUM(CASE WHEN >= 50 THEN 1 ELSE 0 END)` for ~10-12 candidate columns.
 5. Sort the per-issue counts descending. Take the top 5.
-6. For each top-5 issue: web search `<city> <state> <issue label> 2026`, then WebFetch the most credible local result to extract source name, URL, published date, and a one-sentence summary.
+6. For each top-5 issue: `WebSearch` `<city> <state> <issue label> 2026`, then `pmf_runtime.http.get(url)` the most credible local result to extract source name, URL, published date, and a one-sentence summary.
 7. Assemble the artifact and write to `/workspace/output/district_issue_pulse.json`.
 8. Run `python3 /workspace/validate_output.py`.
 9. Perform the spot-check.
 
 ## CRITICAL RULES
 
-**Databricks (`/databricks/query`)**:
+**Databricks (`pmf_runtime.databricks`)**:
+
+- Connect via the `pmf_runtime.databricks` module — verbatim:
+
+  ```python
+  from pmf_runtime import databricks as sql
+  conn = sql.connect()
+  cur = conn.cursor()
+  cur.execute("SELECT ... WHERE col = :foo", {"foo": value})
+  rows = cur.fetchall()
+  ```
+
+  The module exports `connect()`, `Connection`, `Cursor`, `ScopeViolation`, `UpstreamError`. There is no `databricks.query()` shortcut — you must `connect() → cursor() → execute() → fetchall()`. Skipping this snippet costs 3+ turns to discover via `dir()`.
 
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your query needs are the L2 district column and `Voters_Active = 'A'`.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
@@ -33,9 +45,18 @@ Given a state + district, produce the top 5 issues voters there care about and p
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
 - **The L2 district column name is the VALUE of `PARAMS.l2DistrictType`** (e.g. `City_Ward`). The value to match is `PARAMS.l2DistrictName`. Backtick-quote the column: `` `City_Ward` = 'FAYETTEVILLE CITY WARD 2' ``.
 
-**Web (WebSearch / WebFetch)**:
+**Web (`WebSearch` + `pmf_runtime.http.get`)**:
 
-- WebSearch and WebFetch route through the broker. Standard semantics, but the broker enforces an SSRF guard and URL allowlist. Private IPs and internal hostnames are blocked.
+- **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
+- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). Verbatim:
+
+  ```python
+  from pmf_runtime import http
+  r = http.get("https://example.com/article")
+  print(r.status_code, r.text[:500])
+  ```
+
+- The broker enforces an SSRF guard and URL allowlist on `http.get`. Private IPs and internal hostnames are blocked.
 
 **Output**:
 
@@ -116,7 +137,7 @@ Keep `hs_column` as the raw column name. Derive `issue_label` by stripping the `
 
 ### Step 5 — One news source per top issue
 
-For each of the top 5: WebSearch `<city> <state> <issue_label> 2026` (or `2025` if 2026 returns nothing). Pick the most credible / most recent local news result. Then WebFetch that URL to confirm the page actually loads AND mentions the issue. If it doesn't mention the issue, pick the next result.
+For each of the top 5: `WebSearch` `<city> <state> <issue_label> 2026` (or `2025` if 2026 returns nothing). Pick the most credible / most recent local news result. Then `pmf_runtime.http.get(url)` that URL to confirm the page actually loads (status 200) AND mentions the issue. If it doesn't mention the issue, pick the next result.
 
 Capture per issue:
 - `source_name`: the publication (e.g. "Fayetteville Observer")
@@ -166,7 +187,7 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 - **`total_active_voters` plausibly matches one district, not the whole city.** If the number looks like a city-wide voter count, the L2 district WHERE clause matched zero rows and the broker's auto-injected city scope is the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_JSON` and that you backtick-quoted the column.
 - **No top-5 entry has `voter_percentage` < 5%.** All-low percentages mean you used `= 1` instead of `>= 50` (binary inference from suffix). Re-do the distribution check in Step 3.
 - **No two top-5 entries are from the same policy area.** If the top 5 is ["police_trust_yes", "violent_crime_very_worried", "crime_too_lax", ...], your candidate list in Step 2 was too narrow — broaden it and re-run Step 4.
-- **Every news URL loads AND mentions the issue.** Don't trust search snippets blindly; you already WebFetched in Step 5, but re-confirm any URL where the summary feels generic.
+- **Every news URL loads AND mentions the issue.** Don't trust search snippets blindly; you already `pmf_runtime.http.get`'d in Step 5, but re-confirm any URL where the summary feels generic.
 
 ## Failure modes
 
@@ -179,5 +200,6 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 | `total_active_voters` looks like the whole city | Backtick-quoted L2 column wrong, or `L2_NAME` mismatched | Re-confirm L2_TYPE/L2_NAME from PARAMS_JSON; check column name spelling |
 | Bare `SELECT 1` rejected | Every query must reference the allowlisted table | Add `FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq` |
 | Positional `?` placeholder errors | Databricks requires named placeholders | Use `:name` and pass `{"name": value}` |
-| News URL 404s or doesn't mention the issue | Trusted search snippet without WebFetch confirmation | WebFetch each URL; pick a different result if it doesn't load or doesn't mention the issue |
+| News URL 404s or doesn't mention the issue | Trusted search snippet without `http.get` confirmation | `pmf_runtime.http.get` each URL; pick a different result if it doesn't load or doesn't mention the issue |
+| `WebFetch` returns "Unable to verify if domain X is safe to fetch" | Used `WebFetch` instead of `pmf_runtime.http.get` | Use `pmf_runtime.http.get(url)` for page bodies; `WebSearch` only for URL discovery |
 | Runner: `No artifact files found in /workspace/output` | Wrote to wrong path or never wrote | Write to `/workspace/output/district_issue_pulse.json` exactly |

@@ -101,7 +101,7 @@ If unsure: `sonnet` / `60` / `1200`. These are safe defaults that handle most ba
 
 There's no `cpu` / `memory` field — Fargate task sizing is fixed in terraform (currently `2048`/`4096` across the board). If an experiment ever needs a different size, that's a terraform change to the task definition, not a manifest knob.
 
-There is no per-experiment env gate — the publish target env (`--env=dev|qa|prod`) determines which bucket gets the manifest, and each env's S3 is its own dispatch surface. Use `--only` at publish time for fine-grained promotion (e.g. `publish_experiments.py --env=prod --only district_issue_pulse`).
+There is no per-experiment env gate. The publish CLI always pushes the FULL set under `experiments/<id>/` to the target env's bucket. Promote experiments by merging branches (`dev` → `qa` → `main`), not by selecting individual experiments at publish time — partial publishes would either silently unpublish other experiments (truncated `index.json`) or mix CI bytes with whatever was last pushed to the bucket, neither of which is safe.
 
 ### 6. Build `output_schema` (JSON Schema Draft-07)
 
@@ -336,16 +336,19 @@ Each Fargate run captures the manifest + instruction `VersionId` at dispatch tim
 
 ## Promoting to qa / prod
 
-Publish the experiment to the target env. There's no per-experiment manifest gate — the publish CLI is the gate. Use `--only` to promote specific experiments rather than the full set:
+The git branch is the curation surface. Promote experiments by merging branches, not by per-experiment flags at publish time:
+
+- **dev** branch → `agent-experiment-metadata-dev` S3 bucket
+- **qa** branch  → `agent-experiment-metadata-qa` S3 bucket
+- **main** branch → `agent-experiment-metadata-prod` S3 bucket
+
+GH Actions (`.github/workflows/publish-experiments.yml`) auto-publishes the FULL set under `experiments/<id>/` on every push to `dev`/`qa`/`main`. To promote, open a PR `dev → qa` (or `qa → main`) carrying the verified experiment dirs. CODEOWNERS gates the `main` PR for prod.
+
+Manual local publish (drift recovery only):
 
 ```bash
-AWS_PROFILE=work uv run python publish_experiments.py --env=qa --only <slug>
-AWS_PROFILE=work uv run python publish_experiments.py --env=prod --only <slug>
+AWS_PROFILE=work uv run python publish_experiments.py --env=dev
 ```
-
-GH Actions (`.github/workflows/publish-experiments.yml`) does this automatically:
-- On merge to `main`: auto-publishes to `dev`
-- On `workflow_dispatch` with `env=qa` or `env=prod`: publishes to that env (manual gate)
 
 Don't promote until you've verified the experiment works end-to-end in dev, including a sanity-check on the artifact's actual data — not just that it validates.
 
@@ -355,7 +358,7 @@ Don't promote until you've verified the experiment works end-to-end in dev, incl
 |---|---|---|
 | Lambda log: `Missing required field: experiment_type` | Sent `experiment_id` instead of `experiment_type` | Use `experiment_type` in SQS body |
 | Broker 500 on `/experiment/manifest` with `AccessDenied` | IAM role missing `s3:GetObjectVersion` | Add to terraform module `agent-experiment-metadata` |
-| Lambda log: `Unknown experiment '<id>'` | Manifest not in `index.json` for the target env (didn't publish, or used `--only` and excluded it) | Re-run `publish_experiments.py --env=<env>` (and check `--only` if you used it) |
+| Lambda log: `Unknown experiment '<id>'` | Manifest not in `index.json` for the target env (the experiment dir isn't on the env's branch yet) | Merge the experiment dir into the env's branch (`dev`/`qa`/`main`); the auto-publish workflow updates `index.json` within ~60s |
 | Broker logs `ScopeViolation: scope_predicate_override` | Agent added `WHERE Residence_Addresses_State = ?` | Update CRITICAL RULES; broker auto-injects state/city |
 | Broker 422 on `/databricks/query` repeatedly | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table | Restate the rules in the instruction; consider a tiny "test query" the agent runs first |
 | Top issues all 0-5% support | `= 1` instead of `>= 50` (binary inference from suffix) | Add Step "distribution check" + restate "all hs_* are 0-100 scores regardless of suffix" |

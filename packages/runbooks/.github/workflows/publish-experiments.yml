@@ -19,12 +19,11 @@ on:
       - 'experiments/**'
       - 'scripts/python/publish_experiments.py'
       - '.github/workflows/publish-experiments.yml'
-  workflow_dispatch:
-    inputs:
-      only:
-        description: 'Comma-separated experiment IDs to publish (blank = all). Env is derived from the branch you ran this workflow against.'
-        required: false
-        default: ''
+  # workflow_dispatch with no inputs — env is derived from the branch you ran
+  # this workflow against (dev/qa/main). Always publishes the FULL set under
+  # `experiments/<id>/`; partial publishes are intentionally not supported
+  # (see publish_experiments.py docstring).
+  workflow_dispatch: {}
 
 permissions:
   id-token: write   # OIDC: assume AWS role without long-lived creds
@@ -99,26 +98,9 @@ jobs:
           role-to-assume: arn:aws:iam::333022194791:role/agent-experiment-metadata-publish-${{ steps.target.outputs.env }}
           aws-region: us-west-2
 
-      - name: Build --only flag (if specified)
-        id: only
-        env:
-          ONLY_INPUT: ${{ github.event.inputs.only }}
-        run: |
-          ONLY_FLAG=""
-          if [[ -n "$ONLY_INPUT" ]]; then
-            for id in $(echo "$ONLY_INPUT" | tr ',' ' '); do
-              if [[ ! "$id" =~ ^[a-z][a-z0-9_]*$ ]]; then
-                echo "::error::Invalid experiment id: $id" >&2
-                exit 1
-              fi
-              ONLY_FLAG="$ONLY_FLAG --only=$id"
-            done
-          fi
-          echo "flag=$ONLY_FLAG" >> $GITHUB_OUTPUT
-
       - name: Publish manifests to S3
         working-directory: scripts/python
-        run: uv run python publish_experiments.py --env=${{ steps.target.outputs.env }} ${{ steps.only.outputs.flag }}
+        run: uv run python publish_experiments.py --env=${{ steps.target.outputs.env }}
 
       - name: Notify Slack on failure
         if: failure()

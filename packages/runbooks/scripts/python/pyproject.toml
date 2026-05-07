@@ -15,3 +15,9 @@ dev = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
 ]
+
+[tool.pyright]
+# basedpyright/pyright don't yet auto-resolve PEP 735 dependency-groups; point them
+# at the uv-managed venv so dev-only imports (pytest) resolve in editors.
+venvPath = "."
+venv = ".venv"

@@ -19,7 +19,14 @@ any extra fields on the next publish (the script only emits a fixed set:
 
 Usage:
     AWS_PROFILE=work uv run python publish_experiments.py --env=dev
-    AWS_PROFILE=work uv run python publish_experiments.py --env=qa --only voter_targeting
+
+The publisher always publishes the FULL set of experiments under
+`experiments/<id>/`. There is intentionally no per-experiment filter — the
+git branch is the curation surface (dev branch → dev S3, qa branch → qa S3,
+main branch → prod S3). A partial publish would have to either truncate
+`index.json` (silently unpublishing other experiments) or merge against the
+live index (mixing CI bytes with whatever was last pushed). Neither
+behaviour is safe; promote experiments by merging branches instead.
 
 In CI: GH Actions assumes role `agent-experiment-metadata-publish-{env}` via
 OIDC (no long-lived credentials).
@@ -207,18 +214,19 @@ def _upload(s3, bucket: str, key: str, body: bytes, content_type: str) -> None:
         raise
 
 
-def publish(env: str, only: list[str] | None = None, dry_run: bool = False) -> int:
+def publish(env: str, dry_run: bool = False) -> int:
     if env not in VALID_ENVS:
         print(f"error: --env must be one of {sorted(VALID_ENVS)}", file=sys.stderr)
         return 1
 
     bucket = f"agent-experiment-metadata-{env}"
     dirs = _experiment_dirs()
-    if only:
-        dirs = [d for d in dirs if d.name in only]
-        if not dirs:
-            print(f"error: no experiments matched --only={only}", file=sys.stderr)
-            return 1
+    if not dirs:
+        print(
+            f"error: no experiment dirs found under {EXPERIMENTS_DIR}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"== validating {len(dirs)} experiment(s) against meta-schema ==")
     meta = _load_meta_schema()
@@ -275,12 +283,10 @@ def publish(env: str, only: list[str] | None = None, dry_run: bool = False) -> i
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", required=True, help="Target env: dev | qa | prod")
-    parser.add_argument("--only", action="append", default=None,
-                        help="Only publish these experiment IDs (can be repeated)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate + show what would publish, do not touch S3")
     args = parser.parse_args()
-    return publish(env=args.env, only=args.only, dry_run=args.dry_run)
+    return publish(env=args.env, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
