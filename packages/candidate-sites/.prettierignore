@@ -11,4 +11,5 @@ package.json
 .next/
 .storybook/
 .vscode/
-public/ 
+public/
+ai-rules/
