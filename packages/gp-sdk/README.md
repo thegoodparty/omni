@@ -122,7 +122,7 @@ try {
 
 ### Prerequisites
 
-- Node.js 22.12.0 (use `.nvmrc` with nvm)
+- Node.js 24.13.0 (use `.nvmrc` with nvm: `nvm install && nvm use`)
 
 ### Setup
 
@@ -144,11 +144,13 @@ npm install
 
 ### Publishing
 
-The SDK is automatically published to npm when changes are merged to `master`:
+This package uses [changesets](https://github.com/changesets/changesets) for versioning. **Don't bump `package.json` manually.**
 
-1. Bump the version in `package.json`
-2. Create a pull request
-3. After merge, CI will create a GitHub Release and publish to npm
+1. Run `npx changeset add` and describe the change (`patch` / `minor` / `major`). Commit the generated `.changeset/*.md` file with the rest of your PR.
+2. Open a PR to `master`. CI runs `typecheck → lint → format:check → build`.
+3. After merge, the publish workflow opens (and auto-merges) a release PR that bumps versions and updates `CHANGELOG.md`. The next workflow run publishes to npm and creates a `v<version>` GitHub Release with auto-generated notes.
+
+See [`docs/getting-started.md`](https://github.com/thegoodparty/gp-sdk/blob/master/docs/getting-started.md) for the full release flow + local-development tips (link / file: protocol).
 
 ## License
 
