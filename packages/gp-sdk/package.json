@@ -16,6 +16,7 @@
     "dist"
   ],
   "scripts": {
+    "postinstall": "node -e \"try { if (require('fs').existsSync('.gitmodules')) require('child_process').execSync('git submodule update --init --recursive', { stdio: 'inherit' }); } catch (e) { process.exit(0); }\"",
     "dev": "tsup --watch",
     "build": "tsup",
     "lint": "eslint \"src/**/*.ts\" --quiet",
