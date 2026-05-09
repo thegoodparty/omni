@@ -40,7 +40,7 @@ from pydantic import BaseModel
 # ── Environment ───────────────────────────────────────────────────────────────
 
 def _load_env() -> None:
-    research_env = Path(__file__).resolve().parents[4] / ".env"
+    research_env = Path(__file__).resolve().parents[3] / ".env"
     load_dotenv(research_env)
 
 
