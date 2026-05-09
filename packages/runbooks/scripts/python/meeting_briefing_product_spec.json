@@ -1,0 +1,69 @@
+{
+  "_comment": "Single source of truth for QA rules. Edit here only — qa_validate.py reads this at runtime.",
+  "product_type": "meeting_briefing",
+  "spec_version": "1.0",
+
+  "claim_types": {
+    "budget_number":          { "weight": "high",   "blockable": true  },
+    "date_or_deadline":       { "weight": "high",   "blockable": true  },
+    "legal_identifier":       { "weight": "high",   "blockable": true  },
+    "named_person_or_role":   { "weight": "high",   "blockable": true  },
+    "vote_or_decision_fact":  { "weight": "high",   "blockable": true  },
+    "meeting_logistics":      { "weight": "high",   "blockable": true  },
+    "constituent_priority":   { "weight": "medium", "blockable": false },
+    "background_context":     { "weight": "medium", "blockable": false },
+    "campaign_commitment":    { "weight": "medium", "blockable": false },
+    "advice":                 { "weight": "low",    "blockable": false },
+    "synthesis":              { "weight": "low",    "blockable": false }
+  },
+
+  "accuracy_categories": {
+    "ok":     ["Accurate", "Directionally Consistent", "Extrapolating", "Modeled"],
+    "not_ok": ["Not in Source — Verified Elsewhere", "Not in Source — Unresolved", "Incorrect", "Unverifiable"]
+  },
+
+  "deterministic_checks": [
+    {
+      "check_id": "identity_fields_present",
+      "description": "Meeting title, date, and citySlug must be present and non-empty in briefing.json",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "priority_count_nonzero",
+      "description": "briefing.json must contain at least one priorityIssue",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "high_weight_claims_have_extracts",
+      "description": "Every high-weight claim in claims.json must have at least one non-empty source_extract",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "citation_ids_resolve",
+      "description": "Every citation_id in claims.json must resolve to a source_id in sources.json",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "snapshot_files_exist",
+      "description": "Every snapshot_path declared in sources.json must exist on disk",
+      "route_if_fail": "annotate",
+      "severity": "medium"
+    },
+    {
+      "check_id": "prohibited_phrases",
+      "description": "Briefing text must not contain directive language (Push for, Ensure that, Make clear that, Demand, Insist, Look at the map, Don't commit)",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "constituent_data_labeled",
+      "description": "Any constituent sentiment section must include a provenance note marking it as a modeled estimate",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    }
+  ]
+}

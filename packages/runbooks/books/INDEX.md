@@ -17,6 +17,7 @@ Read this first when given a task. Match keywords to find the right book or comm
 | proc | clickup, epic, design doc, breakdown, create epic, agent-ready tasks, ticket generation, work breakdown | commands/clickup-epic-create.md | Take a (blessed) tech design + repo and break the work into a ClickUp Epic with N agent-ready subtasks (context, impl details, AC, test plan). Redirects to `commands/prd-to-tech-design.md` if input is a PRD. Also `/clickup-epic-create`. |
 | proc | clickup, edit epic, restructure, add task, remove task, archive task, change priority, dependency, snapshot diff | commands/clickup-epic-edit.md | Edit an existing ClickUp Epic and its subtasks via a snapshot/diff/apply flow — add, remove, edit, change priorities or dependencies. Default-archive on removals. Also `/clickup-epic-edit`. |
 | proc | clickup, work on task, pick up ticket, implement task, claude code task, ac, acceptance criteria, scope confirmation | commands/work-on-clickup.md | Pull a ClickUp task, load its Epic plan, scope-confirm with four explicit options (`go`/`plan`/`focus`/`split`), implement against AC, verify, optionally update the ticket. Also `/work-on-clickup`. |
+| proc | QA, quality, validate, audit, claim verification, source grounding, block, fact-check, adjudication, qa spine, qa companion | books/qa-spine.md | Runbook-agnostic QA companion — three gates (pre-hoc, inline, post-hoc), Block/OK routing, Phase 1 Anthropic triage + Phase 2 Gemini escalation. Invoke alongside any generation runbook. |
 
 ## Types
 
