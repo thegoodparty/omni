@@ -30,8 +30,12 @@ function getWebappUrl(env: GpEnvironment): string {
 
 export const searchUsers = async (
   params: SearchUsersParams
-): Promise<SearchUsersResult> =>
-  gpAction(async (client) => {
+): Promise<SearchUsersResult> => {
+  const { has } = await auth()
+  if (!has({ permission: PERMISSIONS.READ_USERS })) {
+    throw new Error('Missing read_users permission')
+  }
+  return gpAction(async (client) => {
     const page = params[SEARCH_PARAMS.PAGE] ?? 1
     const perPage = params[SEARCH_PARAMS.PER_PAGE] ?? DEFAULT_PER_PAGE
     const offset = (page - 1) * perPage
@@ -54,11 +58,16 @@ export const searchUsers = async (
       meta: result.meta,
     }
   })
+}
 
 export const getUsersProFlags = async (
   userIds: readonly number[]
-): Promise<Record<number, boolean>> =>
-  gpAction(async (client) => {
+): Promise<Record<number, boolean>> => {
+  const { has } = await auth()
+  if (!has({ permission: PERMISSIONS.READ_USERS })) {
+    throw new Error('Missing read_users permission')
+  }
+  return gpAction(async (client) => {
     const entries = await Promise.all(
       userIds.map(async (id): Promise<readonly [number, boolean]> => {
         try {
@@ -73,16 +82,22 @@ export const getUsersProFlags = async (
     )
     return Object.fromEntries(entries)
   })
+}
 
 export const updateUser = async (
   id: number,
   input: UpdateUserInput
-): Promise<User> =>
-  gpAction(async (client) => {
+): Promise<User> => {
+  const { has } = await auth()
+  if (!has({ permission: PERMISSIONS.WRITE_USERS })) {
+    throw new Error('Missing write_users permission')
+  }
+  return gpAction(async (client) => {
     const user = await client.users.update(id, input)
     revalidatePath(`/dashboard/users/${id}`, 'layout')
     return user
   })
+}
 
 export const createImpersonationToken = async (targetUserId: number) => {
   const { orgId, has } = await auth()
