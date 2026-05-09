@@ -16,11 +16,6 @@ params.json
     — Haystaq constituent data via databricks_query.py
     — local news and fiscal research
 briefing.json + claims.json + sources.json + source_snapshots/
-    ↓ Verification agent (books/instructions/meeting_briefing_verify.md)
-    — independently confirms every source extract exists verbatim in cited source
-verification_report.json
-    ↓ qa_validate.py (Gate 3, if QA enabled)
-qa_bundle.json (Block/OK verdict + full adjudication trace)
     ↓ briefing_to_pdf.py
 briefing.md
 ```
@@ -29,9 +24,7 @@ briefing.md
 
 **Agent-driven generation.** The executing agent IS the intelligence — it researches, reasons, and writes. There is no Python script making LLM API calls for generation. `generate_meeting_briefing.py` was an earlier prototype that followed the wrong pattern and has been removed.
 
-**Two-agent pipeline for source integrity.** Gate 2 (verification) is deliberately a separate agent, not a self-check by the generation agent. The generation agent has an incentive to believe its own extracts are correct. A separate agent with no stake in the output catches hallucinated or misattributed quotes before they reach QA.
-
-**LLM-agnostic instruction files.** `books/instructions/meeting_briefing.md` and `books/instructions/meeting_briefing_verify.md` do not reference any specific model or provider. Any agent capable of web search, file read/write, and Bash can execute them.
+**LLM-agnostic instruction file.** `books/instructions/meeting_briefing.md` does not reference any specific model or provider. Any agent capable of web search, file read/write, and Bash can execute it.
 
 **Voice and register are prescribed in the instruction.** The generation instruction explicitly requires second-person direct voice, specific talking points naming council members, and per-household budget framing — matching the reference output in `project_files/city-council-member-briefing-copy.md`. This is not left to the model's default behavior.
 
@@ -59,7 +52,7 @@ sources[]
 | Script | What it does |
 |--------|-------------|
 | `scripts/python/briefing_to_pdf.py` | Renders `briefing.json` to human-readable Markdown. No LLM calls. |
-| `scripts/python/databricks_query.py` | SQL query runner against Databricks — used by the generation agent for Haystaq queries |
+| `scripts/python/databricks_query.py` | SQL query runner against Databricks — used by the generation agent for Haystaq queries. |
 
 ## What's not yet built
 
