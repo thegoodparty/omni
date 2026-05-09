@@ -17,3 +17,6 @@ experiments/.collin_reference/
 # The publisher writes a fresh index.json to S3 on every publish; the
 # committed file would silently strip hand-edited fields and mislead readers.
 experiments/index.json
+
+# Private development reference files — not for collaboration.
+project_files/
