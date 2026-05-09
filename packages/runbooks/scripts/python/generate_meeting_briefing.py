@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 
 def _load_env() -> None:
     scripts_env = Path(__file__).resolve().parents[1] / ".env"
-    research_env = Path(__file__).resolve().parents[4] / ".env"
+    research_env = Path(__file__).resolve().parents[3] / ".env"
     load_dotenv(scripts_env)
     load_dotenv(research_env, override=False)
 
