@@ -6,6 +6,8 @@ __pycache__/
 # Local agent run outputs (params, conversation transcripts, downloads, logs).
 # These can contain absolute paths, candidate PII, and full LLM transcripts.
 outputs/
+scripts/python/output/
+.DS_Store
 
 # Comparison stash for runbook→experiment translation iterations
 # (see books/convert-runbook-to-experiment.md and experiments/CLAUDE.md).
