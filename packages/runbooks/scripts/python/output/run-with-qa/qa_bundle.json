@@ -1,0 +1,733 @@
+{
+  "product_id": "chapel-hill-NC_2026-04-16",
+  "briefing_type": "meeting_briefing",
+  "run_timestamp": "2026-05-09T17:50:03.365586+00:00",
+  "final_status": "Block",
+  "block_reason": "Deterministic check failed: high_weight_claims_have_extracts — High-weight claims with no source extract: ['claim_002', 'claim_004', 'claim_013', 'claim_019', 'claim_021']",
+  "deterministic_checks": [
+    {
+      "check_id": "identity_fields_present",
+      "status": "pass",
+      "severity": "info",
+      "message": "Meeting title, date, and citySlug present",
+      "route": "pass",
+      "offending": null
+    },
+    {
+      "check_id": "priority_count_nonzero",
+      "status": "pass",
+      "severity": "info",
+      "message": "9 priority issue(s) present",
+      "route": "pass",
+      "offending": null
+    },
+    {
+      "check_id": "high_weight_claims_have_extracts",
+      "status": "fail",
+      "severity": "high",
+      "message": "High-weight claims with no source extract: ['claim_002', 'claim_004', 'claim_013', 'claim_019', 'claim_021']",
+      "route": "block",
+      "offending": "claim_002, claim_004, claim_013, claim_019, claim_021"
+    },
+    {
+      "check_id": "citation_ids_resolve",
+      "status": "pass",
+      "severity": "info",
+      "message": "All claim citations resolve to known sources",
+      "route": "pass",
+      "offending": null
+    },
+    {
+      "check_id": "snapshot_files_exist",
+      "status": "pass",
+      "severity": "info",
+      "message": "All declared snapshot files exist",
+      "route": "pass",
+      "offending": null
+    },
+    {
+      "check_id": "prohibited_phrases",
+      "status": "pass",
+      "severity": "info",
+      "message": "No prohibited phrases detected",
+      "route": "pass",
+      "offending": null
+    },
+    {
+      "check_id": "constituent_data_labeled",
+      "status": "pass",
+      "severity": "info",
+      "message": "Constituent sentiment sections are labeled",
+      "route": "pass",
+      "offending": null
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "source_001",
+      "source_type": "government_record",
+      "title": "Alvin City Council Agenda — Regular Meeting and Executive Session — Thursday, April 16, 2026",
+      "url": null,
+      "retrieved_at": "2026-05-09T17:46:48.230959+00:00",
+      "retrieval_method": "provided",
+      "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt",
+      "publisher": "Alvin City Council"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim_001",
+      "section_id": "consider-an-interlocal-agreement-between-the-city",
+      "claim_text": "The City of Alvin is considering an Interlocal Agreement with the Rosharon Volunteer Fire Department to provide fire protection services for the Preservation Creek Subdivision Development Area. The agreement would run through December 31, 2026, at a cost not to exceed $12,000.00. This item appears on the April 16, 2026 Consent Agenda as Item 5E.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided to verify or refute any aspect of this claim. The details about the Interlocal Agreement between the City of Alvin and the Rosharon Volunteer Fire Department — including the Preservation Creek Subdivision Development Area, the December 31, 2026 end date, the $12,000.00 cost cap, and the placement on the April 16, 2026 Consent Agenda as Item 5E — cannot be substantiated without a source document.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_002",
+      "section_id": "consider-an-interlocal-agreement-between-the-city",
+      "claim_text": "Council is asked to approve the Interlocal Agreement with the Rosharon Volunteer Fire Department for fire protection services for the Preservation Creek Subdivision Development Area through December 31, 2026, for an amount not to exceed $12,000.00, and to authorize the Mayor to sign the Agreement.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided. Without an extract from the government agenda document, there is no basis to verify or contradict the specific details of the claim, including the named parties (Rosharon Volunteer Fire Department), the subject matter (fire protection services for Preservation Creek Subdivision Development Area), the end date (December 31, 2026), the monetary cap ($12,000.00), or the authorization of the Mayor to sign the Agreement.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_003",
+      "section_id": "consider-an-interlocal-agreement-between-the-city",
+      "claim_text": "The agreement ensures that the Preservation Creek Subdivision Development Area has formal fire protection coverage, which is a basic public safety requirement for any developing residential area. Authorizing the Mayor to sign formalizes the City's contractual relationship with the Rosharon Volunteer Fire Department for this service. The agreement's end date of December 31, 2026, means council may need to revisit this arrangement in the future.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided. The claims about the Preservation Creek Subdivision Development Area, the Rosharon Volunteer Fire Department, mayoral authorization, and the agreement's end date of December 31, 2026 cannot be substantiated or contradicted without a source document to evaluate against.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_004",
+      "section_id": "consider-an-interlocal-agreement-between-the-city",
+      "claim_text": "Amount not to exceed $12,000.00",
+      "claim_type": "budget_number",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided. Without any source material, the claim that the amount is not to exceed $12,000.00 cannot be substantiated or verified.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_005",
+      "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+      "claim_text": "The City Council is being asked to award a construction bid to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project. The contract value is not to exceed $2,179,995.83. This item appears on the Consent Agenda for the April 16, 2026 regular Council meeting.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an award of bid to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project in an amount not to exceed $2,179,995.83; and authorize the City Manager to sign the contract.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The source extract confirms the core facts: the bid award to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project, and the contract value not to exceed $2,179,995.83. However, the source extract does not mention the Consent Agenda placement or the specific meeting date of April 16, 2026. Those details are not contradicted by the extract, but they cannot be verified from it alone. Since the majority of the claim aligns precisely with the source while two details (Consent Agenda and meeting date) fall outside the extract, \"Directionally Consistent\" is the most appropriate classification.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_006",
+      "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+      "claim_text": "The Council is being asked to award the bid to Reddico Construction Company, Inc., in an amount not to exceed $2,179,995.83, and to authorize the City Manager to sign the contract.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an award of bid to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project in an amount not to exceed $2,179,995.83; and authorize the City Manager to sign the contract.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim precisely matches the source extract. The source confirms the bid award to Reddico Construction Company, Inc., the amount not to exceed $2,179,995.83, and the authorization for the City Manager to sign the contract. The only detail in the source not mentioned in the claim is the specific project name (Lift Station 33 Rehabilitation and Expansion Project), but nothing in the claim contradicts or misrepresents the source.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_007",
+      "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+      "claim_text": "Lift Station 33 is part of the city's wastewater infrastructure, and its rehabilitation and expansion directly affects the reliability of sewer service for Alvin residents. Authorizing the City Manager to sign the contract allows the project to move forward without requiring a separate approval step. As a Consent Agenda item, it is grouped with routine business, signaling staff confidence in the procurement process.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an award of bid to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project in an amount not to exceed $2,179,995.83; and authorize the City Manager to sign the contract.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Extrapolating",
+        "reasoning": "The source extract confirms that Lift Station 33 is the subject of a rehabilitation and expansion project, that the contract award is being considered, and that the City Manager is being authorized to sign the contract. However, several elements of the claim go beyond what the source states: (1) the assertion that the project \"directly affects the reliability of sewer service for Alvin residents\" is a reasonable but unstated inference; (2) the claim that authorization \"allows the project to move forward without requiring a separate approval step\" is a logical inference about procedural mechanics not stated in the extract; and (3) the interpretation that its placement as a Consent Agenda item \"signals staff confidence in the procurement process\" is editorial commentary not supported by the extract. The core facts are directionally consistent, but the added context and interpretation push this into extrapolation territory.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_008",
+      "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+      "claim_text": "Not to exceed $2,179,995.83",
+      "claim_type": "budget_number",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "in an amount not to exceed $2,179,995.83",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim \"Not to exceed $2,179,995.83\" matches the source extract \"in an amount not to exceed $2,179,995.83\" precisely, including the exact dollar figure.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_009",
+      "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+      "claim_text": "The City of Alvin is considering an amendment to an existing Debris Removal Services Agreement with Crowder Gulf LLC. The purpose of the amendment is to incorporate required federal contract provisions into the agreement. This item appears on the April 16, 2026 Consent Agenda as Item 5G.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The source extract directly confirms all key elements of the claim: (1) it is an amendment to a Debris Removal Services Agreement, (2) the contractor is Crowder Gulf LLC, and (3) the purpose is to incorporate required federal contract provisions. The claim's reference to the April 16, 2026 Consent Agenda placement as Item 5G cannot be verified from the extract alone, but the substantive content of the claim matches the source precisely. The agenda placement detail is metadata not contradicted by the extract, and the core factual claim is fully supported.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_010",
+      "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+      "claim_text": "Council is being asked to approve an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim matches the source extract precisely. Both state that Council is being asked to consider/approve an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions. The word \"approve\" in the claim is a reasonable and standard interpretation of \"consider\" in the context of a council agenda item.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_011",
+      "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+      "claim_text": "Incorporating required federal contract provisions is typically necessary to maintain eligibility for federal reimbursement — particularly relevant for debris removal services, which are often activated following disaster events. Failure to include required federal language in such agreements can jeopardize a municipality's ability to recover costs through federal programs. This amendment ensures the City's contract with Crowder Gulf LLC meets those compliance standards.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Extrapolating",
+        "reasoning": "The source extract confirms that the amendment to the Debris Removal Services Agreement with Crowder Gulf LLC is intended to incorporate required federal contract provisions, which aligns with the final sentence of the claim. However, the source extract does not explicitly state that the purpose is to maintain eligibility for federal reimbursement, that debris removal services are often activated following disaster events, or that failure to include required federal language can jeopardize cost recovery through federal programs. These are reasonable and well-established inferences about why federal contract provisions are required in municipal agreements, but they go beyond what is directly stated in the extract. The claim is a plausible and logical elaboration of the source, not a contradiction of it.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_012",
+      "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+      "claim_text": "The Alvin City Council is being asked to consider Ordinance 26-C, which would release approximately 5.2692 acres of land from the City's Extraterritorial Jurisdiction (ETJ). The ordinance includes findings of fact and a severability clause. This item appears under Other Business (Item 6B) on the April 16, 2026 agenda.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Ordinance 26-C, releasing approximately 5.2692 acres of land from the Extraterritorial Jurisdiction of the City; providing findings of fact; containing a severability clause; and providing for other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The claim accurately captures the core elements of the ordinance description: the ordinance number (26-C), the acreage (5.2692 acres), the ETJ release, findings of fact, and the severability clause — all of which are confirmed in the source extract. However, the claim adds contextual details not present in the extract, specifically the placement of this item under \"Other Business (Item 6B)\" and the meeting date of \"April 16, 2026.\" These details cannot be verified from the provided extract alone. Since the substantive content is aligned but additional context cannot be confirmed from this extract, the classification is Directionally Consistent rather than Accurate.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_013",
+      "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+      "claim_text": "The council is being asked to vote on whether to adopt Ordinance 26-C, releasing approximately 5.2692 acres of land from the City of Alvin's Extraterritorial Jurisdiction.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided. Without any supporting document or text, the specific details of this claim — including the ordinance number (26-C), the acreage (5.2692 acres), and the action of releasing land from Alvin's ETJ — cannot be verified or contradicted.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_014",
+      "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+      "claim_text": "Releasing land from the ETJ removes the City's planning and regulatory authority over that acreage, potentially affecting future annexation options and land use control in the affected area. The ordinance's findings of fact will establish the legal basis for the release, which could have implications for the city's growth boundaries and jurisdictional reach.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided, so there is no text against which to verify or refute the claim. The claim makes substantive assertions about ETJ releases, planning authority, annexation options, findings of fact, and growth boundary implications — none of which can be confirmed or denied without a source document.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_015",
+      "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+      "claim_text": "The Alvin City Council is considering Ordinance 26-D, which would amend Chapter 24, \"Traffic and Vehicles,\" of the City's Code of Ordinances. The ordinance targets two existing articles — Article II (Parking) and Article III (Commercial Motor Vehicles) — to establish new regulations on where and when certain vehicles may be parked, specifically vehicles exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours. The ordinance also provides definitions relevant to its provisions and includes standard legal clauses for repealer, severability, publication, and effective date.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Ordinance 26-D, amending Chapter 24, \"Traffic and Vehicles\" of the Code of Ordinances by amending Article II (Parking) and Article III (Commercial Motor Vehicles) to regulate the parking of certain vehicles, including vehicles exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours; providing definitions; providing for a penalty not to exceed five hundred dollars ($500) for violations; providing for repealer; providing for severability; providing for publication; and providing for effective date.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The claim accurately captures the core elements of Ordinance 26-D as described in the source: it correctly identifies the ordinance number, the chapter being amended (\"Traffic and Vehicles,\" Chapter 24), the two articles targeted (Article II – Parking and Article III – Commercial Motor Vehicles), the types of vehicles regulated (those exceeding 25 feet in length and commercial motor vehicles during certain hours), the inclusion of definitions, and the standard legal clauses for repealer, severability, publication, and effective date. However, the claim omits one specific provision explicitly stated in the source: a penalty clause providing for a fine not to exceed five hundred dollars ($500) for violations. This omission prevents the claim from being fully \"Accurate,\" but the overall characterization is generally aligned with the source.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_016",
+      "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+      "claim_text": "The Council is being asked to vote on whether to adopt Ordinance 26-D, amending Chapter 24 of the Code of Ordinances to regulate the parking of vehicles exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours, with a penalty not to exceed five hundred dollars ($500) for violations.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "providing for a penalty not to exceed five hundred dollars ($500) for violations; providing for repealer; providing for severability; providing for publication; and providing for effective date.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The source extract explicitly states \"providing for a penalty not to exceed five hundred dollars ($500) for violations,\" which directly confirms the penalty clause in the claim. The broader claim details — adopting Ordinance 26-D, amending Chapter 24 of the Code of Ordinances, regulating parking of vehicles exceeding 25 feet in length and commercial motor vehicles during certain hours — are consistent with standard ordinance framing and are not contradicted by the extract. The penalty figure and threshold match precisely.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_017",
+      "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+      "claim_text": "Adoption of this ordinance would create enforceable parking restrictions for large vehicles and commercial motor vehicles within the city, which could affect residents, businesses, and property owners who park or operate such vehicles. Violations would carry a penalty of up to five hundred dollars ($500), making compliance a financial consideration for affected parties. The ordinance represents a formal update to the city's traffic and vehicle code and would have legal effect upon publication.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "to regulate the parking of certain vehicles, including vehicles exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours; providing definitions; providing for a penalty not to exceed five hundred dollars ($500) for violations",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The claim accurately captures several key elements from the source: the regulation of large vehicles (over 25 feet in length) and commercial motor vehicles, and the penalty not to exceed $500 for violations. However, the claim omits the specific detail that parking restrictions for commercial motor vehicles apply only \"during certain hours,\" which is an important qualifier present in the source. Additionally, the claim adds context not found in the source extract — specifically that the ordinance \"represents a formal update to the city's traffic and vehicle code\" and \"would have legal effect upon publication.\" These details may be accurate but are not substantiated by the provided extract. The claim also broadly characterizes impacts on \"residents, businesses, and property owners,\" which is a reasonable inference but not explicitly stated in the source. Overall, the claim is generally aligned with the source but is not fully precise and introduces elements beyond what the extract supports.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_018",
+      "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+      "claim_text": "The Alvin City Council is considering Resolution 26-R-20, which would authorize the Alvin Police Department to apply for the Catalytic Converter Theft Prevention Grant administered by the Motor Vehicle Crime Prevention Authority. If awarded, the grant funds would help defray the cost of a Drone First Responder (DFR) system and eight (8) additional FLOCK ALPR cameras from FLOCK Safety.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided, so the claim cannot be verified or contradicted. There is no basis to confirm or deny the details about Resolution 26-R-20, the Catalytic Converter Theft Prevention Grant, the Motor Vehicle Crime Prevention Authority, the Drone First Responder (DFR) system, or the eight FLOCK ALPR cameras from FLOCK Safety.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_019",
+      "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+      "claim_text": "Council is asked to approve Resolution 26-R-20, authorizing the Alvin Police Department to submit a grant application to the Motor Vehicle Crime Prevention Authority for funding toward a Drone First Responder system and eight additional FLOCK ALPR cameras.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided. Without a source extract, there is no text against which to verify or refute the specific details of the claim — including the resolution number (26-R-20), the agency (Alvin Police Department), the grantor (Motor Vehicle Crime Prevention Authority), the grant purpose (Drone First Responder system), or the number and type of cameras (eight additional FLOCK ALPR cameras). The claim cannot be substantiated or contradicted.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_020",
+      "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+      "claim_text": "Approval of this resolution allows the Alvin Police Department to pursue outside grant funding to expand its surveillance and rapid-response technology capabilities, specifically targeting catalytic converter theft — a crime affecting vehicle owners across the community. Securing the grant would help offset costs to the city for the DFR system and additional license plate reader cameras, which could enhance the department's ability to detect and respond to motor vehicle crimes.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided, making it impossible to verify or contradict any aspect of the claim. The claim includes specific details about the Alvin Police Department, a DFR (Drone as First Responder) system, license plate reader cameras, catalytic converter theft, and grant funding — none of which can be assessed without a supporting document.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_021",
+      "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+      "claim_text": "The agenda text does not specify a total project cost or grant amount; the grant is described as being intended to \"help defray the cost\" of the listed equipment.",
+      "claim_type": "budget_number",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided, so it is impossible to verify or contradict the claim that the agenda text omits a total project cost or grant amount and uses the phrase \"help defray the cost.\" Without a source extract, this claim cannot be substantiated.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    },
+    {
+      "claim_id": "claim_022",
+      "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+      "claim_text": "The City of Alvin is considering Ordinance 26-E, which would amend the City's existing Park Rules to add new prohibitions governing conduct within city parks. Specifically, the ordinance would prohibit unauthorized digging, excavation, or ground disturbance, as well as prohibit climbing, standing, or sitting on certain park structures. The ordinance also includes other related provisions.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Ordinance 26-E, amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks; and providing for other provisions related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim mirrors the source extract almost verbatim. All key elements are present and correctly stated: (1) the City of Alvin is considering Ordinance 26-E, (2) it amends the City's existing Park Rules, (3) it adds prohibitions on unauthorized digging, excavation, or ground disturbance, (4) it prohibits climbing, standing, or sitting on certain park structures within city parks, and (5) it includes other related provisions. No details are added, omitted, or distorted.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_023",
+      "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+      "claim_text": "The council is being asked to consider and vote on Ordinance 26-E, which would amend the City of Alvin Park Rules to add the new prohibitions described.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Ordinance 26-E, amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks; and providing for other provisions related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The source extract confirms the council is being asked to \"consider\" Ordinance 26-E and that it would amend the City of Alvin Park Rules to add new prohibitions. However, the claim adds \"and vote on\" which is a reasonable but not explicitly stated action in the extract — the word \"consider\" does not explicitly include a vote. Additionally, the claim summarizes the prohibitions as \"new prohibitions described\" without detailing them, which is a minor generalization. Overall, the claim is generally aligned with the source but not a verbatim or fully precise match.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_024",
+      "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+      "claim_text": "These amendments would establish clearer rules of conduct for park visitors in Alvin, potentially allowing staff and law enforcement to address unsafe or damaging behaviors in city parks. Residents who use city parks would be subject to the new prohibitions, and violations could carry enforcement consequences under the amended ordinance.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Directionally Consistent",
+        "reasoning": "The source extract confirms that the City of Alvin is amending its park rules by adding new prohibitions (unauthorized digging/excavation/ground disturbance and climbing/standing/sitting on certain park structures). The claim's general characterization — that the amendments establish clearer rules of conduct for park visitors, that park users would be subject to new prohibitions, and that violations could carry enforcement consequences — is directionally aligned with the source. However, the claim introduces elements not explicitly stated in the extract, such as the involvement of \"staff and law enforcement,\" addressing \"unsafe or damaging behaviors,\" and the existence of \"enforcement consequences.\" These are reasonable inferences from a park ordinance amendment but are not directly stated in the source text. The claim is broadly consistent but goes slightly beyond what the extract explicitly confirms.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_025",
+      "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+      "claim_text": "The Alvin City Council is being asked to consider Resolution 26-R-21, which would amend the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas. This item appears on the April 16, 2026, Regular Meeting agenda as Item 6F under Other Business. The agenda does not provide additional detail on the specific changes being proposed to the rules and regulations.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas; and setting forth other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Extrapolating",
+        "reasoning": "The core facts of the claim are directly supported by the source extract: the resolution number (26-R-21), the action (amending Rules and Regulations), the facility name (Bob S. Owen Pool and Facilities), and the address (919 Bayou Drive, Alvin, Texas) all match precisely. However, several elements of the claim go beyond what the source extract provides: the meeting date (April 16, 2026), the agenda item designation (6F), and the category (Other Business) are not mentioned in the extract. Additionally, the observation that \"the agenda does not provide additional detail on the specific changes being proposed\" is a reasonable inference from the extract's boilerplate language (\"setting forth other matters related thereto\"), but it is an interpretive conclusion not explicitly stated. These additional details are reasonable and plausible inferences or contextual additions, but they cannot be verified from this extract alone, making the claim extrapolating overall.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_026",
+      "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+      "claim_text": "Council is asked to vote on whether to approve Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities at 919 Bayou Drive, Alvin, Texas.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas; and setting forth other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim closely mirrors the source extract. The source states Council is asked to \"Consider Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas,\" which aligns precisely with the claim that Council is asked to vote on approving that resolution at that address. The word \"consider\" in a government agenda context is equivalent to voting on approval, making the claim an accurate representation of the source.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_027",
+      "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+      "claim_text": "Bob S. Owen Pool and Facilities is a City of Alvin public amenity, and changes to its rules and regulations would directly govern how residents and visitors use that facility. This item is one of two pool-related resolutions on the same agenda — the other (Resolution 26-R-22) addresses the Alvin Recreation Center Pool — suggesting a potential coordinated update to aquatic facility policies across the city.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Extrapolating",
+        "reasoning": "The source extract confirms the existence of Resolution 26-R-22, which addresses the Alvin Recreation Center Pool and Facilities — consistent with the claim. However, the extract says nothing about Bob S. Owen Pool or a separate resolution governing it. The claim that Bob S. Owen Pool is a City of Alvin public amenity and that the two resolutions represent a \"coordinated update to aquatic facility policies\" is a reasonable inference, but it goes beyond what is substantiated in this source extract alone. The source only references one pool (Alvin Recreation Center Pool), not two. The characterization of a \"coordinated update\" and the details about Bob S. Owen Pool are extrapolations not grounded in the provided text.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_028",
+      "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+      "claim_text": "The Alvin City Council is being asked to consider Resolution 26-R-22, which would amend the Rules and Regulations governing the Alvin Recreation Center Pool and Facilities located at 3201 Highway 35, Alvin, Texas. This item appears on the April 16, 2026 regular meeting agenda as item 6G under Other Business. A companion item, Resolution 26-R-21, addresses the Rules and Regulations for a separate facility, Bob S. Owen Pool at 919 Bayou Drive, and appears immediately preceding this item as 6F.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Extrapolating",
+        "reasoning": "The source extract confirms the core elements of the claim: Resolution 26-R-22, amending Rules and Regulations of the Alvin Recreation Center Pool and Facilities, located at 3201 Highway 35, Alvin, Texas. However, several specific details in the claim go beyond what is present in the provided source extract: (1) the April 16, 2026 meeting date, (2) the agenda item number \"6G\" under \"Other Business,\" (3) the companion item Resolution 26-R-21 addressing Bob S. Owen Pool at 919 Bayou Drive, and (4) that it appears as item \"6F\" immediately preceding this item. These details are not found in the provided extract and cannot be verified from it, making the claim a reasonable but unconfirmed extrapolation beyond the source. The core claim is accurate per the extract, but the surrounding contextual details (meeting date, item numbers, companion resolution) are not substantiated by the provided source.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_029",
+      "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+      "claim_text": "The council is being asked to vote on whether to approve Resolution 26-R-22 amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities located at 3201 Highway 35, Alvin, Texas.",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [
+        {
+          "source_id": "source_001",
+          "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+          "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt"
+        }
+      ],
+      "phase1": {
+        "accuracy_category": "Accurate",
+        "reasoning": "The claim precisely matches the source extract. The source states the council is asked to \"Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas,\" which directly corresponds to the claim that the council is being asked to vote on approving Resolution 26-R-22 amending those rules at that exact address.",
+        "is_ok": true
+      },
+      "phase2": null,
+      "final_route": "ok"
+    },
+    {
+      "claim_id": "claim_030",
+      "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+      "claim_text": "The amended rules and regulations would govern conduct and use of the Alvin Recreation Center Pool and Facilities, directly affecting residents who use that facility. As a formal resolution, the amended rules would carry official city policy weight. The council's action on this item, alongside the companion Resolution 26-R-21 for Bob S. Owen Pool, suggests a broader review of aquatic facility policies across the city.",
+      "claim_type": "background_context",
+      "claim_weight": "medium",
+      "citation_ids": [
+        "source_001"
+      ],
+      "source_extracts": [],
+      "phase1": {
+        "accuracy_category": "Not in Source — Unresolved",
+        "reasoning": "No source extract was provided, making it impossible to verify or refute any of the specific claims made — including the governance scope of the amended rules, the companion Resolution 26-R-21 for Bob S. Owen Pool, or the inference about a broader city-wide review of aquatic facility policies. All elements of this claim remain unsubstantiated from the provided materials.",
+        "is_ok": false
+      },
+      "phase2": null,
+      "final_route": "annotate"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "source_id": "source_001",
+    "source_type": "government_record",
+    "title": "Alvin City Council Agenda — Regular Meeting and Executive Session — Thursday, April 16, 2026",
+    "url": null,
+    "retrieved_at": "2026-05-09T17:46:48.230959+00:00",
+    "retrieval_method": "provided",
+    "snapshot_path": "output/run-with-qa/source_snapshots/agenda_text.txt",
+    "publisher": "Alvin City Council"
+  }
+]

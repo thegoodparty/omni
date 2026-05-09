@@ -1,0 +1,535 @@
+[
+  {
+    "claim_id": "claim_001",
+    "section_id": "consider-an-interlocal-agreement-between-the-city",
+    "claim_text": "The City of Alvin is considering an Interlocal Agreement with the Rosharon Volunteer Fire Department to provide fire protection services specifically for the Preservation Creek Subdivision Development Area. The agreement would run through December 31, 2026, at a cost not to exceed $12,000.00. This item appears on the April 16, 2026 Consent Agenda as Item 5E.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_002",
+    "section_id": "consider-an-interlocal-agreement-between-the-city",
+    "claim_text": "Council is asked to approve the Interlocal Agreement between the City of Alvin and the Rosharon Volunteer Fire Department for fire protection services for the Preservation Creek Subdivision Development Area through December 31, 2026, for an amount not to exceed $12,000.00, and to authorize the Mayor to sign the Agreement.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_003",
+    "section_id": "consider-an-interlocal-agreement-between-the-city",
+    "claim_text": "The agreement ensures that the Preservation Creek Subdivision Development Area has formal fire protection coverage through an established interlocal arrangement with a neighboring volunteer fire department. Residents and property owners in that development area would have a defined fire protection provider under the agreement. As a consent agenda item, it is grouped with routine approvals, signaling staff has determined it meets standard procedural requirements.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_004",
+    "section_id": "consider-an-interlocal-agreement-between-the-city",
+    "claim_text": "Amount not to exceed $12,000.00",
+    "claim_type": "budget_number",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_005",
+    "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+    "claim_text": "The City of Alvin is considering awarding a construction bid to Reddico Construction Company, Inc., for the Lift Station 33 Rehabilitation and Expansion Project. The item appears on the April 16, 2026, Regular Meeting agenda as part of the Consent Agenda (Item 5F). Council is also being asked to authorize the City Manager to execute the resulting contract.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_006",
+    "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+    "claim_text": "Council is being asked to award the bid to Reddico Construction Company, Inc., in an amount not to exceed $2,179,995.83 and authorize the City Manager to sign the contract for the Lift Station 33 Rehabilitation and Expansion Project.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_007",
+    "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+    "claim_text": "Lift station rehabilitation and expansion projects directly affect the reliability of the city's wastewater infrastructure, which serves Alvin residents. Approving this contract commits the city to a capital expenditure of up to $2,179,995.83, making it one of the larger single-vendor contract actions on this agenda. As a Consent Agenda item, it is grouped with routine approvals and would pass without separate debate unless a council member pulls it for individual consideration.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_008",
+    "section_id": "consider-an-award-of-bid-to-reddico-construction-c",
+    "claim_text": "$2,179,995.83 (not to exceed)",
+    "claim_type": "budget_number",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_009",
+    "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+    "claim_text": "The City of Alvin is considering an amendment to its existing Debris Removal Services Agreement with Crowder Gulf LLC. The purpose of the amendment is to incorporate required federal contract provisions into the agreement. This item appears on the Consent Agenda for the April 16, 2026 City Council meeting.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_010",
+    "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+    "claim_text": "Council is being asked to approve an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_011",
+    "section_id": "consider-an-amendment-to-the-debris-removal-servic",
+    "claim_text": "Incorporating required federal contract provisions into debris removal agreements is typically a prerequisite for maintaining eligibility for federal reimbursement following disaster events. Failure to include such provisions could jeopardize the city's ability to recover costs through federal programs. As a consent agenda item, it signals staff has reviewed the amendment and considers it routine and non-controversial.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider an amendment to the Debris Removal Services Agreement with Crowder Gulf LLC to incorporate required federal contract provisions.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_012",
+    "section_id": "presentation-by-crowe-llp-of-the-city's-annual-com",
+    "claim_text": "Crowe LLP, the City of Alvin's external auditor, will present the City's Annual Comprehensive Financial Report (ACFR) for the fiscal year ending September 30, 2025. This is a standard year-end financial reporting item appearing under Other Business on the April 16, 2026 agenda. Following the presentation, the Council is asked to formally acknowledge receipt of the report.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Presentation by Crowe LLP of the City's Annual Comprehensive Financial Report (ACFR) as of September 30, 2025; and acknowledge receipt of the 2025 ACFR.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_013",
+    "section_id": "presentation-by-crowe-llp-of-the-city's-annual-com",
+    "claim_text": "The Council is asked to acknowledge receipt of the 2025 Annual Comprehensive Financial Report (ACFR) as of September 30, 2025.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "acknowledge receipt of the 2025 ACFR",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_014",
+    "section_id": "presentation-by-crowe-llp-of-the-city's-annual-com",
+    "claim_text": "The ACFR is the City's primary audited financial document and reflects the financial health of the City of Alvin as of the close of the 2025 fiscal year. Formal acknowledgment by the Council fulfills a standard governance step following an independent audit presentation. The report provides the public and Council with a verified account of the City's financial position.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_015",
+    "section_id": "presentation-by-crowe-llp-of-the-city's-annual-com",
+    "claim_text": "Crowe LLP",
+    "claim_type": "named_person_or_role",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Presentation by Crowe LLP of the City's Annual Comprehensive Financial Report (ACFR) as of September 30, 2025",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_016",
+    "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+    "claim_text": "The City of Alvin, Texas is considering Ordinance 26-C, which would release approximately 5.2692 acres of land from the City's Extraterritorial Jurisdiction (ETJ). The ordinance includes findings of fact and a severability clause. This item appears as Item 6B on the April 16, 2026 Regular City Council meeting agenda.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Ordinance 26-C, releasing approximately 5.2692 acres of land from the Extraterritorial Jurisdiction of the City; providing findings of fact; containing a severability clause; and providing for other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_017",
+    "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+    "claim_text": "The Council is being asked to vote on whether to adopt Ordinance 26-C, formally releasing approximately 5.2692 acres of land from the City's Extraterritorial Jurisdiction.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_018",
+    "section_id": "consider-ordinance-26-c,-releasing-approximately-5",
+    "claim_text": "Releasing land from the ETJ changes the City's planning and regulatory reach over that acreage, potentially affecting future annexation options and land use oversight in that area. ETJ releases can have long-term implications for how adjacent development is governed, as land outside the ETJ falls under county rather than city jurisdiction. The specific location, ownership, and purpose of the release are not detailed in the agenda text provided.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_019",
+    "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+    "claim_text": "The Alvin City Council is considering Ordinance 26-D, which would amend Chapter 24 (\"Traffic and Vehicles\") of the City's Code of Ordinances. Specifically, the ordinance would amend Article II (Parking) and Article III (Commercial Motor Vehicles) to regulate the parking of certain vehicles, including those exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours. The ordinance also provides definitions relevant to these regulations.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Ordinance 26-D, amending Chapter 24, \"Traffic and Vehicles\" of the Code of Ordinances by amending Article II (Parking) and Article III (Commercial Motor Vehicles) to regulate the parking of certain vehicles, including vehicles exceeding twenty-five (25) feet in length and commercial motor vehicles during certain hours; providing definitions",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_020",
+    "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+    "claim_text": "The Council is being asked to vote on whether to adopt Ordinance 26-D, amending parking and commercial motor vehicle regulations in Chapter 24 of the Code of Ordinances.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_021",
+    "section_id": "consider-ordinance-26-d,-amending-chapter-24,-\"tra",
+    "claim_text": "This ordinance would establish new parking restrictions applicable to large vehicles (over 25 feet in length) and commercial motor vehicles within the city, which could directly affect residents, businesses, and trucking operations in Alvin. Violations of the new rules would carry a penalty not to exceed five hundred dollars ($500), creating an enforceable consequence for non-compliance. The ordinance includes a repealer and severability clause, meaning it would supersede conflicting prior provisions and remain partially in effect even if any single provision is later found invalid.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_022",
+    "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+    "claim_text": "The Alvin City Council is considering Resolution 26-R-20, which would authorize the Alvin Police Department to apply for the Catalytic Converter Theft Prevention Grant through the Motor Vehicle Crime Prevention Authority. If awarded, the grant funds would help defray the cost of a Drone First Responder (DFR) system and eight (8) additional FLOCK ALPR cameras from FLOCK Safety.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-20, authorizing the Alvin Police Department to make application for the Catalytic Converter Theft Prevention Grant through the Motor Vehicle Crime Prevention Authority, to help defray the cost of a Drone First Responder (DFR) system and eight (8) additional FLOCK ALPR cameras from FLOCK Safety; and providing for other provisions related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_023",
+    "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+    "claim_text": "Council is asked to approve Resolution 26-R-20, authorizing the Alvin Police Department to submit a grant application to the Motor Vehicle Crime Prevention Authority for funding toward a Drone First Responder system and eight additional FLOCK ALPR cameras.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "authorizing the Alvin Police Department to make application for the Catalytic Converter Theft Prevention Grant through the Motor Vehicle Crime Prevention Authority",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_024",
+    "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+    "claim_text": "Approval would allow the Alvin Police Department to pursue external grant funding specifically aimed at catalytic converter theft prevention, potentially expanding the department's surveillance and rapid-response capabilities without relying solely on city funds. The addition of a Drone First Responder system and eight FLOCK ALPR cameras could enhance the department's ability to monitor and respond to vehicle-related crimes across the city.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "to help defray the cost of a Drone First Responder (DFR) system and eight (8) additional FLOCK ALPR cameras from FLOCK Safety",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_025",
+    "section_id": "consider-resolution-26-r-20,-authorizing-the-alvin",
+    "claim_text": "The resolution is intended to \"help defray the cost\" of the equipment; no specific dollar amounts are stated in the agenda text.",
+    "claim_type": "budget_number",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "to help defray the cost of a Drone First Responder (DFR) system and eight (8) additional FLOCK ALPR cameras from FLOCK Safety",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_026",
+    "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+    "claim_text": "The City of Alvin is considering Ordinance 26-E, which would amend the City's existing Park Rules to add two new prohibitions: one against unauthorized digging, excavation, or ground disturbance in city parks, and one against climbing, standing, or sitting on certain park structures. The ordinance also includes other related provisions not further detailed in the agenda text.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Ordinance 26-E, amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks; and providing for other provisions related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_027",
+    "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+    "claim_text": "Council is being asked to vote on whether to adopt Ordinance 26-E amending the City of Alvin Park Rules to add the described prohibitions.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Ordinance 26-E, amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks; and providing for other provisions related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_028",
+    "section_id": "consider-ordinance-26-e,-amending-the-city-of-alvi",
+    "claim_text": "These new rules would establish explicit restrictions on certain physical activities in city parks, which could affect how residents and visitors interact with park infrastructure and grounds. Adoption would give the city a codified basis for enforcing these prohibitions. The ordinance is one of several park- and recreation-related items on this agenda, suggesting a broader review of park governance rules.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "amending the City of Alvin Park Rules, adding provisions prohibiting unauthorized digging, excavation, or ground disturbance; prohibiting climbing, standing, or sitting on certain park structures within City parks",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_029",
+    "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+    "claim_text": "The Alvin City Council is being asked to consider Resolution 26-R-21, which would amend the Rules and Regulations governing Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas. This item appears on the April 16, 2026, regular meeting agenda under Other Business as Item 6F. The agenda text does not detail the specific changes being proposed to the rules and regulations.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas; and setting forth other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_030",
+    "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+    "claim_text": "The council is being asked to vote on whether to approve Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities at 919 Bayou Drive, Alvin, Texas.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-21, amending the Rules and Regulations for Bob S. Owen Pool and Facilities, located at 919 Bayou Drive, Alvin, Texas; and setting forth other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_031",
+    "section_id": "consider-resolution-26-r-21,-amending-the-rules-an",
+    "claim_text": "Bob S. Owen Pool and Facilities is a public amenity serving Alvin residents, and changes to its rules and regulations would directly affect how community members use the facility. This item is one of two pool-related resolutions on the same agenda — the other addressing the Alvin Recreation Center Pool — suggesting a possible parallel or coordinated update to aquatic facility governance across the city.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_032",
+    "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+    "claim_text": "The Alvin City Council is being asked to consider Resolution 26-R-22, which would amend the Rules and Regulations governing the Alvin Recreation Center Pool and Facilities, located at 3201 Highway 35, Alvin, Texas. This item appears on the April 16, 2026 regular meeting agenda as Item 6G under Other Business. It is one of two pool-related resolutions on the same agenda, the other being Resolution 26-R-21 concerning the Bob S. Owen Pool and Facilities at 919 Bayou Drive.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_033",
+    "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+    "claim_text": "Council is being asked to vote on whether to adopt Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities at 3201 Highway 35, Alvin, Texas.",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Consider Resolution 26-R-22, amending the Rules and Regulations of the Alvin Recreation Center Pool and Facilities; located at 3201 Highway 35, Alvin, Texas; and setting forth other matters related thereto.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_034",
+    "section_id": "consider-resolution-26-r-22,-amending-the-rules-an",
+    "claim_text": "The Rules and Regulations governing the Recreation Center Pool and Facilities directly affect how residents use a public amenity. Amending these rules could impact access, safety standards, or conduct expectations for pool patrons. The resolution appears alongside a similar amendment for the Bob S. Owen Pool, suggesting a broader review of pool facility policies across the city.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_035",
+    "section_id": "section-551.074-of-the-texas-government-code:-deli",
+    "claim_text": "The Alvin City Council will convene an Executive Session during its April 16, 2026 Regular Meeting to deliberate on matters related to a public officer or employee, as authorized under Section 551.074 of the Texas Government Code. The specific subject of the deliberation — including whether it concerns appointment, employment, evaluation, reassignment, duties, discipline, or dismissal — is not disclosed in the agenda. This closed session will occur before the Council reconvenes in open session.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": [
+      {
+        "source_id": "source_001",
+        "text": "Section 551.074 of the Texas Government Code: Deliberation on the appointment, employment, evaluation, reassignment, duties, discipline, or dismissal of a public officer or employee.",
+        "snapshot_path": "output/run-no-qa/source_snapshots/agenda_text.txt"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim_036",
+    "section_id": "section-551.074-of-the-texas-government-code:-deli",
+    "claim_text": "No public action or vote is stated for this item; it is a closed Executive Session deliberation permitted under Section 551.074 of the Texas Government Code, though any resulting action would occur after the Council reconvenes in open session (Item 10).",
+    "claim_type": "vote_or_decision_fact",
+    "claim_weight": "high",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  },
+  {
+    "claim_id": "claim_037",
+    "section_id": "section-551.074-of-the-texas-government-code:-deli",
+    "claim_text": "Executive sessions held under Section 551.074 are legally protected personnel deliberations, meaning the specific individual(s) and nature of the discussion are not required to be disclosed publicly in advance. Residents and the Council should be aware that any formal action arising from this deliberation would be taken in open session following the Executive Session. The outcome, if any, could affect city staffing or leadership.",
+    "claim_type": "background_context",
+    "claim_weight": "medium",
+    "citation_ids": [
+      "source_001"
+    ],
+    "source_extracts": []
+  }
+]
