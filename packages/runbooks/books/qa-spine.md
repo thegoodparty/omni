@@ -47,18 +47,29 @@ uv run python qa_init.py \
 
 Pre-hoc intent: confirm the pipeline has what it needs before investing in generation. If required inputs are absent, stop here.
 
-### Gate 2: Inline (during generation)
+### Gate 2: Inline verification (after generation, before post-hoc)
 
-Inline QA is embedded in the generation runbook itself. The runbook is responsible for:
+Gate 2 runs a separate verification agent against the generation output. This agent did not write the briefing and has no stake in it passing.
 
-- Capturing every source accessed in `sources.json`
-- Capturing every factual claim made in `claims.json`, each with:
+**Why a separate agent:** The generation agent has an inherent bias toward believing its own extracts are correct. An independent agent catching hallucinated or misattributed quotes before they reach Gate 3 is a fundamentally different check than self-verification.
+
+**What the verification agent checks:** For every entry in `claims.json` that has a `source_extracts` array, the agent confirms the quoted text appears verbatim (or near-verbatim, allowing for OCR noise) in the cited source document at the cited `source_id`. It writes `verification_report.json` with a pass/fail/skip result per extract.
+
+**How to run it:** Spawn an agent with `books/instructions/meeting_briefing_verify.md` as its instruction and the generation output directory as its workspace.
+
+**What happens on failures:** Return the failed claim IDs to the generation agent. The generation agent must find correct sources or remove those claims. Re-run verification until all extracts pass before proceeding to Gate 3.
+
+**What the generation runbook must emit for Gate 2 to work:**
+
+- `sources.json` — every source accessed, with a `source_id`
+- `claims.json` — every factual claim, each with:
   - `claim_type` (see product spec for valid types)
   - `claim_weight` (`high`, `medium`, or `low`)
-  - `citation_ids` — which sources support this claim
-  - `source_extracts` — verbatim text from the source
+  - `citation_ids` — which `source_id`s support this claim
+  - `source_extracts` — verbatim text from the source document
+- `source_snapshots/{source_id}.txt` — plain-text snapshot of each source document
 
-Without these intermediate artifacts, post-hoc QA cannot adjudicate. The generation runbook must emit them.
+Without `source_snapshots/`, the verification agent cannot check extracts against local copies and must fall back to fetching live URLs, which may be slower or unavailable.
 
 ### Gate 3: Post-hoc (after generation)
 
@@ -122,22 +133,20 @@ To apply this QA spine to a different product type: create a new product spec JS
 
 ## Comparing QA and non-QA runs
 
-To see how QA changes a briefing, run the generator twice into separate output directories, then run QA only on the second:
+Run the generation runbook twice into separate numbered output directories. Apply the full QA pipeline only to the second run.
 
-```bash
-# Run 1 — no QA
-uv run python generate_meeting_briefing.py --pdf agenda.pdf \
-  --city chapel-hill-NC --date 2026-04-16 \
-  --output output/run-no-qa/
-
-# Run 2 — generate independently, then validate
-uv run python generate_meeting_briefing.py --pdf agenda.pdf \
-  --city chapel-hill-NC --date 2026-04-16 \
-  --output output/run-with-qa/ && \
-uv run python qa_validate.py --output-dir output/run-with-qa/
+```
+output1_{city}_{date}/   ← generation only, no QA
+output2_{city}_{date}/   ← generation + Gate 2 verification + Gate 3 validation
 ```
 
-Compare `output/run-no-qa/briefing.json` and `output/run-with-qa/briefing.json` to see content differences. Read `output/run-with-qa/qa_bundle.json` to understand what QA found, flagged, or would have blocked.
+To diff the rendered briefings:
+
+```bash
+diff output1_{city}_{date}/briefing.md output2_{city}_{date}/briefing.md
+```
+
+Read `output2_{city}_{date}/qa_bundle.json` for the full adjudication trace — which claims were reviewed, how they were categorized, and what triggered any revisions.
 
 ## Troubleshooting
 
