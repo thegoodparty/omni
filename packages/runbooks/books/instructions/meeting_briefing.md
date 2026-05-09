@@ -260,6 +260,15 @@ For each source document, save a plain-text snapshot:
 
 ---
 
-## Step 7: Await verification
+## Step 7: Report completion
 
-After writing all output files, stop and report completion. Do not proceed to QA or rendering. The runbook will invoke a separate verification agent to check source extracts before validation runs.
+After writing all output files, print a summary:
+
+```
+Done.
+Priority items: {N}
+Claims: {N}
+Output: /workspace/output/
+```
+
+Stop here. Rendering and any downstream validation are handled by the runbook.
