@@ -129,6 +129,16 @@ def main() -> None:
         sys.exit(f"ERROR: {briefing_path} not found")
 
     briefing = json.loads(briefing_path.read_text())
+
+    # If sources are string IDs, resolve them from the sibling sources.json
+    sources = briefing.get("sources", [])
+    if sources and isinstance(sources[0], str):
+        sources_path = briefing_path.parent / "sources.json"
+        if sources_path.exists():
+            source_list = json.loads(sources_path.read_text())
+            source_map = {s["source_id"]: s for s in source_list if isinstance(s, dict)}
+            briefing["sources"] = [source_map.get(sid, {"source_id": sid}) for sid in sources]
+
     md = render(briefing)
 
     out_path = Path(args.output) if args.output else briefing_path.with_suffix(".md")
