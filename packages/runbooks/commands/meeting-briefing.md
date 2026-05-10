@@ -21,7 +21,7 @@ RUNBOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 ## Prerequisites
 
-**scripts/.env variables**: `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_API_KEY`
+**scripts/.env variables**: `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`
 **Tools**: `uv` (Python runtime), WireGuard VPN connected (for Databricks access), `pdftotext` (for staff report extraction)
 **Access**: Internet (for agenda platform discovery, news, and fiscal data)
 
