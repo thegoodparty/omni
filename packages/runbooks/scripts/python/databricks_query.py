@@ -2,16 +2,16 @@ import os
 import sys
 import pandas as pd
 from databricks.sql import connect
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+load_dotenv(find_dotenv(usecwd=False))
 
 
 def execute_query(query: str) -> pd.DataFrame:
     conn = connect(
-        server_hostname=os.environ['DATABRICKS_SERVER_HOSTNAME'],
+        server_hostname=os.environ['DATABRICKS_HOST'],
         http_path=os.environ['DATABRICKS_HTTP_PATH'],
-        access_token=os.environ['DATABRICKS_API_KEY'],
+        access_token=os.environ['DATABRICKS_TOKEN'],
     )
     try:
         with conn.cursor() as cursor:
