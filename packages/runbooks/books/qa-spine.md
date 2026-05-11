@@ -175,6 +175,28 @@ Read `output2_{city}_{date}/qa_bundle.json` for the full adjudication trace — 
 
 No changes to `qa_validate.py` or `qa-spine.md` are required unless you need new check logic.
 
+## Known gaps and cleanup debt
+
+These are DRY violations and hardcoded values to address before this is production-ready. Each represents a place where the same information is defined in more than one location, or where config that should live in the product spec is instead baked into Python.
+
+**TODO: Centralize accuracy categories in the product spec**
+The 8 accuracy category names are currently defined in four places: as a `Literal` type in `_AdjudicationOutput`, inline in `_TRIAGE_SYSTEM`, inline in `_ESCALATION_SYSTEM`, and as a hardcoded set in `phase1_triage()`. The product spec already has an `accuracy_categories.ok` field -- the Python should build its types and prompts from that at runtime rather than duplicating the list. Changing a category name currently requires four edits.
+
+**TODO: Fix ok_cats inconsistency between Phase 1 and Phase 2**
+`phase1_triage()` has its own hardcoded ok_cats set (`{"Accurate", "Directionally Consistent", "Extrapolating", "Modeled"}`). `phase2_escalate()` receives ok_cats from the product spec via `main()`. They are reading from different sources. Phase 1 should use the same spec-derived ok_cats as Phase 2.
+
+**TODO: Move prohibited phrases to the product spec**
+`_PROHIBITED_PATTERNS` is a hardcoded list in `qa_validate.py`. The design principle is that all QA rules live in the product spec -- prohibited phrases should move there so they can be changed without a Python edit.
+
+**TODO: Remove hardcoded `briefing_type` from `write_bundle()`**
+`"briefing_type": "meeting_briefing"` is a string literal in the output writer. It should come from the product spec so the QA spine is genuinely product-agnostic in its output.
+
+**TODO: Make `--product-spec` required**
+`load_product_spec()` defaults to `meeting_briefing_product_spec.json` in the script directory. That file does not exist on this branch. The default will silently error. Either require `--product-spec` explicitly or fail with a clear message when no spec is provided and no default is found.
+
+**TODO: Drive deterministic check routing from the product spec**
+Check severity and route values (`"block"`, `"annotate"`, `"pass"`) are hardcoded per check in `run_deterministic()`. The product spec should declare which checks are active, their severity, and their routing -- so adapting to a new product type requires only a spec change, not a Python edit.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
