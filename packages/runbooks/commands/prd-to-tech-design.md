@@ -1,4 +1,4 @@
-<!-- v2 — 2026-05-04 -->
+<!-- v3 — 2026-05-07 -->
 # /prd-to-tech-design
 
 Take a PRD or product spec plus the **set of repos** the work touches, scan each codebase, surface architecture options with tradeoffs, and produce a **tech design doc** that engineering can review and bless **before** tasks are created. The output ships as both a local markdown file *and* a published page in ClickUp under the PRD (so product/eng reviewers see it in the same place they read the PRD), accompanied by a `.drawio.xml` data flow diagram. This sits between the PRD (what/why) and `/clickup-epic-create` (how, broken into tickets).
@@ -201,16 +201,28 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
 
     # Tech Design: <Title>
 
-    ## Problem
-    Restate the problem in your own words. One paragraph. If you can't write this, you don't understand the PRD yet.
+    The doc is organized into three sections, in order of decreasing audience width:
 
-    ## Goals
+    1. **Summary** — for product / PM / non-technical reviewers. Skim-readable, plain language, no architecture jargon.
+    2. **Engineering Review** — for engineers blessing the approach. The technical case, with concrete tradeoffs and the four required sections (I/O, DB, Data Flow, DR).
+    3. **Implementation Context** — for the AI agent (or engineer) that will turn this design into ClickUp tickets. Per-repo code references, detailed design, deferred scope.
+
+    A non-technical reviewer should be able to read just Section 1 and walk away with a correct mental model. An engineer should not need Section 3 to bless. The next-stage agent should not need to re-recon the codebase after reading Section 3.
+
+    ---
+
+    ## 1. Summary
+
+    ### Problem
+    Restate the problem in your own words. One paragraph, plain language. If you can't write this, you don't understand the PRD yet.
+
+    ### Goals
     - Concrete, testable outcomes (carry over from the PRD; rephrase if needed for clarity).
 
-    ## Non-Goals
+    ### Non-Goals
     - Things explicitly out of scope. If the PRD didn't say "out of scope" but you're treating it as such, say why.
 
-    ## Milestones
+    ### Milestones
     Carry forward from the PRD if it specified phasing or dated checkpoints. If the PRD did not specify milestones, write **"No milestones in source PRD."** and move on — don't invent them here.
 
     | Milestone | Due | Scope |
@@ -218,28 +230,29 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     | M1: <name> | <YYYY-MM-DD or "TBD"> | <one-line of what this milestone delivers> |
     | M2: <name> | ... | ... |
 
-    ## Constraints
+    ### Recommendation (TL;DR)
+    Two or three sentences in plain language naming the chosen approach, without architectural detail. The full reasoning lives in **Section 2 – Recommendation: Option X**; this is the headline a PM should be able to read on its own.
+
+    ### Estimated Effort
+    Rough sense per repo: small / medium / large, with the major cost drivers. Not a commitment — a directional read for prioritization.
+
+    ---
+
+    ## 2. Engineering Review
+
+    ### Constraints
     - Budget, deadline, team capacity, infra/platform limits, regulatory.
     - Things you can't change (existing data model, auth scheme, etc.).
 
-    ## Repos in Scope
+    ### Repos in Scope
     | Repo | Role | Notes |
     |------|------|-------|
-    | <name> | <role> | <relevant existing modules/patterns> |
+    | <name> | <role> | <one-line — relevant existing modules/patterns; full per-repo detail lives in Section 3> |
     | <name> | <role> | ... |
 
-    ## Codebase Context (per repo)
-    For each repo, the relevant existing modules, patterns, and infrastructure this design leans on. Be specific — file paths and module names — so reviewers don't have to re-derive what you already learned.
+    ### Architecture Options Considered
 
-    ### <repo-name>
-    - ...
-
-    ### <repo-name>
-    - ...
-
-    ## Architecture Options Considered
-
-    ### Option A: <name>
+    #### Option A: <name>
     - **Approach:** ...
     - **Repos affected:** ...
     - **What gets reused:** ...
@@ -248,22 +261,16 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     - **Complexity:** small / medium / large — driver: ...
     - **Risks:** ...
 
-    ### Option B: <name>
+    #### Option B: <name>
     [same fields]
 
-    ### Option C: <name>  (optional — only if there's a real third option)
+    #### Option C: <name>  (optional — only if there's a real third option)
     [same fields]
 
-    ## Recommendation: Option <X>
+    ### Recommendation: Option <X>
     State explicitly which option and *why*. Not "this is safest" — what about the constraints/posture above makes this the right call?
 
-    ## Detailed Design
-    The recommended approach, fleshed out:
-    - Component breakdown per repo
-    - Sequence/flow for the main user-facing path
-    - Error handling per layer
-
-    ## Inputs and Outputs
+    ### Inputs and Outputs
     Required section. Be concrete:
 
     **Inputs:**
@@ -274,7 +281,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     - HTTP responses (status, body shape) | events emitted | persisted state | side effects on external systems
     - Side-effect ordering: what's idempotent, what isn't
 
-    ## DB Changes
+    ### DB Changes
     Required section. Be concrete — copy-paste-runnable schema, not vague description:
 
     ```sql
@@ -288,12 +295,12 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
 
     Or, if no DB change: **"No DB change. <why — e.g., this feature reads existing tables only.>"**
 
-    ## Data Flow Diagram
+    ### Data Flow Diagram
     See `<slug>-data-flow.drawio.xml` (sibling file, generated by Phase 6). Open in [diagrams.net](https://app.diagrams.net) or VS Code's Draw.io Integration extension.
 
     Summary in prose: <one paragraph describing the flow shown in the diagram — actors, services, data crossing trust boundaries, where state lives>.
 
-    ## Disaster Recovery
+    ### Disaster Recovery
     Required section. Walk each meaningful failure mode:
 
     | Failure mode | Blast radius | Detection | Recovery |
@@ -305,7 +312,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
 
     Include RPO/RTO targets if data is critical. If this feature is read-only and stateless, say so — "feature degrades to read-only with cached data; no DR concerns beyond app-level"  is a valid answer.
 
-    ## Cross-Cutting Concerns
+    ### Cross-Cutting Concerns
     | Concern | Decision |
     |---------|----------|
     | Migration / rollout | ... |
@@ -317,29 +324,76 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
     | Performance | ... |
     | Security | ... |
 
-    ## Open Questions
+    ### Open Questions
     - [ ] Question 1 — needs input from <who>
     - [ ] Question 2 — needs input from <who>
 
-    ## Out of Scope (deliberately deferred)
-    - Things we considered and chose not to do *now*, with the reason. Future-Epic candidates.
-
-    ## Risks and Mitigations
+    ### Risks and Mitigations
     | Risk | Likelihood | Impact | Mitigation |
     |------|------------|--------|------------|
 
-    ## Estimated Effort
-    Rough sense per repo: small / medium / large, with the major cost drivers. Not a commitment — a directional read for prioritization.
+    ---
+
+    ## 3. Implementation Context
+
+    This section is for the AI agent (or engineer) that will turn the blessed design into ClickUp tickets. It assumes Section 2 was approved and covers three things: per-repo code references (so the next stage doesn't re-recon the codebase), the detailed design (component breakdown, sequence, error handling), and deferred scope (what was deliberately left out so it doesn't accidentally get pulled in).
+
+    ### Codebase Context (per repo)
+
+    For each repo in scope, surface the relevant existing modules, patterns, and infrastructure the implementation will lean on. Include **actual code excerpts** — file paths alone force the next agent to re-derive what you already learned. Aim for 5–15 lines per snippet, just enough to convey the pattern.
+
+    #### <repo-name>
+
+    **Existing patterns to extend:**
+    - `<file path>:<line range>` — what this does and why it matters here.
+
+      ```ts
+      // 5–15 line excerpt showing the pattern (controller, service, hook, etc.).
+      // Strip noise — show only the load-bearing shape.
+      ```
+
+    **Architectural seam (where new code lands):**
+    - `<dir or file>` — the place new code is added, and why this is the natural fit (existing convention, neighboring features).
+
+    **Cross-cutting infrastructure to reuse:**
+    - Auth / middleware / feature flags / queues / ORM helpers — name the symbol and where it lives.
+
+      ```ts
+      // Optional snippet if the convention isn't obvious from the import.
+      ```
+
+    **Test infrastructure:**
+    - Test framework, fixtures/factories, where similar tests live (`<file path>`).
+
+    **Pain points to avoid:**
+    - Deprecated dirs, in-progress migrations, `// TODO: replace this` patterns the implementation should not entrench.
+
+    #### <repo-name>
+    [same fields]
+
+    ### Detailed Design
+
+    The recommended approach, fleshed out enough that ticket-level scoping is mechanical:
+
+    - **Component breakdown per repo** — what new modules/files/functions get added, where they live, what they expose.
+    - **Sequence/flow for the main user-facing path** — actor → entry point → middleware → service → DB → response. Reference real files from the snippets above when describing where the code hooks in.
+    - **Error handling per layer** — validation, auth, business-rule failures, infrastructure failures. Be specific about which layer owns each.
+    - **Data shape changes through the pipeline** — if a request transforms across layers, sketch the shape at each boundary.
+
+    ### Out of Scope (deliberately deferred)
+    Things considered and chose not to do *now*, with the reason. Future-Epic candidates so the next stage doesn't accidentally pull them in.
     ````
 
     Quality bar — before generating the diagram (Phase 6), self-check:
-    - **Real, not invented.** Every file path, module name, and pattern reference is from the actual repo scan, not pattern-matched from training data.
+    - **Real, not invented.** Every file path, module name, code excerpt, and pattern reference is from the actual repo scan, not pattern-matched from training data.
     - **Honest about uncertainty.** Open questions are flagged explicitly, not papered over with confident-sounding guesses.
-    - **The recommendation has reasoning, not just a vote.** "We chose B because X" — where X is something a reviewer can argue with.
+    - **The recommendation has reasoning, not just a vote.** Section 2's "Recommendation: Option X" gives a why a reviewer can argue with.
     - **Options are real.** If they all collapse to the same architecture, just describe one and say so.
     - **Required sections are populated, not stub.** Inputs/Outputs, DB Changes, and Disaster Recovery each have concrete content, even if "N/A" with a reason.
     - **Repos in Scope matches what was confirmed in step 6.** No phantom repos that didn't get scanned.
-    - **Milestones preserved.** Every milestone the PRD specified is in the Milestones section with its due date and scope, and mirrored in the `milestones:` frontmatter array. If the PRD specified none, both the section and the frontmatter say so explicitly (`milestones: []`) — empty/missing without comment is a smell.
+    - **Milestones preserved.** Every milestone the PRD specified is in Section 1's Milestones with its due date and scope, and mirrored in the `milestones:` frontmatter array. If the PRD specified none, both the section and the frontmatter say so explicitly (`milestones: []`) — empty/missing without comment is a smell.
+    - **Three-section discipline honored.** Section 1 is skimmable by a non-technical reviewer (no file paths, no schema, no jargon). Section 2 lets engineers argue with the architecture without flipping to Section 3. Section 3 carries the implementation specifics — file paths and code excerpts — so the next stage doesn't re-recon.
+    - **Codebase Context has real code excerpts.** Each per-repo block has at least one snippet — file paths alone don't transfer the pattern.
 
 ### Phase 6: Generate the data flow diagram
 
@@ -499,7 +553,7 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-prd.md
 
 ## Important Notes
 
-- **Tech designs are for humans first.** Format for skim-readability — tables, headers, short paragraphs. A tech design no one reads is dead weight.
+- **Tech designs serve three audiences, not one.** Section 1 is for product / PM (skim-readable, no jargon). Section 2 is for engineers blessing the approach (technical case with tradeoffs). Section 3 is for the AI agent (or engineer) that turns the design into tickets (per-repo code references, detailed design). Format each section for *its* reader; don't bleed implementation detail into Section 1 or hide architectural reasoning in Section 3. A tech design no one reads is dead weight.
 - **Recommendation, not menu.** Don't just list options and let the reviewer pick — make a recommendation with reasoning. Reviewers can argue with reasoning; they can't argue with a shrug.
 - **Don't manufacture options.** Two options that are 95% the same isn't two options. One real option > three fake ones.
 - **Open questions are first-class.** A tech design with unresolved open questions is fine — the bless cycle is meant to surface those. A tech design that hides open questions to look complete is worse than useless.
