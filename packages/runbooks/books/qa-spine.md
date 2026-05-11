@@ -120,16 +120,21 @@ A high-weight claim classified not-OK by Phase 2 → Block.
 
 ## Product spec — the single source of truth
 
-QA rules live in `scripts/python/meeting_briefing_product_spec.json`. This file defines:
+Each product type requires a product spec JSON that defines:
 
-- Which claim types exist and their weights
+- Which claim types exist and their weights (`high`, `medium`, `low`)
 - Which claim types are blockable (trigger Block if Phase 2 fails)
 - Which deterministic checks run and their routing
 
-To add a new blockable claim type, change a routing rule, or add a prohibited phrase:
-**edit `meeting_briefing_product_spec.json` only**. `qa_validate.py` reads it at runtime.
+Pass it to `qa_validate.py` at runtime:
 
-To apply this QA spine to a different product type: create a new product spec JSON and pass it via `--product-spec`.
+```bash
+uv run python qa_validate.py --output-dir output/<run>/ --product-spec path/to/your_spec.json
+```
+
+To add a new blockable claim type, change a routing rule, or add a prohibited phrase: **edit the product spec JSON only**. `qa_validate.py` reads it at runtime — no code changes required.
+
+`scripts/python/meeting_briefing_product_spec.json` (on the `meeting-briefing` branch) is a reference implementation showing the full schema.
 
 ## Comparing QA and non-QA runs
 
@@ -147,6 +152,28 @@ diff output1_{city}_{date}/briefing.md output2_{city}_{date}/briefing.md
 ```
 
 Read `output2_{city}_{date}/qa_bundle.json` for the full adjudication trace — which claims were reviewed, how they were categorized, and what triggered any revisions.
+
+## Design decisions
+
+**Two-state routing only.** The final verdict is Block or OK. Routing logic lives in `qa_validate.py`'s `route()` function; rules live in the product spec JSON.
+
+**Phase 1 runs on all claims. Phase 2 runs only on high-weight Phase-1-not-OK claims.** Phase 2 is expensive and sequential; limiting it to escalations keeps runtime reasonable.
+
+**Prohibited phrases are annotated, not blocked.** Voice and register violations produce annotations in `qa_bundle.json` but do not trigger Block. The blocked set is limited to structural failures and unsupported high-weight factual claims.
+
+**Gate 2 is the anti-hallucination layer.** Phase 1 and Phase 2 ask whether a claim follows from its extract. Gate 2 asks whether the extract itself is real. These are different questions and require different agents.
+
+**The Gate 2 agent must be naive.** Spawn it fresh with no context from the generation session. An agent that helped write the claims will not reliably catch its own hallucinations. Naivety is a design requirement, not a convenience.
+
+**The product spec is the single source of truth for QA rules.** Do not hardcode claim types, weights, or routing logic in Python — edit the JSON. This keeps `qa_validate.py` product-agnostic.
+
+## Extending to a new product type
+
+1. Create a new product spec JSON following the same schema as `meeting_briefing_product_spec.json` (see `meeting-briefing` branch for reference)
+2. Pass it to `qa_validate.py` via `--product-spec path/to/new_spec.json`
+3. Ensure the generation runbook emits the standard output contract: `briefing.json`, `claims.json`, `sources.json`, `source_snapshots/`
+
+No changes to `qa_validate.py` or `qa-spine.md` are required unless you need new check logic.
 
 ## Troubleshooting
 
