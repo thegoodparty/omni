@@ -55,7 +55,7 @@ Gate 2 runs a separate verification agent against the generation output. This ag
 
 **What the verification agent checks:** For every entry in `claims.json` that has a `source_extracts` array, the agent confirms the quoted text appears verbatim (or near-verbatim, allowing for OCR noise) in the cited source document at the cited `source_id`. It writes `verification_report.json` with a pass/fail/skip result per extract.
 
-**How to run it:** Spawn an agent with `books/instructions/qa-spine-inline-verify.md` as its instruction and the generation output directory as its workspace.
+**How to run it:** Spawn an agent with `books/qa-spine-inline-verify.md` as its instruction and the generation output directory as its workspace.
 
 **What happens on failures:** Return the failed claim IDs to the generation agent. The generation agent must find correct sources or remove those claims. Re-run verification until all extracts pass before proceeding to Gate 3.
 
