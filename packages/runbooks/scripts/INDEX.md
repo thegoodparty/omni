@@ -10,4 +10,3 @@ Quick reference for all available scripts. Keep this updated when adding or remo
 | `python/clickup_api.py` | ClickUp API wrapper (GET/POST/PUT/DELETE) with token auth; v2 by default, `--api-version=v3` for the Docs/Pages API. CLI prints JSON; `get/post/put/delete()` helpers for programmatic use | commands/clickup-epic-create.md, commands/clickup-epic-edit.md, commands/work-on-clickup.md, commands/prd-to-tech-design.md |
 | `python/qa_init.py` | Scaffold an output/ folder with stub artifact files before a QA-enabled generation run | books/qa-spine.md |
 | `python/qa_validate.py` | Validate a completed output/ folder: deterministic checks + Phase 1 Anthropic triage + Phase 2 Gemini escalation → Block/OK verdict + qa_bundle.json | books/qa-spine.md |
-| `python/meeting_briefing_product_spec.json` | Single source of truth for meeting briefing QA rules: claim types, weights, blockable set, deterministic check routing. Edit here to update rules. | books/qa-spine.md |
