@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import ResponsiveModal from '../../shared/utils/ResponsiveModal'
 import { Website, WebsiteTheme } from '../types/website.type'
 import formatPhoneNumber from '@/app/shared/utils/phoneFormatter'
@@ -23,9 +23,15 @@ export default function PrivacyPolicyModal({
     year: 'numeric',
   })
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   const onClose = () => {
-    router.push('?privacy=false', { scroll: false })
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('privacy')
+    const query = params.toString()
+
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
   return (

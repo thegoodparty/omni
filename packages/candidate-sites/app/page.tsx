@@ -30,7 +30,7 @@ export async function generateMetadata() {
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
-  const { privacy } = await searchParams
+  const { privacy, 'sms-terms': smsTerms } = await searchParams
 
   const headersList = await headers()
   const host = headersList.get('host') || 'localhost'
@@ -46,5 +46,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ [
     )
   }
 
-  return <WebsitePage website={website} privacyPolicy={privacy==='true'} />
+  return (
+    <WebsitePage
+      website={website}
+      privacyPolicy={privacy === 'true'}
+      smsTerms={smsTerms === 'true'}
+    />
+  )
 }

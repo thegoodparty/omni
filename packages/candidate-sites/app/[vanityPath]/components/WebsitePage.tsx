@@ -8,6 +8,7 @@ import WebsiteHeader from './WebsiteHeader'
 import HeroSection from './HeroSection'
 import AboutSection from './AboutSection'
 import PrivacyPolicyModal from './PrivacyPolicyModal'
+import SmsTermsModal from './SmsTermsModal'
 import WebsiteFooter from './WebsiteFooter'
 import ContactSection from './ContactSection'
 import { getUserFullName } from '@/app/shared/utils/getUserFullName'
@@ -27,6 +28,7 @@ export default function WebsitePage({
   step,
   imageDimensions,
   privacyPolicy,
+  smsTerms,
 }: {
   website: Website
   scale?: number
@@ -34,8 +36,10 @@ export default function WebsitePage({
   step?: number | null
   imageDimensions?: ImageDimensions
   privacyPolicy?: boolean
+  smsTerms?: boolean
 }) {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(privacyPolicy || false)
+  const [showSmsTerms, setShowSmsTerms] = useState(smsTerms || false)
   const content = website?.content || {}
   const activeTheme =
     WEBSITE_THEMES[content?.theme as keyof typeof WEBSITE_THEMES] ||
@@ -70,6 +74,10 @@ export default function WebsitePage({
     setShowPrivacyPolicy(privacyPolicy || false)
   }, [privacyPolicy])
 
+  useEffect(() => {
+    setShowSmsTerms(smsTerms || false)
+  }, [smsTerms])
+
   return (
     <div
       className={`${activeTheme.bg} ${activeTheme.text} ${
@@ -94,6 +102,11 @@ export default function WebsitePage({
       />
       <PrivacyPolicyModal
         open={showPrivacyPolicy}
+        content={content}
+        activeTheme={activeTheme}
+      />
+      <SmsTermsModal
+        open={showSmsTerms}
         content={content}
         activeTheme={activeTheme}
       />

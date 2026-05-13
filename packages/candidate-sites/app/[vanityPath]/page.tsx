@@ -33,7 +33,7 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function CandidateWebsitePage({ params, searchParams }: PageProps) {
   const website = await getWebsite(await params)
-  const { privacy } = await searchParams
+  const { privacy, 'sms-terms': smsTerms } = await searchParams
 
   if (!website || website.status !== 'published') {
     notFound()
@@ -55,7 +55,12 @@ export default async function CandidateWebsitePage({ params, searchParams }: Pag
       {/* 
       <WebsiteViewTracker vanityPath={website.vanityPath} />
      */}
-      <WebsitePage website={website} imageDimensions={imageDimensions} privacyPolicy={privacy==='true'} />
+      <WebsitePage
+        website={website}
+        imageDimensions={imageDimensions}
+        privacyPolicy={privacy === 'true'}
+        smsTerms={smsTerms === 'true'}
+      />
     </>
   )
 }
