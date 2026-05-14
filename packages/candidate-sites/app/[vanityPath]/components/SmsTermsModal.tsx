@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import ResponsiveModal from '../../shared/utils/ResponsiveModal'
+import getModalHref from '../../shared/utils/getModalHref'
 import { Website, WebsiteTheme } from '../types/website.type'
 
 interface SmsTermsModalProps {
@@ -99,7 +100,7 @@ export default function SmsTermsModal({
           <p>
             Your information is handled in accordance with our{' '}
             <Link
-              href="?privacy=true"
+              href={getModalHref(pathname, searchParams.toString(), 'privacy')}
               scroll={false}
               className="underline hover:opacity-80"
             >

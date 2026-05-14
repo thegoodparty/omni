@@ -10,6 +10,7 @@ import { Website, WebsiteTheme } from '../types/website.type'
 import { Element } from 'react-scroll'
 import { WEBSITE_SECTIONS } from '../constants/websiteNavigation.const'
 import formatPhoneNumber, { phoneUri } from '../../shared/utils/phoneFormatter'
+import getModalHref from '../../shared/utils/getModalHref'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 
@@ -69,14 +70,6 @@ export default function ContactSection({
       },
     }
   }, [activeTheme.muiColor])
-
-  const getModalHref = (queryKey: string) => {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set(queryKey, 'true')
-    const query = params.toString()
-
-    return query ? `${pathname}?${query}` : pathname
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -183,13 +176,21 @@ export default function ContactSection({
               <label htmlFor="sms-consent" className="text-xs text-left">
               By providing your telephone number and checking this box, you consent to receive calls and text messages. Msg & data rates may apply. Msg frequency may vary. Messaging may include requests for donations.
               Reply &quot;STOP&quot; to opt-out &quot;HELP&quot; for help. View our{' '}
-                <Link href={getModalHref('privacy')} scroll={false}
+                <Link
+                  href={getModalHref(pathname, searchParams.toString(), 'privacy')}
+                  scroll={false}
                   className="text-blue-600 underline hover:text-blue-700"
                 >
                   Privacy Policy
                 </Link>{' '}
                 and{' '}
-                <Link href={getModalHref('sms-terms')} scroll={false}
+                <Link
+                  href={getModalHref(
+                    pathname,
+                    searchParams.toString(),
+                    'sms-terms',
+                  )}
+                  scroll={false}
                   className="text-blue-600 underline hover:text-blue-700"
                 >
                   SMS Terms
