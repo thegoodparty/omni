@@ -1,0 +1,231 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "meeting_briefing",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 180,
+  "timeout_seconds": 1800,
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["state", "city", "office"],
+    "properties": {
+      "elected_office_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Opaque gp-api ElectedOffice.id; passed through to the callback. Not used during research."
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "Two-letter state code (e.g. MN)."
+      },
+      "city": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "Full city name (e.g. Burnsville)."
+      },
+      "office": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "Governing body name (e.g. City Council)."
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://goodparty.org/schemas/briefing.json",
+    "title": "Briefing",
+    "type": "object",
+    "required": [
+      "id",
+      "slug",
+      "meetingId",
+      "title",
+      "meetingDate",
+      "status",
+      "readingTimeMinutes",
+      "generatedAt",
+      "meeting",
+      "executiveSummary",
+      "agenda",
+      "actionItems"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string" },
+      "slug": { "type": "string" },
+      "meetingId": { "type": "string" },
+      "title": { "type": "string" },
+      "meetingDate": {
+        "type": "string",
+        "description": "Human-readable date, e.g. \"June 1, 2026\""
+      },
+      "status": {
+        "type": "string",
+        "enum": ["briefing_ready", "awaiting_agenda", "generating", "failed"]
+      },
+      "readingTimeMinutes": {
+        "type": "number"
+      },
+      "generatedAt": { "type": "string" },
+      "meeting": { "$ref": "#/definitions/Meeting" },
+      "executiveSummary": { "type": "string" },
+      "agenda": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/AgendaItem" }
+      },
+      "actionItems": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/ActionItem" }
+      }
+    },
+    "definitions": {
+      "MeetingType": {
+        "type": "string",
+        "enum": ["city_council", "planning_board", "town_hall"]
+      },
+      "AgendaItemKind": {
+        "type": "string",
+        "enum": [
+          "procedural",
+          "consent",
+          "public_input",
+          "action",
+          "informational"
+        ]
+      },
+      "SourceKind": {
+        "type": "string",
+        "enum": ["internal", "official", "news", "community"]
+      },
+      "Meeting": {
+        "type": "object",
+        "required": ["id", "name", "body", "type", "scheduledAt", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "body": { "type": "string" },
+          "type": { "$ref": "#/definitions/MeetingType" },
+          "scheduledAt": {
+            "type": "string",
+            "description": "ISO 8601 with timezone"
+          },
+          "location": { "type": "string" }
+        }
+      },
+      "AgendaItem": {
+        "type": "object",
+        "required": ["id", "title", "kind", "hasBriefing"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "kind": { "$ref": "#/definitions/AgendaItemKind" },
+          "hasBriefing": { "type": "boolean" },
+          "whatToExpect": {
+            "type": "string",
+            "description": "Short description of what to expect for this item."
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "required": ["id", "label", "kind", "iconInitial", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "kind": { "$ref": "#/definitions/SourceKind" },
+          "iconInitial": { "type": "string" },
+          "url": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "ConstituentSentiment": {
+        "type": "object",
+        "required": ["summary", "sources"],
+        "additionalProperties": false,
+        "properties": {
+          "summary": { "type": "string" },
+          "detail": { "type": "string" },
+          "sources": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "NewsItem": {
+        "type": "object",
+        "required": ["title", "outlet", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "outlet": { "type": "string" },
+          "url": { "type": "string" }
+        }
+      },
+      "BudgetImpact": {
+        "type": "object",
+        "required": ["summary", "sources"],
+        "additionalProperties": false,
+        "properties": {
+          "summary": { "type": "string" },
+          "sources": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "ActionItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "overview",
+          "constituentSentiment",
+          "recentNews",
+          "budgetImpact",
+          "talkingPoints",
+          "sources"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "overview": { "type": "string" },
+          "constituentSentiment": {
+            "oneOf": [
+              { "$ref": "#/definitions/ConstituentSentiment" },
+              { "type": "null" }
+            ]
+          },
+          "recentNews": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/NewsItem" }
+          },
+          "budgetImpact": {
+            "oneOf": [
+              { "$ref": "#/definitions/BudgetImpact" },
+              { "type": "null" }
+            ]
+          },
+          "talkingPoints": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "sources": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/Source" }
+          }
+        }
+      }
+    }
+  }
+}
