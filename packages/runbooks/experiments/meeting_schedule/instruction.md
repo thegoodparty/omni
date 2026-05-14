@@ -24,7 +24,7 @@ Given a city + state + governing body name, find the **regular recurring public 
 9. Run `python3 /workspace/validate_output.py`.
 10. Perform the spot-check.
 
-If after STEP 4 you cannot find an explicit recurring schedule from an official source, set `status: "not_found"` with empty string / `0` defaults for all schedule fields and an empty `sources` array. **Do not invent a schedule.**
+If after STEP 4 you cannot find an explicit recurring schedule from an official source, set `status: "not_found"` with empty string / `0` defaults for all schedule fields. **You SHOULD still populate `sources` with the URLs you searched** so a reviewer can audit the search trail — `sources` is optional but useful for `not_found`. **Do not invent a schedule.**
 
 ## CRITICAL RULES
 
@@ -71,7 +71,7 @@ If after STEP 4 you cannot find an explicit recurring schedule from an official 
 
 - Every URL touched during research goes in `sources` with a one-sentence `note` describing what it confirmed.
 - For `status: "found"`: at least one entry, and at least one source MUST be an official government domain (city/county site, municipal code, agenda portal). News and aggregator sites alone do not qualify.
-- For `status: "not_found"`: `sources: []`.
+- For `status: "not_found"`: `sources` MAY be empty, but populating it with the URLs you searched is preferred — it lets a reviewer audit the search trail and tell "tried hard, came up empty" apart from "bailed early."
 
 **Output (always include)**:
 
@@ -188,7 +188,7 @@ pathlib.Path("/workspace/output/meeting_schedule.json").write_text(
 )
 ```
 
-**`not_found` shape** (all schedule fields empty, sources empty array):
+**`not_found` shape** (schedule fields empty; `sources` optionally populated with the search trail):
 
 ```python
 artifact = {
@@ -199,7 +199,16 @@ artifact = {
     "time": "",
     "timezone": "",
     "duration_minutes": 0,
-    "sources": [],
+    "sources": [
+        {
+            "url": "https://example.gov/city-council/",
+            "note": "Official council page lists individual meeting dates but no stated recurrence rule"
+        },
+        {
+            "url": "https://library.municode.com/...",
+            "note": "Municipal code searched — no section codifying meeting schedule"
+        }
+    ],  # populating sources is preferred but optional for not_found
 }
 ```
 
