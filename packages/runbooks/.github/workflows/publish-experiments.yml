@@ -11,8 +11,6 @@ on:
   #   push to dev  → publishes to dev  S3 bucket
   #   push to qa   → publishes to qa   S3 bucket
   #   push to main → publishes to prod S3 bucket
-  # OIDC trust is pinned per branch so a feature-branch push or workflow_dispatch
-  # against the wrong env can't mint credentials.
   push:
     branches: [develop, qa, master]
     paths:
@@ -95,7 +93,7 @@ jobs:
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/agent-experiment-metadata-publish-${{ steps.target.outputs.env }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: us-west-2
 
       - name: Publish manifests to S3
