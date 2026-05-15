@@ -714,6 +714,10 @@ Rules for finding and presenting budget impact for each priority item.
 
 Dollar amounts and vote counts must be extracted from source exactly -- do not round, paraphrase, or infer. If discrepancies appear between figures in different source documents, flag them rather than resolving silently. Do not report multiple figures in the same sentence, as this can cause ambiguity.
 
+#### Section-level source_ids
+
+Populate `budget_impact.source_ids` with the ids (from the top-level `sources[]` list) of every source that backs the section as a whole — typically the staff report / Agenda Commentary entry and any supplementary document (engineer recommendation, bid tabulation, ordinance) cited in `summary`. This is in addition to the per-figure `figures[].source_id`, which cites the specific document a single number was extracted from. The UI renders `source_ids` as inline source pills below the section. Required-but-may-be-empty: emit `[]` only when the section's narrative draws solely from figures whose `source_id` already covers it; do not fabricate citations.
+
 #### When no budget data is available
 
 Set `budget_impact` to `null`. Do not estimate or fabricate figures.
@@ -900,6 +904,7 @@ Fields:
 - `haystaq_column` — the picked column name from the inline catalog (e.g. `hs_gun_control_support`).
 - `haystaq_status` — `"ok"` when the city query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item); `"no_column"` defensively when the picked column wasn't queryable (shouldn't occur with the L2-verified catalog).
 - `district_note` — populate **only** when both city and district means are present **and** `abs(district_mean_score - city_mean_score) >= 10`. Otherwise `null`.
+- `source_ids` — array of `id` values from the top-level `sources[]` list that back this section. For `haystaq_status: "ok"`, reference the Haystaq source entry you compiled in Step 14. Required-but-may-be-empty: emit `[]` only when no source defensibly backs the section (e.g. `haystaq_status` other than `"ok"`); do not fabricate citations. The UI renders these as inline source pills below the section.
 
 Do not emit `haystaq_source` on `display.constituent_sentiment` — the curated/dictionary-fallback split is dead; the field is not in the schema and will cause rejection.
 
@@ -931,7 +936,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   }
   ```
   Append an entry to `run_decisions[]` every time you make a non-mechanical choice that shapes the resulting artifact — meeting selection, fallback to a different meeting, decision to skip a section, decision to proceed without a required source, decision to set `briefing_status` to anything other than `briefing_ready`. Mechanical actions (download a file, parse a PDF, run a query) do not need entries.
-- `items`: per Steps 3–9.
+- `items`: per Steps 3–9. Each section that supports per-section `source_ids` (constituent_sentiment per Step 16, budget_impact per Step 12) must populate the field with ids from `sources[]`; empty `[]` is permitted when no defensible citation exists, but do not fabricate.
 - `claims`: per Step 13. May be empty when `briefing_status` is `awaiting_agenda` or `no_meeting_found`.
 - `sources`: per Step 14.
 - `required_data_points`: per Step 15.

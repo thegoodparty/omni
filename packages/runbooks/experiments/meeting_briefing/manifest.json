@@ -515,7 +515,8 @@
           "mean_score",
           "score_direction",
           "voter_count",
-          "haystaq_status"
+          "haystaq_status",
+          "source_ids"
         ],
         "properties": {
           "summary": {
@@ -560,6 +561,14 @@
               "city_mismatch",
               "no_column"
             ]
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "References to ids in the top-level sources[] list that back this section as a whole. Required-but-may-be-empty: emit [] when no specific source cites the section (rare for haystaq sentiment, which should reference the Haystaq source entry). Authors must not fabricate citations to pad this list."
           }
         }
       },
@@ -616,7 +625,8 @@
         "additionalProperties": false,
         "required": [
           "summary",
-          "figures"
+          "figures",
+          "source_ids"
         ],
         "properties": {
           "summary": {
@@ -649,6 +659,14 @@
                 }
               }
             }
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "References to ids in the top-level sources[] list that back this section as a whole. Complements per-figure figures[].source_id (which cites the specific document a number was extracted from); this section-level list cites the section overall and renders as inline source pills in the UI. Required-but-may-be-empty: emit [] when the section's narrative draws solely from figures whose source_id already covers it."
           }
         }
       },
