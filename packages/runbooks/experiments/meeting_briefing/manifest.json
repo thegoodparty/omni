@@ -1,22 +1,24 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 1,
+  "version": 2,
   "model": "opus",
   "max_turns": 100,
   "timeout_seconds": 3000,
   "scope": {
     "allowed_tables": [
-      "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq",
-      "goodparty_data_catalog.sandbox.haystaq_data_dictionary",
-      "goodparty_data_catalog.private_samuel.district_top_issues_us_all"
+      "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
     ],
     "max_rows": 50000
   },
   "input_schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["officialName", "state", "city"],
+    "required": [
+      "officialName",
+      "state",
+      "city"
+    ],
     "properties": {
       "officialName": {
         "type": "string",
@@ -33,40 +35,20 @@
         "minLength": 1,
         "description": "City name as it appears in L2 (title-case, e.g. \"New York\")."
       },
-      "councilBody": {
+      "positionName": {
         "type": "string",
         "minLength": 1,
-        "description": "The specific body (e.g. \"NYC City Council District 25\")."
+        "description": "The EO's position."
       },
       "l2DistrictType": {
         "type": "string",
-        "minLength": 1,
-        "description": "L2 voter file column for the official's district (e.g. City_Council_Commissioner_District). Omit for at-large officials."
+        "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+        "description": "L2 voter file column for the official's district (e.g. City_Council_Commissioner_District). ASCII identifier shape — interpolated as a backtick-quoted column name in Databricks SQL. Omit for at-large officials."
       },
       "l2DistrictName": {
         "type": "string",
         "minLength": 1,
         "description": "L2 district value to match (e.g. \"25\"). Required if l2DistrictType is set."
-      },
-      "meetingDate": {
-        "type": "string",
-        "format": "date",
-        "description": "YYYY-MM-DD. When omitted, the agent discovers the next upcoming meeting on the calendar."
-      },
-      "agendaPacketUrl": {
-        "type": "string",
-        "pattern": "^https?://",
-        "description": "Permanent URL to a published agenda packet. When provided, the agent uses this directly instead of discovering through the agenda platform."
-      },
-      "agendaPdfPath": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Local filesystem path to a user-supplied agenda PDF (e.g. /workspace/input/agenda.pdf or a path inside the run directory). Takes precedence over agendaPacketUrl if both are set."
-      },
-      "campaignUrl": {
-        "type": "string",
-        "pattern": "^https?://",
-        "description": "URL of the official's campaign website, used as contextual background."
       }
     }
   },
@@ -74,130 +56,309 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "MeetingBriefingOutput",
     "description": "v2 artifact schema for the meeting_briefing experiment. Drop into manifest.json's output_schema field at port time.",
-    "type": "object",
-    "additionalProperties": false,
-    "required": [
-      "experiment_id",
-      "briefing_type",
-      "briefing_status",
-      "generated_at",
-      "official_name",
-      "meeting_date",
-      "estimated_read_minutes",
-      "executive_summary",
-      "run_metadata",
-      "items",
-      "claims",
-      "sources",
-      "required_data_points",
-      "disclosure"
-    ],
-    "properties": {
-      "experiment_id": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Experiment id, echoed from PARAMS."
-      },
-      "briefing_type": {
-        "type": "string",
-        "enum": [
-          "city_council_meeting",
-          "county_legislature_meeting",
-          "school_board_meeting"
-        ],
-        "description": "Self-identification of the briefing kind."
-      },
-      "briefing_status": {
-        "type": "string",
-        "enum": [
-          "briefing_ready",
-          "awaiting_agenda",
-          "no_meeting_found",
-          "agenda_provided_by_user",
-          "error"
-        ],
-        "description": "Outcome status set by the agent. UI render path depends on this. QA skips claim adjudication when status != briefing_ready or agenda_provided_by_user."
-      },
-      "generated_at": {
-        "type": "string",
-        "format": "date-time",
-        "description": "ISO 8601 UTC timestamp when the briefing was generated."
-      },
-      "official_name": {
-        "type": "string",
-        "minLength": 1
-      },
-      "meeting_date": {
-        "type": "string",
-        "format": "date",
-        "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
-      },
-      "estimated_read_minutes": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "executive_summary": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 400
-      },
-      "run_metadata": {
+    "oneOf": [
+      {
+        "title": "MeetingBriefingFull",
         "type": "object",
         "additionalProperties": false,
-        "required": ["agenda_packet_url", "source_bundle_retrieved_at"],
+        "required": [
+          "experiment_id",
+          "briefing_type",
+          "briefing_status",
+          "generated_at",
+          "official_name",
+          "meeting_date",
+          "estimated_read_minutes",
+          "executive_summary",
+          "run_metadata",
+          "items",
+          "claims",
+          "sources",
+          "required_data_points",
+          "disclosure"
+        ],
         "properties": {
-          "agenda_packet_url": {
-            "type": ["string", "null"],
-            "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
-          },
-          "source_bundle_retrieved_at": {
+          "experiment_id": {
             "type": "string",
-            "format": "date-time"
+            "minLength": 1,
+            "description": "Experiment id, echoed from PARAMS."
           },
-          "briefing_version": {
-            "type": "string"
+          "briefing_type": {
+            "type": "string",
+            "enum": [
+              "city_council_meeting",
+              "county_legislature_meeting",
+              "school_board_meeting"
+            ],
+            "description": "Self-identification of the briefing kind."
           },
-          "run_decisions": {
-            "type": "array",
-            "description": "Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["timestamp", "decision", "reason"],
-              "properties": {
-                "timestamp": { "type": "string", "format": "date-time" },
-                "decision": { "type": "string", "minLength": 1 },
-                "reason": { "type": "string", "minLength": 1 }
+          "briefing_status": {
+            "type": "string",
+            "enum": [
+              "briefing_ready",
+              "agenda_provided_by_user"
+            ],
+            "description": "Full briefing produced. UI renders normal briefing."
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 UTC timestamp when the briefing was generated."
+          },
+          "official_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "meeting_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
+          },
+          "estimated_read_minutes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "executive_summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "run_metadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agenda_packet_url",
+              "source_bundle_retrieved_at"
+            ],
+            "properties": {
+              "agenda_packet_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
+              },
+              "source_bundle_retrieved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "briefing_version": {
+                "type": "string"
+              },
+              "run_decisions": {
+                "type": "array",
+                "description": "Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "timestamp",
+                    "decision",
+                    "reason"
+                  ],
+                  "properties": {
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "decision": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
               }
             }
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/item"
+            }
+          },
+          "claims": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/definitions/claim"
+            },
+            "description": "May be empty when briefing_status is awaiting_agenda or no_meeting_found. Capped at 200 to bound the validator's O(claims × sources × extracts) substring scan."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/source"
+            }
+          },
+          "required_data_points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/required_data_point"
+            }
+          },
+          "disclosure": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Required verbatim disclaimer per required_disclosure.md."
           }
         }
       },
-      "items": {
-        "type": "array",
-        "minItems": 1,
-        "items": { "$ref": "#/definitions/item" }
-      },
-      "claims": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/claim" },
-        "description": "May be empty when briefing_status is awaiting_agenda or no_meeting_found."
-      },
-      "sources": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/source" }
-      },
-      "required_data_points": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/required_data_point" }
-      },
-      "disclosure": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Required verbatim disclaimer per required_disclosure.md."
+      {
+        "title": "MeetingBriefingPlaceholder",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "experiment_id",
+          "briefing_type",
+          "briefing_status",
+          "generated_at",
+          "official_name",
+          "meeting_date",
+          "estimated_read_minutes",
+          "executive_summary",
+          "run_metadata",
+          "items",
+          "claims",
+          "sources",
+          "required_data_points",
+          "disclosure"
+        ],
+        "properties": {
+          "experiment_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Experiment id, echoed from PARAMS."
+          },
+          "briefing_type": {
+            "type": "string",
+            "enum": [
+              "city_council_meeting",
+              "county_legislature_meeting",
+              "school_board_meeting"
+            ],
+            "description": "Self-identification of the briefing kind."
+          },
+          "briefing_status": {
+            "type": "string",
+            "enum": [
+              "awaiting_agenda",
+              "no_meeting_found",
+              "error"
+            ],
+            "description": "Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when no upcoming meeting exists within the 60-day search window. Use 'error' for unrecoverable run failures \u2014 populate run_metadata.run_decisions[] with the diagnostic trail."
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 UTC timestamp when the briefing was generated."
+          },
+          "official_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "meeting_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
+          },
+          "estimated_read_minutes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "executive_summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "run_metadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agenda_packet_url",
+              "source_bundle_retrieved_at"
+            ],
+            "properties": {
+              "agenda_packet_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
+              },
+              "source_bundle_retrieved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "briefing_version": {
+                "type": "string"
+              },
+              "run_decisions": {
+                "type": "array",
+                "description": "Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "timestamp",
+                    "decision",
+                    "reason"
+                  ],
+                  "properties": {
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "decision": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/definitions/placeholder_item"
+            }
+          },
+          "claims": {
+            "type": "array",
+            "maxItems": 0,
+            "description": "Always empty for placeholder/early-exit artifacts."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/source"
+            }
+          },
+          "required_data_points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/required_data_point"
+            }
+          },
+          "disclosure": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Required verbatim disclaimer per required_disclosure.md."
+          }
+        }
       }
-    },
-
+    ],
     "definitions": {
       "item": {
         "type": "object",
@@ -218,7 +379,10 @@
             "pattern": "^item_[0-9]{3}$"
           },
           "item_number": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Agenda item number as a string (e.g. '5F'). Set to null only for the single placeholder item emitted when briefing_status is awaiting_agenda or no_meeting_found."
           },
           "title": {
@@ -227,7 +391,11 @@
           },
           "tier": {
             "type": "string",
-            "enum": ["featured", "queued", "standard"]
+            "enum": [
+              "featured",
+              "queued",
+              "standard"
+            ]
           },
           "vote_required": {
             "type": "boolean"
@@ -241,56 +409,78 @@
             },
             "description": "Free-form short snake_case reasons explaining the tier assignment. Preferred values for the common cases: 'vote_required', 'public_position_required', 'budget_threshold', 'constituent_alignment', 'procedural', 'ceremonial', 'consent_routine', 'first_reading_only', 'received_and_filed_or_callup', 'land_use_referral', 'out_of_district', 'symbolic_resolution', 'placeholder'. Agent may use a domain-specific reason when none of the preferred values fit, but reuse preferred values when they apply (do not invent 'procedural_minutes' when 'procedural' already covers it)."
           },
-          "display": { "$ref": "#/definitions/display" },
-          "research": { "$ref": "#/definitions/research" }
+          "display": {
+            "$ref": "#/definitions/display"
+          },
+          "research": {
+            "$ref": "#/definitions/research"
+          }
         }
       },
-
       "display": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary"],
+        "required": [
+          "summary"
+        ],
         "properties": {
-          "summary": { "type": "string", "minLength": 1 },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
           "constituent_sentiment": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/definitions/display_constituent_sentiment" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/display_constituent_sentiment"
+              }
             ]
           },
           "recent_news": {
             "oneOf": [
-              { "type": "null" },
+              {
+                "type": "null"
+              },
               {
                 "type": "array",
+                "minItems": 1,
                 "maxItems": 3,
-                "items": { "$ref": "#/definitions/recent_news_entry" }
+                "items": {
+                  "$ref": "#/definitions/recent_news_entry"
+                }
               }
             ]
           },
           "budget_impact": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/definitions/budget_impact" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/budget_impact"
+              }
             ]
           },
           "talking_points": {
             "oneOf": [
-              { "type": "null" },
+              {
+                "type": "null"
+              },
               {
                 "type": "array",
-                "minItems": 1,
-                "items": { "type": "string", "minLength": 1 }
+                "minItems": 3,
+                "maxItems": 5,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             ]
-          },
-          "source_ids": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
           }
         }
       },
-
       "display_constituent_sentiment": {
         "type": "object",
         "additionalProperties": false,
@@ -300,13 +490,25 @@
           "mean_score",
           "score_direction",
           "voter_count",
-          "haystaq_status",
-          "haystaq_source"
+          "haystaq_status"
         ],
         "properties": {
-          "summary": { "type": "string", "minLength": 1 },
-          "detail": { "type": ["string", "null"] },
-          "district_note": { "type": ["string", "null"] },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "district_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "haystaq_column": {
             "type": "string",
             "pattern": "^hs_[a-z0-9_]+$"
@@ -319,7 +521,7 @@
           "score_direction": {
             "type": "string",
             "minLength": 1,
-            "description": "Short string describing what high values represent (derived from issue_label for curated; from score_high_means for dictionary fallback)."
+            "description": "Short string describing what high values represent. Derived from the catalog entry's `meaning` field (e.g. \"supports gun control\")."
           },
           "voter_count": {
             "type": "integer",
@@ -327,22 +529,33 @@
           },
           "haystaq_status": {
             "type": "string",
-            "enum": ["ok", "no_match", "city_mismatch", "no_column"]
-          },
-          "haystaq_source": {
-            "type": "string",
-            "enum": ["curated", "dictionary_fallback"]
+            "enum": [
+              "ok",
+              "no_match",
+              "city_mismatch",
+              "no_column"
+            ]
           }
         }
       },
-
       "recent_news_entry": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["headline", "publication", "article_type", "url"],
+        "required": [
+          "headline",
+          "publication",
+          "article_type",
+          "url"
+        ],
         "properties": {
-          "headline": { "type": "string", "minLength": 1 },
-          "publication": { "type": "string", "minLength": 1 },
+          "headline": {
+            "type": "string",
+            "minLength": 1
+          },
+          "publication": {
+            "type": "string",
+            "minLength": 1
+          },
           "article_type": {
             "type": "string",
             "enum": [
@@ -354,58 +567,93 @@
             ]
           },
           "publication_date": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date"
           },
           "url": {
             "type": "string",
             "pattern": "^https?://"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[]."
           }
         }
       },
-
       "budget_impact": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary", "figures"],
+        "required": [
+          "summary",
+          "figures"
+        ],
         "properties": {
-          "summary": { "type": "string", "minLength": 1 },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
           "figures": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["label", "value", "source_id"],
+              "required": [
+                "label",
+                "value",
+                "source_id"
+              ],
               "properties": {
-                "label": { "type": "string", "minLength": 1 },
-                "value": { "type": "string", "minLength": 1 },
-                "source_id": { "type": "string", "minLength": 1 }
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           }
         }
       },
-
       "research": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["raw_context", "full_treatment"],
+        "required": [
+          "raw_context",
+          "full_treatment"
+        ],
         "properties": {
           "raw_context": {
             "type": "array",
             "minItems": 1,
-            "items": { "$ref": "#/definitions/raw_context_chunk" }
+            "items": {
+              "$ref": "#/definitions/raw_context_chunk"
+            }
           },
           "full_treatment": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/definitions/full_treatment" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/full_treatment"
+              }
             ]
           }
         }
       },
-
       "raw_context_chunk": {
         "type": "object",
         "additionalProperties": false,
@@ -427,92 +675,154 @@
             "type": "string",
             "pattern": "^item_[0-9]{3}$"
           },
-          "item_title": { "type": "string", "minLength": 1 },
+          "item_title": {
+            "type": "string",
+            "minLength": 1
+          },
           "tier": {
             "type": "string",
-            "enum": ["featured", "queued", "standard"]
+            "enum": [
+              "featured",
+              "queued",
+              "standard"
+            ]
           },
-          "source_id": { "type": "string", "minLength": 1 },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
           "pages": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "integer", "minimum": 1 }
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
           },
-          "section_heading": { "type": ["string", "null"] },
-          "text": { "type": "string", "minLength": 1 }
+          "section_heading": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
-
       "full_treatment": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["haystaq_detail", "news_articles", "budget_detail"],
+        "required": [
+          "haystaq_detail",
+          "news_articles",
+          "budget_detail"
+        ],
         "properties": {
           "haystaq_detail": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/definitions/haystaq_detail" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/haystaq_detail"
+              }
             ]
           },
           "news_articles": {
             "oneOf": [
-              { "type": "null" },
+              {
+                "type": "null"
+              },
               {
                 "type": "array",
-                "items": { "$ref": "#/definitions/news_article" }
+                "items": {
+                  "$ref": "#/definitions/news_article"
+                }
               }
             ]
           },
           "budget_detail": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/definitions/budget_detail" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/budget_detail"
+              }
             ]
           }
         }
       },
-
       "haystaq_detail": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["haystaq_status", "haystaq_source", "haystaq_column"],
+        "required": [
+          "haystaq_status",
+          "haystaq_column"
+        ],
         "properties": {
           "haystaq_status": {
             "type": "string",
-            "enum": ["ok", "no_match", "city_mismatch", "no_column"]
-          },
-          "haystaq_source": {
-            "type": ["string", "null"],
-            "enum": ["curated", "dictionary_fallback", null],
-            "description": "Null is permitted when haystaq_status is no_match / city_mismatch / no_column (no source applies). Required to be set when haystaq_status is ok."
+            "enum": [
+              "ok",
+              "no_match",
+              "city_mismatch",
+              "no_column"
+            ]
           },
           "haystaq_column": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^hs_[a-z0-9_]+$"
           },
           "city_mean_score": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 100
           },
           "district_mean_score": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 100
           },
           "city_voter_count": {
-            "type": ["integer", "null"],
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0
           },
           "district_voter_count": {
-            "type": ["integer", "null"],
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0
           },
-          "complementary_field": { "type": ["string", "null"] },
-          "query_executed": { "type": ["string", "null"] }
+          "complementary_field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query_executed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
-
       "news_article": {
         "type": "object",
         "additionalProperties": false,
@@ -524,8 +834,14 @@
           "body_text"
         ],
         "properties": {
-          "headline": { "type": "string", "minLength": 1 },
-          "publication": { "type": "string", "minLength": 1 },
+          "headline": {
+            "type": "string",
+            "minLength": 1
+          },
+          "publication": {
+            "type": "string",
+            "minLength": 1
+          },
           "article_type": {
             "type": "string",
             "enum": [
@@ -537,21 +853,27 @@
             ]
           },
           "publication_date": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date"
           },
           "url": {
             "type": "string",
             "pattern": "^https?://"
           },
-          "body_text": { "type": "string" }
+          "body_text": {
+            "type": "string"
+          }
         }
       },
-
       "budget_detail": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["figures"],
+        "required": [
+          "figures"
+        ],
         "properties": {
           "figures": {
             "type": "array",
@@ -559,17 +881,29 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["label", "value", "verbatim_extract"],
+              "required": [
+                "label",
+                "value",
+                "verbatim_extract"
+              ],
               "properties": {
-                "label": { "type": "string", "minLength": 1 },
-                "value": { "type": "string", "minLength": 1 },
-                "verbatim_extract": { "type": "string", "minLength": 1 }
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "verbatim_extract": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           }
         }
       },
-
       "claim": {
         "type": "object",
         "additionalProperties": false,
@@ -604,7 +938,10 @@
               "talking_points"
             ]
           },
-          "claim_text": { "type": "string", "minLength": 1 },
+          "claim_text": {
+            "type": "string",
+            "minLength": 1
+          },
           "claim_type": {
             "type": "string",
             "enum": [
@@ -620,17 +957,29 @@
           },
           "claim_weight": {
             "type": "string",
-            "enum": ["high", "medium", "low"]
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
           },
           "source_extracts": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string", "minLength": 1 }
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
           },
           "source_ids": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "required_source_type": {
             "type": "string",
@@ -644,11 +993,14 @@
           },
           "route_if_unsupported": {
             "type": "string",
-            "enum": ["block_release", "omit_claim", "flag_as_inferred"]
+            "enum": [
+              "block_release",
+              "omit_claim",
+              "flag_as_inferred"
+            ]
           }
         }
       },
-
       "source": {
         "type": "object",
         "additionalProperties": false,
@@ -660,10 +1012,19 @@
           "retrieved_text_or_snapshot"
         ],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "name": { "type": "string", "minLength": 1 },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
           "url": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^https?://"
           },
           "source_type": {
@@ -676,13 +1037,40 @@
               "haystaq"
             ]
           },
-          "retrieved_at": { "type": "string", "format": "date-time" },
-          "retrieved_text_or_snapshot": { "type": "string", "minLength": 1 },
-          "page_number": { "type": ["integer", "null"], "minimum": 1 },
-          "section_heading": { "type": ["string", "null"] },
-          "article_date": { "type": ["string", "null"], "format": "date" },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retrieved_text_or_snapshot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          },
+          "page_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "section_heading": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "article_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "article_type": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "reporting",
               "opinion",
@@ -692,30 +1080,69 @@
               null
             ]
           },
-          "publisher": { "type": ["string", "null"] },
-          "haystaq_column": { "type": ["string", "null"] },
+          "publisher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "haystaq_column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "score_value": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 100
           },
-          "district_voters_n": { "type": ["integer", "null"], "minimum": 0 },
-          "specific_claim_found": { "type": ["string", "null"] }
+          "district_voters_n": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "specific_claim_found": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
-
       "required_data_point": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "scope", "required", "citation_required"],
+        "required": [
+          "name",
+          "scope",
+          "required",
+          "citation_required"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
           "scope": {
             "type": "string",
-            "enum": ["all_items", "featured_queued", "featured"]
+            "enum": [
+              "all_items",
+              "featured_queued",
+              "featured"
+            ]
           },
-          "required": { "type": "boolean" },
-          "citation_required": { "type": "boolean" },
+          "required": {
+            "type": "boolean"
+          },
+          "citation_required": {
+            "type": "boolean"
+          },
           "allowed_source_types": {
             "type": "array",
             "items": {
@@ -731,7 +1158,98 @@
           },
           "skip_reasons_allowed": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "placeholder_item": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "item_number",
+          "title",
+          "tier",
+          "vote_required",
+          "tier_reason",
+          "display",
+          "research"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "const": "item_001"
+          },
+          "item_number": {
+            "type": "null"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tier": {
+            "type": "string",
+            "const": "standard"
+          },
+          "vote_required": {
+            "type": "boolean",
+            "const": false
+          },
+          "tier_reason": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "string",
+              "const": "placeholder"
+            }
+          },
+          "display": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "summary"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "constituent_sentiment": {
+                "type": "null"
+              },
+              "recent_news": {
+                "type": "null"
+              },
+              "budget_impact": {
+                "type": "null"
+              },
+              "talking_points": {
+                "type": "null"
+              }
+            }
+          },
+          "research": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "raw_context",
+              "full_treatment"
+            ],
+            "properties": {
+              "raw_context": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/definitions/raw_context_chunk"
+                }
+              },
+              "full_treatment": {
+                "type": "null"
+              }
+            }
           }
         }
       }
