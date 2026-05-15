@@ -48,6 +48,8 @@
         "required": [
           "generated_at",
           "status",
+          "meeting_name",
+          "location",
           "rrule",
           "human",
           "time",
@@ -63,6 +65,18 @@
           "status": {
             "type": "string",
             "const": "found"
+          },
+          "meeting_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Official name of the meeting body as the source refers to it (e.g. 'City Council', 'Planning Board'). Used as the list-row title in the candidate dashboard."
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Customary location for regular meetings (e.g. 'City Hall Council Chambers, 200 Main St'). Falls back to a city-hall address if the source doesn't state a specific room."
           },
           "rrule": {
             "type": "string",
@@ -126,6 +140,8 @@
         "required": [
           "generated_at",
           "status",
+          "meeting_name",
+          "location",
           "rrule",
           "human",
           "time",
@@ -141,6 +157,14 @@
           "status": {
             "type": "string",
             "const": "not_found"
+          },
+          "meeting_name": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 0
           },
           "rrule": {
             "type": "string",
