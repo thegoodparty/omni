@@ -67,6 +67,8 @@
           "briefing_status",
           "generated_at",
           "official_name",
+          "meeting_name",
+          "location",
           "meeting_date",
           "estimated_read_minutes",
           "executive_summary",
@@ -108,6 +110,18 @@
           "official_name": {
             "type": "string",
             "minLength": 1
+          },
+          "meeting_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Official name of the meeting body as the source refers to it (e.g. 'City Council', 'Planning Board'). Used as the list-row title in the candidate dashboard. Mirrors meeting_schedule.meeting_name when a schedule exists."
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Customary location for the meeting (e.g. 'City Hall Council Chambers, 200 Main St'). Falls back to a city-hall address if the source doesn't state a specific room."
           },
           "meeting_date": {
             "type": "string",
@@ -218,6 +232,8 @@
           "briefing_status",
           "generated_at",
           "official_name",
+          "meeting_name",
+          "location",
           "meeting_date",
           "estimated_read_minutes",
           "executive_summary",
@@ -260,6 +276,16 @@
           "official_name": {
             "type": "string",
             "minLength": 1
+          },
+          "meeting_name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Official name of the meeting body (e.g. 'City Council'). Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error."
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Customary location for the meeting. Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error."
           },
           "meeting_date": {
             "type": "string",
