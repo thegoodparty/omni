@@ -52,6 +52,20 @@ META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "manifest.schema.json"
 
 VALID_ENVS = {"dev", "qa", "prod"}
 
+# Total bytes cap across all attachments for a single experiment. Bounds the
+# broker manifest payload (it streams all attachments in one envelope) and the
+# runner's pre-task workspace-write step. Pick conservatively — bumping later
+# is a one-line change; loosening too early invites a 100 MB sidecar.
+ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES = 5 * 1024 * 1024
+
+
+class AttachmentValidationError(ValueError):
+    """Raised when an attachment fails publisher-side validation.
+
+    Distinct subclass so callers/tests can match the specific failure surface
+    without catching unrelated ValueErrors from JSON parsing or jsonschema.
+    """
+
 
 def _load_meta_schema() -> dict:
     return json.loads(META_SCHEMA_PATH.read_text())
@@ -64,33 +78,144 @@ def _experiment_dirs() -> list[Path]:
     )
 
 
-def _hash_pair(manifest_bytes: bytes, instruction_bytes: bytes) -> str:
+def _hash_pair(
+    manifest_bytes: bytes,
+    instruction_bytes: bytes,
+    attachments: list[tuple[str, bytes]] | None = None,
+) -> str:
+    """Hash the published bytes for an experiment.
+
+    Attachments must be passed in stable order (relpath-sorted) — the hash is
+    used by consumers to detect a publish drift, so the same inputs must
+    always produce the same digest.
+    """
     h = hashlib.sha256()
     h.update(manifest_bytes)
     h.update(instruction_bytes)
+    for relpath, body in (attachments or []):
+        h.update(relpath.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(body)
     return "sha256:" + h.hexdigest()
+
+
+def _attachment_files(exp_dir: Path) -> list[Path]:
+    att_dir = exp_dir / "attachments"
+    if not att_dir.is_dir():
+        return []
+    return sorted(p for p in att_dir.rglob("*") if p.is_file())
+
+
+# Attachments are guaranteed UTF-8 text by `_validate_attachments`, so a
+# single static content type is correct for every upload. Extension-derived
+# Content-Type is an attacker-controlled surface — if the bucket is ever
+# fronted by CloudFront, an attachment whose basename ends in `.html` would
+# be served as text/html. The validation contract makes that moot: refuse
+# non-UTF-8 at publish, label everything text/plain at upload.
+ATTACHMENT_CONTENT_TYPE = "text/plain; charset=utf-8"
+
+
+def _validate_attachments(exp_dir: Path) -> list[tuple[str, bytes]]:
+    """Walk experiments/<id>/attachments/, validate each entry, return
+    (relpath, body) tuples sorted by relpath.
+
+    Fails loudly on the first violation — partial publishes are never safe.
+    """
+    att_dir = exp_dir / "attachments"
+    files = _attachment_files(exp_dir)
+    out: list[tuple[str, bytes]] = []
+    total_bytes = 0
+    for f in files:
+        relpath = f.relative_to(att_dir).as_posix()
+        # Path safety: only basenames, no traversal, no absolute paths.
+        if relpath.startswith("/"):
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: absolute paths are not allowed"
+            )
+        segments = relpath.split("/")
+        if any(seg == ".." for seg in segments):
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: '..' path segments are not allowed"
+            )
+        # `output/` prefix is checked BEFORE the nested-dir rule so that if
+        # nested dirs are ever allowed in the future, this rule still fires
+        # — the runtime risk (clobbering an in-flight artifact under
+        # /workspace/output/) is independent of layout policy.
+        if relpath.startswith("output/"):
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: 'output/' is reserved for "
+                "runtime artifacts and must not appear in attachments"
+            )
+        if len(segments) > 1:
+            # Nested dirs under attachments/ are deliberately deferred — the
+            # runner writes attachments directly under /workspace/ as
+            # basenames, so a nested source would have ambiguous target shape.
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: nested subdirectories under "
+                "attachments/ are not allowed (use a flat layout for now)"
+            )
+        # Reject symlinks: a symlink inside attachments/ is an arbitrary-file-
+        # read vector — `read_bytes()` would happily slurp the link target.
+        # Also resolve and re-check containment as belt-and-braces against any
+        # future path-resolution quirk (a file whose parents contain a link,
+        # bind mounts, etc.).
+        if f.is_symlink():
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: symlinks are not allowed "
+                "(arbitrary-file-read risk)"
+            )
+        resolved = f.resolve()
+        att_root = att_dir.resolve()
+        try:
+            resolved.relative_to(att_root)
+        except ValueError as e:
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: resolves outside attachments/ dir"
+            ) from e
+        # Size check BEFORE read: a stray multi-GB file would OOM us before
+        # the cap-after-read could reject it. stat() is O(1).
+        size = f.stat().st_size
+        if total_bytes + size > ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES:
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/: total size {total_bytes + size} bytes "
+                f"exceeds cap {ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES} bytes (5 MB)"
+            )
+        body = f.read_bytes()
+        # Broker streams attachments as text envelopes; binary 500s every
+        # fetch. Refuse non-UTF-8 at publish so the failure is visible in CI.
+        try:
+            body.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise AttachmentValidationError(
+                f"{exp_dir.name}/attachments/{relpath}: not valid UTF-8 "
+                "(binary attachments not supported)"
+            ) from e
+        total_bytes += size
+        out.append((relpath, body))
+    out.sort(key=lambda item: item[0])
+    return out
 
 
 def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
     """Fail loudly on any meta-schema violation BEFORE any S3 write."""
     validator = Draft7Validator(meta_schema)
-    failed = False
+    failed_names: list[str] = []
     for d in dirs:
         manifest_path = d / "manifest.json"
         instruction_path = d / "instruction.md"
         if not manifest_path.exists():
             print(f"  ✗ {d.name}: missing manifest.json", file=sys.stderr)
-            failed = True
+            failed_names.append(d.name)
             continue
         if not instruction_path.exists():
             print(f"  ✗ {d.name}: missing instruction.md", file=sys.stderr)
-            failed = True
+            failed_names.append(d.name)
             continue
         try:
             manifest = json.loads(manifest_path.read_text())
         except json.JSONDecodeError as e:
             print(f"  ✗ {d.name}: manifest.json invalid JSON: {e}", file=sys.stderr)
-            failed = True
+            failed_names.append(d.name)
             continue
         # absolute_path mixes strings (object keys) and ints (array indices);
         # coerce to str so Python 3 doesn't raise TypeError on mixed-type
@@ -101,17 +226,36 @@ def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
             for err in errors:
                 path = ".".join(str(p) for p in err.absolute_path) or "<root>"
                 print(f"      {path}: {err.message}", file=sys.stderr)
-            failed = True
+            failed_names.append(d.name)
             continue
         if manifest.get("id") != d.name:
             print(
                 f"  ✗ {d.name}: manifest id '{manifest.get('id')}' does not match dir name",
                 file=sys.stderr,
             )
-            failed = True
+            failed_names.append(d.name)
             continue
-        print(f"  ✓ {d.name} v{manifest['version']}")
-    if failed:
+        # Attachment validation runs alongside meta-schema validation so a
+        # bad sidecar surfaces in the same pre-flight wave as a bad manifest
+        # — no half-validated state where the manifest is OK but an
+        # attachment kills the publish mid-upload.
+        try:
+            attachments = _validate_attachments(d)
+        except AttachmentValidationError as e:
+            print(f"  ✗ {d.name}: attachment validation failed: {e}", file=sys.stderr)
+            failed_names.append(d.name)
+            continue
+        att_summary = f", {len(attachments)} attachment(s)" if attachments else ""
+        print(f"  ✓ {d.name} v{manifest['version']}{att_summary}")
+    if failed_names:
+        # A bare `sys.exit(1)` left operators scrolling back through the
+        # ✗ lines counting failures by hand. Surface the count + names so
+        # the failure summary is actionable on its own line.
+        print(
+            f"\n  FAILED: {len(failed_names)} of {len(dirs)} experiments rejected — "
+            f"see ✗ lines above ({', '.join(failed_names)})",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -166,32 +310,48 @@ def _publishable_manifest_bytes(manifest_path: Path, defs: dict) -> bytes:
     return json.dumps(inlined, indent=2, sort_keys=True).encode() + b"\n"
 
 
-def _build_index(env: str, dirs: list[Path], meta: dict) -> dict:
+def _build_index(
+    env: str, dirs: list[Path], meta: dict
+) -> tuple[dict, dict[str, list[tuple[str, bytes]]]]:
     """Build index.json — every experiment in `dirs` becomes an entry.
 
-    The hash field covers the *published* manifest bytes (post-$ref-inlining),
-    not the source bytes. This way the hash matches what S3 actually serves.
+    Returns both the index dict AND a per-experiment attachments map. The
+    map lets `publish()` upload the EXACT bytes that fed the hash digest;
+    re-reading from disk at upload time created a TOCTOU window where a
+    concurrent edit could ship bytes that don't match the published digest.
+
+    The hash field covers the *published* manifest bytes (post-$ref-inlining)
+    + instruction + every attachment body. Attachments contribute to the hash
+    in relpath-sorted order so the digest is stable across machines.
     """
     defs = meta.get("$defs", {})
     entries = []
+    attachments_by_id: dict[str, list[tuple[str, bytes]]] = {}
     for d in dirs:
         manifest_path = d / "manifest.json"
         instruction_path = d / "instruction.md"
         manifest_bytes = _publishable_manifest_bytes(manifest_path, defs)
         instruction_bytes = instruction_path.read_bytes()
+        attachments = _validate_attachments(d)
         manifest = json.loads(manifest_bytes)
+        attachment_keys = sorted(
+            f"{manifest['id']}/attachments/{relpath}" for relpath, _ in attachments
+        )
+        attachments_by_id[manifest["id"]] = attachments
         entries.append({
             "id": manifest["id"],
             "version": manifest["version"],
             "manifest_key": f"{manifest['id']}/manifest.json",
             "instruction_key": f"{manifest['id']}/instruction.md",
-            "hash": _hash_pair(manifest_bytes, instruction_bytes),
+            "attachment_keys": attachment_keys,
+            "hash": _hash_pair(manifest_bytes, instruction_bytes, attachments),
         })
-    return {
+    index = {
         "published_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "experiments": entries,
     }
+    return index, attachments_by_id
 
 
 def _git_sha() -> str:
@@ -202,7 +362,15 @@ def _git_sha() -> str:
             cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         )
         return out.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        # Surface the fallback so an operator can spot a misconfigured CI
+        # runner. Silent "unknown" git_sha in index.json hides provenance
+        # gaps for weeks otherwise.
+        print(
+            f"warning: git rev-parse failed ({type(e).__name__}); "
+            "index.json will record git_sha='unknown'",
+            file=sys.stderr,
+        )
         return "unknown"
 
 
@@ -232,16 +400,36 @@ def publish(env: str, dry_run: bool = False) -> int:
     meta = _load_meta_schema()
     _validate_all(meta, dirs)
 
-    index = _build_index(env, dirs, meta)
+    index, attachments_by_id = _build_index(env, dirs, meta)
     defs = meta.get("$defs", {})
 
     print(f"\n== publish target: s3://{bucket}/  (env={env}, git={index['git_sha']}) ==")
     print(f"   {len(index['experiments'])} experiment(s) to publish")
 
     if dry_run:
-        print("\n[DRY RUN] would upload (manifest.json + instruction.md per experiment):")
+        print("\n[DRY RUN] would upload (manifest.json + instruction.md + attachments per experiment):")
         for entry in index["experiments"]:
-            print(f"   {entry['id']} v{entry['version']} ({entry['hash'][:23]}...)")
+            # `entry['hash']` is "sha256:<64 hex chars>"; an unconditional
+            # [:23] slice cut the prefix mid-word ("sha256:xxxxxxxxxxxxxxxx").
+            # Strip prefix, slice the hex, then re-tag explicitly.
+            short_hex = entry["hash"].removeprefix("sha256:")[:12]
+            print(f"   {entry['id']} v{entry['version']} (sha256:{short_hex}...)")
+            print(f"     - {entry['manifest_key']}")
+            print(f"     - {entry['instruction_key']}")
+            atts = attachments_by_id.get(entry["id"], [])
+            att_total = 0
+            # Bodies are already in the cached map — print byte counts so
+            # the operator can see cap-proximity at-a-glance, and surface
+            # the per-experiment subtotal against the 5 MB cap.
+            for ak, (_relpath, body) in zip(entry["attachment_keys"], atts, strict=True):
+                size = len(body)
+                att_total += size
+                print(f"     - {ak} ({size:,} bytes)")
+            if atts:
+                print(
+                    f"     (attachments subtotal: {att_total:,} bytes of "
+                    f"{ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES:,} cap)"
+                )
         print("\n[DRY RUN] would write index.json LAST as atomic switch")
         return 0
 
@@ -266,11 +454,23 @@ def publish(env: str, dry_run: bool = False) -> int:
                 _upload, s3, bucket, entry["instruction_key"],
                 instruction_bytes, "text/markdown",
             ))
+            # Use the bytes captured during validation — the same bytes that
+            # fed the hash digest. Re-reading from disk would open a TOCTOU
+            # window where a concurrent edit could ship bytes that don't
+            # match the published digest.
+            atts = attachments_by_id.get(entry["id"], [])
+            for ak, (_relpath, body) in zip(entry["attachment_keys"], atts, strict=True):
+                futures.append(ex.submit(
+                    _upload, s3, bucket, ak,
+                    body, ATTACHMENT_CONTENT_TYPE,
+                ))
         for f in as_completed(futures):
             f.result()  # surface failures before writing index.json
 
     for entry in index["experiments"]:
-        print(f"   ✓ {entry['id']} v{entry['version']}")
+        att_count = len(entry["attachment_keys"])
+        att_summary = f" + {att_count} attachment(s)" if att_count else ""
+        print(f"   ✓ {entry['id']} v{entry['version']}{att_summary}")
 
     print("\n== writing index.json (atomic switch) ==")
     _upload(s3, bucket, "index.json",
