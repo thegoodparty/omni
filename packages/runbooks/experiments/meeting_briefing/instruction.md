@@ -225,21 +225,47 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Before declaring `awaiting_agenda`, fan out across multiple discovery channels.** Do NOT bail after only checking the streaming platform — the platform often lags the city's own document publication, and some packets live exclusively on the city site, a news outlet's mirror, or behind a clerk-page link. Try these channels in order, stopping when you find packet content for the target meeting:
+**Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to. Each channel below requires its own `run_decisions[]` entry recording what was tried and what was found (or null). If you stop with fewer than 7 channel-entries in `run_decisions[]`, the validator will reject the artifact. Stop early ONLY when you find packet content for the target meeting.
 
-1. **The streaming platform** (Granicus, Legistar, PrimeGov, eSCRIBE, CivicPlus, CivicClerk) — as above.
-2. **The city's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, or the council clerk page. Cities often link to the packet directly from their own page before (or in parallel with) the streaming platform.
-3. **The city site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable file path on their own domain independent of the streaming platform — e.g. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`. Once you discover the pattern from a past meeting, probe the predictable filename for the target meeting date directly.
-4. **Local news.** WebSearch `"<city>" <body> agenda packet <month> <year>` or `"<city>" "<body>" meeting <date>` — local press routinely re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
-5. **The Council Clerk / Records Office page.** When all else fails, the clerk page often has a contact path and a "how to obtain meeting materials" instruction. Cite it as a source even when no packet is found — it documents the search trail.
+1. **Primary platform** (try in order; each requires its own search query + verification fetch):
+   - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
+   - PrimeGov: WebSearch `"<city>" primegov.com` → URL pattern `{client}.primegov.com/Portal/Meeting`.
+   - eSCRIBE: WebSearch `"<city>" escribemeetings.com`.
+   - CivicPlus AgendaCenter: WebSearch `"<city>" AgendaCenter`.
+   - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf`.
+   - Granicus: WebSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
+   - CivicClerk: WebSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
+   - Novus Agenda: WebSearch `"<city>" novusagenda`. *Drill into the meeting search results — landing-page-only checks don't count.*
+   - Municode/CivicPlus Meetings: WebSearch `"<city>" meetings civicplus` / `"<city>" municode meetings`.
+   - Swagit (streaming): WebSearch `"<city>" swagit.com` — usually only video, but check for linked PDFs.
+   For each platform you try: emit a `run_decisions[]` entry with the search query, URL probed, and result.
+2. **City's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, `/agendas-minutes/`, or the council clerk page. Drill at least 2 clicks deep into menus before declaring empty.
+3. **City site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable path independent of the streaming platform. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`; Covington TN uses `covingtontn.gov/utility/openPDF/cicotn/BMA_-_DDMMMYYYY.pdf`. Discover the pattern from a recent past meeting on the same site, then probe the predictable filename for the target date.
+4. **Direct WebSearch for the packet PDF on common CDN domains.** This catches the Fulshear-pattern case where the packet exists at a CDN URL but no public-facing UI links to it. Run these queries:
+   - `"<city>" "<body>" agenda <month> <year> filetype:pdf`
+   - `"<city>" agenda packet <target meeting date> site:cloudfront.net OR site:granicus.com OR site:s3.amazonaws.com OR site:civicclerk.com OR site:legistar.com OR site:boarddocs.com`
+   - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
+   For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
+5. **Local news.** WebSearch `"<city>" <body> agenda <month> <year>` or `"<city>" city council meeting <date>` — local press regularly re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
+6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
+7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
 
-**Only after channels 1–5 yield no packet content for the target meeting may you declare `awaiting_agenda`.** Record which channels you tried in `run_metadata.run_decisions[]` (one entry per channel attempted, each with what you found or didn't). This lets QA audit the search depth.
+**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted (including the per-platform sub-attempts in channel 1) — at minimum 7 entries documenting the search trail. The deterministic validator (`validate_output.py`) will reject `awaiting_agenda` artifacts that do not show this depth of effort.
 
 **Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–5 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
 #### Agenda platform reference
 
-- **Legistar** — `https://webapi.legistar.com/v1/{client}/...`. Events, agenda items (`/events/{eventId}/eventitems`), matter detail (`/matters/{matterId}`), matter attachments (`/matters/{matterId}/attachments`). The richest API; most large cities use it. **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
+- **Legistar** — `https://webapi.legistar.com/v1/{client}/...`. Events, agenda items (`/events/{eventId}/eventitems`), matter detail (`/matters/{matterId}`), matter attachments (`/matters/{matterId}/attachments`). The richest API; most large cities use it. Verify the client exists:
+
+  ```python
+  from pmf_runtime import http
+  r = http.get(f"https://webapi.legistar.com/v1/{client}/events?$top=1")
+  # 200 with non-empty list confirms client; 404 means wrong client name.
+  ```
+
+  **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
+- **BoardDocs** — `https://go.boarddocs.com/{state}/{client}/Board.nsf/Public`. Common for school boards but also some city councils. Meeting agenda items each have a UUID; PDFs at `Board.nsf/files/<uuid>/$file/<filename>.pdf`. Scrape the meeting page and follow file links.
 - **PrimeGov** — `https://{client}.primegov.com/Portal/Meeting`. The portal links to compiled meeting PDFs; individual attachments are also accessible.
 - **eSCRIBE** — meetings endpoint serves HTML with item titles, numbers, and attachment links. Parse HTML rather than expecting JSON.
 - **CivicPlus AgendaCenter** — `https://{city}.gov/AgendaCenter`. Per-meeting agenda PDFs; scrape the index page, download, and extract text. Some installations are fronted by Cloudflare and return HTTP 403 to scripted requests — when that happens, check for a CivicClerk mirror first before changing strategy.
