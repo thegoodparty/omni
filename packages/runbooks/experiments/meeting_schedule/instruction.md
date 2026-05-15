@@ -18,11 +18,12 @@ Given a city + state + governing body name, find the **regular recurring public 
 3. Fetch the agendas / meetings / city council page via `pmf_runtime.http.get` and confirm a recurring schedule is stated.
 4. If no recurring schedule appears on a top-level page, search for and fetch the municipal code section (often searchable as `<city> <state> municipal code council meetings`).
 5. Determine local meeting time, IANA timezone, and typical duration.
-6. Encode the recurrence as an iCalendar RFC 5545 RRULE string. Do **not** include `DTSTART`.
-7. Collect every URL touched into `sources` with a one-sentence `note` per entry.
-8. Assemble the artifact and write to `/workspace/output/meeting_schedule.json`.
-9. Run `python3 /workspace/validate_output.py`.
-10. Perform the spot-check.
+6. Capture the official `meeting_name` (e.g. "City Council") and customary `location` (e.g. "City Hall Council Chambers, 200 Main St") from the same official source.
+7. Encode the recurrence as an iCalendar RFC 5545 RRULE string. Do **not** include `DTSTART`.
+8. Collect every URL touched into `sources` with a one-sentence `note` per entry.
+9. Assemble the artifact and write to `/workspace/output/meeting_schedule.json`.
+10. Run `python3 /workspace/validate_output.py`.
+11. Perform the spot-check.
 
 If after STEP 4 you cannot find an explicit recurring schedule from an official source, set `status: "not_found"` with empty string / `0` defaults for all schedule fields. **You SHOULD still populate `sources` with the URLs you searched** so a reviewer can audit the search trail — `sources` is optional but useful for `not_found`. **Do not invent a schedule.**
 
@@ -151,17 +152,22 @@ If after a thorough search no recurring schedule is found on any official source
 - **Timezone** — resolve from the city's geographic location. Eastern → `America/New_York`, Central → `America/Chicago`, Mountain (most) → `America/Denver`, Arizona → `America/Phoenix`, Pacific → `America/Los_Angeles`, Alaska → `America/Anchorage`, Hawaii → `Pacific/Honolulu`.
 - **Duration** — search the agenda/minutes portal for typical adjournment patterns. If meetings start at 7:00 PM and minutes consistently show adjournment around 9:30 PM, `duration_minutes` is `150`. If you can't determine this in ~3 minutes of effort, use the default `120`.
 
-### Step 6 — Encode RRULE
+### Step 6 — Meeting name + location
+
+- **`meeting_name`** — the official name of the body as the source refers to it. Take this verbatim from the page heading or municipal code wording. Examples: `"City Council"`, `"Planning Board"`, `"Town Council"`. Do not infer or stylize; if the input `office` is `"City Council"` but the page consistently says `"Common Council"`, write `"Common Council"`.
+- **`location`** — the customary regular-meeting location. Prefer the room + street address as stated in the agenda or municipal code, e.g. `"City Hall Council Chambers, 200 Main St"`. If the source only states a room (`"Council Chambers"`), prepend the city hall name. If the source only states an address, use that. If no location is stated anywhere on the official site, fall back to the city hall's published address — never leave this blank when `status: "found"`.
+
+### Step 7 — Encode RRULE
 
 Translate the recurrence into RFC 5545 RRULE notation (see CRITICAL RULES table). Do not include `DTSTART`. Do not include a count or end date — the schedule is open-ended.
 
 Verify your RRULE makes semantic sense by writing it back out in English in the `human` field. If you can't paraphrase the RRULE in English matching the source's wording, the RRULE is wrong.
 
-### Step 7 — Collect sources
+### Step 8 — Collect sources
 
-Every URL touched in Steps 2-6 goes into `sources` with a one-sentence `note`. At least one source must be on an official government domain when `status: "found"`.
+Every URL touched in Steps 2-7 goes into `sources` with a one-sentence `note`. At least one source must be on an official government domain when `status: "found"`.
 
-### Step 8 — Write the artifact
+### Step 9 — Write the artifact
 
 ```python
 import json, pathlib
@@ -170,6 +176,8 @@ from datetime import datetime, timezone
 artifact = {
     "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     "status": "found",
+    "meeting_name": "City Council",
+    "location": "City Hall Council Chambers, 200 Main St",
     "rrule": "FREQ=MONTHLY;BYDAY=2MO,4MO",
     "human": "Second and fourth Monday of every month",
     "time": "19:00",
@@ -194,6 +202,8 @@ pathlib.Path("/workspace/output/meeting_schedule.json").write_text(
 artifact = {
     "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     "status": "not_found",
+    "meeting_name": "",
+    "location": "",
     "rrule": "",
     "human": "",
     "time": "",
@@ -212,7 +222,7 @@ artifact = {
 }
 ```
 
-### Step 9 — Validate
+### Step 10 — Validate
 
 ```bash
 python3 /workspace/validate_output.py
@@ -229,6 +239,7 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 - **`timezone` is an IANA name, not an abbreviation.** `America/Denver` not `MST`. `America/Phoenix` not `America/Denver` for Arizona cities.
 - **`time` is 24-hour with leading zero on the hour.** `19:00` not `7:00 PM`. `09:00` not `9:00`.
 - **`duration_minutes > 0` when `status: "found"`.** Default to `120` if unknown; never leave at `0`.
+- **`meeting_name` and `location` non-empty when `status: "found"`.** Both fail validation if blank. Use the verbatim body name and the room+address (or city hall address) — never a placeholder like `"TBD"`.
 
 ## Failure modes
 

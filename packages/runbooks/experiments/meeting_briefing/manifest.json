@@ -38,7 +38,6 @@
   },
   "output_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://goodparty.org/schemas/briefing.json",
     "title": "Briefing",
     "type": "object",
     "required": [
@@ -61,49 +60,14 @@
       "slug": { "type": "string" },
       "meetingId": { "type": "string" },
       "title": { "type": "string" },
-      "meetingDate": {
-        "type": "string",
-        "description": "Human-readable date, e.g. \"June 1, 2026\""
-      },
+      "meetingDate": { "type": "string" },
       "status": {
         "type": "string",
         "enum": ["briefing_ready", "awaiting_agenda", "generating", "failed"]
       },
-      "readingTimeMinutes": {
-        "type": "number"
-      },
+      "readingTimeMinutes": { "type": "number" },
       "generatedAt": { "type": "string" },
-      "meeting": { "$ref": "#/definitions/Meeting" },
-      "executiveSummary": { "type": "string" },
-      "agenda": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/AgendaItem" }
-      },
-      "actionItems": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/ActionItem" }
-      }
-    },
-    "definitions": {
-      "MeetingType": {
-        "type": "string",
-        "enum": ["city_council", "planning_board", "town_hall"]
-      },
-      "AgendaItemKind": {
-        "type": "string",
-        "enum": [
-          "procedural",
-          "consent",
-          "public_input",
-          "action",
-          "informational"
-        ]
-      },
-      "SourceKind": {
-        "type": "string",
-        "enum": ["internal", "official", "news", "community"]
-      },
-      "Meeting": {
+      "meeting": {
         "type": "object",
         "required": ["id", "name", "body", "type", "scheduledAt", "location"],
         "additionalProperties": false,
@@ -111,118 +75,128 @@
           "id": { "type": "string" },
           "name": { "type": "string" },
           "body": { "type": "string" },
-          "type": { "$ref": "#/definitions/MeetingType" },
-          "scheduledAt": {
+          "type": {
             "type": "string",
-            "description": "ISO 8601 with timezone"
+            "enum": ["city_council", "planning_board", "town_hall"]
           },
+          "scheduledAt": { "type": "string" },
           "location": { "type": "string" }
         }
       },
-      "AgendaItem": {
-        "type": "object",
-        "required": ["id", "title", "kind", "hasBriefing"],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "kind": { "$ref": "#/definitions/AgendaItemKind" },
-          "hasBriefing": { "type": "boolean" },
-          "whatToExpect": {
-            "type": "string",
-            "description": "Short description of what to expect for this item."
+      "executiveSummary": { "type": "string" },
+      "agenda": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "title", "kind", "hasBriefing"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "procedural",
+                "consent",
+                "public_input",
+                "action",
+                "informational"
+              ]
+            },
+            "hasBriefing": { "type": "boolean" },
+            "whatToExpect": { "type": "string" }
           }
         }
       },
-      "Source": {
-        "type": "object",
-        "required": ["id", "label", "kind", "iconInitial", "url"],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "string" },
-          "label": { "type": "string" },
-          "kind": { "$ref": "#/definitions/SourceKind" },
-          "iconInitial": { "type": "string" },
-          "url": {
-            "type": ["string", "null"]
-          }
-        }
-      },
-      "ConstituentSentiment": {
-        "type": "object",
-        "required": ["summary", "sources"],
-        "additionalProperties": false,
-        "properties": {
-          "summary": { "type": "string" },
-          "detail": { "type": "string" },
-          "sources": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        }
-      },
-      "NewsItem": {
-        "type": "object",
-        "required": ["title", "outlet", "url"],
-        "additionalProperties": false,
-        "properties": {
-          "title": { "type": "string" },
-          "outlet": { "type": "string" },
-          "url": { "type": "string" }
-        }
-      },
-      "BudgetImpact": {
-        "type": "object",
-        "required": ["summary", "sources"],
-        "additionalProperties": false,
-        "properties": {
-          "summary": { "type": "string" },
-          "sources": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        }
-      },
-      "ActionItem": {
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "overview",
-          "constituentSentiment",
-          "recentNews",
-          "budgetImpact",
-          "talkingPoints",
-          "sources"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "overview": { "type": "string" },
-          "constituentSentiment": {
-            "oneOf": [
-              { "$ref": "#/definitions/ConstituentSentiment" },
-              { "type": "null" }
-            ]
-          },
-          "recentNews": {
-            "type": "array",
-            "items": { "$ref": "#/definitions/NewsItem" }
-          },
-          "budgetImpact": {
-            "oneOf": [
-              { "$ref": "#/definitions/BudgetImpact" },
-              { "type": "null" }
-            ]
-          },
-          "talkingPoints": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "sources": {
-            "type": "array",
-            "items": { "$ref": "#/definitions/Source" }
+      "actionItems": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "title",
+            "overview",
+            "constituentSentiment",
+            "recentNews",
+            "budgetImpact",
+            "talkingPoints",
+            "sources"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "overview": { "type": "string" },
+            "constituentSentiment": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["summary", "sources"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "summary": { "type": "string" },
+                    "detail": { "type": "string" },
+                    "sources": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "recentNews": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["title", "outlet", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "title": { "type": "string" },
+                  "outlet": { "type": "string" },
+                  "url": { "type": "string" }
+                }
+              }
+            },
+            "budgetImpact": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["summary", "sources"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "summary": { "type": "string" },
+                    "sources": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "talkingPoints": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "label", "kind", "iconInitial", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string" },
+                  "label": { "type": "string" },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["internal", "official", "news", "community"]
+                  },
+                  "iconInitial": { "type": "string" },
+                  "url": { "type": ["string", "null"] }
+                }
+              }
+            }
           }
         }
       }

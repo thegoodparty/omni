@@ -40,98 +40,174 @@
   "output_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "MeetingSchedule",
-    "type": "object",
-    "additionalProperties": false,
-    "required": [
-      "generated_at",
-      "status",
-      "rrule",
-      "human",
-      "time",
-      "timezone",
-      "duration_minutes",
-      "sources"
-    ],
-    "properties": {
-      "generated_at": {
-        "type": "string",
-        "format": "date-time"
-      },
-      "status": {
-        "type": "string",
-        "enum": ["found", "not_found"]
-      },
-      "rrule": {
-        "type": "string",
-        "maxLength": 500,
-        "description": "iCalendar RFC 5545 RRULE string. MUST NOT contain DTSTART. Empty when status=not_found."
-      },
-      "human": {
-        "type": "string",
-        "maxLength": 500,
-        "description": "One-sentence English description of the recurrence; must match the RRULE semantically."
-      },
-      "time": {
-        "type": "string",
-        "maxLength": 5,
-        "description": "24-hour HH:MM in local time. Empty when status=not_found."
-      },
-      "timezone": {
-        "type": "string",
-        "maxLength": 64,
-        "description": "IANA timezone name (e.g. America/Denver). Empty when status=not_found."
-      },
-      "duration_minutes": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 1440,
-        "description": "Typical meeting length in minutes. 0 when status=not_found."
-      },
-      "sources": {
-        "type": "array",
-        "maxItems": 20,
-        "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["url", "note"],
-          "properties": {
-            "url": {
-              "type": "string",
-              "pattern": "^https?://",
-              "maxLength": 2048
-            },
-            "note": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 500
+    "oneOf": [
+      {
+        "title": "MeetingScheduleFound",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generated_at",
+          "status",
+          "meeting_name",
+          "location",
+          "rrule",
+          "human",
+          "time",
+          "timezone",
+          "duration_minutes",
+          "sources"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "const": "found"
+          },
+          "meeting_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Official name of the meeting body as the source refers to it (e.g. 'City Council', 'Planning Board'). Used as the list-row title in the candidate dashboard."
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Customary location for regular meetings (e.g. 'City Hall Council Chambers, 200 Main St'). Falls back to a city-hall address if the source doesn't state a specific room."
+          },
+          "rrule": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)",
+            "description": "iCalendar RFC 5545 RRULE string. MUST NOT contain DTSTART."
+          },
+          "human": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "One-sentence English description of the recurrence; must match the RRULE semantically."
+          },
+          "time": {
+            "type": "string",
+            "maxLength": 5,
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM in local time."
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z]+(/[A-Za-z_]+)+$",
+            "description": "IANA timezone name (e.g. America/Denver)."
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 1440,
+            "description": "Typical meeting length in minutes."
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "note"],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "pattern": "^https?://",
+                  "maxLength": 2048
+                },
+                "note": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              }
             }
           }
         }
-      }
-    },
-    "oneOf": [
-      {
-        "properties": {
-          "status": { "const": "found" },
-          "rrule": {
-            "minLength": 1,
-            "pattern": "^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)"
-          },
-          "human": { "minLength": 1 },
-          "time": { "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
-          "timezone": { "pattern": "^[A-Za-z]+(/[A-Za-z_]+)+$" },
-          "duration_minutes": { "minimum": 15 },
-          "sources": { "minItems": 1 }
-        }
       },
       {
+        "title": "MeetingScheduleNotFound",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generated_at",
+          "status",
+          "meeting_name",
+          "location",
+          "rrule",
+          "human",
+          "time",
+          "timezone",
+          "duration_minutes",
+          "sources"
+        ],
         "properties": {
-          "status": { "const": "not_found" },
-          "rrule": { "maxLength": 0 },
-          "human": { "maxLength": 0 },
-          "time": { "maxLength": 0 },
-          "timezone": { "maxLength": 0 },
-          "duration_minutes": { "maximum": 0 }
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "const": "not_found"
+          },
+          "meeting_name": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "rrule": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "human": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "time": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 0
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "note"],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "pattern": "^https?://",
+                  "maxLength": 2048
+                },
+                "note": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              }
+            }
+          }
         }
       }
     ]
