@@ -56,8 +56,8 @@ Neutral and extractive. Do not imply advocacy or consulting.
 
 The **Voice and register** and **Tone** rules above govern every section of the briefing **except** those listed in the table below, which are explicitly authorized to operate under a different posture. No other section may override these rules. If a section is not in this table, the rules above apply without exception.
 
-| Section | Override permitted |
-|---|---|
+| Section          | Override permitted                                                                                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `talking_points` | Direct address to the official; imperative and action-oriented voice ("Ask staff...", "Lead with...", "Pull this from consent before the vote"); advisory framing of source-grounded observations |
 
 **Always in force, including for override sections:** the **Source discipline** and **Verbosity** rules below, and the rule against speculation beyond source materials.
@@ -175,7 +175,7 @@ If **zero** substantive items exist in the agenda — for example, the agenda PD
 
 1. Set `briefing_status: "awaiting_agenda"`.
 2. Populate `executive_summary` with a brief check-back message, e.g.:
-   *"The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it."*
+   _"The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it."_
 3. Record the decision in `run_metadata.run_decisions[]` with reason `"agenda_no_substantive_items"`.
 4. Emit an `items[]` array with **a single placeholder entry** shaped exactly:
    - `id: "item_001"`
@@ -190,7 +190,7 @@ If **zero** substantive items exist in the agenda — for example, the agenda PD
 5. Skip the Haystaq query, news search, budget extraction, and talking points entirely.
 6. Skip to compiling sources (which document the discovery attempt) and writing the artifact.
 
-This is a **qualitative** check based on item content, not a count threshold — agendas vary widely across jurisdictions, so "fewer than N items" does not generalize. The criterion is whether *any* item is substantive in the sense above.
+This is a **qualitative** check based on item content, not a count threshold — agendas vary widely across jurisdictions, so "fewer than N items" does not generalize. The criterion is whether _any_ item is substantive in the sense above.
 
 ### Step 4 — Chunk the agenda PDF into `raw_context` entries
 
@@ -236,6 +236,7 @@ If a span of text has none of the above, fall back to page-level chunks.
 #### Section-aware chunk
 
 When a section header is detected:
+
 - One chunk = full text of the section, including continuation onto subsequent pages
 - `section_heading` is the detected header text, verbatim or lightly normalized (e.g. `Agenda Commentary — Lift Station 33`)
 - `pages` lists every page the section covers, in order
@@ -244,6 +245,7 @@ When a section header is detected:
 #### Page-fallback chunk
 
 When no section header is detected on a span of text:
+
 - One chunk = one page
 - `section_heading` is `null`
 - `pages` is a single-element list `[n]`
@@ -276,6 +278,7 @@ Every item is assigned exactly one tier:
 #### Priority criteria (featured and queued)
 
 An item qualifies as featured or queued if it meets one or more of:
+
 - Requires a vote
 - Requires the official to take a public position
 - Has significant budget impact
@@ -284,6 +287,7 @@ An item qualifies as featured or queued if it meets one or more of:
 Constituent resonance is a selection signal, not a mechanical threshold. Run the queries in Step 6 **exactly once per briefing** at the start of tier classification — they return every local/regional issue for the jurisdiction. Cache the result. For each priority-eligible item, do an in-memory lookup against the cached rows to find the best-matching issue. The chosen score feeds both tier ranking here and the sentiment section's output downstream.
 
 Priority ranking should especially increase when both of these are true:
+
 - the official has meaningful authority, leverage, or visibility on the item
 - the chosen Haystaq score suggests notable constituent lean, or meaningful district-vs-city divergence (≥ 10-point gap)
 
@@ -292,6 +296,7 @@ Full information is always extracted for all featured and queued items.
 #### Featured selection
 
 Select **up to three** items as featured. If more than three qualify, prioritize the ones where:
+
 - more of the priority criteria above are met
 - the official has the most meaningful influence
 - constituent sentiment appears most resonant or most politically consequential
@@ -364,6 +369,7 @@ WHERE lower(coalesce(model_type, '')) LIKE '%score (0%'
 ```
 
 Binding notes (apply to both queries above):
+
 - `:state` — two-letter code (e.g. `'TX'`).
 - `:city` — title-case city name (e.g. `'Alvin'`). L2 is case-sensitive; wrong casing returns zero rows.
 - `:l2_type` — value of `PARAMS.l2DistrictType` (bind as a string value, not as an identifier).
@@ -417,6 +423,7 @@ WHERE `{l2_type}` = :l2_name AND Voters_Active = 'A';
 ```
 
 Notes:
+
 - `{col_N}` are validated `hs_*` column names interpolated via f-string.
 - `{l2_type}` is the district column identifier (e.g. `City_Ward`), backtick-quoted and validated as `replace("_", "").isalnum()`.
 - `:l2_name` is bound via named placeholder.
@@ -437,11 +444,13 @@ Talking points for each priority item — direct advice on how to engage with th
 This section operates as an approved posture override per the **Section-level posture overrides** rule in CRITICAL RULES above. The **Voice and register** and **Tone** rules in that section are suspended for this section only.
 
 What this permits:
+
 - Direct address to the official ("you")
 - Imperative and action-oriented voice ("Ask staff...", "Lead with...", "Pull this from consent")
 - Advisory framing of source-grounded observations
 
 What still applies (no override granted):
+
 - Source discipline — every bullet must be traceable to source materials in context
 - Verbosity — concise; one to two sentences per bullet
 - No speculation about colleagues, prior votes, or political dynamics not present in the packet
@@ -493,6 +502,7 @@ Rules for finding, evaluating, and presenting recent news for each priority item
 News articles are **supplementary context**, not primary source material. Every factual claim in the briefing must trace to the agenda packet or another authoritative document — see Step 13. Use news to surface community discussion and recent coverage that surrounds a decision, not to introduce facts the agenda packet does not establish.
 
 #### What to find
+
 Up to 3 recent headlines per priority item from local news sources. Each should be directly relevant to the agenda item in that jurisdiction or in a larger jurisdiction that contains the jurisdiction in question.
 
 #### Freshness
@@ -507,7 +517,7 @@ Flag if coverage is predominantly from a single outlet or ideological direction 
 
 #### Format
 
-- Headline text — *Publication Name*
+- Headline text — _Publication Name_
 
 Three bullets per priority item. URLs go in Sources, not in the rendered briefing.
 
@@ -532,6 +542,7 @@ Set `budget_impact` to `null`. Do not estimate or fabricate figures.
 ### Step 13 — Compile claims with verbatim source extracts
 
 Every factual claim in the briefing must reference at least one source. For each claim:
+
 - `source_extracts[]` — verbatim passages from the source that support the claim. Must be extractable from `retrieved_text_or_snapshot`.
 - `source_ids[]` — references to `id` values in the sources array.
 - `required_source_type` — the minimum acceptable source type for this claim to be released. See routing table below.
@@ -539,19 +550,20 @@ Every factual claim in the briefing must reference at least one source. For each
 
 #### Source routing table
 
-| Claim type | Required source type | Route if unsupported |
-|---|---|---|
-| Dollar amounts, vote counts, contract figures | `agenda_packet` or `government_website` | `block_release` |
-| Legal citations, ordinance text | `agenda_packet` | `block_release` |
-| Staff recommendations | `agenda_packet` | `block_release` |
-| Constituent sentiment figures | `haystaq` | `block_release` |
-| News context, background | `news` | `omit_claim` |
-| Historical context | `news` or `government_website` | `omit_claim` |
-| Inferred or synthesized observations | none — label as inferred | `flag_as_inferred` |
+| Claim type                                    | Required source type                    | Route if unsupported |
+| --------------------------------------------- | --------------------------------------- | -------------------- |
+| Dollar amounts, vote counts, contract figures | `agenda_packet` or `government_website` | `block_release`      |
+| Legal citations, ordinance text               | `agenda_packet`                         | `block_release`      |
+| Staff recommendations                         | `agenda_packet`                         | `block_release`      |
+| Constituent sentiment figures                 | `haystaq`                               | `block_release`      |
+| News context, background                      | `news`                                  | `omit_claim`         |
+| Historical context                            | `news` or `government_website`          | `omit_claim`         |
+| Inferred or synthesized observations          | none — label as inferred                | `flag_as_inferred`   |
 
 Claims apply to featured and queued items only. Use `claim_id` values of the form `claim_001`, `claim_002`, ... and ensure each `item_id` resolves to an entry in `items[]` and each `source_id` resolves to an entry in `sources[]`.
 
 `claim_weight` guidance:
+
 - `high` — dollar amounts, vote counts, legal text, names, dates: must be verbatim from source
 - `medium` — operational data, policy context, procedural facts
 - `low` — historical context, background
@@ -610,13 +622,13 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 
 Top-level enum that tells downstream consumers what kind of artifact this is. Set at the end of the run based on what was actually produced.
 
-| Value | Meaning |
-|---|---|
-| `briefing_ready` | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing. |
-| `awaiting_agenda` | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
-| `no_meeting_found` | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state. |
-| `agenda_provided_by_user` | The agent used a user-supplied agenda (via `agendaPdfPath` or `agendaPacketUrl` input override) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`. |
-| `error` | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail. |
+| Value                     | Meaning                                                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `briefing_ready`          | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing.                                                                                                                                    |
+| `awaiting_agenda`         | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
+| `no_meeting_found`        | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state.                                                                                                                           |
+| `agenda_provided_by_user` | The agent used a user-supplied agenda (via `agendaPdfPath` or `agendaPacketUrl` input override) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                                           |
+| `error`                   | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail.                                                                                                                               |
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
 
@@ -643,7 +655,11 @@ Emit this exact array (it is briefing-type-determined, not arbitrary per run —
     "required": false,
     "citation_required": true,
     "allowed_source_types": ["haystaq"],
-    "skip_reasons_allowed": ["no_defensible_match", "city_mismatch", "no_column"]
+    "skip_reasons_allowed": [
+      "no_defensible_match",
+      "city_mismatch",
+      "no_column"
+    ]
   },
   {
     "name": "recent_news",
@@ -666,7 +682,12 @@ Emit this exact array (it is briefing-type-determined, not arbitrary per run —
     "scope": "featured",
     "required": true,
     "citation_required": true,
-    "allowed_source_types": ["agenda_packet", "news", "government_website", "haystaq"]
+    "allowed_source_types": [
+      "agenda_packet",
+      "news",
+      "government_website",
+      "haystaq"
+    ]
   },
   {
     "name": "raw_context",
@@ -679,6 +700,7 @@ Emit this exact array (it is briefing-type-determined, not arbitrary per run —
 ```
 
 `scope` values:
+
 - `all_items` — applies to every item regardless of tier
 - `featured_queued` — applies to featured and queued items only
 - `featured` — applies to featured items only
@@ -714,7 +736,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `official_name`: from `PARAMS.officialName`.
 - `meeting_date`: `YYYY-MM-DD`. For `agenda_provided_by_user` or `awaiting_agenda` runs, this is the target meeting date; for `no_meeting_found` it may be an estimated next date.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
-- `executive_summary`: a single brief framing sentence at the top of the briefing. Generated, not boilerplate — adapt to what was actually found in the agenda. Length 15–25 words. Default form: *"The following items on your agenda require action and/or have a vote."* Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. Stay factual; the voice and tone rules apply (this is **not** an approved posture override).
+- `executive_summary`: a single brief framing sentence at the top of the briefing. Generated, not boilerplate — adapt to what was actually found in the agenda. Length 15–25 words. Default form: _"The following items on your agenda require action and/or have a vote."_ Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. Stay factual; the voice and tone rules apply (this is **not** an approved posture override).
 - `run_metadata`:
   ```json
   {
@@ -722,7 +744,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",
     "run_decisions": [
-      {"timestamp": "...", "decision": "...", "reason": "..."}
+      { "timestamp": "...", "decision": "...", "reason": "..." }
     ]
   }
   ```
@@ -762,16 +784,16 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 
 ## Failure modes
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| Broker logs `ScopeViolation: scope_predicate_override` | Agent added `WHERE Residence_Addresses_State = ?` on the L2 table | Remove the clause; the broker auto-injects state/city for `int__l2_nationwide_uniform_w_haystaq` |
-| Broker 422 on `/databricks/query` repeatedly | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables` |
-| Top sentiment scores all 0-5% | Treated `hs_*` as binary (`= 1`) instead of 0-100 score | Use `AVG(CAST(\`{col}\` AS DOUBLE))` and threshold with `>= 50` |
-| `total_active_voters` looks like the whole state, not the city/district | District name doesn't exist; broker's city scope is the only filter that matched | Verify the district via the L2 value-format discovery query in Step 6b |
-| Runner: `No artifact files found in /workspace/output` | Agent ran out of turns or never wrote the file | Tighten the instruction; remove unnecessary discovery steps; check max_turns |
-| `contract_violation` callback after agent claimed success | Validator caught a missing/wrong-typed field the agent didn't notice | Run `python3 /workspace/validate_output.py` BEFORE declaring success |
-| `INSUFFICIENT_PERMISSIONS on private_samuel.district_top_issues_us_all` | Databricks principal lacks SELECT on the curated table | Log `run_decision` with reason `"curated_table_permission_denied"` and fall back to dictionary-only mode (no run failure) |
-| Legistar API returns 403 `"Token is required"` | Jurisdiction has gated their Granicus API | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2 |
-| Phase 3 query returns NULLs for all city columns | Dictionary column name is abbreviated and doesn't exist in L2 | Validate column names via `information_schema.columns` against the L2 table before running the AVG query |
-| District mean suspiciously close to city mean | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) | Discover the exact value via a `SELECT DISTINCT` query before binding |
-| `awaiting_agenda` placeholder item fails schema validation | Agent invented a custom `tier_reason` string | Use `["placeholder"]` exactly per Step 3 |
+| Symptom                                                                 | Cause                                                                                    | Fix                                                                                                                       |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Broker logs `ScopeViolation: scope_predicate_override`                  | Agent added `WHERE Residence_Addresses_State = ?` on the L2 table                        | Remove the clause; the broker auto-injects state/city for `int__l2_nationwide_uniform_w_haystaq`                          |
+| Broker 422 on `/databricks/query` repeatedly                            | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table            | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                               |
+| Top sentiment scores all 0-5%                                           | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                  | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                             |
+| `total_active_voters` looks like the whole state, not the city/district | District name doesn't exist; broker's city scope is the only filter that matched         | Verify the district via the L2 value-format discovery query in Step 6b                                                    |
+| Runner: `No artifact files found in /workspace/output`                  | Agent ran out of turns or never wrote the file                                           | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                              |
+| `contract_violation` callback after agent claimed success               | Validator caught a missing/wrong-typed field the agent didn't notice                     | Run `python3 /workspace/validate_output.py` BEFORE declaring success                                                      |
+| `INSUFFICIENT_PERMISSIONS on private_samuel.district_top_issues_us_all` | Databricks principal lacks SELECT on the curated table                                   | Log `run_decision` with reason `"curated_table_permission_denied"` and fall back to dictionary-only mode (no run failure) |
+| Legistar API returns 403 `"Token is required"`                          | Jurisdiction has gated their Granicus API                                                | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                          |
+| Phase 3 query returns NULLs for all city columns                        | Dictionary column name is abbreviated and doesn't exist in L2                            | Validate column names via `information_schema.columns` against the L2 table before running the AVG query                  |
+| District mean suspiciously close to city mean                           | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) | Discover the exact value via a `SELECT DISTINCT` query before binding                                                     |
+| `awaiting_agenda` placeholder item fails schema validation              | Agent invented a custom `tier_reason` string                                             | Use `["placeholder"]` exactly per Step 3                                                                                  |
