@@ -119,9 +119,8 @@
           },
           "location": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 300,
-            "description": "Customary location for the meeting (e.g. 'City Hall Council Chambers, 200 Main St'). Falls back to a city-hall address if the source doesn't state a specific room."
+            "description": "Customary location for the meeting (e.g. 'City Hall Council Chambers, 200 Main St'). Required-but-may-be-empty: emit an empty string when no source for the run mentions a venue (e.g. a user-supplied agenda PDF that lacks a header). Otherwise prefer the room-level location and fall back to building + street address when only the building is given."
           },
           "meeting_date": {
             "type": "string",
