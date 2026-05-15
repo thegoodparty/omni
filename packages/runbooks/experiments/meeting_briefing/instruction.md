@@ -914,7 +914,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `briefing_status`: per Step 15.
 - `generated_at`: ISO 8601 UTC timestamp captured when you assemble the artifact.
 - `official_name`: from `PARAMS.officialName`.
-- `meeting_name`: the official name of the meeting body as the source refers to it (e.g. `"City Council"`, `"Planning Board"`). Prefer the body label used by the streaming platform or city schedule page over a paraphrase. When `PARAMS.councilBody` is populated and matches the discovered body, use that. For `no_meeting_found` or `error` status, emit an empty string. Used as the list-row title in the candidate dashboard.
+- `meeting_name`: the official name of the meeting body as the source refers to it (e.g. `"City Council"`, `"Planning Board"`). Use the body label as it appears on the streaming platform or the city's published meeting schedule; do not paraphrase. For `no_meeting_found` or `error` status, emit an empty string. Used as the list-row title in the candidate dashboard.
 - `location`: the customary location for the meeting (e.g. `"City Hall Council Chambers, 200 Main St"`). Capture from the platform's meeting detail page, the city's published meeting schedule, or the agenda packet header — whichever you consulted in Step 2. If only a building is given without a room, use the building plus street address. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_date`: `YYYY-MM-DD`. For `agenda_provided_by_user` or `awaiting_agenda` runs, this is the target meeting date; for `no_meeting_found` it may be an estimated next date.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
