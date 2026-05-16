@@ -1,6 +1,8 @@
 # Meeting Schedule
 
-Given a city + state + governing body name, find the **regular recurring public meeting schedule** for that body and emit it as an iCalendar RRULE artifact. Output drives the gp-api meetings list endpoint, which projects future + past meetings deterministically from the RRULE. Both signals are required: the recurrence rule itself plus official-source citations proving it.
+Given a state + position/office name, find the **regular recurring public meeting schedule** for that body and emit it as an iCalendar RRULE artifact. Output drives the gp-api meetings list endpoint, which projects future + past meetings deterministically from the RRULE. Both signals are required: the recurrence rule itself plus official-source citations proving it.
+
+The position name (`office`) usually contains the jurisdiction (e.g. `"Burnsville City Council Member"` → Burnsville). When it doesn't (e.g. just `"City Council"`), the agent must infer the city via WebSearch over `office` + `state` before proceeding.
 
 ## BEFORE YOU START
 
@@ -13,10 +15,10 @@ Given a city + state + governing body name, find the **regular recurring public 
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`. Capture `state`, `city`, `office`.
+1. Read `PARAMS_JSON`. Capture `state`, `office`. Derive the jurisdiction (city / town / county) from `office`; if `office` is generic, WebSearch `office` + `state` to identify it before any other step.
 2. Discover the official government site via `WebSearch` (city/county domain, ideally `.gov` or `.us`).
 3. Fetch the agendas / meetings / city council page via `pmf_runtime.http.get` and confirm a recurring schedule is stated.
-4. If no recurring schedule appears on a top-level page, search for and fetch the municipal code section (often searchable as `<city> <state> municipal code council meetings`).
+4. If no recurring schedule appears on a top-level page, search for and fetch the municipal code section (often searchable as `<jurisdiction> <state> municipal code council meetings`).
 5. Determine local meeting time, IANA timezone, and typical duration.
 6. Capture the official `meeting_name` (e.g. "City Council") and customary `location` (e.g. "City Hall Council Chambers, 200 Main St") from the same official source.
 7. Encode the recurrence as an iCalendar RFC 5545 RRULE string. Do **not** include `DTSTART`.
@@ -88,10 +90,16 @@ If after STEP 4 you cannot find an explicit recurring schedule from an official 
 import json, os
 PARAMS = json.loads(os.environ["PARAMS_JSON"])
 STATE = PARAMS["state"]
-CITY = PARAMS["city"]
 OFFICE = PARAMS["office"]
-print(f"Researching: {OFFICE} for {CITY}, {STATE}")
+print(f"Researching: {OFFICE} in {STATE}")
 ```
+
+**Derive the jurisdiction.** `city` is no longer in PARAMS. Identify the city (or town / county / borough — whatever municipal unit the body belongs to) from `OFFICE`:
+
+- If `OFFICE` literally names the jurisdiction (`"Burnsville City Council Member"`, `"Mayor of Cheyenne"`, `"Hennepin County Board"`) → parse it out.
+- If `OFFICE` is generic (`"City Council"`, `"Council Member"`) → run a `WebSearch` for `f"{OFFICE} {STATE}"` and inspect the top official-domain hits to identify the jurisdiction. Ambiguity (e.g. multiple cities with a "Park District") → pick the most populous candidate as a starting point and confirm against the agendas page in Step 3.
+
+Bind the derived jurisdiction to `CITY` for use in subsequent steps. All later `WebSearch` and `http.get` calls use this derived value — do **not** treat `CITY` as input.
 
 ### Step 2 — Find the official site
 

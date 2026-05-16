@@ -10,7 +10,7 @@
     "title": "MeetingScheduleInput",
     "type": "object",
     "additionalProperties": false,
-    "required": ["state", "city", "office"],
+    "required": ["state", "office"],
     "properties": {
       "elected_office_id": {
         "type": "string",
@@ -23,17 +23,11 @@
         "pattern": "^[A-Z]{2}$",
         "description": "Two-letter state code (e.g. MN)."
       },
-      "city": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 100,
-        "description": "Full city name (e.g. Burnsville)."
-      },
       "office": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 100,
-        "description": "Governing body name (e.g. City Council)."
+        "maxLength": 200,
+        "description": "Full position/office name as it appears to the candidate (e.g. 'Burnsville City Council Member', 'Mayor of Cheyenne'). Usually contains the jurisdiction verbatim; when generic (e.g. just 'City Council'), the agent must infer the city from the position + state via WebSearch."
       }
     }
   },
