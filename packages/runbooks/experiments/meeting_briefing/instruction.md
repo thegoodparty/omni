@@ -31,7 +31,7 @@ The packet is **not** the published agenda summary page. The summary lists item 
 **Shape varies by platform.** Two common forms:
 
 - **One compiled PDF** (CivicPlus AgendaCenter, some PrimeGov sites, many smaller jurisdictions): a single multi-hundred-page file linked from the meeting page. Download it once.
-- **N per-item attachment PDFs** (Granicus, Legistar, many PrimeGov sites, eSCRIBE, CivicClerk): each substantive agenda item links to one or more attachment PDFs (staff report, ordinance draft, exhibits). The packet is the *collection* of these attachments — there is no compiled file. Download each substantive item's attachments.
+- **N per-item attachment PDFs** (Granicus, Legistar, many PrimeGov sites, eSCRIBE, CivicClerk): each substantive agenda item links to one or more attachment PDFs (staff report, ordinance draft, exhibits). The packet is the _collection_ of these attachments — there is no compiled file. Download each substantive item's attachments.
 
 **Specific anti-patterns** — these are summaries, NOT packets. Treating them as the packet is a hallucination risk:
 
@@ -53,9 +53,9 @@ The packet is **not** the published agenda summary page. The summary lists item 
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
 5. Classify items into featured / queued / standard tiers.
 6. Map each featured/queued item to a column from the inline Haystaq catalog — null if no defensible topic match.
-6b. Selection rules and L2 district-value discovery (one-shot `SELECT DISTINCT` against the L2 table) when `l2DistrictType` is set.
+   6b. Selection rules and L2 district-value discovery (one-shot `SELECT DISTINCT` against the L2 table) when `l2DistrictType` is set.
 7. Discover the exact L2 district value (when `l2DistrictType` is set).
-8. Run ONE batched AVG query against L2 for city scope, and another for district scope if applicable.
+8. Run ONE batched AVG query against L2 — district scope when `l2DistrictType` is set and confirmed, otherwise state scope (broker auto-injects state).
 9. Per featured item: overview, talking points (3–5), recent news, budget impact.
 10. Per queued item: overview, sentiment, recent news, budget impact. (No talking points required for queued.)
 11. Recent news search for each priority item (capped per-item search budget).
@@ -127,7 +127,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
   rows = cur.fetchall()
   ```
   The module is `pmf_runtime.databricks`. It exports `connect()`, `Connection`, `Cursor`, `ScopeViolation`, `UpstreamError`. There is no `databricks.query()` shortcut — you must `connect() → cursor() → execute() → fetchall()`. Skipping this step costs you 3+ turns to discover via `dir()`.
-- The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query that touches `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your L2 query needs are the L2 district column and `Voters_Active = 'A'`.
+- The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` into every query that touches `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add a state clause yourself.** Adding one returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your L2 query needs are the L2 district column (when `l2DistrictType` is set) and `Voters_Active = 'A'`. Do NOT add a `Residence_Addresses_City` clause — there is no city in PARAMS and the broker does not auto-inject one; scope is state-wide unless an L2 district narrows it.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
@@ -165,6 +165,8 @@ Read `PARAMS_JSON` once at the top:
 import json, os
 PARAMS = json.loads(os.environ["PARAMS_JSON"])
 ```
+
+**`city` is not in PARAMS.** Derive the city for narrative use (WebSearch queries, source naming, summary prose) by reasoning over `PARAMS.positionName`, `PARAMS.l2DistrictName`, and `PARAMS.state`. `positionName` usually contains the jurisdiction verbatim (e.g. `"Cheyenne City Council"` → city is `Cheyenne`). When the position name is generic (e.g. `"City Council Member"`), use `l2DistrictName` (which often encodes the city, e.g. `"NEW YORK CITY CNCL DIST 25 (EST.)"`) plus `state` to identify it; confirm via WebSearch when ambiguous. Record the derived city in `run_metadata.run_decisions[]` with reason `"derived_city_for_narrative"`. The derived city is **not** used as an L2 query filter — scope is set by `l2DistrictType`/`l2DistrictName` (district) or by the broker's auto-injected state clause (state).
 
 Before starting the workflow steps, verify the Databricks broker connection is ready. Trust the broker over a grep — run a trivial query against an allowed table and inspect the result:
 
@@ -204,11 +206,11 @@ If no future meeting of the official's body exists in any of these sources withi
 - Record the decision in `run_metadata.run_decisions[]` with reason `"no_upcoming_meeting_on_calendar"`. List the sources you checked.
 - Skip Steps 4–16. Write the placeholder artifact (Step 17), validate (Step 18), exit.
 
-**Distinguish target meeting vs. enrichment sources.** The TARGET meeting (the one this briefing is *about*) must be in the future. Do NOT brief a past meeting as if it were the target — if the platform's most recent event has a date `< today` and no future meeting exists in the 60-day window, bail to `no_meeting_found`. The product is forward-looking.
+**Distinguish target meeting vs. enrichment sources.** The TARGET meeting (the one this briefing is _about_) must be in the future. Do NOT brief a past meeting as if it were the target — if the platform's most recent event has a date `< today` and no future meeting exists in the 60-day window, bail to `no_meeting_found`. The product is forward-looking.
 
 **Past meeting packets ARE allowed as enrichment** for the target meeting's items. Many agenda items have legislative history that lives in prior packets:
 
-- **Second-reading ordinances** — the staff report and full ordinance text are usually in the *prior* packet (the 1st reading). The current packet may only contain the motion. Fetch the prior packet to ground the briefing.
+- **Second-reading ordinances** — the staff report and full ordinance text are usually in the _prior_ packet (the 1st reading). The current packet may only contain the motion. Fetch the prior packet to ground the briefing.
 - **Contract renewals / amendments** — the original contract approval and terms live in a past packet. Cite it to give the EO the full picture.
 - **Recurring policy reviews / annual reports** — last year's version of the same item often has staff context the current packet omits.
 - **Referenced resolutions or ordinances** — when the current item cites "Resolution 25-R-14" by number, find the resolution's text in its originating packet (or in Municode if codified).
@@ -415,138 +417,138 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 **housing** — Housing affordability, gentrification views, homeownership status
 
-| Column | Meaning |
-|---|---|
+| Column                               | Meaning                                            |
+| ------------------------------------ | -------------------------------------------------- |
 | `hs_affordable_housing_gov_has_role` | agrees government has a role in affordable housing |
-| `hs_affordable_housing_gov_no_role` | opposes government role in affordable housing |
-| `hs_gentrification_support` | supports gentrification |
-| `hs_gentrification_oppose` | opposes gentrification |
-| `hs_new_home_buyer` | recently bought a home |
-| `hs_any_home_buyer` | has ever bought a home |
+| `hs_affordable_housing_gov_no_role`  | opposes government role in affordable housing      |
+| `hs_gentrification_support`          | supports gentrification                            |
+| `hs_gentrification_oppose`           | opposes gentrification                             |
+| `hs_new_home_buyer`                  | recently bought a home                             |
+| `hs_any_home_buyer`                  | has ever bought a home                             |
 
 **taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
 
-| Column | Meaning |
-|---|---|
-| `hs_tax_cuts_support` | supports tax cuts |
-| `hs_tax_cuts_oppose` | opposes tax cuts |
-| `hs_gas_tax_support` | supports the gas tax |
-| `hs_gas_tax_oppose` | opposes the gas tax |
+| Column                                    | Meaning                                |
+| ----------------------------------------- | -------------------------------------- |
+| `hs_tax_cuts_support`                     | supports tax cuts                      |
+| `hs_tax_cuts_oppose`                      | opposes tax cuts                       |
+| `hs_gas_tax_support`                      | supports the gas tax                   |
+| `hs_gas_tax_oppose`                       | opposes the gas tax                    |
 | `hs_social_security_tax_increase_support` | supports raising social security taxes |
-| `hs_social_security_tax_increase_oppose` | opposes raising social security taxes |
-| `hs_min_wage_15_increase_support` | supports raising min wage to $15 |
-| `hs_min_wage_15_increase_oppose` | opposes raising min wage to $15 |
-| `hs_ideology_fiscal_conserv` | fiscally conservative ideology |
-| `hs_ideology_fiscal_liberal` | fiscally liberal ideology |
+| `hs_social_security_tax_increase_oppose`  | opposes raising social security taxes  |
+| `hs_min_wage_15_increase_support`         | supports raising min wage to $15       |
+| `hs_min_wage_15_increase_oppose`          | opposes raising min wage to $15        |
+| `hs_ideology_fiscal_conserv`              | fiscally conservative ideology         |
+| `hs_ideology_fiscal_liberal`              | fiscally liberal ideology              |
 
 **education** — School choice, school funding, charter schools, teachers union views
 
-| Column | Meaning |
-|---|---|
-| `hs_school_choice_support` | supports school choice |
-| `hs_school_choice_oppose` | opposes school choice |
-| `hs_school_funding_more` | favors more school funding |
-| `hs_school_funding_less` | favors less school funding |
-| `hs_charter_schools_support` | supports charter schools |
-| `hs_charter_schools_oppose` | opposes charter schools |
-| `hs_teachers_union_positive` | positive view of teachers unions |
-| `hs_teachers_union_negative` | negative view of teachers unions |
-| `hs_community_college_free_support` | supports free community college |
-| `hs_community_college_free_oppose` | opposes free community college |
+| Column                              | Meaning                          |
+| ----------------------------------- | -------------------------------- |
+| `hs_school_choice_support`          | supports school choice           |
+| `hs_school_choice_oppose`           | opposes school choice            |
+| `hs_school_funding_more`            | favors more school funding       |
+| `hs_school_funding_less`            | favors less school funding       |
+| `hs_charter_schools_support`        | supports charter schools         |
+| `hs_charter_schools_oppose`         | opposes charter schools          |
+| `hs_teachers_union_positive`        | positive view of teachers unions |
+| `hs_teachers_union_negative`        | negative view of teachers unions |
+| `hs_community_college_free_support` | supports free community college  |
+| `hs_community_college_free_oppose`  | opposes free community college   |
 
 **healthcare** — Medicaid expansion, Medicare for All, ACA, family medical leave, opioid policy
 
-| Column | Meaning |
-|---|---|
-| `hs_medicaid_expansion_support` | supports medicaid expansion |
-| `hs_medicaid_expansion_oppose` | opposes medicaid expansion |
-| `hs_medicare_for_all_support` | supports Medicare for All |
-| `hs_medicare_for_all_oppose` | opposes Medicare for All |
-| `hs_obamacare_aca_expand` | supports expanding the ACA |
-| `hs_obamacare_aca_protect` | supports protecting ACA |
-| `hs_obamacare_aca_oppose` | opposes the ACA |
-| `hs_family_medical_leave_support` | supports paid family/medical leave |
-| `hs_family_medical_leave_oppose` | opposes paid family/medical leave |
-| `hs_opioid_crisis_treat` | treats opioid crisis as a health issue |
-| `hs_opioid_crisis_enforce` | treats opioid crisis as a law-enforcement issue |
+| Column                            | Meaning                                         |
+| --------------------------------- | ----------------------------------------------- |
+| `hs_medicaid_expansion_support`   | supports medicaid expansion                     |
+| `hs_medicaid_expansion_oppose`    | opposes medicaid expansion                      |
+| `hs_medicare_for_all_support`     | supports Medicare for All                       |
+| `hs_medicare_for_all_oppose`      | opposes Medicare for All                        |
+| `hs_obamacare_aca_expand`         | supports expanding the ACA                      |
+| `hs_obamacare_aca_protect`        | supports protecting ACA                         |
+| `hs_obamacare_aca_oppose`         | opposes the ACA                                 |
+| `hs_family_medical_leave_support` | supports paid family/medical leave              |
+| `hs_family_medical_leave_oppose`  | opposes paid family/medical leave               |
+| `hs_opioid_crisis_treat`          | treats opioid crisis as a health issue          |
+| `hs_opioid_crisis_enforce`        | treats opioid crisis as a law-enforcement issue |
 
 **climate_energy** — Climate change belief, EVs, solar, fracking, federal lands, Green New Deal
 
-| Column | Meaning |
-|---|---|
-| `hs_climate_change_believer` | believes in human-caused climate change |
-| `hs_climate_change_nonbeliever` | rejects human-caused climate change |
-| `hs_electric_vehicle_likely_buyer` | likely to buy an electric vehicle |
-| `hs_electric_vehicle_not_likely` | unlikely to buy an electric vehicle |
-| `hs_solar_panel_buyer_yes` | has bought solar panels |
-| `hs_solar_panel_buyer_no` | has not bought solar panels |
-| `hs_pipeline_fracking_support` | supports pipelines/fracking |
-| `hs_pipeline_fracking_oppose` | opposes pipelines/fracking |
-| `hs_green_new_deal_support` | supports the Green New Deal |
-| `hs_green_new_deal_oppose` | opposes the Green New Deal |
-| `hs_sell_federal_lands_support` | supports selling federal lands |
-| `hs_sell_federal_lands_oppose` | opposes selling federal lands |
+| Column                             | Meaning                                 |
+| ---------------------------------- | --------------------------------------- |
+| `hs_climate_change_believer`       | believes in human-caused climate change |
+| `hs_climate_change_nonbeliever`    | rejects human-caused climate change     |
+| `hs_electric_vehicle_likely_buyer` | likely to buy an electric vehicle       |
+| `hs_electric_vehicle_not_likely`   | unlikely to buy an electric vehicle     |
+| `hs_solar_panel_buyer_yes`         | has bought solar panels                 |
+| `hs_solar_panel_buyer_no`          | has not bought solar panels             |
+| `hs_pipeline_fracking_support`     | supports pipelines/fracking             |
+| `hs_pipeline_fracking_oppose`      | opposes pipelines/fracking              |
+| `hs_green_new_deal_support`        | supports the Green New Deal             |
+| `hs_green_new_deal_oppose`         | opposes the Green New Deal              |
+| `hs_sell_federal_lands_support`    | supports selling federal lands          |
+| `hs_sell_federal_lands_oppose`     | opposes selling federal lands           |
 
 **immigration** — Mass deportations, border wall, immigration policy views
 
-| Column | Meaning |
-|---|---|
-| `hs_mass_deporations_support` | supports mass deportations |
-| `hs_mass_deporations_oppose` | opposes mass deportations |
-| `hs_mexican_wall_support` | supports a border wall |
-| `hs_mexican_wall_oppose` | opposes a border wall |
+| Column                          | Meaning                                |
+| ------------------------------- | -------------------------------------- |
+| `hs_mass_deporations_support`   | supports mass deportations             |
+| `hs_mass_deporations_oppose`    | opposes mass deportations              |
+| `hs_mexican_wall_support`       | supports a border wall                 |
+| `hs_mexican_wall_oppose`        | opposes a border wall                  |
 | `hs_immigration_process_unfair` | sees the immigration process as unfair |
-| `hs_immigration_undesirable` | sees more immigration as undesirable |
+| `hs_immigration_undesirable`    | sees more immigration as undesirable   |
 
 **crime_safety** — Violent crime concern, gun control, police trust, death penalty
 
-| Column | Meaning |
-|---|---|
+| Column                          | Meaning                          |
+| ------------------------------- | -------------------------------- |
 | `hs_violent_crime_very_worried` | very worried about violent crime |
-| `hs_violent_crime_not_worried` | not worried about violent crime |
-| `hs_gun_control_support` | supports gun control |
-| `hs_gun_control_oppose` | opposes gun control |
-| `hs_police_trust_yes` | trusts the police |
-| `hs_police_trust_no` | does not trust the police |
-| `hs_death_penalty_support` | supports the death penalty |
-| `hs_death_penalty_oppose` | opposes the death penalty |
+| `hs_violent_crime_not_worried`  | not worried about violent crime  |
+| `hs_gun_control_support`        | supports gun control             |
+| `hs_gun_control_oppose`         | opposes gun control              |
+| `hs_police_trust_yes`           | trusts the police                |
+| `hs_police_trust_no`            | does not trust the police        |
+| `hs_death_penalty_support`      | supports the death penalty       |
+| `hs_death_penalty_oppose`       | opposes the death penalty        |
 
 **social_issues** — Abortion, same-sex marriage, trans athletes, DEI, religion salience
 
-| Column | Meaning |
-|---|---|
-| `hs_abortion_pro_choice` | pro-choice on abortion |
-| `hs_abortion_pro_life` | pro-life on abortion |
-| `hs_same_sex_marriage_support` | supports same-sex marriage |
-| `hs_same_sex_marriage_oppose` | opposes same-sex marriage |
-| `hs_trans_athlete_yes` | supports trans athlete participation |
-| `hs_trans_athlete_no` | opposes trans athlete participation |
-| `hs_dei_support` | supports DEI initiatives |
-| `hs_dei_oppose` | opposes DEI initiatives |
-| `hs_religion_important` | religion is important in their life |
-| `hs_religion_not_important` | religion is not important in their life |
+| Column                         | Meaning                                 |
+| ------------------------------ | --------------------------------------- |
+| `hs_abortion_pro_choice`       | pro-choice on abortion                  |
+| `hs_abortion_pro_life`         | pro-life on abortion                    |
+| `hs_same_sex_marriage_support` | supports same-sex marriage              |
+| `hs_same_sex_marriage_oppose`  | opposes same-sex marriage               |
+| `hs_trans_athlete_yes`         | supports trans athlete participation    |
+| `hs_trans_athlete_no`          | opposes trans athlete participation     |
+| `hs_dei_support`               | supports DEI initiatives                |
+| `hs_dei_oppose`                | opposes DEI initiatives                 |
+| `hs_religion_important`        | religion is important in their life     |
+| `hs_religion_not_important`    | religion is not important in their life |
 
 **regulation_economy** — Regulation, capitalism, unions, income inequality, infrastructure spending
 
-| Column | Meaning |
-|---|---|
-| `hs_regulations_too_harsh` | sees regulations as too harsh |
-| `hs_regulations_good` | sees regulations as good |
-| `hs_capitalism_believe_sound` | believes capitalism is fundamentally sound |
-| `hs_capitalism_believe_flawed` | believes capitalism is fundamentally flawed |
-| `hs_unions_beneficial` | views unions as beneficial |
-| `hs_unions_not_beneficial` | views unions as not beneficial |
-| `hs_income_inequality_serious` | sees income inequality as a serious problem |
-| `hs_income_inequality_no_issue` | sees income inequality as not a real issue |
-| `hs_infrastructure_funding_fund_more` | favors more infrastructure funding |
-| `hs_infrastructure_funding_enough_spent` | believes enough is spent on infrastructure |
+| Column                                   | Meaning                                     |
+| ---------------------------------------- | ------------------------------------------- |
+| `hs_regulations_too_harsh`               | sees regulations as too harsh               |
+| `hs_regulations_good`                    | sees regulations as good                    |
+| `hs_capitalism_believe_sound`            | believes capitalism is fundamentally sound  |
+| `hs_capitalism_believe_flawed`           | believes capitalism is fundamentally flawed |
+| `hs_unions_beneficial`                   | views unions as beneficial                  |
+| `hs_unions_not_beneficial`               | views unions as not beneficial              |
+| `hs_income_inequality_serious`           | sees income inequality as a serious problem |
+| `hs_income_inequality_no_issue`          | sees income inequality as not a real issue  |
+| `hs_infrastructure_funding_fund_more`    | favors more infrastructure funding          |
+| `hs_infrastructure_funding_enough_spent` | believes enough is spent on infrastructure  |
 
 ### Step 6b — Selection rules
 
 For each priority-eligible item:
 
 1. **Map the item to a topic.** Read the staff report / agenda commentary for the item. Pick the topic above whose policy domain most closely matches the substance of what's being decided. Topic-area match is necessary but not sufficient — a rezoning item is `housing`, not just "regulation."
-2. **Pick a polarized column.** Within the chosen topic, pick the column whose `meaning` is the *position-being-advanced* by the proposed action. Example: a "rezone to allow more multifamily housing" item → `hs_affordable_housing_gov_has_role`. The column you pick determines what direction "high score = aligned with this item" means.
+2. **Pick a polarized column.** Within the chosen topic, pick the column whose `meaning` is the _position-being-advanced_ by the proposed action. Example: a "rezone to allow more multifamily housing" item → `hs_affordable_housing_gov_has_role`. The column you pick determines what direction "high score = aligned with this item" means.
 3. **No defensible topic match → null.** If the item doesn't map cleanly to any of the 9 topics above (e.g. a procurement contract for street paving, a routine board appointment), set `display.constituent_sentiment` and `research.full_treatment.haystaq_detail` to `null` for that item. Do not force a match — citing an unrelated topic is worse than no citation.
 
 ### Step 7 — Discover the exact L2 district value (when `l2DistrictType` is set)
@@ -564,30 +566,22 @@ cur.execute(f"""
 """)
 ```
 
-(`{l2_type}` is `PARAMS.l2DistrictType`, validated as `re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", l2_type)` before f-string interpolation — ASCII-only to defeat Unicode-homoglyph identifiers.) Scan the result for a row whose value matches `PARAMS.l2DistrictName` (exact or case-insensitive substring). If no match found, record `haystaq_status: "city_mismatch"` and run only the city-scope query in Step 8.
+(`{l2_type}` is `PARAMS.l2DistrictType`, validated as `re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", l2_type)` before f-string interpolation — ASCII-only to defeat Unicode-homoglyph identifiers.) Scan the result for a row whose value matches `PARAMS.l2DistrictName` (exact or case-insensitive substring). If no match found, record `haystaq_status: "no_match"` and fall back to the state-scope query in Step 8 (drop the district clause entirely).
 
-Skip this step entirely when `l2DistrictType` is null/absent in PARAMS — only city scope applies.
+Skip this step entirely when `l2DistrictType` is null/absent in PARAMS — only state scope applies (broker auto-injects state).
 
 ### Step 8 — Run the batched AVG query against L2
 
-Collect the picked columns across every priority item that found a topic match. Issue ONE batched query for city scope, and one more for district scope when `l2DistrictType` is present.
+Collect the picked columns across every priority item that found a topic match. Issue ONE batched query. Scope is determined by whether `l2DistrictType` is set and was confirmed in Step 7:
+
+- **District scope** (`l2DistrictType` set AND value confirmed via Step 7): include the L2 district WHERE clause.
+- **State scope** (`l2DistrictType` absent, OR set but not confirmed in Step 7): omit the district clause — the broker's auto-injected state clause is the only geographic filter.
 
 ```sql
 -- Whitelist-validate each picked column before interpolation (ASCII-only):
 --   re.fullmatch(r"hs_[a-z0-9_]{1,60}", col)
--- Then assemble the column list dynamically:
-SELECT
-  ROUND(AVG(CAST(`{col1}` AS DOUBLE)), 1) AS {col1},
-  ROUND(AVG(CAST(`{col2}` AS DOUBLE)), 1) AS {col2},
-  -- ... one per picked column
-  COUNT(*) AS voter_count
-FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
-WHERE Voters_Active = 'A';
-```
-
-City scope: the broker auto-injects state/city, so the only `WHERE` clause above is `Voters_Active = 'A'`. District scope (only when `l2DistrictType` is present and the value was confirmed via the Step 7 discovery query):
-
-```sql
+-- Then assemble the column list dynamically.
+-- District scope:
 SELECT
   ROUND(AVG(CAST(`{col1}` AS DOUBLE)), 1) AS {col1},
   ROUND(AVG(CAST(`{col2}` AS DOUBLE)), 1) AS {col2},
@@ -595,6 +589,14 @@ SELECT
   COUNT(*) AS voter_count
 FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
 WHERE `{l2_type}` = :l2_name AND Voters_Active = 'A';
+
+-- State scope (drop the district clause):
+SELECT
+  ROUND(AVG(CAST(`{col1}` AS DOUBLE)), 1) AS {col1},
+  ROUND(AVG(CAST(`{col2}` AS DOUBLE)), 1) AS {col2},
+  COUNT(*) AS voter_count
+FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
+WHERE Voters_Active = 'A';
 ```
 
 Notes:
@@ -602,6 +604,7 @@ Notes:
 - `{col_N}` are validated `hs_*` column names interpolated via f-string. Every value in the inline catalog above is L2-verified — column-existence checks are not required.
 - `{l2_type}` is the district column identifier (e.g. `City_Ward`), backtick-quoted and validated as `re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", l2_type)` (ASCII-only).
 - `:l2_name` is bound via named placeholder. Use the value confirmed in Step 7 — not raw `PARAMS.l2DistrictName` if the discovery query found a different exact match.
+- Do NOT add a `Residence_Addresses_City` clause — there is no city in PARAMS, and adding one returns `ScopeViolation`. State-scope queries are state-wide intentionally.
 - If no priority item picked a column, **skip Step 8 entirely** — no zero-column queries.
 
 ### Step 9 — Per-item overview (for each featured and queued item)
@@ -793,7 +796,7 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 
 #### Allowed sources
 
-- Agenda packet (past and present) and accompanying staff reports 
+- Agenda packet (past and present) and accompanying staff reports
 - Local government website for the jurisdiction
 - Local news outlets (see Step 11 for credibility guidance)
 - Campaign website for the elected official (contextual only)
@@ -896,19 +899,19 @@ For each featured/queued item where Step 6/6b picked a column from the inline ca
 
 Fields:
 
-- `summary` — short prose using the column's directional `meaning` and the city `mean_score`. Always label as a modeled estimate. Example: `"Modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
+- `summary` — short prose using the column's directional `meaning` and the `mean_score`. Always label as a modeled estimate. Example: `"Modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
 - `detail` — one sentence describing what the score measures as a modeled estimate, not a survey result.
-- `mean_score` — the city `AVG(...)` result from Step 8 (float, 0–100).
+- `mean_score` — the `AVG(...)` result from Step 8 (float, 0–100). District scope when `l2DistrictType` was set and confirmed in Step 7; state scope otherwise.
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).
-- `voter_count` — the city `COUNT(*) AS voter_count` from Step 8.
+- `voter_count` — the `COUNT(*) AS voter_count` from Step 8 (district or state scope, matching `mean_score`).
 - `haystaq_column` — the picked column name from the inline catalog (e.g. `hs_gun_control_support`).
-- `haystaq_status` — `"ok"` when the city query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item); `"no_column"` defensively when the picked column wasn't queryable (shouldn't occur with the L2-verified catalog).
-- `district_note` — populate **only** when both city and district means are present **and** `abs(district_mean_score - city_mean_score) >= 10`. Otherwise `null`.
+- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` defensively when the picked column wasn't queryable (shouldn't occur with the L2-verified catalog). The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
+- `district_note` — **deprecated**, always set to `null`. With city scope removed there is no within-jurisdiction baseline to compare district against.
 - `source_ids` — array of `id` values from the top-level `sources[]` list that back this section. For `haystaq_status: "ok"`, reference the Haystaq source entry you compiled in Step 14. Required-but-may-be-empty: emit `[]` only when no source defensibly backs the section (e.g. `haystaq_status` other than `"ok"`); do not fabricate citations. The UI renders these as inline source pills below the section.
 
 Do not emit `haystaq_source` on `display.constituent_sentiment` — the curated/dictionary-fallback split is dead; the field is not in the schema and will cause rejection.
 
-Populate `research.full_treatment.haystaq_detail` with `city_mean_score`, `district_mean_score` (or `null`), `city_voter_count`, `district_voter_count` (or `null`), the chosen `haystaq_column`, and the executed SQL as `query_executed`. Set `haystaq_source` to `null` (the field is retained in the schema for backward compatibility but no longer carries a value under the inline-catalog model).
+Populate `research.full_treatment.haystaq_detail` with: `district_mean_score` and `district_voter_count` set from the Step 8 district-scope query (or `null` when state scope was used); `city_mean_score` and `city_voter_count` set to `null` (city scope removed); the chosen `haystaq_column`; and the executed SQL as `query_executed`. Set `haystaq_source` to `null` (the field is retained in the schema for backward compatibility but no longer carries a value under the inline-catalog model).
 
 ### Step 17 — Write the artifact
 
@@ -963,21 +966,21 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **`briefing_status` consistency:** `briefing_ready` requires ≥1 featured OR queued item (Step 5 may produce zero featured items if no item qualifies). `awaiting_agenda` AND `no_meeting_found` require `claims[]` empty.
 - **Every featured item must have at least one talking point.** Empty array is a schema violation; set `display.talking_points` to a non-empty list or `null`.
 - **Every Haystaq score reported in `display.constituent_sentiment`** must trace to a column in the Step 6 inline catalog and a row in the Step 8 batched L2 query.
-- **District-vs-city divergence:** `district_note` populated **only** when both means are present **and** `abs(district_mean_score - city_mean_score) >= 10`. Otherwise `null`.
-- **`total_active_voters` / `voter_count` matches the city or district, not the whole state** → your L2 district WHERE clause matched zero rows; broker's auto-injected city scope is the only filter that hit. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check.
+- **`district_note` is always `null`** — deprecated since city scope was removed.
+- **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
 - **All sentiment percentages <5%** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check.
 - **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; `pmf_runtime.http.get(url)` the page and confirm before citing it.
 
 ## Failure modes
 
-| Symptom                                                                 | Cause                                                                                    | Fix                                                                                                                       |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Broker logs `ScopeViolation: scope_predicate_override`                  | Agent added `WHERE Residence_Addresses_State = ?` on the L2 table                        | Remove the clause; the broker auto-injects state/city for `int__l2_nationwide_uniform_w_haystaq`                          |
-| Broker 422 on `/databricks/query` repeatedly                            | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table            | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                               |
-| Top sentiment scores all 0-5%                                           | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                  | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                             |
-| `total_active_voters` looks like the whole state, not the city/district | District name doesn't exist; broker's city scope is the only filter that matched         | Verify the district via the L2 value-format discovery query in Step 6b                                                    |
-| Runner: `No artifact files found in /workspace/output`                  | Agent ran out of turns or never wrote the file                                           | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                              |
-| `contract_violation` callback after agent claimed success               | Validator caught a missing/wrong-typed field the agent didn't notice                     | Run `python3 /workspace/validate_output.py` BEFORE declaring success                                                      |
-| Legistar API returns 403 `"Token is required"`                          | Jurisdiction has gated their Granicus API                                                | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                          |
-| District mean suspiciously close to city mean                           | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) | Discover the exact value via a `SELECT DISTINCT` query before binding                                                     |
-| `awaiting_agenda` placeholder item fails schema validation              | Agent invented a custom `tier_reason` string                                             | Use `["placeholder"]` exactly per Step 3                                                                                  |
+| Symptom                                                                       | Cause                                                                                                                           | Fix                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Broker logs `ScopeViolation: scope_predicate_override`                        | Agent added `WHERE Residence_Addresses_State = ?` or `WHERE Residence_Addresses_City = ?` on the L2 table                       | Remove the state clause (broker auto-injects state); never add a city clause (city is not in PARAMS, broker does not auto-inject one)      |
+| Broker 422 on `/databricks/query` repeatedly                                  | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table                                                   | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                                                |
+| Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
+| `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
+| Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
+| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/validate_output.py` BEFORE declaring success                                                                       |
+| Legistar API returns 403 `"Token is required"`                                | Jurisdiction has gated their Granicus API                                                                                       | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                                           |
+| District mean suspiciously close to state mean                                | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) caused silent fall-back to state scope | Discover the exact value via a `SELECT DISTINCT` query before binding                                                                      |
+| `awaiting_agenda` placeholder item fails schema validation                    | Agent invented a custom `tier_reason` string                                                                                    | Use `["placeholder"]` exactly per Step 3                                                                                                   |

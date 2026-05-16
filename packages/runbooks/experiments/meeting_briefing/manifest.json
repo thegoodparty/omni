@@ -14,11 +14,7 @@
   "input_schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": [
-      "officialName",
-      "state",
-      "city"
-    ],
+    "required": ["officialName", "state"],
     "properties": {
       "officialName": {
         "type": "string",
@@ -29,11 +25,6 @@
         "type": "string",
         "pattern": "^[A-Z]{2}$",
         "description": "2-letter state code (e.g. NY)."
-      },
-      "city": {
-        "type": "string",
-        "minLength": 1,
-        "description": "City name as it appears in L2 (title-case, e.g. \"New York\")."
       },
       "positionName": {
         "type": "string",
@@ -96,10 +87,7 @@
           },
           "briefing_status": {
             "type": "string",
-            "enum": [
-              "briefing_ready",
-              "agenda_provided_by_user"
-            ],
+            "enum": ["briefing_ready", "agenda_provided_by_user"],
             "description": "Full briefing produced. UI renders normal briefing."
           },
           "generated_at": {
@@ -139,16 +127,10 @@
           "run_metadata": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "agenda_packet_url",
-              "source_bundle_retrieved_at"
-            ],
+            "required": ["agenda_packet_url", "source_bundle_retrieved_at"],
             "properties": {
               "agenda_packet_url": {
-                "type": [
-                  "string",
-                  "null"
-                ],
+                "type": ["string", "null"],
                 "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
               },
               "source_bundle_retrieved_at": {
@@ -164,11 +146,7 @@
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "timestamp",
-                    "decision",
-                    "reason"
-                  ],
+                  "required": ["timestamp", "decision", "reason"],
                   "properties": {
                     "timestamp": {
                       "type": "string",
@@ -260,11 +238,7 @@
           },
           "briefing_status": {
             "type": "string",
-            "enum": [
-              "awaiting_agenda",
-              "no_meeting_found",
-              "error"
-            ],
+            "enum": ["awaiting_agenda", "no_meeting_found", "error"],
             "description": "Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when no upcoming meeting exists within the 60-day search window. Use 'error' for unrecoverable run failures \u2014 populate run_metadata.run_decisions[] with the diagnostic trail."
           },
           "generated_at": {
@@ -303,16 +277,10 @@
           "run_metadata": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "agenda_packet_url",
-              "source_bundle_retrieved_at"
-            ],
+            "required": ["agenda_packet_url", "source_bundle_retrieved_at"],
             "properties": {
               "agenda_packet_url": {
-                "type": [
-                  "string",
-                  "null"
-                ],
+                "type": ["string", "null"],
                 "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
               },
               "source_bundle_retrieved_at": {
@@ -328,11 +296,7 @@
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "timestamp",
-                    "decision",
-                    "reason"
-                  ],
+                  "required": ["timestamp", "decision", "reason"],
                   "properties": {
                     "timestamp": {
                       "type": "string",
@@ -404,10 +368,7 @@
             "pattern": "^item_[0-9]{3}$"
           },
           "item_number": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "description": "Agenda item number as a string (e.g. '5F'). Set to null only for the single placeholder item emitted when briefing_status is awaiting_agenda or no_meeting_found."
           },
           "title": {
@@ -416,11 +377,7 @@
           },
           "tier": {
             "type": "string",
-            "enum": [
-              "featured",
-              "queued",
-              "standard"
-            ]
+            "enum": ["featured", "queued", "standard"]
           },
           "vote_required": {
             "type": "boolean"
@@ -445,9 +402,7 @@
       "display": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "summary"
-        ],
+        "required": ["summary"],
         "properties": {
           "summary": {
             "type": "string",
@@ -524,16 +479,10 @@
             "minLength": 1
           },
           "detail": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "district_note": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "haystaq_column": {
             "type": "string",
@@ -555,12 +504,7 @@
           },
           "haystaq_status": {
             "type": "string",
-            "enum": [
-              "ok",
-              "no_match",
-              "city_mismatch",
-              "no_column"
-            ]
+            "enum": ["ok", "no_match", "city_mismatch", "no_column"]
           },
           "source_ids": {
             "type": "array",
@@ -575,12 +519,7 @@
       "recent_news_entry": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "headline",
-          "publication",
-          "article_type",
-          "url"
-        ],
+        "required": ["headline", "publication", "article_type", "url"],
         "properties": {
           "headline": {
             "type": "string",
@@ -601,10 +540,7 @@
             ]
           },
           "publication_date": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "format": "date"
           },
           "url": {
@@ -612,10 +548,7 @@
             "pattern": "^https?://"
           },
           "source_id": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "description": "Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[]."
           }
         }
@@ -623,11 +556,7 @@
       "budget_impact": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "summary",
-          "figures",
-          "source_ids"
-        ],
+        "required": ["summary", "figures", "source_ids"],
         "properties": {
           "summary": {
             "type": "string",
@@ -639,11 +568,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "label",
-                "value",
-                "source_id"
-              ],
+              "required": ["label", "value", "source_id"],
               "properties": {
                 "label": {
                   "type": "string",
@@ -673,10 +598,7 @@
       "research": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "raw_context",
-          "full_treatment"
-        ],
+        "required": ["raw_context", "full_treatment"],
         "properties": {
           "raw_context": {
             "type": "array",
@@ -724,11 +646,7 @@
           },
           "tier": {
             "type": "string",
-            "enum": [
-              "featured",
-              "queued",
-              "standard"
-            ]
+            "enum": ["featured", "queued", "standard"]
           },
           "source_id": {
             "type": "string",
@@ -743,10 +661,7 @@
             }
           },
           "section_heading": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "text": {
             "type": "string",
@@ -757,11 +672,7 @@
       "full_treatment": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "haystaq_detail",
-          "news_articles",
-          "budget_detail"
-        ],
+        "required": ["haystaq_detail", "news_articles", "budget_detail"],
         "properties": {
           "haystaq_detail": {
             "oneOf": [
@@ -801,68 +712,39 @@
       "haystaq_detail": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "haystaq_status",
-          "haystaq_column"
-        ],
+        "required": ["haystaq_status", "haystaq_column"],
         "properties": {
           "haystaq_status": {
             "type": "string",
-            "enum": [
-              "ok",
-              "no_match",
-              "city_mismatch",
-              "no_column"
-            ]
+            "enum": ["ok", "no_match", "city_mismatch", "no_column"]
           },
           "haystaq_column": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "pattern": "^hs_[a-z0-9_]+$"
           },
           "city_mean_score": {
-            "type": [
-              "number",
-              "null"
-            ],
+            "type": ["number", "null"],
             "minimum": 0,
             "maximum": 100
           },
           "district_mean_score": {
-            "type": [
-              "number",
-              "null"
-            ],
+            "type": ["number", "null"],
             "minimum": 0,
             "maximum": 100
           },
           "city_voter_count": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 0
           },
           "district_voter_count": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 0
           },
           "complementary_field": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "query_executed": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       },
@@ -896,10 +778,7 @@
             ]
           },
           "publication_date": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "format": "date"
           },
           "url": {
@@ -914,9 +793,7 @@
       "budget_detail": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "figures"
-        ],
+        "required": ["figures"],
         "properties": {
           "figures": {
             "type": "array",
@@ -924,11 +801,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "label",
-                "value",
-                "verbatim_extract"
-              ],
+              "required": ["label", "value", "verbatim_extract"],
               "properties": {
                 "label": {
                   "type": "string",
@@ -1000,11 +873,7 @@
           },
           "claim_weight": {
             "type": "string",
-            "enum": [
-              "high",
-              "medium",
-              "low"
-            ]
+            "enum": ["high", "medium", "low"]
           },
           "source_extracts": {
             "type": "array",
@@ -1036,11 +905,7 @@
           },
           "route_if_unsupported": {
             "type": "string",
-            "enum": [
-              "block_release",
-              "omit_claim",
-              "flag_as_inferred"
-            ]
+            "enum": ["block_release", "omit_claim", "flag_as_inferred"]
           }
         }
       },
@@ -1064,10 +929,7 @@
             "minLength": 1
           },
           "url": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "pattern": "^https?://"
           },
           "source_type": {
@@ -1090,30 +952,18 @@
             "maxLength": 50000
           },
           "page_number": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "section_heading": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "article_date": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "format": "date"
           },
           "article_type": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "enum": [
               "reporting",
               "opinion",
@@ -1124,49 +974,29 @@
             ]
           },
           "publisher": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "haystaq_column": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "score_value": {
-            "type": [
-              "number",
-              "null"
-            ],
+            "type": ["number", "null"],
             "minimum": 0,
             "maximum": 100
           },
           "district_voters_n": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 0
           },
           "specific_claim_found": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       },
       "required_data_point": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name",
-          "scope",
-          "required",
-          "citation_required"
-        ],
+        "required": ["name", "scope", "required", "citation_required"],
         "properties": {
           "name": {
             "type": "string",
@@ -1174,11 +1004,7 @@
           },
           "scope": {
             "type": "string",
-            "enum": [
-              "all_items",
-              "featured_queued",
-              "featured"
-            ]
+            "enum": ["all_items", "featured_queued", "featured"]
           },
           "required": {
             "type": "boolean"
@@ -1252,9 +1078,7 @@
           "display": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "summary"
-            ],
+            "required": ["summary"],
             "properties": {
               "summary": {
                 "type": "string",
@@ -1277,10 +1101,7 @@
           "research": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "raw_context",
-              "full_treatment"
-            ],
+            "required": ["raw_context", "full_treatment"],
             "properties": {
               "raw_context": {
                 "type": "array",
