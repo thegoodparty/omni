@@ -108,6 +108,7 @@ class Phase2Result:
     accuracy_category: str
     reasoning: str
     is_ok: bool
+    proposed_correction: Optional[str] = None
 
 
 @dataclass
@@ -190,6 +191,41 @@ def _format_safe(template: str, data: dict) -> str:
         value = data.get(key)
         return str(value) if value else "unknown"
     return re.sub(r"\{([^{}]+)\}", repl, template)
+
+
+# ── Source-extract normalization (legacy string vs structured object) ────────
+
+def _extract_text(extract) -> str:
+    """source_extracts items are either strings (legacy) or objects with `text` (preferred)."""
+    if isinstance(extract, str):
+        return extract
+    if isinstance(extract, dict):
+        return extract.get("text") or ""
+    return ""
+
+
+def _extract_section_header(extract) -> str:
+    """Returns the section_header if extract is in object form, empty string for legacy strings."""
+    if isinstance(extract, dict):
+        return extract.get("section_header") or ""
+    return ""
+
+
+def _extract_type(extract) -> str:
+    """Returns extract_type if extract is in object form, 'unknown' for legacy strings."""
+    if isinstance(extract, dict):
+        return extract.get("extract_type") or "unknown"
+    return "unknown"
+
+
+def _iter_extract_texts(extracts) -> list[str]:
+    """Pull text strings out of a source_extracts list, filtering empties."""
+    out: list[str] = []
+    for e in extracts or []:
+        t = _extract_text(e)
+        if t and t.strip():
+            out.append(t)
+    return out
 
 
 # ── Scoring helpers (coherence check) ─────────────────────────────────────────
@@ -285,8 +321,7 @@ def run_deterministic(
     # 3. High-weight / blockable-type claims must have non-empty source_extracts
     high_types = blockable_types(spec)
     def _has_extract(c: dict) -> bool:
-        ext = c.get("source_extracts") or []
-        return any(isinstance(e, str) and e.strip() for e in ext)
+        return bool(_iter_extract_texts(c.get("source_extracts") or []))
     no_extract = [
         c.get("claim_id", "<no-id>") for c in claims
         if (c.get("claim_type") in high_types or c.get("claim_weight") == "high")
@@ -473,9 +508,10 @@ def run_deterministic(
             if text:
                 cited_haystacks.append(_norm(text))
         for ex in claim.get("source_extracts") or []:
-            if not isinstance(ex, str) or not ex.strip():
+            ex_text = _extract_text(ex)
+            if not ex_text.strip():
                 continue
-            needle = _norm(ex)
+            needle = _norm(ex_text)
             # Exact substring in any cited source
             exact_hit = any(needle in haystack for haystack in cited_haystacks)
             # Fuzzy fallback — only within the SAME cited sources
@@ -485,7 +521,7 @@ def run_deterministic(
                     (int(fuzz.partial_ratio(needle, h)) for h in cited_haystacks),
                     default=0,
                 )
-            snippet = (ex[:60] + "…") if len(ex) > 60 else ex
+            snippet = (ex_text[:60] + "…") if len(ex_text) > 60 else ex_text
             if exact_hit:
                 outcome = "exact"
                 exact_count += 1
@@ -600,9 +636,7 @@ def run_deterministic(
                 continue
             item_extracts: list[str] = []
             for c in claims_by_item.get(iid, []):
-                for ex in c.get("source_extracts") or []:
-                    if isinstance(ex, str) and ex.strip():
-                        item_extracts.append(ex)
+                item_extracts.extend(_iter_extract_texts(c.get("source_extracts") or []))
             if not item_extracts:
                 continue
             combined = " ".join(item_extracts)
@@ -837,6 +871,7 @@ class _AdjudicationOutput(BaseModel):
         "Unverifiable",
     ]
     reasoning: str
+    proposed_correction: Optional[str] = None
 
 
 _TRIAGE_SYSTEM = """You are a factual accuracy reviewer for civic briefing documents.
@@ -864,6 +899,11 @@ Procedure:
 3. If any assertion is unsupported, partially supported, or contradicted by the source — even if other assertions are fine — the overall claim does not get a clean pass.
 4. Do not defer to the first reviewer. Do not give the briefing the benefit of the doubt. If you cannot independently confirm the claim, classify accordingly.
 
+You receive context in three labeled tiers:
+- PRIMARY: the agent's stated grounding (cited extracts with their section_header). This is where the agent says the evidence is.
+- SECONDARY: full snapshots of the cited sources. Use to verify the cited extracts are faithful and not cherry-picked.
+- TERTIARY: the rest of the agenda packet (uncited sources). Use to find grounding the agent may have missed — a claim is not necessarily wrong if it can be substantiated elsewhere in the packet, but you should call out the missing citation.
+
 Apply the same accuracy categories as the first reviewer.
 
 Categories:
@@ -871,10 +911,17 @@ Categories:
 - Directionally Consistent: Generally aligned with the source but not verbatim on the specifics.
 - Extrapolating: Reasonable inference from the source, but extends beyond what the source explicitly states.
 - Modeled: Explicitly framed as modeled/estimated data; the framing itself is accurate.
-- Not in Source — Verified Elsewhere: The claim cannot be confirmed from this passage but may be correct from another source.
+- Not in Source — Verified Elsewhere: The claim cannot be confirmed from this passage but may be correct from another source (use this when grounding lives in TERTIARY rather than the cited sources).
 - Not in Source — Unresolved: The claim cannot be substantiated by the passage.
 - Incorrect: The claim contradicts the source passage.
-- Unverifiable: The passage exists but cannot be assessed as supporting or refuting the claim as written."""
+- Unverifiable: The passage exists but cannot be assessed as supporting or refuting the claim as written.
+
+When you classify as anything other than Accurate, Directionally Consistent, Extrapolating, or Modeled, you MUST populate `proposed_correction` with a specific, actionable fix. Options:
+- A rewritten claim text that is grounded in the source as you understand it. Be verbatim about what to change. Example: "Replace 'as of the April 30, 2026 cash snapshot' with 'as of 5/31/2026' to match the dates on the cited account rows."
+- A removal recommendation. Example: "Remove this claim entirely — no source in the packet supports the 'outgoing council members' framing."
+- A scope tightening. Example: "Restrict the claim to the four named individuals who carry the 'Remove' flag in the source; drop the broader 'outgoing council members' label."
+
+If your verdict is Accurate, Directionally Consistent, Extrapolating, or Modeled, leave `proposed_correction` as null."""
 
 
 def _format_phase1_user_prompt(claim: dict) -> str:
@@ -883,49 +930,85 @@ def _format_phase1_user_prompt(claim: dict) -> str:
     A single claim may be grounded across multiple separately-cited extracts (e.g. a
     table caption + a table row). Phase 1 sees them all so the judge can verify each
     assertion in the claim against whichever extract supports it.
+
+    Each extract may carry a section_header (object-form extracts) — the header is what
+    gives the verbatim text its context. A bare row like "TOTALS TEXAS FIRST BANK 901,826.03"
+    only makes sense once you know the table caption it came from. We render section_header
+    alongside the text so the judge can reason about both.
     """
-    extracts = [
-        e for e in (claim.get("source_extracts") or [])
-        if isinstance(e, str) and e.strip()
-    ]
+    extracts = [e for e in (claim.get("source_extracts") or []) if _extract_text(e).strip()]
     if not extracts:
         return "Source extracts: (none provided by the agent — claim is unsupported by design)"
+
+    def _render(idx: int, ex) -> list[str]:
+        text = _extract_text(ex)
+        header = _extract_section_header(ex)
+        kind = _extract_type(ex)
+        lines = [f"[Extract {idx}]"]
+        if header:
+            lines.append(f"Section: {header}")
+        if kind != "unknown":
+            lines.append(f"Type: {kind}")
+        if header or kind != "unknown":
+            lines.append("Text:")
+        lines.append(text)
+        return lines
+
     if len(extracts) == 1:
-        return f"Source extract (one provided):\n{extracts[0]}"
+        parts = ["Source extract (one provided):"]
+        parts.extend(_render(1, extracts[0]))
+        return "\n".join(parts)
+
     parts = [
         f"Source extracts ({len(extracts)} provided, listed separately — each was cited "
-        f"verbatim by the agent; any may be the relevant one for a given assertion in the claim):",
+        f"verbatim by the agent; any may be the relevant one for a given assertion in the claim).",
         "",
     ]
     for i, ex in enumerate(extracts, 1):
-        parts.append(f"[Extract {i}]")
-        parts.append(ex)
+        parts.extend(_render(i, ex))
         parts.append("")
     return "\n".join(parts).rstrip()
 
 
+_PHASE2_PER_SOURCE_CAP = 5000
+_PHASE2_TOTAL_PACKET_CAP = 50000
+
+
 def _format_phase2_user_prompt(claim: dict, sources: list[dict], artifact: dict) -> str:
-    """Build Phase 2 context: stated grounding (primary) + full cited-source snapshots
-    (secondary) + full briefing context (tertiary). Section labels signal where to focus.
+    """Build Phase 2 context for adversarial review:
+
+    PRIMARY  — the claim's stated grounding: each cited extract with its section_header
+               (the agent's claimed evidence). Focus verification here first.
+    SECONDARY — full retrieved_text_or_snapshot for each cited source, capped per-source.
+                Verify whether the cited extracts are faithful and complete.
+    TERTIARY  — the full agenda packet: every source's snapshot in sources[], regardless
+                of whether the claim cited it. Use to find grounding the agent may have
+                missed or to confirm a date/fact lives in a different uncited source.
     """
     source_map = {s["id"]: s for s in (sources or []) if s.get("id")}
     cited_ids = list(claim.get("source_ids") or [])
-    extracts = [
-        e for e in (claim.get("source_extracts") or [])
-        if isinstance(e, str) and e.strip()
-    ]
+    cited_set = set(cited_ids)
+    extracts = [e for e in (claim.get("source_extracts") or []) if _extract_text(e).strip()]
 
     parts: list[str] = []
 
     parts.append("== Stated grounding for this claim (PRIMARY — focus your verification here) ==")
     if extracts:
         parts.append(
-            f"The briefing agent cited {len(extracts)} extract(s) verbatim from the source(s):"
+            f"The briefing agent cited {len(extracts)} extract(s) verbatim from the source(s). "
+            f"Each carries the verbatim text plus a section_header naming where in the source it came from."
         )
         parts.append("")
         for i, ex in enumerate(extracts, 1):
             parts.append(f"[Extract {i}]")
-            parts.append(ex)
+            header = _extract_section_header(ex)
+            kind = _extract_type(ex)
+            if header:
+                parts.append(f"Section: {header}")
+            if kind != "unknown":
+                parts.append(f"Type: {kind}")
+            parts.append("Text:")
+            parts.append(_extract_text(ex))
             parts.append("")
     else:
         parts.append("(no extracts provided)")
@@ -946,40 +1029,39 @@ def _format_phase2_user_prompt(claim: dict, sources: list[dict], artifact: dict)
             parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}] (no snapshot captured)")
             parts.append("")
             continue
-        truncated = snapshot[:3000]
+        truncated = snapshot[:_PHASE2_PER_SOURCE_CAP]
         parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}]")
         parts.append(truncated)
-        if len(snapshot) > 3000:
+        if len(snapshot) > _PHASE2_PER_SOURCE_CAP:
             parts.append("…(snapshot truncated)")
         parts.append("")
 
     parts.append(
-        "== Full briefing context "
-        "(TERTIARY — use only to triangulate cross-item or whole-document signals) =="
+        "== Full agenda packet "
+        "(TERTIARY — every source in the artifact, cited or not; use to find grounding "
+        "the agent may have missed or to triangulate facts across sources) =="
     )
-    exec_summary = artifact.get("executive_summary") or ""
-    if isinstance(exec_summary, str) and exec_summary:
-        parts.append("Executive summary:")
-        parts.append(exec_summary)
+    packet_budget = _PHASE2_TOTAL_PACKET_CAP
+    for src in (sources or []):
+        sid = src.get("id")
+        if not sid or sid in cited_set:
+            continue  # cited ones already in SECONDARY
+        snapshot = src.get("retrieved_text_or_snapshot", "") or ""
+        if not snapshot:
+            parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}] (no snapshot captured)")
+            parts.append("")
+            continue
+        if packet_budget <= 0:
+            parts.append("…(remaining sources omitted; total packet cap reached)")
+            break
+        share = min(_PHASE2_PER_SOURCE_CAP, packet_budget)
+        truncated = snapshot[:share]
+        parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}]")
+        parts.append(truncated)
+        if len(snapshot) > share:
+            parts.append("…(snapshot truncated)")
         parts.append("")
-
-    items = artifact.get("items") or []
-    claim_item_id = claim.get("item_id")
-    for it in items:
-        is_own = it.get("id") == claim_item_id
-        marker = " (THIS CLAIM'S ITEM)" if is_own else ""
-        parts.append(
-            f"[Item {it.get('item_number', '?')}: {it.get('title', '')} "
-            f"— tier: {it.get('tier', '?')}{marker}]"
-        )
-        disp = it.get("display") or {}
-        if disp.get("summary"):
-            parts.append(f"Summary: {disp['summary']}")
-        if is_own and isinstance(disp.get("talking_points"), list) and disp["talking_points"]:
-            parts.append("Talking points:")
-            for tp in disp["talking_points"]:
-                parts.append(f"  - {tp}")
-        parts.append("")
+        packet_budget -= len(truncated)
 
     return "\n".join(parts).rstrip()
 
@@ -1226,6 +1308,7 @@ def phase2_escalate(
                 accuracy_category=out.accuracy_category,
                 reasoning=out.reasoning,
                 is_ok=out.accuracy_category in ok_cats,
+                proposed_correction=out.proposed_correction,
             )
         except Exception as e:
             trace.phase2 = Phase2Result(
@@ -1233,6 +1316,7 @@ def phase2_escalate(
                 accuracy_category="Unverifiable",
                 reasoning=f"Phase 2 adjudication failed ({judge.name}): {e}",
                 is_ok=False,
+                proposed_correction=None,
             )
 
 
@@ -1343,6 +1427,7 @@ def write_bundle(
                     "accuracy_category": trace.phase2.accuracy_category,
                     "reasoning": trace.phase2.reasoning,
                     "is_ok": trace.phase2.is_ok,
+                    "proposed_correction": trace.phase2.proposed_correction,
                 } if trace.phase2 else None,
                 "final_route": trace.final_route,
             }
