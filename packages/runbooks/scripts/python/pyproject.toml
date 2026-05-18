@@ -10,7 +10,9 @@ dependencies = [
     "pandas",
     "pydantic>=2.0.0",
     "python-dotenv",
+    "rapidfuzz>=3.0.0",
     "requests",
+    "rouge-score>=0.1.2",
 ]
 
 [dependency-groups]
