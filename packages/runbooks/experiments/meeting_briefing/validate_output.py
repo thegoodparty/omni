@@ -398,6 +398,45 @@ def check_run_decisions_meaningful(artifact: dict, findings: list[Finding]) -> N
         ))
 
 
+_CHANNEL_PREFIX_RE = re.compile(r"^channel_([1-7])_")
+_REQUIRED_CHANNELS = frozenset(range(1, 8))
+
+
+def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding]) -> None:
+    """awaiting_agenda / no_meeting_found requires all 7 discovery channels attempted.
+
+    The packet-discovery procedure has 7 distinct channels (instruction.md). Each
+    attempted channel must produce a run_decisions[] entry whose `decision`
+    begins with `channel_<N>_` for N in 1-7. Channel 1's per-platform sub-attempts
+    are grouped under a single channel_1_* entry (in its `reason`); they do NOT
+    each get their own top-level entry — otherwise a 10-platform channel-1 run
+    could falsely clear a numeric-only count gate without touching channels 2-7.
+
+    This check is the teeth behind the instruction's claim that the validator
+    rejects awaiting_agenda artifacts that skip channels — without it, the
+    instruction's enforcement promise was vacuous.
+    """
+    status = artifact.get("briefing_status")
+    if status not in ("awaiting_agenda", "no_meeting_found"):
+        return
+    decisions = (artifact.get("run_metadata") or {}).get("run_decisions") or []
+    channels_seen: set[int] = set()
+    for d in decisions:
+        m = _CHANNEL_PREFIX_RE.match((d.get("decision") or ""))
+        if m:
+            channels_seen.add(int(m.group(1)))
+    missing = sorted(_REQUIRED_CHANNELS - channels_seen)
+    if missing:
+        findings.append(Finding(
+            "run_decisions.discovery_channels_incomplete",
+            "error",
+            f"briefing_status='{status}' but run_metadata.run_decisions[] is missing "
+            f"channel attempts for {missing}. Each of the 7 discovery channels "
+            f"requires a run_decisions[] entry whose decision begins with "
+            f"`channel_<N>_<short-label>` (N=1-7). Saw channels: {sorted(channels_seen) or 'none'}.",
+        ))
+
+
 CHECKS = [
     check_briefing_status_consistency,
     check_cross_reference_integrity,
@@ -407,6 +446,7 @@ CHECKS = [
     check_source_extracts_in_source,
     check_disclosure_present,
     check_run_decisions_meaningful,
+    check_awaiting_agenda_discovery_depth,
 ]
 
 

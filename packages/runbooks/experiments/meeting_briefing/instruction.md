@@ -225,14 +225,16 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to. Each channel below requires its own `run_decisions[]` entry recording what was tried and what was found (or null). If you stop with fewer than 7 channel-entries in `run_decisions[]`, the validator will reject the artifact. Stop early ONLY when you find packet content for the target meeting.
+**Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–7, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 6 channels. The deterministic validator (`validate_output.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 7 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting.
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
    - PrimeGov: WebSearch `"<city>" primegov.com` → URL pattern `{client}.primegov.com/Portal/Meeting`.
    - eSCRIBE: WebSearch `"<city>" escribemeetings.com`.
    - CivicPlus AgendaCenter: WebSearch `"<city>" AgendaCenter`.
-   - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf`.
+   - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
    - Granicus: WebSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
    - CivicClerk: WebSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
    - Novus Agenda: WebSearch `"<city>" novusagenda`. *Drill into the meeting search results — landing-page-only checks don't count.*
@@ -250,9 +252,9 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
 7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
 
-**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted (including the per-platform sub-attempts in channel 1) — at minimum 7 entries documenting the search trail. The deterministic validator (`validate_output.py`) will reject `awaiting_agenda` artifacts that do not show this depth of effort.
+**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`, `channel_7_past_url_probe`). All 7 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator (`validate_output.py`) enforces this — artifacts missing any channel number get rejected.
 
-**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–5 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
+**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–7 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
 #### Agenda platform reference
 
@@ -262,6 +264,8 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
   from pmf_runtime import http
   r = http.get(f"https://webapi.legistar.com/v1/{client}/events?$top=1")
   # 200 with non-empty list confirms client; 404 means wrong client name.
+  # 403 ("Token is required") means the client EXISTS but has gated its API —
+  # fall back to scraping the portal directly per the Token gating note below.
   ```
 
   **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
