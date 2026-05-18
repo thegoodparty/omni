@@ -50,10 +50,17 @@ from pydantic import BaseModel
 # ── Environment ───────────────────────────────────────────────────────────────
 
 def _load_env() -> None:
-    # scripts/.env is symlinked to ~/Research/.env on this repo; load via the symlink
-    # so the same code works in worktrees and in Fargate (where the runner stages env).
-    script_env = Path(__file__).resolve().parent.parent / ".env"
-    load_dotenv(script_env)
+    # scripts/.env is the in-repo convention (symlinked to ~/Research/.env) so the same
+    # code works in worktrees and Fargate. Fall back to ~/Research/.env directly when
+    # the symlink is missing — git worktree add does not carry untracked symlinks.
+    candidates = [
+        Path(__file__).resolve().parent.parent / ".env",   # scripts/.env (symlink convention)
+        Path.home() / "Research" / ".env",                 # user's canonical location
+    ]
+    for candidate in candidates:
+        if candidate.exists() or candidate.is_symlink():
+            load_dotenv(candidate)
+            return
 
 
 # ── Product spec ──────────────────────────────────────────────────────────────
@@ -870,6 +877,113 @@ Categories:
 - Unverifiable: The passage exists but cannot be assessed as supporting or refuting the claim as written."""
 
 
+def _format_phase1_user_prompt(claim: dict) -> str:
+    """Build Phase 1 context: ALL source_extracts as a labeled list.
+
+    A single claim may be grounded across multiple separately-cited extracts (e.g. a
+    table caption + a table row). Phase 1 sees them all so the judge can verify each
+    assertion in the claim against whichever extract supports it.
+    """
+    extracts = [
+        e for e in (claim.get("source_extracts") or [])
+        if isinstance(e, str) and e.strip()
+    ]
+    if not extracts:
+        return "Source extracts: (none provided by the agent — claim is unsupported by design)"
+    if len(extracts) == 1:
+        return f"Source extract (one provided):\n{extracts[0]}"
+    parts = [
+        f"Source extracts ({len(extracts)} provided, listed separately — each was cited "
+        f"verbatim by the agent; any may be the relevant one for a given assertion in the claim):",
+        "",
+    ]
+    for i, ex in enumerate(extracts, 1):
+        parts.append(f"[Extract {i}]")
+        parts.append(ex)
+        parts.append("")
+    return "\n".join(parts).rstrip()
+
+
+def _format_phase2_user_prompt(claim: dict, sources: list[dict], artifact: dict) -> str:
+    """Build Phase 2 context: stated grounding (primary) + full cited-source snapshots
+    (secondary) + full briefing context (tertiary). Section labels signal where to focus.
+    """
+    source_map = {s["id"]: s for s in (sources or []) if s.get("id")}
+    cited_ids = list(claim.get("source_ids") or [])
+    extracts = [
+        e for e in (claim.get("source_extracts") or [])
+        if isinstance(e, str) and e.strip()
+    ]
+
+    parts: list[str] = []
+
+    parts.append("== Stated grounding for this claim (PRIMARY — focus your verification here) ==")
+    if extracts:
+        parts.append(
+            f"The briefing agent cited {len(extracts)} extract(s) verbatim from the source(s):"
+        )
+        parts.append("")
+        for i, ex in enumerate(extracts, 1):
+            parts.append(f"[Extract {i}]")
+            parts.append(ex)
+            parts.append("")
+    else:
+        parts.append("(no extracts provided)")
+        parts.append("")
+
+    parts.append(
+        "== Full snapshots of cited sources "
+        "(SECONDARY — verify whether the cited extracts above are faithful and complete) =="
+    )
+    for sid in cited_ids:
+        src = source_map.get(sid)
+        if not src:
+            parts.append(f"[Source {sid}] (source_id does not resolve in sources[])")
+            parts.append("")
+            continue
+        snapshot = src.get("retrieved_text_or_snapshot", "") or ""
+        if not snapshot:
+            parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}] (no snapshot captured)")
+            parts.append("")
+            continue
+        truncated = snapshot[:3000]
+        parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}]")
+        parts.append(truncated)
+        if len(snapshot) > 3000:
+            parts.append("…(snapshot truncated)")
+        parts.append("")
+
+    parts.append(
+        "== Full briefing context "
+        "(TERTIARY — use only to triangulate cross-item or whole-document signals) =="
+    )
+    exec_summary = artifact.get("executive_summary") or ""
+    if isinstance(exec_summary, str) and exec_summary:
+        parts.append("Executive summary:")
+        parts.append(exec_summary)
+        parts.append("")
+
+    items = artifact.get("items") or []
+    claim_item_id = claim.get("item_id")
+    for it in items:
+        is_own = it.get("id") == claim_item_id
+        marker = " (THIS CLAIM'S ITEM)" if is_own else ""
+        parts.append(
+            f"[Item {it.get('item_number', '?')}: {it.get('title', '')} "
+            f"— tier: {it.get('tier', '?')}{marker}]"
+        )
+        disp = it.get("display") or {}
+        if disp.get("summary"):
+            parts.append(f"Summary: {disp['summary']}")
+        if is_own and isinstance(disp.get("talking_points"), list) and disp["talking_points"]:
+            parts.append("Talking points:")
+            for tp in disp["talking_points"]:
+                parts.append(f"  - {tp}")
+        parts.append("")
+
+    return "\n".join(parts).rstrip()
+
+
 class Judge:
     """Pluggable LLM judge for QA adjudication. Subclasses implement provider-specific clients.
 
@@ -908,9 +1022,6 @@ class AnthropicJudge(Judge):
         import anthropic
         client = anthropic.Anthropic(api_key=self.api_key)
 
-        extracts = claim.get("source_extracts") or []
-        extract_text = extracts[0] if extracts and isinstance(extracts[0], str) else ""
-
         tool_def = {
             "name": "classify",
             "description": "Classify claim accuracy",
@@ -919,13 +1030,12 @@ class AnthropicJudge(Judge):
         prompt_lines = [
             f"Claim: {claim.get('claim_text', '')}",
             f"Claim type: {claim.get('claim_type', 'unknown')}",
+            "",
+            source_passage or "(no context provided)",
         ]
-        if source_passage:
-            prompt_lines.append(f"\nSource passage:\n{source_passage}")
-        else:
-            prompt_lines.append(f"\nSource extract:\n{extract_text or '(no extract provided)'}")
         if prior is not None:
-            prompt_lines.append(f"\nFirst reviewer verdict: {prior.accuracy_category}")
+            prompt_lines.append("")
+            prompt_lines.append(f"First reviewer verdict: {prior.accuracy_category}")
             prompt_lines.append(f"First reviewer reasoning: {prior.reasoning}")
 
         resp = client.messages.create(
@@ -954,21 +1064,19 @@ class GoogleJudge(Judge):
         genai.configure(api_key=self.api_key)
         model = genai.GenerativeModel(self.model)
 
-        extracts = claim.get("source_extracts") or []
-        extract_text = extracts[0] if extracts and isinstance(extracts[0], str) else ""
-
         prompt_lines = [
             system_prompt,
+            "",
             f"Claim: {claim.get('claim_text', '')}",
             f"Claim type: {claim.get('claim_type', 'unknown')}",
+            "",
+            source_passage or "(no context provided)",
         ]
         if prior is not None:
+            prompt_lines.append("")
             prompt_lines.append(f"First reviewer verdict: {prior.accuracy_category}")
             prompt_lines.append(f"First reviewer reasoning: {prior.reasoning}")
-        if source_passage:
-            prompt_lines.append(f"Full source passage:\n{source_passage}")
-        else:
-            prompt_lines.append(f"Source extract:\n{extract_text or '(no extract provided)'}")
+        prompt_lines.append("")
         prompt_lines.append(
             'Respond in JSON with exactly two fields: "accuracy_category" '
             '(one of the eight categories) and "reasoning" (one sentence).'
@@ -1061,7 +1169,8 @@ def phase1_triage(claims: list[dict], judge: Judge, ok_cats: set[str]) -> list[P
     for i, claim in enumerate(claims):
         cid = claim.get("claim_id", f"claim_{i}")
         try:
-            out = judge.adjudicate(claim, system_prompt=_TRIAGE_SYSTEM)
+            user_context = _format_phase1_user_prompt(claim)
+            out = judge.adjudicate(claim, system_prompt=_TRIAGE_SYSTEM, source_passage=user_context)
             results.append(Phase1Result(
                 claim_id=cid,
                 accuracy_category=out.accuracy_category,
@@ -1086,10 +1195,15 @@ def phase2_escalate(
     judge: Judge,
     blockable: set[str],
     ok_cats: set[str],
+    artifact: dict,
 ) -> None:
-    """Mutates traces in-place, adding phase2 result for escalated claims."""
-    source_map = {s["id"]: s for s in sources if s.get("id")}
+    """Mutates traces in-place, adding phase2 result for escalated claims.
 
+    Phase 2 context includes (a) every cited extract, (b) full snapshots of every cited
+    source, (c) the full briefing (exec summary + each item's display). Section labels
+    in the prompt signal that cited locations are the primary focus and briefing-wide
+    context is for triangulation only.
+    """
     for trace in traces:
         claim = trace.claim
         p1 = trace.phase1
@@ -1098,20 +1212,13 @@ def phase2_escalate(
         if claim.get("claim_type") not in blockable and claim.get("claim_weight") != "high":
             continue
 
-        # Pull source passage from the inline retrieved_text_or_snapshot of the first cited source
-        source_passage = ""
-        for sid in claim.get("source_ids") or []:
-            src = source_map.get(sid, {})
-            text = src.get("retrieved_text_or_snapshot", "")
-            if text:
-                source_passage = text[:4000]
-                break
+        user_context = _format_phase2_user_prompt(claim, sources, artifact)
 
         try:
             out = judge.adjudicate(
                 claim,
                 system_prompt=_ESCALATION_SYSTEM,
-                source_passage=source_passage,
+                source_passage=user_context,
                 prior=p1,
             )
             trace.phase2 = Phase2Result(
@@ -1369,7 +1476,7 @@ def main() -> None:
             judges_used["phase2"] = {
                 "name": p2_judge.name, "provider": p2_judge.provider, "model": p2_judge.model,
             }
-            phase2_escalate(traces, sources, p2_judge, blockable, ok_cats)
+            phase2_escalate(traces, sources, p2_judge, blockable, ok_cats, artifact)
             blocked = sum(1 for t in traces if t.phase2 and not t.phase2.is_ok)
             print(f"  Phase 2 done: {blocked}/{len(high_not_ok)} claims still not-OK after escalation")
     else:
