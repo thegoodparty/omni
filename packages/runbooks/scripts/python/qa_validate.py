@@ -916,10 +916,10 @@ Categories:
 - Incorrect: The claim contradicts the source passage.
 - Unverifiable: The passage exists but cannot be assessed as supporting or refuting the claim as written.
 
-When you classify as anything other than Accurate, Directionally Consistent, Extrapolating, or Modeled, you MUST populate `proposed_correction` with a specific, actionable fix. Options:
-- A rewritten claim text that is grounded in the source as you understand it. Be verbatim about what to change. Example: "Replace 'as of the April 30, 2026 cash snapshot' with 'as of 5/31/2026' to match the dates on the cited account rows."
-- A removal recommendation. Example: "Remove this claim entirely — no source in the packet supports the 'outgoing council members' framing."
-- A scope tightening. Example: "Restrict the claim to the four named individuals who carry the 'Remove' flag in the source; drop the broader 'outgoing council members' label."
+When you classify as anything other than Accurate, Directionally Consistent, Extrapolating, or Modeled, you MUST populate `proposed_correction` with a specific, actionable fix. Take one of these shapes:
+- A rewritten claim text grounded in the source as you understand it. Be specific about which phrases to change and which to keep.
+- A removal recommendation if no source in the packet supports the claim.
+- A scope tightening if part of the claim is grounded but another part is not — restrict the claim to what is supported and drop the rest.
 
 If your verdict is Accurate, Directionally Consistent, Extrapolating, or Modeled, leave `proposed_correction` as null."""
 
@@ -932,9 +932,9 @@ def _format_phase1_user_prompt(claim: dict) -> str:
     assertion in the claim against whichever extract supports it.
 
     Each extract may carry a section_header (object-form extracts) — the header is what
-    gives the verbatim text its context. A bare row like "TOTALS TEXAS FIRST BANK 901,826.03"
-    only makes sense once you know the table caption it came from. We render section_header
-    alongside the text so the judge can reason about both.
+    gives the verbatim text its context. A bare table row only makes sense once you know
+    the table's caption. We render section_header alongside the text so the judge can
+    reason about both.
     """
     extracts = [e for e in (claim.get("source_extracts") or []) if _extract_text(e).strip()]
     if not extracts:
