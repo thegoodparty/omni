@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -181,6 +183,42 @@ def _format_safe(template: str, data: dict) -> str:
         value = data.get(key)
         return str(value) if value else "unknown"
     return re.sub(r"\{([^{}]+)\}", repl, template)
+
+
+# ── Scoring helpers (coherence check) ─────────────────────────────────────────
+
+_WORD_RE = re.compile(r"\b[a-z]{2,}\b")
+
+
+def _tokenize(s: str) -> list[str]:
+    return _WORD_RE.findall(s.lower())
+
+
+def _tfidf_cosine(a_text: str, b_text: str) -> float:
+    toks_a, toks_b = _tokenize(a_text), _tokenize(b_text)
+    if not toks_a or not toks_b:
+        return 0.0
+    tf_a, tf_b = Counter(toks_a), Counter(toks_b)
+    vocab = set(tf_a) | set(tf_b)
+
+    def idf(tok: str) -> float:
+        df = (1 if tok in tf_a else 0) + (1 if tok in tf_b else 0)
+        return math.log((2 + 1) / (df + 1)) + 1
+
+    va = {t: tf_a[t] * idf(t) for t in vocab}
+    vb = {t: tf_b[t] * idf(t) for t in vocab}
+    dot = sum(va[t] * vb[t] for t in vocab)
+    na = math.sqrt(sum(v * v for v in va.values()))
+    nb = math.sqrt(sum(v * v for v in vb.values()))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _containment(summary: str, source: str) -> float:
+    s = set(_tokenize(summary))
+    if not s:
+        return 0.0
+    e = set(_tokenize(source))
+    return len(s & e) / len(s)
 
 
 # ── Deterministic checks ──────────────────────────────────────────────────────
@@ -517,98 +555,108 @@ def run_deterministic(
             details=substring_details,
         ))
 
-    # 8. summary_source_coherence — ROUGE-L between display.summary and the
-    #    item's combined source_extracts. Skipped if rouge_check.enabled is false.
-    rouge_cfg = spec.get("rouge_check") or {}
-    if rouge_cfg.get("enabled", False):
-        rouge_threshold = float(rouge_cfg.get("min_rouge_l", 0.20))
+    # 8. summary_source_coherence — TF-IDF cosine + containment between
+    #    display.summary and the item's combined source_extracts.
+    #    Warns only when BOTH signals are below their thresholds (AND), so the
+    #    two independent dimensions must agree before we flag drift. ROUGE-L
+    #    is recorded per-item for diagnostic value (does the summary copy or
+    #    paraphrase?) but does NOT drive the verdict — it is a brittle n-gram
+    #    metric that penalizes faithful paraphrasing.
+    coh_cfg = spec.get("coherence_check") or {}
+    if coh_cfg.get("enabled", False):
+        tfidf_threshold = float(coh_cfg.get("tfidf_threshold", 0.30))
+        contain_threshold = float(coh_cfg.get("containment_threshold", 0.50))
+
         try:
             from rouge_score import rouge_scorer
-            scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-            _have_rouge = True
+            rouge_l_scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
         except ImportError:
-            _have_rouge = False
+            rouge_l_scorer = None
 
-        if not _have_rouge:
+        coherence_scope = [
+            it for it in items
+            if it.get(priority_field) == priority_value or it.get("tier") == "queued"
+        ]
+        claims_by_item: dict[str, list[dict]] = {}
+        for c in claims:
+            iid = c.get("item_id")
+            if iid:
+                claims_by_item.setdefault(iid, []).append(c)
+
+        low_coherence: list[str] = []
+        scored = 0
+        per_item_scores: list[dict] = []
+        for it in coherence_scope:
+            iid = it.get("id")
+            summary = (it.get("display") or {}).get("summary") or ""
+            if not summary.strip():
+                continue
+            item_extracts: list[str] = []
+            for c in claims_by_item.get(iid, []):
+                for ex in c.get("source_extracts") or []:
+                    if isinstance(ex, str) and ex.strip():
+                        item_extracts.append(ex)
+            if not item_extracts:
+                continue
+            combined = " ".join(item_extracts)
+            tfidf = _tfidf_cosine(summary, combined)
+            contain = _containment(summary, combined)
+            rouge_l = (
+                rouge_l_scorer.score(combined, summary)["rougeL"].fmeasure
+                if rouge_l_scorer is not None else None
+            )
+            below = tfidf < tfidf_threshold and contain < contain_threshold
+            scored += 1
+            per_item_scores.append({
+                "item_id": iid,
+                "tier": it.get("tier"),
+                "tfidf_cosine": round(tfidf, 3),
+                "containment": round(contain, 3),
+                "rouge_l": round(rouge_l, 3) if rouge_l is not None else None,
+                "below_threshold": below,
+                "summary_chars": len(summary),
+                "summary_preview": summary[:200] + ("…" if len(summary) > 200 else ""),
+                "extracts_count": len(item_extracts),
+                "extracts_total_chars": sum(len(e) for e in item_extracts),
+                "extracts_combined_preview": combined[:200] + ("…" if len(combined) > 200 else ""),
+            })
+            if below:
+                low_coherence.append(
+                    f"{iid}: tfidf={round(tfidf, 3)}, contain={round(contain, 3)}"
+                )
+
+        coherence_details = {
+            "tfidf_threshold": tfidf_threshold,
+            "containment_threshold": contain_threshold,
+            "verdict_logic": "AND (warn when both below)",
+            "rouge_l_role": "info_only" if rouge_l_scorer is not None else "unavailable",
+            "scored_items": scored,
+            "below_threshold_count": len(low_coherence),
+            "per_item": per_item_scores,
+        }
+        if low_coherence:
             results.append(DeterministicCheck(
                 check_id="summary_source_coherence",
                 status="warning", severity="low",
-                message="rouge-score not installed; coherence check skipped",
+                message=(
+                    f"{len(low_coherence)} of {scored} item(s) below both "
+                    f"tfidf {tfidf_threshold} AND containment {contain_threshold}"
+                ),
                 route="annotate",
+                offending="; ".join(low_coherence[:5]),
+                details=coherence_details,
             ))
         else:
-            # Include featured AND queued (both are priority-ish for coherence)
-            coherence_scope = [
-                it for it in items
-                if it.get(priority_field) == priority_value or it.get("tier") == "queued"
-            ]
-            claims_by_item: dict[str, list[dict]] = {}
-            for c in claims:
-                iid = c.get("item_id")
-                if iid:
-                    claims_by_item.setdefault(iid, []).append(c)
-
-            low_coherence: list[str] = []
-            scored = 0
-            per_item_rouge: list[dict] = []  # provenance trace
-            for it in coherence_scope:
-                iid = it.get("id")
-                summary = (it.get("display") or {}).get("summary") or ""
-                if not summary.strip():
-                    continue
-                item_extracts: list[str] = []
-                for c in claims_by_item.get(iid, []):
-                    for ex in c.get("source_extracts") or []:
-                        if isinstance(ex, str) and ex.strip():
-                            item_extracts.append(ex)
-                if not item_extracts:
-                    continue
-                combined = " ".join(item_extracts)
-                score = scorer.score(combined, summary)["rougeL"].fmeasure
-                scored += 1
-                rounded = round(score, 3)
-                per_item_rouge.append({
-                    "item_id": iid,
-                    "tier": it.get("tier"),
-                    "rouge_l": rounded,
-                    "below_threshold": score < rouge_threshold,
-                    "summary_chars": len(summary),
-                    "summary_preview": summary[:200] + ("…" if len(summary) > 200 else ""),
-                    "extracts_count": len(item_extracts),
-                    "extracts_total_chars": sum(len(e) for e in item_extracts),
-                    "extracts_combined_preview": combined[:200] + ("…" if len(combined) > 200 else ""),
-                })
-                if score < rouge_threshold:
-                    low_coherence.append(f"{iid}: ROUGE-L={rounded}")
-
-            rouge_details = {
-                "threshold": rouge_threshold,
-                "metric": "rougeL",
-                "use_stemmer": True,
-                "scored_items": scored,
-                "below_threshold_count": len(low_coherence),
-                "per_item": per_item_rouge,
-            }
-            if low_coherence:
-                results.append(DeterministicCheck(
-                    check_id="summary_source_coherence",
-                    status="warning", severity="low",
-                    message=(
-                        f"{len(low_coherence)} of {scored} item(s) below ROUGE-L "
-                        f"{rouge_threshold}"
-                    ),
-                    route="annotate",
-                    offending="; ".join(low_coherence[:5]),
-                    details=rouge_details,
-                ))
-            else:
-                results.append(DeterministicCheck(
-                    check_id="summary_source_coherence",
-                    status="pass", severity="info",
-                    message=f"All {scored} scored item(s) at ROUGE-L ≥ {rouge_threshold}",
-                    route="pass",
-                    details=rouge_details,
-                ))
+            results.append(DeterministicCheck(
+                check_id="summary_source_coherence",
+                status="pass", severity="info",
+                message=(
+                    f"All {scored} scored item(s) clear coherence floor "
+                    f"(tfidf ≥ {tfidf_threshold} OR containment ≥ {contain_threshold})"
+                ),
+                route="pass",
+                details=coherence_details,
+            ))
 
     # 9. completeness_floor — minimum-substance thresholds from spec.completeness.
     #    Warnings only; never blocks. Catches "agent shipped a skeleton."
