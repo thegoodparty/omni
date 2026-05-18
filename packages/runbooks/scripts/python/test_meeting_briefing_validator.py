@@ -18,8 +18,14 @@ from pathlib import Path
 
 import pytest
 
+# Prevent importlib from writing __pycache__ alongside the source file —
+# the source lives in experiments/meeting_briefing/attachments/qa_checks.py
+# and the publisher rejects any subdirectory under attachments/ as malformed.
+# A leftover __pycache__ from running these tests would break `publish_experiments.py`.
+sys.dont_write_bytecode = True
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-VALIDATOR_PATH = REPO_ROOT / "experiments" / "meeting_briefing" / "validate_output.py"
+VALIDATOR_PATH = REPO_ROOT / "experiments" / "meeting_briefing" / "attachments" / "qa_checks.py"
 
 
 def _load_validator():

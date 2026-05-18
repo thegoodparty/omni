@@ -8,7 +8,7 @@ Run a meeting briefing for one elected official's next city council meeting. Pro
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
 3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
-5. Run `python3 /workspace/validate_output.py` before declaring success.
+5. Run `python3 /workspace/qa_checks.py` before declaring success. (The runner-written `/workspace/validate_output.py` is a generic schema-only fast check; `qa_checks.py` is the full deterministic QA — schema + cross-references + required data points + discovery-channel depth.)
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## EARLY EXIT CONDITIONS (gate the run before any heavy work)
@@ -65,7 +65,7 @@ The packet is **not** the published agenda summary page. The summary lists item 
 15. Set `briefing_status` and emit `required_data_points`.
 16. Format the constituent sentiment output per item using Step 8 results.
 17. Write artifact to `/workspace/output/meeting_briefing.json`.
-18. Run `python3 /workspace/validate_output.py`.
+18. Run `python3 /workspace/qa_checks.py` (full deterministic QA — schema + cross-references + discovery-channel depth + source-extract presence).
 19. Spot-check.
 
 ## CRITICAL RULES
@@ -153,7 +153,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 ### Output rules
 
 - Write **only** to `/workspace/output/meeting_briefing.json`. The runner publishes nothing else.
-- Run `python3 /workspace/validate_output.py` before declaring success. The runner-level validator will reject the artifact post-hoc if you skip this; in-loop validation lets you fix violations cheaply.
+- Run `python3 /workspace/qa_checks.py` before declaring success. (Generic `/workspace/validate_output.py` does schema-only; `qa_checks.py` does schema + deterministic QA.) The runner-level validator will reject the artifact post-hoc if you skip this; in-loop validation lets you fix violations cheaply.
 
 ## Steps
 
@@ -227,7 +227,7 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
 
-Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–7, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 6 channels. The deterministic validator (`validate_output.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 7 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting.
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–7, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 6 channels. The deterministic validator (`/workspace/qa_checks.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 7 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting.
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
@@ -252,7 +252,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
 6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
 7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
 
-**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`, `channel_7_past_url_probe`). All 7 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator (`validate_output.py`) enforces this — artifacts missing any channel number get rejected.
+**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`, `channel_7_past_url_probe`). All 7 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator at `/workspace/qa_checks.py` enforces this — artifacts missing any channel number get rejected.
 
 **Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–7 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
@@ -984,10 +984,12 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 ### Step 18 — Validate
 
 ```bash
-python3 /workspace/validate_output.py
+python3 /workspace/qa_checks.py
 ```
 
 If validation fails, fix the artifact in-loop and re-run before declaring success. Exit codes: `0` = schema-valid + QA passed; `1` = schema invalid; `2` = schema valid but deterministic QA failed.
+
+Note: `/workspace/validate_output.py` (the runner's generic shim) only does JSON-schema validation. `qa_checks.py` (shipped as a manifest attachment) is the full deterministic validator — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence. Always use `qa_checks.py` here; `validate_output.py` is OK as a fast fail-fast schema-only check earlier in the loop, but it does not gate `awaiting_agenda` discovery depth.
 
 ## Spot-check
 
@@ -1010,7 +1012,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
-| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/validate_output.py` BEFORE declaring success                                                                       |
+| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/qa_checks.py` BEFORE declaring success                                                                             |
 | Legistar API returns 403 `"Token is required"`                                | Jurisdiction has gated their Granicus API                                                                                       | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                                           |
 | District mean suspiciously close to state mean                                | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) caused silent fall-back to state scope | Discover the exact value via a `SELECT DISTINCT` query before binding                                                                      |
 | `awaiting_agenda` placeholder item fails schema validation                    | Agent invented a custom `tier_reason` string                                                                                    | Use `["placeholder"]` exactly per Step 3                                                                                                   |

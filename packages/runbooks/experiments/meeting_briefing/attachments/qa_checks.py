@@ -1,16 +1,24 @@
-"""Validate a meeting_briefing artifact against the v2 output schema and run deterministic QA.
+"""meeting_briefing deep QA — schema + deterministic checks the runner's shim can't express.
 
-This is the Fargate-runner copy of scripts/python/validate_meeting_briefing.py. It lives at
-/workspace/validate_output.py inside the meeting_briefing experiment's container. It does two
-things:
+Ships as a manifest attachment (`experiments/meeting_briefing/attachments/qa_checks.py`),
+gets dropped into `/workspace/qa_checks.py` by the runner. The agent runs this AFTER the
+generic schema-only validator at /workspace/validate_output.py for full coverage.
 
-  1. JSON Schema validation against the output_schema embedded in manifest.json (sibling file).
-  2. Deterministic QA checks that the schema cannot express:
+Why a separate file: the runner reserves `/workspace/validate_output.py` for its own
+generic schema-validation shim (pmf_engine/runner/main.py:_VALIDATOR_SCRIPT). Experiment-
+specific deterministic QA — cross-reference integrity, required_data_points coverage,
+discovery-channel depth for awaiting_agenda, etc. — has to live under a non-reserved
+basename and be invoked separately.
+
+Two phases:
+  1. JSON Schema validation (re-runs the generic check so this file is sufficient on its own).
+  2. Deterministic QA checks the schema cannot express:
        - cross-reference integrity (claim.item_id ↔ items[], source_ids ↔ sources[])
        - required_data_points coverage (every required: true point produced a value)
        - tier_reason / display consistency (budget_threshold → budget_impact non-null, etc.)
        - briefing_status / content consistency (awaiting_agenda → claims empty, etc.)
        - source_extract presence-in-source (substring check, not LLM)
+       - awaiting_agenda / no_meeting_found: all 7 discovery channels attempted (channel_<N>_ prefixes)
 
 No LLM calls. No external API requirements. Runs in well under a second on a typical artifact.
 
@@ -20,8 +28,8 @@ Exit codes:
   2  schema valid but one or more QA checks failed
 
 Run:
-  python3 /workspace/validate_output.py                              # defaults to /workspace/output/meeting_briefing.json
-  python3 /workspace/validate_output.py path/to/artifact.json
+  python3 /workspace/qa_checks.py                              # defaults to /workspace/output/meeting_briefing.json
+  python3 /workspace/qa_checks.py path/to/artifact.json
 """
 
 from __future__ import annotations
@@ -42,21 +50,59 @@ except ImportError:
 
 # ---------------------------------------------------------------------------
 # Locate inputs
+#
+# Runtime: at /workspace/qa_checks.py, schema is at /workspace/contract_schema.json
+# (the runner extracts it from manifest.output_schema and writes it there).
+#
+# CI / local dev: this file lives at experiments/meeting_briefing/attachments/qa_checks.py,
+# the manifest is two parents up at experiments/meeting_briefing/manifest.json. We try
+# the runtime path first and fall back to the dev path so the same file works in both.
 # ---------------------------------------------------------------------------
 
-MANIFEST_PATH = Path(__file__).resolve().parent / "manifest.json"
+RUNTIME_SCHEMA_PATH = Path("/workspace/contract_schema.json")
+DEV_MANIFEST_PATH = Path(__file__).resolve().parent.parent / "manifest.json"
 DEFAULT_ARTIFACT_PATH = Path("/workspace/output/meeting_briefing.json")
 
 
-def load_schema_from_manifest(manifest_path: Path = MANIFEST_PATH) -> dict:
-    """Extract output_schema from the experiment's manifest.json."""
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    schema = manifest.get("output_schema")
-    if not isinstance(schema, dict):
-        raise RuntimeError(
-            f"manifest.json at {manifest_path} is missing a dict-valued 'output_schema' field."
-        )
-    return schema
+def load_schema_from_manifest(manifest_path: Path | None = None) -> dict:
+    """Load the output schema for validation.
+
+    Argument is kept for backward compat with the test suite — callers can pass
+    a specific manifest.json. Default resolution: prefer the runtime
+    /workspace/contract_schema.json (already-extracted schema), otherwise fall
+    back to manifest.json's output_schema field for dev/CI runs.
+    """
+    if manifest_path is not None:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        schema = manifest.get("output_schema")
+        if not isinstance(schema, dict):
+            raise RuntimeError(
+                f"manifest.json at {manifest_path} is missing a dict-valued 'output_schema' field."
+            )
+        return schema
+
+    if RUNTIME_SCHEMA_PATH.exists():
+        schema = json.loads(RUNTIME_SCHEMA_PATH.read_text(encoding="utf-8"))
+        if not isinstance(schema, dict):
+            raise RuntimeError(
+                f"{RUNTIME_SCHEMA_PATH} did not contain a dict-valued JSON schema."
+            )
+        return schema
+
+    if DEV_MANIFEST_PATH.exists():
+        manifest = json.loads(DEV_MANIFEST_PATH.read_text(encoding="utf-8"))
+        schema = manifest.get("output_schema")
+        if not isinstance(schema, dict):
+            raise RuntimeError(
+                f"manifest.json at {DEV_MANIFEST_PATH} is missing a dict-valued 'output_schema' field."
+            )
+        return schema
+
+    raise RuntimeError(
+        f"No schema source found. Looked at {RUNTIME_SCHEMA_PATH} (runtime) and "
+        f"{DEV_MANIFEST_PATH} (dev). Pass an explicit manifest_path or run from a"
+        " context where one of these is reachable."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +501,7 @@ CHECKS = [
 # ---------------------------------------------------------------------------
 
 
-def run(artifact_path: Path, manifest_path: Path = MANIFEST_PATH) -> Report:
+def run(artifact_path: Path, manifest_path: Path | None = None) -> Report:
     schema = load_schema_from_manifest(manifest_path)
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
 
