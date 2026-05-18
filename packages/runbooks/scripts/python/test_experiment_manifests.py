@@ -131,6 +131,35 @@ def _good_manifest() -> dict:
             "is not of type 'integer'",
             id="version-not-integer",
         ),
+        pytest.param(
+            lambda m: m.update(
+                {
+                    "scope": {
+                        "allowed_tables": ["a.b.c"],
+                        "max_rows": 100,
+                        "data_required_unless": {"values": ["x"]},
+                    }
+                }
+            ),
+            "'field' is a required property",
+            id="data-required-unless-missing-field",
+        ),
+        pytest.param(
+            lambda m: m.update(
+                {
+                    "scope": {
+                        "allowed_tables": ["a.b.c"],
+                        "max_rows": 100,
+                        "data_required_unless": {
+                            "field": "briefing_status",
+                            "values": [],
+                        },
+                    }
+                }
+            ),
+            "should be non-empty",
+            id="data-required-unless-empty-values",
+        ),
     ],
 )
 def test_meta_schema_rejects_bad_manifests(mutation, expected_message_fragment):

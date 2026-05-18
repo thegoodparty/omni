@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 2,
+  "version": 3,
   "model": "opus",
   "max_turns": 100,
   "timeout_seconds": 3000,
@@ -9,7 +9,11 @@
     "allowed_tables": [
       "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
     ],
-    "max_rows": 50000
+    "max_rows": 50000,
+    "data_required_unless": {
+      "field": "briefing_status",
+      "values": ["awaiting_agenda", "no_meeting_found", "error"]
+    }
   },
   "input_schema": {
     "type": "object",

@@ -8,7 +8,7 @@ Run a meeting briefing for one elected official's next city council meeting. Pro
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
 3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
-5. Run `python3 /workspace/validate_output.py` before declaring success.
+5. Run `python3 /workspace/qa_checks.py` before declaring success. (The runner-written `/workspace/validate_output.py` is a generic schema-only fast check; `qa_checks.py` is the full deterministic QA — schema + cross-references + required data points + discovery-channel depth.)
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## EARLY EXIT CONDITIONS (gate the run before any heavy work)
@@ -65,7 +65,7 @@ The packet is **not** the published agenda summary page. The summary lists item 
 15. Set `briefing_status` and emit `required_data_points`.
 16. Format the constituent sentiment output per item using Step 8 results.
 17. Write artifact to `/workspace/output/meeting_briefing.json`.
-18. Run `python3 /workspace/validate_output.py`.
+18. Run `python3 /workspace/qa_checks.py` (full deterministic QA — schema + cross-references + discovery-channel depth + source-extract presence).
 19. Spot-check.
 
 ## CRITICAL RULES
@@ -153,7 +153,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 ### Output rules
 
 - Write **only** to `/workspace/output/meeting_briefing.json`. The runner publishes nothing else.
-- Run `python3 /workspace/validate_output.py` before declaring success. The runner-level validator will reject the artifact post-hoc if you skip this; in-loop validation lets you fix violations cheaply.
+- Run `python3 /workspace/qa_checks.py` before declaring success. (Generic `/workspace/validate_output.py` does schema-only; `qa_checks.py` does schema + deterministic QA.) The runner-level validator will reject the artifact post-hoc if you skip this; in-loop validation lets you fix violations cheaply.
 
 ## Steps
 
@@ -225,21 +225,51 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Before declaring `awaiting_agenda`, fan out across multiple discovery channels.** Do NOT bail after only checking the streaming platform — the platform often lags the city's own document publication, and some packets live exclusively on the city site, a news outlet's mirror, or behind a clerk-page link. Try these channels in order, stopping when you find packet content for the target meeting:
+**Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
 
-1. **The streaming platform** (Granicus, Legistar, PrimeGov, eSCRIBE, CivicPlus, CivicClerk) — as above.
-2. **The city's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, or the council clerk page. Cities often link to the packet directly from their own page before (or in parallel with) the streaming platform.
-3. **The city site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable file path on their own domain independent of the streaming platform — e.g. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`. Once you discover the pattern from a past meeting, probe the predictable filename for the target meeting date directly.
-4. **Local news.** WebSearch `"<city>" <body> agenda packet <month> <year>` or `"<city>" "<body>" meeting <date>` — local press routinely re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
-5. **The Council Clerk / Records Office page.** When all else fails, the clerk page often has a contact path and a "how to obtain meeting materials" instruction. Cite it as a source even when no packet is found — it documents the search trail.
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–7, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 6 channels. The deterministic validator (`/workspace/qa_checks.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 7 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting.
 
-**Only after channels 1–5 yield no packet content for the target meeting may you declare `awaiting_agenda`.** Record which channels you tried in `run_metadata.run_decisions[]` (one entry per channel attempted, each with what you found or didn't). This lets QA audit the search depth.
+1. **Primary platform** (try in order; each requires its own search query + verification fetch):
+   - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
+   - PrimeGov: WebSearch `"<city>" primegov.com` → URL pattern `{client}.primegov.com/Portal/Meeting`.
+   - eSCRIBE: WebSearch `"<city>" escribemeetings.com`.
+   - CivicPlus AgendaCenter: WebSearch `"<city>" AgendaCenter`.
+   - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
+   - Granicus: WebSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
+   - CivicClerk: WebSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
+   - Novus Agenda: WebSearch `"<city>" novusagenda`. *Drill into the meeting search results — landing-page-only checks don't count.*
+   - Municode/CivicPlus Meetings: WebSearch `"<city>" meetings civicplus` / `"<city>" municode meetings`.
+   - Swagit (streaming): WebSearch `"<city>" swagit.com` — usually only video, but check for linked PDFs.
+   For each platform you try: emit a `run_decisions[]` entry with the search query, URL probed, and result.
+2. **City's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, `/agendas-minutes/`, or the council clerk page. Drill at least 2 clicks deep into menus before declaring empty.
+3. **City site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable path independent of the streaming platform. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`; Covington TN uses `covingtontn.gov/utility/openPDF/cicotn/BMA_-_DDMMMYYYY.pdf`. Discover the pattern from a recent past meeting on the same site, then probe the predictable filename for the target date.
+4. **Direct WebSearch for the packet PDF on common CDN domains.** This catches the Fulshear-pattern case where the packet exists at a CDN URL but no public-facing UI links to it. Run these queries:
+   - `"<city>" "<body>" agenda <month> <year> filetype:pdf`
+   - `"<city>" agenda packet <target meeting date> site:cloudfront.net OR site:granicus.com OR site:s3.amazonaws.com OR site:civicclerk.com OR site:legistar.com OR site:boarddocs.com`
+   - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
+   For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
+5. **Local news.** WebSearch `"<city>" <body> agenda <month> <year>` or `"<city>" city council meeting <date>` — local press regularly re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
+6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
+7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
 
-**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–5 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
+**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`, `channel_7_past_url_probe`). All 7 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator at `/workspace/qa_checks.py` enforces this — artifacts missing any channel number get rejected.
+
+**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–7 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
 #### Agenda platform reference
 
-- **Legistar** — `https://webapi.legistar.com/v1/{client}/...`. Events, agenda items (`/events/{eventId}/eventitems`), matter detail (`/matters/{matterId}`), matter attachments (`/matters/{matterId}/attachments`). The richest API; most large cities use it. **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
+- **Legistar** — `https://webapi.legistar.com/v1/{client}/...`. Events, agenda items (`/events/{eventId}/eventitems`), matter detail (`/matters/{matterId}`), matter attachments (`/matters/{matterId}/attachments`). The richest API; most large cities use it. Verify the client exists:
+
+  ```python
+  from pmf_runtime import http
+  r = http.get(f"https://webapi.legistar.com/v1/{client}/events?$top=1")
+  # 200 with non-empty list confirms client; 404 means wrong client name.
+  # 403 ("Token is required") means the client EXISTS but has gated its API —
+  # fall back to scraping the portal directly per the Token gating note below.
+  ```
+
+  **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
+- **BoardDocs** — `https://go.boarddocs.com/{state}/{client}/Board.nsf/Public`. Common for school boards but also some city councils. Meeting agenda items each have a UUID; PDFs at `Board.nsf/files/<uuid>/$file/<filename>.pdf`. Scrape the meeting page and follow file links.
 - **PrimeGov** — `https://{client}.primegov.com/Portal/Meeting`. The portal links to compiled meeting PDFs; individual attachments are also accessible.
 - **eSCRIBE** — meetings endpoint serves HTML with item titles, numbers, and attachment links. Parse HTML rather than expecting JSON.
 - **CivicPlus AgendaCenter** — `https://{city}.gov/AgendaCenter`. Per-meeting agenda PDFs; scrape the index page, download, and extract text. Some installations are fronted by Cloudflare and return HTTP 403 to scripted requests — when that happens, check for a CivicClerk mirror first before changing strategy.
@@ -954,10 +984,12 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 ### Step 18 — Validate
 
 ```bash
-python3 /workspace/validate_output.py
+python3 /workspace/qa_checks.py
 ```
 
 If validation fails, fix the artifact in-loop and re-run before declaring success. Exit codes: `0` = schema-valid + QA passed; `1` = schema invalid; `2` = schema valid but deterministic QA failed.
+
+Note: `/workspace/validate_output.py` (the runner's generic shim) only does JSON-schema validation. `qa_checks.py` (shipped as a manifest attachment) is the full deterministic validator — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence. Always use `qa_checks.py` here; `validate_output.py` is OK as a fast fail-fast schema-only check earlier in the loop, but it does not gate `awaiting_agenda` discovery depth.
 
 ## Spot-check
 
@@ -980,7 +1012,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
-| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/validate_output.py` BEFORE declaring success                                                                       |
+| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/qa_checks.py` BEFORE declaring success                                                                             |
 | Legistar API returns 403 `"Token is required"`                                | Jurisdiction has gated their Granicus API                                                                                       | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                                           |
 | District mean suspiciously close to state mean                                | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) caused silent fall-back to state scope | Discover the exact value via a `SELECT DISTINCT` query before binding                                                                      |
 | `awaiting_agenda` placeholder item fails schema validation                    | Agent invented a custom `tier_reason` string                                                                                    | Use `["placeholder"]` exactly per Step 3                                                                                                   |
