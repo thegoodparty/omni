@@ -50,17 +50,13 @@ from pydantic import BaseModel
 # ── Environment ───────────────────────────────────────────────────────────────
 
 def _load_env() -> None:
-    # scripts/.env is the in-repo convention (symlinked to ~/Research/.env) so the same
-    # code works in worktrees and Fargate. Fall back to ~/Research/.env directly when
-    # the symlink is missing — git worktree add does not carry untracked symlinks.
-    candidates = [
-        Path(__file__).resolve().parent.parent / ".env",   # scripts/.env (symlink convention)
-        Path.home() / "Research" / ".env",                 # user's canonical location
-    ]
-    for candidate in candidates:
-        if candidate.exists() or candidate.is_symlink():
-            load_dotenv(candidate)
-            return
+    # scripts/.env is the in-repo convention. In Fargate the task definition + Secrets
+    # Manager populate os.environ at task launch and no .env file is needed; load_dotenv
+    # is a harmless no-op when the file is missing. Locally, contributors keep their
+    # credentials in scripts/.env (real file or symlink — python-dotenv handles both
+    # transparently; it does NOT crash on broken symlinks).
+    script_env = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(script_env)
 
 
 # ── Product spec ──────────────────────────────────────────────────────────────
@@ -1066,6 +1062,21 @@ def _format_phase2_user_prompt(claim: dict, sources: list[dict], artifact: dict)
     return "\n".join(parts).rstrip()
 
 
+def _response_schema_instruction() -> str:
+    """Generic JSON-output instruction usable by any LLM provider.
+
+    Built from the _AdjudicationOutput Pydantic schema so adding/removing fields
+    propagates without prompt edits across multiple judge implementations. New
+    judges (OpenAI, DeepSeek, Bedrock, etc.) reuse this helper for parity.
+    """
+    schema = _AdjudicationOutput.model_json_schema()
+    return (
+        "Respond with a single JSON object matching this schema:\n"
+        + json.dumps(schema, indent=2)
+        + "\n\nReturn JSON only — no surrounding prose, no markdown fencing."
+    )
+
+
 class Judge:
     """Pluggable LLM judge for QA adjudication. Subclasses implement provider-specific clients.
 
@@ -1159,10 +1170,7 @@ class GoogleJudge(Judge):
             prompt_lines.append(f"First reviewer verdict: {prior.accuracy_category}")
             prompt_lines.append(f"First reviewer reasoning: {prior.reasoning}")
         prompt_lines.append("")
-        prompt_lines.append(
-            'Respond in JSON with exactly two fields: "accuracy_category" '
-            '(one of the eight categories) and "reasoning" (one sentence).'
-        )
+        prompt_lines.append(_response_schema_instruction())
 
         resp = model.generate_content("\n\n".join(prompt_lines))
         raw = resp.text.strip()
@@ -1172,11 +1180,14 @@ class GoogleJudge(Judge):
             data = json.loads(raw)
             return _AdjudicationOutput.model_validate(data)
         except Exception:
+            # Best-effort regex fallback when the model produces malformed JSON
             cat_match = re.search(r'"accuracy_category"\s*:\s*"([^"]+)"', raw)
             reason_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', raw)
+            corr_match = re.search(r'"proposed_correction"\s*:\s*"([^"]+)"', raw)
             return _AdjudicationOutput(
                 accuracy_category=cat_match.group(1) if cat_match else "Unverifiable",
                 reasoning=reason_match.group(1) if reason_match else "Could not parse response",
+                proposed_correction=corr_match.group(1) if corr_match else None,
             )
 
 
