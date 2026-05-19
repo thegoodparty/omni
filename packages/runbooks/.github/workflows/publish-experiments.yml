@@ -3,22 +3,20 @@ name: Publish PMF experiments
 on:
   pull_request:
     paths:
-      - 'experiments/**'
-      - 'scripts/python/publish_experiments.py'
-      - 'scripts/python/test_experiment_manifests.py'
-      - '.github/workflows/publish-experiments.yml'
+      - "experiments/**"
+      - "scripts/python/publish_experiments.py"
+      - "scripts/python/test_experiment_manifests.py"
+      - ".github/workflows/publish-experiments.yml"
   # Branch-per-env auto-publish:
   #   push to dev  → publishes to dev  S3 bucket
   #   push to qa   → publishes to qa   S3 bucket
   #   push to main → publishes to prod S3 bucket
-  # OIDC trust is pinned per branch so a feature-branch push or workflow_dispatch
-  # against the wrong env can't mint credentials.
   push:
-    branches: [dev, qa, main]
+    branches: [develop, qa, master]
     paths:
-      - 'experiments/**'
-      - 'scripts/python/publish_experiments.py'
-      - '.github/workflows/publish-experiments.yml'
+      - "experiments/**"
+      - "scripts/python/publish_experiments.py"
+      - ".github/workflows/publish-experiments.yml"
   # workflow_dispatch with no inputs — env is derived from the branch you ran
   # this workflow against (dev/qa/main). Always publishes the FULL set under
   # `experiments/<id>/`; partial publishes are intentionally not supported
@@ -26,8 +24,8 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  id-token: write   # OIDC: assume AWS role without long-lived creds
-  contents: read    # Checkout the repo
+  id-token: write # OIDC: assume AWS role without long-lived creds
+  contents: read # Checkout the repo
   pull-requests: read
 
 jobs:
@@ -51,15 +49,15 @@ jobs:
         run: uv run pytest test_experiment_manifests.py -v
 
   publish:
-    # Triggered on push to dev/qa/main, or manual workflow_dispatch from one of
+    # Triggered on push to develop/qa/master, or manual workflow_dispatch from one of
     # those branches. Env is derived from the branch — no choice input —
     # because OIDC trust is per-branch (you can't publish to prod from the dev
     # branch even if you tried).
     if: |
       (github.event_name == 'push' && (
-        github.ref == 'refs/heads/dev' ||
+        github.ref == 'refs/heads/develop' ||
         github.ref == 'refs/heads/qa' ||
-        github.ref == 'refs/heads/main'
+        github.ref == 'refs/heads/master'
       )) ||
       github.event_name == 'workflow_dispatch'
     name: Publish manifests
@@ -81,11 +79,11 @@ jobs:
         id: target
         run: |
           case "${{ github.ref }}" in
-            refs/heads/dev)  ENV="dev"  ;;
+            refs/heads/develop)  ENV="dev"  ;;
             refs/heads/qa)   ENV="qa"   ;;
-            refs/heads/main) ENV="prod" ;;
+            refs/heads/master) ENV="prod" ;;
             *)
-              echo "::error::Refusing to publish from ${{ github.ref }} — only dev/qa/main branches map to envs."
+              echo "::error::Refusing to publish from ${{ github.ref }} — only develop/qa/master branches map to envs."
               exit 1
               ;;
           esac
@@ -95,7 +93,7 @@ jobs:
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/agent-experiment-metadata-publish-${{ steps.target.outputs.env }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: us-west-2
 
       - name: Publish manifests to S3

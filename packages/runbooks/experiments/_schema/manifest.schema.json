@@ -79,6 +79,26 @@
           "minimum": 1,
           "maximum": 1000000,
           "description": "Per-query row cap enforced by the broker."
+        },
+        "data_required_unless": {
+          "type": "object",
+          "description": "Optional carve-out for the broker's publish-time anti-fabrication gate. By default, an experiment that declares allowed_tables must produce at least one successful Databricks query before its artifact can be published — protects against the agent fabricating output when data is unreachable. When this object is present and the artifact's named field carries one of the listed values, the broker skips that check. Typical use: a legitimate early-exit branch (e.g. meeting_briefing's awaiting_agenda placeholder when the next council meeting's agenda packet hasn't been published yet).",
+          "additionalProperties": false,
+          "required": ["field", "values"],
+          "properties": {
+            "field": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Top-level artifact field the broker reads to evaluate the carve-out (e.g. 'briefing_status')."
+            },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1},
+              "description": "Values of the named field that exempt the artifact from the data-required check. Should match the output_schema's placeholder-branch enum (e.g. ['awaiting_agenda', 'no_meeting_found', 'error'])."
+            }
+          }
         }
       }
     }
