@@ -143,15 +143,15 @@ Skip if state says a domain is already purchased.
 Call the gp-api MCP tool **that searches the registrar for an available domain matching a pattern set** (its description mentions Route 53, domain patterns, and a price cap). Pass:
 
 - The full pattern catalog from above (the candidate's `candidate_last_name`, `election_date`, etc., substituted).
-- `price_cap_usd = domain_budget_cap_usd` (default 10).
+- For the **first** call, `price_cap_usd = min(10, domain_budget_cap_usd)` — the cheap-first cap. When `domain_budget_cap_usd >= 10` this is `10`; when params explicitly restricts further (e.g. `7`), it is `7`.
 
 Set `stage` to `domain_search_started` while the call is in flight.
 
-Outcomes:
+Let `initial_cap = min(10, domain_budget_cap_usd)`. Outcomes:
 
-- **A match at ≤ $10.** Proceed to Step 3 with that name + price.
-- **No match at $10; `domain_budget_cap_usd > 10`.** Re-call with `price_cap_usd = domain_budget_cap_usd` (the explicit override). If a match appears, proceed.
-- **No match within budget.** Append blocker `{ step: "domain_search", code: "budget_exceeded", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7.
+- **A match at ≤ `initial_cap`.** Proceed to Step 3 with that name + price.
+- **No match at `initial_cap` and `domain_budget_cap_usd > 10`.** Re-call **once** with `price_cap_usd = domain_budget_cap_usd` (the explicit higher override). If a match appears, proceed.
+- **No match within budget** (either `initial_cap == domain_budget_cap_usd` so no escalation is possible, or the escalated retry also returned nothing). Append blocker `{ step: "domain_search", code: "budget_exceeded", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7.
 - **Tool 5xx / transient.** Retry up to 3 attempts (backoff above). If still failing, append blocker `{ step: "domain_search", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }` and exit. The recovery loop will retry the whole run.
 
 ## STEP 3 — Purchase the chosen domain
@@ -165,7 +165,7 @@ Call the gp-api MCP tool **that purchases a domain and attaches it to the shared
 
 Idempotency: gp-api is the source of truth. If the tool returns a 409 / "already purchased", **do not treat it as a failure** — re-read the compliance state and continue from the now-current stage. Someone (or a prior run) got there first; the durable record is what matters.
 
-Forward-email alias setup (`info@<domain>` → `candidate-domains@goodparty.org`) is handled by gp-api **inside** this same purchase tool. You do not call a separate tool for it. If the alias setup fails inside gp-api but the registrar purchase succeeded, the tool returns success on the domain with an embedded warning — log it under `errors[]` with `code: "forward_email_setup_failed"` and continue.
+Forward-email alias setup (`info@<domain>` → `candidate-domains@goodparty.org`) is handled by gp-api **inside** this same purchase tool. You do not call a separate tool for it. If the alias setup fails inside gp-api but the registrar purchase succeeded, the tool returns success on the domain with an embedded warning — log a full `error: { code: "forward_email_setup_failed", message: "forward-email alias setup failed (non-fatal)", occurred_at: "<ISO 8601 now>", tool: <name of the purchase tool> }` — all four fields required, or `validate_output.py` rejects the artifact — and continue.
 
 Capture `domain.name`, `domain.registrar`, `domain.purchased_at`, `domain.auto_renew`, `domain.price_usd`. Set `stage: "domain_purchased"`.
 
@@ -196,7 +196,7 @@ Two-state outcomes:
 - **Tool returns `verified: true`.** Capture `website.verified_live_at`. Set `stage: "website_verified_live"`. Continue to Step 6.
 - **Tool returns `verified: false` with a reason** (`dns_not_propagated`, `vercel_pending_verification`, `content_missing`):
   - `dns_not_propagated` → write `next_action: { kind: "wait_dns_propagation", scheduled_for: now + 30 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
-  - `vercel_pending_verification` → same pattern, `next_action.kind = "wait_vercel_verify"`.
+  - `vercel_pending_verification` → write `next_action: { kind: "wait_vercel_verify", scheduled_for: now + 15 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
   - `content_missing` → this is unexpected after Step 4 succeeded. Append blocker `{ step: "verify_website_live", code: "verify_content_missing", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, exit.
 
 **Never** call this tool in a tight loop. One call per run is the contract. If you find yourself wanting to retry, write `next_action.wait_*` and exit instead.
@@ -250,6 +250,15 @@ Required top-level shape (see the JSON Schema at the experiment's `output_schema
 
 `metrics.model_cost_usd` is **model spend only**. Domain spend lives on `domain.price_usd`. The platform fills in `num_turns` and `wall_time_seconds` if you leave them at 0.
 
+**`data_quality.overall`** — set this before writing the artifact based on the run outcome. Downstream dashboards (ENG-7556) read it as the one-glance health field. Pick from this enum:
+
+- `"ok"` — `stage` is `tcr_submitted` and `errors[]` is empty.
+- `"degraded"` — the run reached `tcr_submitted` but `errors[]` is non-empty (e.g. `forward_email_setup_failed` left a non-fatal warning).
+- `"partial"` — the run exited cleanly mid-flow via `next_action.wait_*` (e.g. `pending_website_live`). Work is incomplete but recoverable; the recovery loop will resume.
+- `"failed"` — `stage` is `failed` (unrecoverable blocker present).
+
+Never leave `data_quality.overall` at the skeleton default if any other condition is true.
+
 Then validate:
 
 ```bash
@@ -286,6 +295,7 @@ Validator-passing JSON can still be misleading. Before declaring success:
 - **`next_action.kind` is set when you exited mid-flow.** If you wrote `pending_website_live` and didn't reach Step 6, `next_action` must say what you are waiting on, with a `scheduled_for` ≥ now.
 - **`next_action.kind` is `""` at terminal stages.** If `stage` is `tcr_submitted` or `failed`, `next_action.kind` and `next_action.scheduled_for` must both be `""`. A leftover `wait_*` from a prior recovery run on a now-terminal artifact will trigger a spurious recovery-loop re-dispatch.
 - **No PII in `errors[].message` or `blockers_encountered[].detail`.** Reference IDs (`campaign_id`, `peerly_request_id`) are fine; bios, emails, phone numbers, and addresses are not.
+- **`data_quality.overall` reflects reality.** `"ok"` is wrong on a `failed` run or a run with `errors[]`. Map: `failed` → `"failed"`; `pending_*` mid-flow exit → `"partial"`; `tcr_submitted` with errors → `"degraded"`; `tcr_submitted` clean → `"ok"`.
 
 ## Failure modes
 
