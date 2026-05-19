@@ -10,7 +10,7 @@ Your params arrive in the `PARAMS_JSON` env var. Read them once at the top of St
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring Step 0 below. Update each item as you go.
-3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_last_name`, `candidate_state`, `domain_budget_cap_usd` (default 10), and `resume_from_stage` (may be unset).
+3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `candidate_state`, `domain_budget_cap_usd` (default 10), and `resume_from_stage` (may be unset).
 4. Read the durable compliance state from gp-api **before doing anything else** (Step 1). Skip any step whose stage is already complete. This is the resume / idempotency primitive — the same agent invocation must be safe to run twice.
 5. Write the final artifact to `/workspace/output/compliance_setup.json` and nowhere else.
 6. Run `python3 /workspace/validate_output.py` before declaring success.
