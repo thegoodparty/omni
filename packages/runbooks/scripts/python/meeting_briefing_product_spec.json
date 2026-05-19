@@ -58,10 +58,10 @@
     "containment_threshold": 0.50
   },
 
-  "_judges_comment": "Phase 1 and Phase 2 judges by name. Names resolve via the QA_JUDGES env var (format: name:provider:model,...). Cross-family is preferred (Anthropic + Google/OpenAI) for independent second-opinion. Same-family fallback works too — point phase2 at a different Anthropic model (e.g. claude-opus-4-7) with the adversarial Phase 2 system prompt providing the separation.",
+  "_judges_comment": "Phase 1 and Phase 2 judges by name. Names resolve via the QA_JUDGES env var (format: name:provider:model,...). Same-family Anthropic (Sonnet Phase 1 + Opus Phase 2 with adversarial system prompt) is the in-Fargate production path — broker proxies Anthropic only, no cross-family egress. Cross-family (Anthropic + Google/OpenAI) is preferred for independent second-opinion when both providers are reachable; deferred until/if a broker route for Google or other providers exists.",
   "judges": {
     "phase1": "claude",
-    "phase2": "gemini"
+    "phase2": "opus"
   },
 
   "completeness": {
