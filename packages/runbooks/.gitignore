@@ -6,7 +6,6 @@ __pycache__/
 # Local agent run outputs (params, conversation transcripts, downloads, logs).
 # These can contain absolute paths, candidate PII, and full LLM transcripts.
 outputs/
-scripts/python/output/
 .DS_Store
 
 # Comparison stash for runbook→experiment translation iterations
@@ -17,6 +16,3 @@ experiments/.collin_reference/
 # The publisher writes a fresh index.json to S3 on every publish; the
 # committed file would silently strip hand-edited fields and mislead readers.
 experiments/index.json
-
-# Private development reference files — not for collaboration.
-project_files/
