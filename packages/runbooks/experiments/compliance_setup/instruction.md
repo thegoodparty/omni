@@ -10,7 +10,7 @@ Your params arrive in the `PARAMS_JSON` env var. Read them once at the top of St
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring Step 0 below. Update each item as you go.
-3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), and `resume_from_stage` (may be unset).
+3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), `resume_from_stage` (may be unset), and `run_id` (may also be available as env var `RUN_ID` — use whichever is set; both should agree).
 4. Read the durable compliance state from gp-api **before doing anything else** (Step 1). Skip any step whose stage is already complete. This is the resume / idempotency primitive — the same agent invocation must be safe to run twice.
 5. Write the final artifact to `/workspace/output/compliance_setup.json` and nowhere else.
 6. Run `python3 /workspace/validate_output.py` before declaring success.
@@ -58,7 +58,7 @@ Then maintain a TodoWrite list with these 7 items, **numbered 1:1 with the prose
 
 10. **The default domain budget is $10 USD per candidate.** Read `domain_budget_cap_usd` from params (1-30, default 10). Never purchase above this cap. If no domain in the pattern catalog is available at or below $10 **and `domain_budget_cap_usd > 10`**, set the budget cap on the search tool to `domain_budget_cap_usd` (max 30) and try once more; if still nothing (or if `domain_budget_cap_usd == 10`), append a full blocker (`{ step: "domain_search", code: "budget_exceeded", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`) and exit — do not purchase. Domain spend is recorded on `domain.price_usd` (separate from model cost on `metrics.model_cost_usd`).
 
-   **Blocker shape — required when you write one.** Every entry in `blockers_encountered[]` must include all six fields: `step` (which agent step the blocker arose in — `domain_search`, `domain_purchase`, `publish_website`, `verify_website_live`, `submit_tcr`), `code`, `detail` (string, may be `""`), `first_seen_at` (ISO 8601 of when you detected it — use `<ISO 8601 now>` at write time), `retry_count` (integer, 0 if no in-run retries were attempted), `is_recoverable` (bool). The validator rejects incomplete entries.
+   **Blocker shape — required when you write one.** Every entry in `blockers_encountered[]` must include all six fields: `step` (which agent step the blocker arose in — `compliance_state_read`, `domain_search`, `domain_purchase`, `publish_website`, `verify_website_live`, `submit_tcr`), `code`, `detail` (string, may be `""`), `first_seen_at` (ISO 8601 of when you detected it — use `<ISO 8601 now>` at write time), `retry_count` (integer, 0 if no in-run retries were attempted), `is_recoverable` (bool). The validator rejects incomplete entries.
 
 **Truth and refusal**
 
