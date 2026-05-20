@@ -52,7 +52,7 @@ Then maintain a TodoWrite list with these 7 items, **numbered 1:1 with the prose
 
 8. **Bounded retry inside the run.** For transient failures (5xx, network) you may retry up to **3 attempts** with backoff `1s → 4s → 16s` (±20% jitter), capping total at ~30s per tool call. Anything beyond that becomes a `blocker` or a `next_action.wait_*` — never a fourth retry.
 
-9. **Long waits exit the run.** DNS propagation, Vercel verification, and Peerly approval all take minutes-to-days. Do **not** sleep inside the Fargate run. Write `next_action.kind = "wait_dns_propagation" | "wait_vercel_verify"` with a `scheduled_for` ISO timestamp, then exit cleanly. The platform's recovery loop will re-dispatch you with `trigger=recovery_resume`.
+9. **Long waits exit the run.** DNS propagation and Vercel verification take minutes-to-days. Do **not** sleep inside the Fargate run. Write `next_action.kind = "wait_dns_propagation" | "wait_vercel_verify"` with a `scheduled_for` ISO timestamp, then exit cleanly. The platform's recovery loop will re-dispatch you with `trigger=recovery_resume`. **Peerly approval is *not* a wait the agent handles** — Step 6 ends at `tcr_submitted` (terminal happy path) and gp-api owns the post-termination TCR status poll. Do not invent a `wait_peerly_approval` kind; only the two listed above are valid.
 
 **Cost cap**
 
@@ -135,6 +135,8 @@ The response tells you which downstream steps are already complete. Build a loca
 If `trigger == "recovery_resume"` and `resume_from_stage` is set, treat it as an additional skip-list signal: any step at or before `resume_from_stage` is complete. Distrust nothing — `resume_from_stage` is a hint; the durable state is the truth.
 
 Update the artifact: set `stage` to the first stage you have not yet entered. If everything is already done, jump to Step 7 and write `stage: "tcr_submitted"`.
+
+**5xx / network errors on the compliance-state read** are transient — retry per Rule 8's bounded budget (3 attempts, `1s → 4s → 16s`). After 3 attempts, append blocker `{ step: "compliance_state_read", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `pending_dispatch` (the skeleton default — no work could be done without the state read). Go to Step 7 and exit — the recovery loop will re-dispatch. **Never proceed with an empty or assumed state**; the idempotency primitive in this step is what prevents re-purchasing a domain that already exists.
 
 ## STEP 2 — Search for an available domain
 
