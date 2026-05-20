@@ -23,7 +23,7 @@ As part of Step 0: read `PARAMS_JSON` once, create `/workspace/output/` and `/wo
 Then maintain a TodoWrite list with these 7 items, **numbered 1:1 with the prose STEP 1–7 sections below**, and update each item as you go. Long-running runs drift without it.
 
 1. Read current compliance state from gp-api. If `stage` indicates the run is already past a step, skip that step.
-2. If domain is not yet purchased: search for an available domain matching the pattern catalog below, under the $10 cap (escalate to `domain_budget_cap_usd` with a `blocker` only when no $10 match exists and the param is `> 10`).
+2. If domain is not yet purchased: search for an available domain matching the pattern catalog below at the $10 cap first. If no match and `domain_budget_cap_usd > 10`, retry once with `price_cap_usd = domain_budget_cap_usd`. Write a `budget_exceeded` blocker only if the escalated retry also returns nothing (or if no escalation is possible because cap ≤ 10).
 3. If a chosen domain has not been purchased: purchase it. Capture the registrar response (price, auto_renew).
 4. If the website is not yet published: publish website content for the candidate, then attach the chosen domain.
 5. If the website is not yet verified live: call the website-verify tool once. If not live, write `next_action.wait_*` and exit cleanly — recovery loop re-dispatches.
@@ -165,6 +165,10 @@ Call the gp-api MCP tool **that purchases a domain and attaches it to the shared
 
 Idempotency: gp-api is the source of truth. If the tool returns a 409 / "already purchased", **do not treat it as a failure** — re-read the compliance state and continue from the now-current stage. Someone (or a prior run) got there first; the durable record is what matters.
 
+**Non-409 4xx responses** (e.g., 400 invalid domain, 403 auth error, 422 validation failure) are **not transient** — do not retry. Append blocker `{ step: "domain_purchase", code: "domain_purchase_rejected", detail: <error message from tool>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"` and go to Step 7.
+
+**5xx / network errors** are transient — retry per the bounded budget (Rule 8). After 3 attempts, append blocker `{ step: "domain_purchase", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }` and exit. The recovery loop will re-dispatch. **Do not set `stage: "failed"`** — `is_recoverable: true` is the signal the recovery loop reads; the stage stays at `domain_purchased`-pending so the loop can resume from the correct point.
+
 Forward-email alias setup (`info@<domain>` → `candidate-domains@goodparty.org`) is handled by gp-api **inside** this same purchase tool. You do not call a separate tool for it. If the alias setup fails inside gp-api but the registrar purchase succeeded, the tool returns success on the domain with an embedded warning — log a full `error: { code: "forward_email_setup_failed", message: "forward-email alias setup failed (non-fatal)", occurred_at: "<ISO 8601 now>", tool: <name of the purchase tool> }` — all four fields required, or `validate_output.py` rejects the artifact — and continue.
 
 Capture `domain.name`, `domain.registrar`, `domain.purchased_at`, `domain.auto_renew`, `domain.price_usd`. Set `stage: "domain_purchased"`.
@@ -175,7 +179,7 @@ Skip if state says the website is already published.
 
 Call the gp-api MCP tool **that publishes the candidate's website content and flips `Website.status` to `published`** (its description mentions merging into `Website.content` and gating on the domain attached above). gp-api fills the required TCR fields (`about.bio`, `about.issues[]`, `about.committee`, `contact.{email, phone, address}`, `main.{title, tagline, image}`, `logo`, `theme`) from the candidate's profile that they completed in the Pro upgrade wizard.
 
-If the tool returns 4xx because the profile is incomplete (`missing_required_fields`), do **not** try to fill them yourself. Append blocker `{ step: "publish_website", code: "profile_incomplete", detail: <missing-field-list>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }` and exit — the candidate must complete the wizard. Set `stage: "failed"`.
+If the tool returns 4xx because the profile is incomplete (`missing_required_fields`), do **not** try to fill them yourself. Append blocker `{ step: "publish_website", code: "profile_incomplete", detail: <missing-field-list>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }` and exit. Set `stage: "failed"`. This is intentionally **unrecoverable**: the candidate must have completed the Pro upgrade wizard before the agent was dispatched, so a `missing_required_fields` response indicates a gp-api / wizard data-integrity bug, not a user task. ENG-7555 will Slack ops on the blocker so a human can investigate.
 
 If 5xx / transient, retry per the bounded budget.
 
@@ -250,14 +254,26 @@ Required top-level shape (see the JSON Schema at the experiment's `output_schema
 
 `metrics.model_cost_usd` is **model spend only**. Domain spend lives on `domain.price_usd`. The platform fills in `num_turns` and `wall_time_seconds` if you leave them at 0.
 
-**`data_quality.overall`** — set this before writing the artifact based on the run outcome. Downstream dashboards (ENG-7556) read it as the one-glance health field. Pick from this enum:
+**`data_quality.overall`** — set this before writing the artifact based on the run outcome. Downstream dashboards (ENG-7556) read it as the one-glance health field. The enum is partitioned by `stage`, so values do not overlap:
 
-- `"ok"` — `stage` is `tcr_submitted` and `errors[]` is empty.
-- `"degraded"` — the run reached `tcr_submitted` but `errors[]` is non-empty (e.g. `forward_email_setup_failed` left a non-fatal warning).
-- `"partial"` — the run exited cleanly mid-flow via `next_action.wait_*` (e.g. `pending_website_live`). Work is incomplete but recoverable; the recovery loop will resume.
-- `"failed"` — `stage` is `failed` (unrecoverable blocker present).
+- `"ok"` — `stage == "tcr_submitted"` and `errors[]` is empty.
+- `"degraded"` — `stage == "tcr_submitted"` and `errors[]` is non-empty (e.g. `forward_email_setup_failed` left a non-fatal warning). **Only possible when `stage == "tcr_submitted"`.**
+- `"partial"` — the run exited cleanly mid-flow with work that the recovery loop can resume. This covers two sub-cases:
+  - `next_action.wait_*` is set (e.g. DNS / Vercel propagation, profile-complete wait), or
+  - `blockers_encountered[]` contains an entry with `is_recoverable: true` (e.g. `gp_api_unavailable`, `peerly_transient`) and `next_action` is empty.
+  
+  In both sub-cases, `stage` is non-terminal and the loop will re-dispatch.
+- `"failed"` — `stage == "failed"`. An unrecoverable blocker is present; the recovery loop will not re-dispatch.
 
 Never leave `data_quality.overall` at the skeleton default if any other condition is true.
+
+**`completed_steps[]` and `skipped_steps[]`** — before writing the artifact, populate these from the run's history. Use these canonical step names (same set as `blockers_encountered[].step`): `compliance_state_read`, `domain_search`, `domain_purchase`, `publish_website`, `verify_website_live`, `submit_tcr`. For each step in the run:
+
+- If the step ran to success in this invocation → append its name to `completed_steps[]`.
+- If the step was skipped because the durable state in gp-api said it was already done (Step 1's skip-list) → append its name to `skipped_steps[]`.
+- If the step exited mid-flow (wait or recoverable blocker) → do **not** add it to either array; the partial work is captured in `blockers_encountered[]` / `next_action` instead.
+
+A step name appears in at most one array per run.
 
 Then validate:
 
@@ -295,7 +311,7 @@ Validator-passing JSON can still be misleading. Before declaring success:
 - **`next_action.kind` is set when you exited mid-flow.** If you wrote `pending_website_live` and didn't reach Step 6, `next_action` must say what you are waiting on, with a `scheduled_for` ≥ now.
 - **`next_action.kind` is `""` at terminal stages.** If `stage` is `tcr_submitted` or `failed`, `next_action.kind` and `next_action.scheduled_for` must both be `""`. A leftover `wait_*` from a prior recovery run on a now-terminal artifact will trigger a spurious recovery-loop re-dispatch.
 - **No PII in `errors[].message` or `blockers_encountered[].detail`.** Reference IDs (`campaign_id`, `peerly_request_id`) are fine; bios, emails, phone numbers, and addresses are not.
-- **`data_quality.overall` reflects reality.** `"ok"` is wrong on a `failed` run or a run with `errors[]`. Map: `failed` → `"failed"`; `pending_*` mid-flow exit → `"partial"`; `tcr_submitted` with errors → `"degraded"`; `tcr_submitted` clean → `"ok"`.
+- **`data_quality.overall` reflects reality.** Map: `failed` → `"failed"`; non-terminal stage with `wait_*` OR `is_recoverable: true` blocker → `"partial"`; `tcr_submitted` with errors → `"degraded"`; `tcr_submitted` clean → `"ok"`. `"degraded"` is only valid when `stage == "tcr_submitted"`.
 
 ## Failure modes
 
