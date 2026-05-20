@@ -152,7 +152,7 @@ Let `initial_cap = min(10, domain_budget_cap_usd)`. Outcomes:
 - **A match at ≤ `initial_cap`.** Proceed to Step 3 with that name + price.
 - **No match at `initial_cap` and `domain_budget_cap_usd > 10`.** Re-call **once** with `price_cap_usd = domain_budget_cap_usd` (the explicit higher override). If a match appears, proceed.
 - **No match within budget** (either `initial_cap == domain_budget_cap_usd` so no escalation is possible, or the escalated retry also returned nothing). Append blocker `{ step: "domain_search", code: "budget_exceeded", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7.
-- **Tool 5xx / transient.** Retry up to 3 attempts (backoff above). If still failing, append blocker `{ step: "domain_search", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }` and exit. The recovery loop will retry the whole run.
+- **Tool 5xx / transient.** Retry up to 3 attempts (backoff above). If still failing, append blocker `{ step: "domain_search", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `domain_search_started`. Go to Step 7 and exit — the recovery loop reads `is_recoverable: true` and will re-dispatch the whole run.
 
 ## STEP 3 — Purchase the chosen domain
 
@@ -167,7 +167,7 @@ Idempotency: gp-api is the source of truth. If the tool returns a 409 / "already
 
 **Non-409 4xx responses** (e.g., 400 invalid domain, 403 auth error, 422 validation failure) are **not transient** — do not retry. Append blocker `{ step: "domain_purchase", code: "domain_purchase_rejected", detail: <error message from tool>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"` and go to Step 7.
 
-**5xx / network errors** are transient — retry per the bounded budget (Rule 8). After 3 attempts, append blocker `{ step: "domain_purchase", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }` and exit. The recovery loop will re-dispatch. **Do not set `stage: "failed"`** — `is_recoverable: true` is the signal the recovery loop reads; the stage stays at `domain_purchased`-pending so the loop can resume from the correct point.
+**5xx / network errors** are transient — retry per the bounded budget (Rule 8). After 3 attempts, append blocker `{ step: "domain_purchase", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `domain_search_started` (the last value set, in Step 2 — the domain is not yet purchased). Go to Step 7 and exit. **Do not set `stage: "failed"`** on this path — `is_recoverable: true` is the signal the recovery loop reads to re-dispatch; `stage: "failed"` would contradict it and tell the loop the run is permanent.
 
 Forward-email alias setup (`info@<domain>` → `candidate-domains@goodparty.org`) is handled by gp-api **inside** this same purchase tool. You do not call a separate tool for it. If the alias setup fails inside gp-api but the registrar purchase succeeded, the tool returns success on the domain with an embedded warning — log a full `error: { code: "forward_email_setup_failed", message: "forward-email alias setup failed (non-fatal)", occurred_at: "<ISO 8601 now>", tool: <name of the purchase tool> }` — all four fields required, or `validate_output.py` rejects the artifact — and continue.
 
@@ -179,7 +179,7 @@ Skip if state says the website is already published.
 
 Call the gp-api MCP tool **that publishes the candidate's website content and flips `Website.status` to `published`** (its description mentions merging into `Website.content` and gating on the domain attached above). gp-api fills the required TCR fields (`about.bio`, `about.issues[]`, `about.committee`, `contact.{email, phone, address}`, `main.{title, tagline, image}`, `logo`, `theme`) from the candidate's profile that they completed in the Pro upgrade wizard.
 
-If the tool returns 4xx because the profile is incomplete (`missing_required_fields`), do **not** try to fill them yourself. Append blocker `{ step: "publish_website", code: "profile_incomplete", detail: <missing-field-list>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }` and exit. Set `stage: "failed"`. This is intentionally **unrecoverable**: the candidate must have completed the Pro upgrade wizard before the agent was dispatched, so a `missing_required_fields` response indicates a gp-api / wizard data-integrity bug, not a user task. ENG-7555 will Slack ops on the blocker so a human can investigate.
+If the tool returns 4xx because the profile is incomplete (`missing_required_fields`), do **not** try to fill them yourself. Append blocker `{ step: "publish_website", code: "profile_incomplete", detail: <missing-field-list>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7 and exit. This is intentionally **unrecoverable**: the candidate must have completed the Pro upgrade wizard before the agent was dispatched, so a `missing_required_fields` response indicates a gp-api / wizard data-integrity bug, not a user task. ENG-7555 will Slack ops on the blocker so a human can investigate.
 
 If 5xx / transient, retry per the bounded budget.
 
@@ -195,15 +195,16 @@ Call the gp-api MCP tool **that polls the candidate's website until HTTP 200 + t
 
 **On polling semantics:** the Epic body says "poll until 200 + required content present." That polling is **cross-run** — implemented by the platform's recovery loop (ENG-7554) re-dispatching this agent with `trigger=recovery_resume` when the wait condition (DNS / Vercel propagation) clears. **One call to this tool per run.** Do not loop. The instructions below for `next_action.wait_*` are how you hand off to the recovery loop.
 
-Two-state outcomes:
+Outcomes:
 
 - **Tool returns `verified: true`.** Capture `website.verified_live_at`. Set `stage: "website_verified_live"`. Continue to Step 6.
 - **Tool returns `verified: false` with a reason** (`dns_not_propagated`, `vercel_pending_verification`, `content_missing`):
   - `dns_not_propagated` → write `next_action: { kind: "wait_dns_propagation", scheduled_for: now + 30 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
   - `vercel_pending_verification` → write `next_action: { kind: "wait_vercel_verify", scheduled_for: now + 15 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
-  - `content_missing` → this is unexpected after Step 4 succeeded. Append blocker `{ step: "verify_website_live", code: "verify_content_missing", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, exit.
+  - `content_missing` → this is unexpected after Step 4 succeeded. Append blocker `{ step: "verify_website_live", code: "verify_content_missing", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7 and exit.
+- **Tool returns 5xx / network error.** Retry per Rule 8's bounded budget (3 attempts, `1s → 4s → 16s`). These retries are **inside a single tool call attempt** — they do not violate the "one call per run" rule below, which is about the higher-level `verified: false` polling. After 3 attempts, append blocker `{ step: "verify_website_live", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `pending_website_live`. Go to Step 7 and exit — the recovery loop will re-dispatch.
 
-**Never** call this tool in a tight loop. One call per run is the contract. If you find yourself wanting to retry, write `next_action.wait_*` and exit instead.
+**Never** call this tool in a tight loop on `verified: false`. One call per run is the contract. If you find yourself wanting to retry on a `verified: false` outcome, write `next_action.wait_*` and exit instead. (Rule 8's 3-attempt retry on 5xx / network is a separate, narrower mechanic.)
 
 ## STEP 6 — Submit TCR registration to Peerly
 
@@ -217,8 +218,8 @@ Outcomes:
 
 - **Success.** Capture `tcr_submission.peerly_request_id`, `tcr_submission.submitted_at`, `tcr_submission.verified_url` (if returned). Set `stage: "tcr_submitted"`. This is the **terminal happy path** for the agent. PIN entry and TCR approval happen later, owned by the candidate UI and gp-api's TCR status poll.
 - **gp-api returns Peerly 409 (identity already exists).** gp-api caches the prior `peerly_request_id`. Treat as success; pull the cached id from the tool response.
-- **gp-api returns Peerly 4xx (rejection with reason).** Append blocker `{ step: "submit_tcr", code: "peerly_rejection", detail: <reason>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Do **not** retry. Set `stage: "failed"` and exit.
-- **gp-api returns 5xx / Peerly transient.** Retry up to 3 attempts. After 3 attempts, append blocker `{ step: "submit_tcr", code: "peerly_transient", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }` and exit — the recovery loop will retry the whole run, and the cached `peerly_request_id` (if Peerly partially succeeded) will short-circuit on the next attempt.
+- **gp-api returns Peerly 4xx (rejection with reason).** Append blocker `{ step: "submit_tcr", code: "peerly_rejection", detail: <reason>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Do **not** retry. Set `stage: "failed"`. Go to Step 7 and exit.
+- **gp-api returns 5xx / Peerly transient.** Retry up to 3 attempts. After 3 attempts, append blocker `{ step: "submit_tcr", code: "peerly_transient", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `website_verified_live` (the last value set, in Step 5 — TCR is not yet submitted). Go to Step 7 and exit — the recovery loop will retry the whole run, and the cached `peerly_request_id` (if Peerly partially succeeded) will short-circuit on the next attempt.
 
 ## STEP 7 — Write the artifact and self-validate
 
