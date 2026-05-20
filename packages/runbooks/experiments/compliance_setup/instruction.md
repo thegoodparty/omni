@@ -181,7 +181,7 @@ Call the gp-api MCP tool **that publishes the candidate's website content and fl
 
 If the tool returns 4xx because the profile is incomplete (`missing_required_fields`), do **not** try to fill them yourself. Append blocker `{ step: "publish_website", code: "profile_incomplete", detail: <missing-field-list>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7 and exit. This is intentionally **unrecoverable**: the candidate must have completed the Pro upgrade wizard before the agent was dispatched, so a `missing_required_fields` response indicates a gp-api / wizard data-integrity bug, not a user task. ENG-7555 will Slack ops on the blocker so a human can investigate.
 
-If 5xx / transient, retry per the bounded budget.
+If 5xx / transient, retry per the bounded budget (Rule 8). After 3 attempts, append blocker `{ step: "publish_website", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `domain_purchased` (the last value set, in Step 3). Go to Step 7 and exit — the recovery loop will re-dispatch.
 
 On success, capture `website.url`, `website.vanity_path`, `website.published_at`. Set `stage: "website_content_published"`.
 
