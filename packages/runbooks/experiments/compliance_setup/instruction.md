@@ -260,7 +260,7 @@ Required top-level shape (see the JSON Schema at the experiment's `output_schema
 - `"ok"` — `stage == "tcr_submitted"` and `errors[]` is empty.
 - `"degraded"` — `stage == "tcr_submitted"` and `errors[]` is non-empty (e.g. `forward_email_setup_failed` left a non-fatal warning). **Only possible when `stage == "tcr_submitted"`.**
 - `"partial"` — the run exited cleanly mid-flow with work that the recovery loop can resume. This covers two sub-cases:
-  - `next_action.wait_*` is set (e.g. DNS / Vercel propagation, profile-complete wait), or
+  - `next_action.wait_*` is set — one of the defined kinds: `wait_dns_propagation` or `wait_vercel_verify` (both in Step 5), or
   - `blockers_encountered[]` contains an entry with `is_recoverable: true` (e.g. `gp_api_unavailable`, `peerly_transient`) and `next_action` is empty.
   
   In both sub-cases, `stage` is non-terminal and the loop will re-dispatch.
