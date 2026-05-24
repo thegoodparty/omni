@@ -41,8 +41,7 @@
       },
       "candidate_first_name": {
         "type": "string",
-        "minLength": 1,
-        "description": "Candidate first name. Used for the `{first_initial}` placeholder in the domain pattern catalog. Empty string skips the two patterns that depend on first_initial."
+        "description": "Candidate first name. Used for the `{first_initial}` placeholder in the domain pattern catalog. Empty string skips the two patterns that depend on first_initial (per instruction.md: 'When unset or empty string, skip the two patterns that need it')."
       },
       "candidate_last_name": {
         "type": "string",

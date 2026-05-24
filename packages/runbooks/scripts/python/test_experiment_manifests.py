@@ -263,6 +263,24 @@ def test_compliance_setup_validates_representative_dispatch_params():
     assert errors == [], f"valid params rejected: {[e.message for e in errors]}"
 
 
+def test_compliance_setup_accepts_empty_first_name():
+    """instruction.md:82 documents the empty-string path for candidate_first_name
+    ('When unset or empty string, skip the two patterns that need it'). If the
+    schema rejects empty string at dispatch validation, the documented
+    skip-behavior is unreachable."""
+    manifest = _compliance_setup_manifest()
+    params = {
+        "campaign_id": 12345,
+        "clerk_user_id": "user_2abc123",
+        "election_date": "2026-11-03",
+        "trigger": "initial",
+        "candidate_first_name": "",
+        "candidate_last_name": "Doe",
+    }
+    errors = list(Draft7Validator(manifest["input_schema"]).iter_errors(params))
+    assert errors == [], f"empty candidate_first_name rejected: {[e.message for e in errors]}"
+
+
 def test_compliance_setup_rejects_invalid_dispatch_params():
     """Dispatch validation must catch obviously-wrong params (type mismatch,
     out-of-range budget). Otherwise the agent boots with garbage."""
