@@ -454,6 +454,55 @@ def test_compliance_setup_output_schema_rejects_stage_quality_mismatch():
         )
 
 
+def test_compliance_setup_output_schema_rejects_next_action_pair_mismatch():
+    """next_action.kind ↔ next_action.scheduled_for must agree on emptiness.
+    An agent that writes kind=wait_dns_propagation with scheduled_for=''
+    would hand the recovery loop a wait signal with no anchor — either
+    crashing on parse or hot-retrying immediately. Symmetrically a
+    scheduled_for with no kind is meaningless. Enforced via the allOf
+    invariant alongside the stage<->data_quality pairing."""
+    manifest = _compliance_setup_manifest()
+    validator = Draft7Validator(manifest["output_schema"])
+
+    base = {
+        "stage": "pending_website_live",
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:02:00Z",
+        **_empty_subobjects(),
+        "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
+                   "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
+                            "publish_website"],
+        "skipped_steps": [],
+        "blockers_encountered": [],
+        "errors": [],
+        "metrics": {"num_turns": 8, "model_cost_usd": 0.12, "wall_time_seconds": 90},
+        "data_quality": {"overall": "partial"},
+    }
+
+    # Note: the schema also declares format: date-time on scheduled_for when
+    # kind is set, but Draft7Validator doesn't enforce format strings unless
+    # the consumer opts in via format_checker. The minLength+presence pairing
+    # below is what catches the realistic agent-bug case (skeleton-default
+    # empty string left in place after writing kind).
+    bad_cases = [
+        # kind set but scheduled_for empty — recovery loop has no anchor
+        {**base, "next_action": {"kind": "wait_dns_propagation", "scheduled_for": ""}},
+        {**base, "next_action": {"kind": "wait_vercel_verify", "scheduled_for": ""}},
+        # scheduled_for set but kind empty — orphan timestamp, nothing for the
+        # recovery loop to do
+        {**base, "next_action": {"kind": "", "scheduled_for": "2026-05-23T10:30:00Z"}},
+    ]
+    for artifact in bad_cases:
+        errors = list(validator.iter_errors(artifact))
+        assert errors, (
+            f"expected next_action pair-mismatch rejection but artifact validated: "
+            f"next_action={artifact['next_action']!r}"
+        )
+
+
 def test_compliance_setup_output_schema_accepts_degraded_artifact():
     """Terminal-success-with-non-fatal-warning: stage=tcr_submitted but
     errors[] is non-empty (e.g. forward_email_setup_failed). data_quality.overall

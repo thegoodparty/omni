@@ -309,6 +309,14 @@
       {
         "if": {"properties": {"data_quality": {"properties": {"overall": {"enum": ["ok", "degraded"]}}}}, "required": ["data_quality"]},
         "then": {"properties": {"stage": {"const": "tcr_submitted"}}}
+      },
+      {
+        "if": {"properties": {"next_action": {"properties": {"kind": {"minLength": 1}}, "required": ["kind"]}}, "required": ["next_action"]},
+        "then": {"properties": {"next_action": {"properties": {"scheduled_for": {"minLength": 1, "format": "date-time"}}}}}
+      },
+      {
+        "if": {"properties": {"next_action": {"properties": {"scheduled_for": {"minLength": 1}}, "required": ["scheduled_for"]}}, "required": ["next_action"]},
+        "then": {"properties": {"next_action": {"properties": {"kind": {"minLength": 1}}}}}
       }
     ]
   }
