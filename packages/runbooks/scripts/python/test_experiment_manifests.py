@@ -410,6 +410,50 @@ def test_compliance_setup_output_schema_accepts_failed_artifact():
     assert errors == [], f"failed artifact rejected: {[e.message for e in errors]}"
 
 
+def test_compliance_setup_output_schema_rejects_stage_quality_mismatch():
+    """The schema description documents a strict stage<->data_quality.overall
+    invariant. An agent bug that writes a mismatched pair (e.g. stage=failed
+    with overall=partial) would silently bypass Slack alerting (ENG-7555
+    routes on overall=failed). The output_schema's allOf block enforces the
+    pairing so validate_output.py catches it before publish."""
+    manifest = _compliance_setup_manifest()
+    validator = Draft7Validator(manifest["output_schema"])
+
+    base = {
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:01:00Z",
+        **_empty_subobjects(),
+        "completed_steps": [],
+        "skipped_steps": [],
+        "blockers_encountered": [],
+        "errors": [],
+        "next_action": {"kind": "", "scheduled_for": ""},
+        "metrics": {"num_turns": 1, "model_cost_usd": 0.01, "wall_time_seconds": 5},
+    }
+
+    bad_cases = [
+        # stage=failed but overall is not failed
+        {**base, "stage": "failed", "data_quality": {"overall": "partial"}},
+        {**base, "stage": "failed", "data_quality": {"overall": "ok"}},
+        # stage=tcr_submitted but overall is not ok/degraded
+        {**base, "stage": "tcr_submitted", "data_quality": {"overall": "partial"}},
+        {**base, "stage": "tcr_submitted", "data_quality": {"overall": "failed"}},
+        # overall=failed but stage is not failed
+        {**base, "stage": "pending_website_live", "data_quality": {"overall": "failed"}},
+        # overall=ok/degraded but stage is not tcr_submitted
+        {**base, "stage": "domain_purchased", "data_quality": {"overall": "ok"}},
+        {**base, "stage": "domain_purchased", "data_quality": {"overall": "degraded"}},
+    ]
+    for artifact in bad_cases:
+        errors = list(validator.iter_errors(artifact))
+        assert errors, (
+            f"expected stage<->overall mismatch rejection but artifact validated: "
+            f"stage={artifact['stage']!r} overall={artifact['data_quality']['overall']!r}"
+        )
+
+
 def test_compliance_setup_output_schema_accepts_degraded_artifact():
     """Terminal-success-with-non-fatal-warning: stage=tcr_submitted but
     errors[] is non-empty (e.g. forward_email_setup_failed). data_quality.overall

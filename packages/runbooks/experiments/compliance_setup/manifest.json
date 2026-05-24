@@ -288,10 +288,28 @@
           "overall": {
             "type": "string",
             "enum": ["ok", "degraded", "partial", "failed"],
-            "description": "Stage-partitioned health field. ok = stage=tcr_submitted with no errors. degraded = stage=tcr_submitted with non-fatal errors. partial = non-terminal stage with next_action.wait_* or recoverable blocker. failed = stage=failed."
+            "description": "Stage-partitioned health field. ok = stage=tcr_submitted with no errors. degraded = stage=tcr_submitted with non-fatal errors. partial = non-terminal stage with next_action.wait_* or recoverable blocker. failed = stage=failed. The stage<->overall pairing is enforced by the allOf invariant on the parent object so an agent bug that mis-pairs them (e.g. stage=failed + overall=partial) fails validation rather than silently misrouting Slack alerts (ENG-7555)."
           }
         }
       }
-    }
+    },
+    "allOf": [
+      {
+        "if": {"properties": {"stage": {"const": "failed"}}, "required": ["stage"]},
+        "then": {"properties": {"data_quality": {"properties": {"overall": {"const": "failed"}}}}}
+      },
+      {
+        "if": {"properties": {"data_quality": {"properties": {"overall": {"const": "failed"}}}}, "required": ["data_quality"]},
+        "then": {"properties": {"stage": {"const": "failed"}}}
+      },
+      {
+        "if": {"properties": {"stage": {"const": "tcr_submitted"}}, "required": ["stage"]},
+        "then": {"properties": {"data_quality": {"properties": {"overall": {"enum": ["ok", "degraded"]}}}}}
+      },
+      {
+        "if": {"properties": {"data_quality": {"properties": {"overall": {"enum": ["ok", "degraded"]}}}}, "required": ["data_quality"]},
+        "then": {"properties": {"stage": {"const": "tcr_submitted"}}}
+      }
+    ]
   }
 }
