@@ -59,6 +59,27 @@
       "description": "Optional cross-field constraints on the output (array_length, equals, enums, ranges, exact_ids) the bare schema can't express.",
       "additionalProperties": true
     },
+    "system_prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50000,
+      "description": "Optional per-experiment system prompt for write-action experiments. Validation rules mirror pmf_engine/control_plane/manifest_loader.py::_validate_write_action_fields so a manifest that passes here also passes Lambda dispatch validation. Presence of this field (or `permission_mode`) is the dispatch-time discriminator that flags the experiment as write-action; the runner reads the field from the manifest body."
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": ["default", "bypassPermissions"],
+      "description": "Optional Claude Agent SDK permission mode for write-action experiments. The SDK supports `default | acceptEdits | plan | bypassPermissions`; only the two we've reviewed for the Fargate sandbox are allow-listed here. Presence of this field (or `system_prompt`) flags the experiment as write-action."
+    },
+    "allowed_external_tools": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "description": "Optional list of external tool names the runner harness exposes to the agent. Names match the Claude SDK's tool identifiers; the harness reads this from the manifest body. Independent of `system_prompt` / `permission_mode` — a read-action experiment may carry it too, so on its own it does not flag the experiment as write-action."
+    },
     "scope": {
       "type": "object",
       "description": "Per-experiment broker scope: which Databricks tables the runner is allowed to query, and the per-query row cap. Omitted = no Databricks access (web-only experiment).",
@@ -95,7 +116,7 @@
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": {"type": "string", "minLength": 1},
+              "items": { "type": "string", "minLength": 1 },
               "description": "Values of the named field that exempt the artifact from the data-required check. Should match the output_schema's placeholder-branch enum (e.g. ['awaiting_agenda', 'no_meeting_found', 'error'])."
             }
           }
