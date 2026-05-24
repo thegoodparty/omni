@@ -235,6 +235,20 @@ def test_compliance_setup_carries_write_action_discriminator():
     )
 
 
+def test_compliance_setup_permission_mode_is_bypass():
+    """compliance_setup runs unattended in a headless Fargate container. The
+    Claude SDK's `default` permission_mode pauses for human confirmation on
+    tool calls — with no tty in Fargate, that hangs every run until
+    timeout_seconds fires. The meta-schema allows both `default` and
+    `bypassPermissions` (some future experiment may want `default`), so the
+    value has to be pinned at the per-experiment level here."""
+    manifest = _compliance_setup_manifest()
+    assert manifest.get("permission_mode") == "bypassPermissions", (
+        f"compliance_setup must use permission_mode='bypassPermissions' for "
+        f"unattended Fargate execution. Got: {manifest.get('permission_mode')!r}"
+    )
+
+
 def test_compliance_setup_has_no_databricks_scope():
     """Write-action experiments use {} scope (Architecture Note 5). A scope
     block here would route the dispatch through derive_scope, which only
