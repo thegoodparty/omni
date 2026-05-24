@@ -160,6 +160,31 @@ def _good_manifest() -> dict:
             "should be non-empty",
             id="data-required-unless-empty-values",
         ),
+        pytest.param(
+            lambda m: m.update({"permission_mode": "acceptEdits"}),
+            "is not one of",
+            id="permission-mode-outside-allowlist",
+        ),
+        pytest.param(
+            lambda m: m.update({"system_prompt": ""}),
+            "should be non-empty",
+            id="system-prompt-empty",
+        ),
+        pytest.param(
+            lambda m: m.update({"system_prompt": "x" * 50_001}),
+            "is too long",
+            id="system-prompt-over-max-length",
+        ),
+        pytest.param(
+            lambda m: m.update({"allowed_external_tools": ["WebFetch", "WebFetch"]}),
+            "has non-unique elements",
+            id="allowed-external-tools-duplicates",
+        ),
+        pytest.param(
+            lambda m: m.update({"allowed_external_tools": ["x" * 65]}),
+            "is too long",
+            id="allowed-external-tools-name-too-long",
+        ),
     ],
 )
 def test_meta_schema_rejects_bad_manifests(mutation, expected_message_fragment):
@@ -172,5 +197,120 @@ def test_meta_schema_rejects_bad_manifests(mutation, expected_message_fragment):
     assert expected_message_fragment in messages, (
         f"expected '{expected_message_fragment}' in errors but got: {messages}"
     )
+
+
+# ---------------------------------------------------------------------------
+# compliance_setup dispatch-resolution smoke test (ENG-7535)
+#
+# Mirrors the AC item "smoke test resolves it from a fixture SQS event and
+# validates input." Lives in runbooks rather than pmf_engine because
+# pmf_engine/tests/conftest.py explicitly forbids reaching for real experiment
+# fixtures from engine tests ("if you find yourself reaching for a real
+# experiment fixture here, that's a smell — the test belongs in runbooks").
+#
+# Asserts the dispatch-time contract from the runbooks side:
+#   1. Write-action discriminator is set (system_prompt OR permission_mode
+#      present — what dispatch_handler._is_write_action keys on).
+#   2. No `scope` block — write-action experiments use {} scope post-ENG-10128
+#      (Architecture Note 5: no per-experiment gp-api endpoint allowlist;
+#      derive_gp_api_scope and allowed_gp_api_endpoints were removed).
+#   3. A representative SQS-message params payload validates against
+#      input_schema — what dispatch_handler validates before launching ECS.
+#   4. A representative agent artifact validates against output_schema —
+#      what /workspace/validate_output.py enforces before publish.
+# ---------------------------------------------------------------------------
+
+
+def _compliance_setup_manifest() -> dict:
+    return json.loads((EXPERIMENTS_DIR / "compliance_setup" / "manifest.json").read_text())
+
+
+def test_compliance_setup_carries_write_action_discriminator():
+    manifest = _compliance_setup_manifest()
+    has_discriminator = manifest.get("system_prompt") is not None or manifest.get("permission_mode") is not None
+    assert has_discriminator, (
+        "compliance_setup is a write-action experiment but neither system_prompt nor "
+        "permission_mode is set — dispatch_handler._is_write_action will misroute it "
+        "through derive_scope (Databricks shape) instead of empty-scope MintRequest."
+    )
+
+
+def test_compliance_setup_has_no_databricks_scope():
+    """Write-action experiments use {} scope (Architecture Note 5). A scope
+    block here would route the dispatch through derive_scope, which only
+    knows the Databricks shape."""
+    manifest = _compliance_setup_manifest()
+    assert not manifest.get("scope"), (
+        f"compliance_setup must not declare a `scope` block — write-action experiments "
+        f"use empty scope. Got: {manifest.get('scope')!r}"
+    )
+
+
+def test_compliance_setup_validates_representative_dispatch_params():
+    """Lambda's dispatch_handler validates message['params'] against
+    input_schema before launching Fargate. A valid SQS event must pass."""
+    manifest = _compliance_setup_manifest()
+    valid_params = {
+        "campaign_id": 12345,
+        "clerk_user_id": "user_2abc123",
+        "election_date": "2026-11-03",
+        "trigger": "initial",
+        "candidate_first_name": "Jane",
+        "candidate_last_name": "Doe",
+        "domain_budget_cap_usd": 10,
+    }
+    errors = list(Draft7Validator(manifest["input_schema"]).iter_errors(valid_params))
+    assert errors == [], f"valid params rejected: {[e.message for e in errors]}"
+
+
+def test_compliance_setup_rejects_invalid_dispatch_params():
+    """Dispatch validation must catch obviously-wrong params (type mismatch,
+    out-of-range budget). Otherwise the agent boots with garbage."""
+    manifest = _compliance_setup_manifest()
+    bad_cases = [
+        {"campaign_id": "not_a_number", "clerk_user_id": "u", "election_date": "2026-11-03",
+         "trigger": "initial", "candidate_first_name": "J", "candidate_last_name": "D"},
+        {"campaign_id": 1, "clerk_user_id": "u", "election_date": "2026-11-03",
+         "trigger": "unknown_trigger_value", "candidate_first_name": "J", "candidate_last_name": "D"},
+        {"campaign_id": 1, "clerk_user_id": "u", "election_date": "2026-11-03",
+         "trigger": "initial", "candidate_first_name": "J", "candidate_last_name": "D",
+         "domain_budget_cap_usd": 50},
+        {"campaign_id": 1, "clerk_user_id": "u",
+         "trigger": "initial", "candidate_first_name": "J", "candidate_last_name": "D"},
+    ]
+    validator = Draft7Validator(manifest["input_schema"])
+    for params in bad_cases:
+        assert list(validator.iter_errors(params)), f"expected rejection but params validated: {params}"
+
+
+def test_compliance_setup_output_schema_accepts_terminal_artifact():
+    """The agent's /workspace/output/compliance_setup.json must validate against
+    output_schema. A minimal happy-path artifact (stage=tcr_submitted) is the
+    canonical post-run shape — if this rejects it, the platform-generated
+    validate_output.py will reject every real run."""
+    manifest = _compliance_setup_manifest()
+    artifact = {
+        "stage": "tcr_submitted",
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:05:00Z",
+        "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
+                   "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "website": {"url": "https://votedoeNov2026.run", "vanity_path": "jane-doe",
+                    "published_at": "2026-05-23T10:02:00Z", "verified_live_at": "2026-05-23T10:03:00Z"},
+        "tcr_submission": {"peerly_request_id": "pr_abc123",
+                           "submitted_at": "2026-05-23T10:04:00Z", "verified_url": ""},
+        "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
+                            "publish_website", "verify_website_live", "submit_tcr"],
+        "skipped_steps": [],
+        "blockers_encountered": [],
+        "errors": [],
+        "next_action": {"kind": "", "scheduled_for": ""},
+        "metrics": {"num_turns": 18, "model_cost_usd": 0.34, "wall_time_seconds": 245},
+        "data_quality": {"overall": "ok"},
+    }
+    errors = list(Draft7Validator(manifest["output_schema"]).iter_errors(artifact))
+    assert errors == [], f"terminal artifact rejected: {[e.message for e in errors]}"
 
 

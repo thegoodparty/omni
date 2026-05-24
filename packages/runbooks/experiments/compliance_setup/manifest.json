@@ -1,0 +1,298 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "compliance_setup",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 60,
+  "timeout_seconds": 1200,
+  "system_prompt": "You are the compliance_setup agent at GoodParty.org. After a candidate completes the Pro upgrade purchase, you provision their 10DLC texting compliance unattended: pick and buy a campaign domain, publish their website, verify it is live, and submit their TCR registration to Peerly. You are stateless and short-lived: all durable state lives in gp-api; every write goes through an MCP tool. Read the durable compliance state before any other action — that is the idempotency primitive. Long waits (DNS propagation, Vercel verification) exit the run cleanly via next_action so the platform's recovery loop can re-dispatch you. Follow the full procedure at /workspace/instruction.md.",
+  "permission_mode": "bypassPermissions",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "campaign_id",
+      "clerk_user_id",
+      "election_date",
+      "trigger",
+      "candidate_first_name",
+      "candidate_last_name"
+    ],
+    "properties": {
+      "campaign_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Numeric Campaign.id in gp-api. Foreign key the agent passes back to gp-api MCP tools for every state read/write."
+      },
+      "clerk_user_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Clerk user id of the candidate. Broker mints actor-token sessions against this id when proxying MCP calls to gp-api."
+      },
+      "election_date": {
+        "type": "string",
+        "format": "date",
+        "description": "YYYY-MM-DD. Drives the {mm}/{month_abbreviation}/{yyyy} placeholders in the domain pattern catalog (instruction.md)."
+      },
+      "trigger": {
+        "type": "string",
+        "enum": ["initial", "recovery_resume"],
+        "description": "Why this run was dispatched. `initial` = first dispatch after Pro purchase. `recovery_resume` = re-dispatch by the recovery loop (ENG-7554) after a wait condition cleared; the agent reads `resume_from_stage` as a skip-list hint but still trusts gp-api durable state as the source of truth."
+      },
+      "candidate_first_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Candidate first name. Used for the `{first_initial}` placeholder in the domain pattern catalog. Empty string skips the two patterns that depend on first_initial."
+      },
+      "candidate_last_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Candidate last name. Used for `{last_name}` and `{last_initial}` placeholders in the domain pattern catalog."
+      },
+      "domain_budget_cap_usd": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30,
+        "default": 10,
+        "description": "Per-candidate domain budget. Agent searches at min($10, this) first; if no match and this > 10, retries once at this cap. Above this is a hard `budget_exceeded` blocker."
+      },
+      "resume_from_stage": {
+        "type": "string",
+        "enum": [
+          "pending_dispatch",
+          "domain_search_started",
+          "domain_purchased",
+          "website_content_published",
+          "pending_website_live",
+          "website_verified_live",
+          "tcr_submitted",
+          "failed"
+        ],
+        "description": "Optional hint from the recovery loop indicating the last persisted stage. The agent treats it as a skip-list signal only — the durable compliance state read in Step 1 remains the truth."
+      },
+      "run_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional override of the RUN_ID env var. If both are present they should agree; the agent picks whichever is set."
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ComplianceSetupOutput",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "stage",
+      "campaign_id",
+      "run_id",
+      "started_at",
+      "ended_at",
+      "domain",
+      "website",
+      "tcr_submission",
+      "completed_steps",
+      "skipped_steps",
+      "blockers_encountered",
+      "errors",
+      "next_action",
+      "metrics",
+      "data_quality"
+    ],
+    "properties": {
+      "stage": {
+        "type": "string",
+        "enum": [
+          "pending_dispatch",
+          "domain_search_started",
+          "domain_purchased",
+          "website_content_published",
+          "pending_website_live",
+          "website_verified_live",
+          "tcr_submitted",
+          "failed"
+        ],
+        "description": "Single canonical progress field. Downstream consumers (compliance banner, dashboard, Slack alert) read this to decide what to render. `tcr_pending_pin` and `tcr_approved` are owned by gp-api/Peerly events and are not written by the agent."
+      },
+      "campaign_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Echoed from input params for downstream cross-reference."
+      },
+      "run_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "started_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 UTC timestamp captured at Step 0 start."
+      },
+      "ended_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 UTC timestamp captured at artifact write."
+      },
+      "domain": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "registrar", "purchased_at", "auto_renew", "price_usd"],
+        "properties": {
+          "name": { "type": "string", "description": "Apex domain stored in gp-api (no scheme, no www.). Empty string until Step 3 succeeds." },
+          "registrar": { "type": "string", "description": "Registrar identifier (typically 'route53'). Empty until purchase." },
+          "purchased_at": { "type": "string", "description": "ISO 8601 of purchase. Empty until purchase." },
+          "auto_renew": { "type": "boolean" },
+          "price_usd": { "type": "number", "minimum": 0, "description": "Domain spend only. Model spend lives at metrics.model_cost_usd." }
+        }
+      },
+      "website": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "vanity_path", "published_at", "verified_live_at"],
+        "properties": {
+          "url": { "type": "string", "description": "Fully-qualified URL of the published candidate site. Empty until Step 4 succeeds." },
+          "vanity_path": { "type": "string", "description": "Candidate-sites vanity path (e.g., 'jane-doe-for-mayor')." },
+          "published_at": { "type": "string", "description": "ISO 8601 of Website.status flip to published." },
+          "verified_live_at": { "type": "string", "description": "ISO 8601 captured when the verify-website tool returns verified:true." }
+        }
+      },
+      "tcr_submission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["peerly_request_id", "submitted_at", "verified_url"],
+        "properties": {
+          "peerly_request_id": { "type": "string", "description": "Cached on TcrCompliance.peerlyIdentityId once Peerly accepts. Pulled from gp-api on idempotent re-runs." },
+          "submitted_at": { "type": "string", "description": "ISO 8601 of TCR submit success." },
+          "verified_url": { "type": "string", "description": "Optional verification URL Peerly returns (Campaign Verify portal). Empty if not returned." }
+        }
+      },
+      "completed_steps": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "compliance_state_read",
+            "domain_search",
+            "domain_purchase",
+            "publish_website",
+            "verify_website_live",
+            "submit_tcr"
+          ]
+        },
+        "description": "Steps the agent ran to a terminal-success state during this run. Same canonical step names as blockers_encountered[].step."
+      },
+      "skipped_steps": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "compliance_state_read",
+            "domain_search",
+            "domain_purchase",
+            "publish_website",
+            "verify_website_live",
+            "submit_tcr"
+          ]
+        },
+        "description": "Steps the agent skipped because durable state already showed them complete (idempotent resume)."
+      },
+      "blockers_encountered": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["step", "code", "detail", "first_seen_at", "retry_count", "is_recoverable"],
+          "properties": {
+            "step": {
+              "type": "string",
+              "enum": [
+                "compliance_state_read",
+                "domain_search",
+                "domain_purchase",
+                "publish_website",
+                "verify_website_live",
+                "submit_tcr"
+              ]
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Stable short identifier (e.g., budget_exceeded, gp_api_unavailable, peerly_rejection). Stable enough that the Slack alerter (ENG-7555) can route on it."
+            },
+            "detail": {
+              "type": "string",
+              "description": "Free-form context. May be empty string."
+            },
+            "first_seen_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "retry_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "is_recoverable": {
+              "type": "boolean",
+              "description": "True when the recovery loop should re-dispatch (transient failures); false for unrecoverable blockers (budget_exceeded, profile_incomplete, peerly_rejection)."
+            }
+          }
+        }
+      },
+      "errors": {
+        "type": "array",
+        "description": "Non-fatal errors logged for the audit trail (e.g., forward_email_setup_failed warnings, out_of_scope_request_ignored).",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "occurred_at", "tool"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 },
+            "occurred_at": { "type": "string", "format": "date-time" },
+            "tool": { "type": "string", "description": "Name of the MCP tool that produced the error. Empty string if not tool-attributable." }
+          }
+        }
+      },
+      "next_action": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "scheduled_for"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["", "wait_dns_propagation", "wait_vercel_verify"],
+            "description": "Empty at terminal stages (tcr_submitted, failed). Set to wait_dns_propagation or wait_vercel_verify when Step 5 exits cleanly into the recovery loop."
+          },
+          "scheduled_for": {
+            "type": "string",
+            "description": "ISO 8601 timestamp for when the recovery loop should reconsider. Empty when kind is empty."
+          }
+        }
+      },
+      "metrics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["num_turns", "model_cost_usd", "wall_time_seconds"],
+        "properties": {
+          "num_turns": { "type": "integer", "minimum": 0, "description": "Filled by the platform if left at 0." },
+          "model_cost_usd": { "type": "number", "minimum": 0, "description": "Model spend only. Domain spend lives on domain.price_usd." },
+          "wall_time_seconds": { "type": "integer", "minimum": 0, "description": "Filled by the platform if left at 0." }
+        }
+      },
+      "data_quality": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["overall"],
+        "properties": {
+          "overall": {
+            "type": "string",
+            "enum": ["ok", "degraded", "partial", "failed"],
+            "description": "Stage-partitioned health field. ok = stage=tcr_submitted with no errors. degraded = stage=tcr_submitted with non-fatal errors. partial = non-terminal stage with next_action.wait_* or recoverable blocker. failed = stage=failed."
+          }
+        }
+      }
+    }
+  }
+}
