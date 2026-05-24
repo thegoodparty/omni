@@ -72,7 +72,7 @@
       "run_id": {
         "type": "string",
         "minLength": 1,
-        "description": "Optional override of the RUN_ID env var. If both are present they should agree; the agent picks whichever is set."
+        "description": "Fallback run identifier used only when the RUN_ID env var is absent. When RUN_ID is set, the agent must use RUN_ID and ignore this field. The platform's recovery loop correlates runs by the env-var value, so the artifact must never record this field's value if it differs from RUN_ID."
       }
     }
   },

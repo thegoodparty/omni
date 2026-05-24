@@ -10,7 +10,7 @@ Your params arrive in the `PARAMS_JSON` env var. Read them once at the top of St
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring Step 0 below. Update each item as you go.
-3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), `resume_from_stage` (may be unset), and `run_id` (may also be available as env var `RUN_ID` — use whichever is set; both should agree).
+3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), `resume_from_stage` (may be unset), and `run_id`. **Precedence**: prefer the `RUN_ID` env var; use the `run_id` params field only when `RUN_ID` is unset. The platform's recovery loop correlates runs by the env-var value, so the artifact's `run_id` must always be the value the agent actually used. If both are present and disagree, log the divergence in `errors[]` and use `RUN_ID`.
 4. Read the durable compliance state from gp-api **before doing anything else** (Step 1). Skip any step whose stage is already complete. This is the resume / idempotency primitive — the same agent invocation must be safe to run twice.
 5. Write the final artifact to `/workspace/output/compliance_setup.json` and nowhere else.
 6. Run `python3 /workspace/validate_output.py` before declaring success.
@@ -233,7 +233,7 @@ Required top-level shape (see the JSON Schema at the experiment's `output_schema
 {
   "stage": "<one of the stage enum values>",
   "campaign_id": "<from params>",
-  "run_id": "<from env RUN_ID or PARAMS_JSON.run_id>",
+  "run_id": "<RUN_ID env var; fall back to PARAMS_JSON.run_id only if RUN_ID is unset — see Step 0.3 precedence rule>",
   "started_at": "<ISO 8601 of Step 0 start>",
   "ended_at": "<ISO 8601 of now>",
 

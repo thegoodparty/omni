@@ -301,6 +301,18 @@ def test_compliance_setup_rejects_invalid_dispatch_params():
         assert list(validator.iter_errors(params)), f"expected rejection but params validated: {params}"
 
 
+def _empty_subobjects() -> dict:
+    """Zero-value blocks for artifact shapes that haven't reached the stage
+    that populates them. Centralized so the enum-coverage tests below don't
+    drift from each other."""
+    return {
+        "domain": {"name": "", "registrar": "", "purchased_at": "",
+                   "auto_renew": False, "price_usd": 0},
+        "website": {"url": "", "vanity_path": "", "published_at": "", "verified_live_at": ""},
+        "tcr_submission": {"peerly_request_id": "", "submitted_at": "", "verified_url": ""},
+    }
+
+
 def test_compliance_setup_output_schema_accepts_terminal_artifact():
     """The agent's /workspace/output/compliance_setup.json must validate against
     output_schema. A minimal happy-path artifact (stage=tcr_submitted) is the
@@ -330,5 +342,107 @@ def test_compliance_setup_output_schema_accepts_terminal_artifact():
     }
     errors = list(Draft7Validator(manifest["output_schema"]).iter_errors(artifact))
     assert errors == [], f"terminal artifact rejected: {[e.message for e in errors]}"
+
+
+def test_compliance_setup_output_schema_accepts_recovery_loop_exits():
+    """Non-terminal artifacts written when the agent exits cleanly into the
+    recovery loop must validate. Covers both `next_action.kind` enum values
+    (wait_dns_propagation, wait_vercel_verify) and `data_quality.overall =
+    'partial'`. A schema regression that drops any of these enum entries
+    would break validate_output.py on every real recovery-loop run."""
+    manifest = _compliance_setup_manifest()
+    validator = Draft7Validator(manifest["output_schema"])
+
+    base_dns_wait = {
+        "stage": "pending_website_live",
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:02:00Z",
+        **_empty_subobjects(),
+        "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
+                   "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
+                            "publish_website"],
+        "skipped_steps": [],
+        "blockers_encountered": [],
+        "errors": [],
+        "next_action": {"kind": "wait_dns_propagation",
+                        "scheduled_for": "2026-05-23T10:32:00Z"},
+        "metrics": {"num_turns": 8, "model_cost_usd": 0.12, "wall_time_seconds": 90},
+        "data_quality": {"overall": "partial"},
+    }
+    errors = list(validator.iter_errors(base_dns_wait))
+    assert errors == [], f"wait_dns_propagation artifact rejected: {[e.message for e in errors]}"
+
+    vercel_wait = {**base_dns_wait,
+                   "next_action": {"kind": "wait_vercel_verify",
+                                   "scheduled_for": "2026-05-23T10:17:00Z"}}
+    errors = list(validator.iter_errors(vercel_wait))
+    assert errors == [], f"wait_vercel_verify artifact rejected: {[e.message for e in errors]}"
+
+
+def test_compliance_setup_output_schema_accepts_failed_artifact():
+    """`stage=failed` + `data_quality.overall='failed'` + a recoverable=false
+    blocker is the canonical unrecoverable-blocker artifact. Must validate so
+    the recovery loop can read it and decide not to re-dispatch."""
+    manifest = _compliance_setup_manifest()
+    artifact = {
+        "stage": "failed",
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:01:00Z",
+        **_empty_subobjects(),
+        "completed_steps": ["compliance_state_read"],
+        "skipped_steps": [],
+        "blockers_encountered": [
+            {"step": "domain_search", "code": "budget_exceeded",
+             "detail": "no domain under $10", "first_seen_at": "2026-05-23T10:00:30Z",
+             "retry_count": 0, "is_recoverable": False}
+        ],
+        "errors": [],
+        "next_action": {"kind": "", "scheduled_for": ""},
+        "metrics": {"num_turns": 3, "model_cost_usd": 0.04, "wall_time_seconds": 40},
+        "data_quality": {"overall": "failed"},
+    }
+    errors = list(Draft7Validator(manifest["output_schema"]).iter_errors(artifact))
+    assert errors == [], f"failed artifact rejected: {[e.message for e in errors]}"
+
+
+def test_compliance_setup_output_schema_accepts_degraded_artifact():
+    """Terminal-success-with-non-fatal-warning: stage=tcr_submitted but
+    errors[] is non-empty (e.g. forward_email_setup_failed). data_quality.overall
+    is `degraded`. Dropping `degraded` from the enum would silently break the
+    one terminal path that surfaces non-fatal errors to downstream consumers."""
+    manifest = _compliance_setup_manifest()
+    artifact = {
+        "stage": "tcr_submitted",
+        "campaign_id": 12345,
+        "run_id": "run-abc",
+        "started_at": "2026-05-23T10:00:00Z",
+        "ended_at": "2026-05-23T10:05:00Z",
+        "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
+                   "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "website": {"url": "https://votedoeNov2026.run", "vanity_path": "jane-doe",
+                    "published_at": "2026-05-23T10:02:00Z", "verified_live_at": "2026-05-23T10:03:00Z"},
+        "tcr_submission": {"peerly_request_id": "pr_abc123",
+                           "submitted_at": "2026-05-23T10:04:00Z", "verified_url": ""},
+        "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
+                            "publish_website", "verify_website_live", "submit_tcr"],
+        "skipped_steps": [],
+        "blockers_encountered": [],
+        "errors": [
+            {"code": "forward_email_setup_failed",
+             "message": "forward-email alias setup failed (non-fatal)",
+             "occurred_at": "2026-05-23T10:01:30Z",
+             "tool": "domain_purchase"}
+        ],
+        "next_action": {"kind": "", "scheduled_for": ""},
+        "metrics": {"num_turns": 18, "model_cost_usd": 0.34, "wall_time_seconds": 245},
+        "data_quality": {"overall": "degraded"},
+    }
+    errors = list(Draft7Validator(manifest["output_schema"]).iter_errors(artifact))
+    assert errors == [], f"degraded artifact rejected: {[e.message for e in errors]}"
 
 
