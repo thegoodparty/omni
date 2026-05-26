@@ -86,10 +86,11 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 6. **Per repo**, merge with a merge commit:
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr merge <pr_number> --merge
    ```
 
-   On failure, stop and report — don't roll back already-merged repos, but tell the user which succeeded and which didn't so they can recover manually.
+   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 5's `cd` carrying over. On failure, stop and report — don't roll back already-merged repos, but tell the user which succeeded and which didn't so they can recover manually.
 
 ### Phase 5: Wait 5 minutes
 

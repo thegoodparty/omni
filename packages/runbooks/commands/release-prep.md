@@ -64,26 +64,33 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
    If output is empty, print `<repo>: no changes between qa and develop — skipping` and move on to the next repo.
 
-6. **Create (or reuse) the develop → qa PR.** First check whether one is already open — this command is rerunnable, and `gh pr create` returns 422 on duplicates:
+6. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr list --base qa --head develop --state open --json number,url
    ```
 
-   If the result is non-empty, capture the existing PR number and skip the create. Otherwise build a body listing the included PRs (one bullet per subject from step 5's `git log`) and create:
+   If the result is non-empty, capture the existing PR number and skip the create. Otherwise build the body inline with `mktemp` and create:
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   BODY_FILE=$(mktemp)
+   printf '## Included PRs\n\n' > "$BODY_FILE"
+   git log origin/qa..origin/develop --oneline --no-merges | sed 's/^/- /' >> "$BODY_FILE"
    gh pr create \
      --base qa --head develop \
      --title "Release prep: develop → qa ($(date +%F))" \
-     --body-file /tmp/release-prep-body.md
+     --body-file "$BODY_FILE"
+   rm -f "$BODY_FILE"
    ```
 
-   Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo.
+   Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks.
 
 7. **Wait for checks to settle:**
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr checks <pr_number> --watch
    ```
 
@@ -100,6 +107,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 8. **Merge the develop → qa PR with a merge commit:**
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr merge <pr_number> --merge
    ```
 
@@ -108,6 +116,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 9. **Re-fetch** so local `qa` is current:
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    git fetch origin --prune
    ```
 
@@ -116,19 +125,25 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 10. **For each repo that had changes in Phase 2**, open the `qa → master` PR — but **do not merge it**. This is the pending production release. First check for an existing open one (same rerunnability concern as step 6):
 
     ```bash
+    cd "$RELEASE_REPOS_DIR/<repo>"
     gh pr list --base master --head qa --state open --json number,url
     ```
 
-    If non-empty, reuse the existing PR. Otherwise:
+    If non-empty, reuse the existing PR. Otherwise build the body inline and create:
 
     ```bash
+    cd "$RELEASE_REPOS_DIR/<repo>"
+    BODY_FILE=$(mktemp)
+    printf '## Included PRs (qa → master)\n\n' > "$BODY_FILE"
+    git log origin/master..origin/qa --oneline --no-merges | sed 's/^/- /' >> "$BODY_FILE"
     gh pr create \
       --base master --head qa \
       --title "Release: qa → master ($(date +%F))" \
-      --body-file /tmp/release-pending-body.md
+      --body-file "$BODY_FILE"
+    rm -f "$BODY_FILE"
     ```
 
-    Body should list the included PRs (same data used in step 6). Capture each PR's URL.
+    Capture each PR's URL. Same `cd`-per-block discipline as step 6.
 
 ### Phase 4: Build the #devs-only message
 
