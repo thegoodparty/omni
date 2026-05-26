@@ -90,14 +90,28 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
    For repos with many commits (>10), truncate the displayed list (e.g., first 5 + `...and N more`) but include the full ENG-XXXX count so the user knows the scope. Wait for explicit `yes`. Anything else aborts — nothing has been merged yet at this point.
 
-6. **Per repo**, merge with a merge commit:
+6. **Per repo**, verify the snapshot is still current, then merge with a merge commit. The confirmation in step 5 may have taken minutes; `qa` is a shared branch that a concurrent `/release-prep` (or a direct push) can move during that window. Merging without re-checking would silently ship commits the user never reviewed.
+
+   Re-fetch and compare:
+
+   ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   git fetch origin --prune
+   git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
+   ```
+
+   Diff this output against the step-4 snapshot for the same repo. If they differ (any commits added or removed), **abort the merge for this repo** and tell the user:
+
+   > `<repo>`: `qa` moved between confirmation and merge (new commits arrived). Re-run `/release` to review the updated contents.
+
+   Skip to the next repo; don't propagate the abort to other repos that may still be in-sync. If the snapshot matches, merge:
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr merge <pr_number> --merge
    ```
 
-   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 4's `cd` carrying over. On failure, stop and report — don't roll back already-merged repos, but tell the user which succeeded and which didn't so they can recover manually.
+   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 4's `cd` carrying over. On merge failure (not the snapshot-mismatch abort), stop and report — don't roll back already-merged repos, but tell the user which succeeded and which didn't so they can recover manually.
 
 ### Phase 5: Wait 5 minutes
 
@@ -162,10 +176,11 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 14. **Final report:**
     - Repos released (with the merged `qa → master` PR URL for each)
     - Repos skipped (no open `qa → master` PR found)
+    - Repos aborted on snapshot mismatch in step 6 (qa moved between confirmation and merge) — user should re-run `/release` to review the updated contents
     - Any ENG-XXXX tags whose ClickUp lookup failed
     - Any PRs that had no ENG-XXXX tag (listed as fallback items in the message)
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared as untagged fallback bullets
-    - If any per-repo merge in step 6 failed: a clear note of which succeeded vs. failed and a suggested manual recovery (e.g., "merge `<repo>` PR #<n> from the GitHub UI, then re-run `/release` with `--repos=<repo>` to post a message for just that one — or paste the printed message as-is, since the snapshot was taken before merges started").
+    - If any per-repo merge in step 6 failed: a clear note of which succeeded vs. failed and a suggested manual recovery (e.g., "merge `<repo>` PR #<n> from the GitHub UI, then re-run `/release <repo>` to post a message for just that one — or, once the manual merge succeeds, paste the printed message as-is since the snapshot was taken before merges started and already includes that repo's tickets"). Do NOT paste the message as-is if the failed-repo's merge hasn't actually happened — the message would announce unreleased changes.
 
 ## Important Notes
 
@@ -181,6 +196,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 |---------|-----|
 | `gh pr list --base master --head qa` returns nothing | Either `/release-prep` wasn't run for this repo, or there's nothing pending. Skip the repo — don't try to construct a PR here. |
 | Multiple open `qa → master` PRs for one repo | A previous release was never closed. Ask the user which to merge, or close the stale one manually from the GitHub UI first. |
+| Step 6 aborts with "`qa` moved between confirmation and merge" | A concurrent `/release-prep` or direct push landed on `qa` while the user was deliberating on step 5. The abort is intentional — the user authorized a specific commit set, not the new one. Re-run `/release` for that repo to surface the updated contents in a fresh confirmation. |
 | ClickUp lookup returns 404 for an `ENG-XXXX` | Same as in `/release-prep`: verify `custom_task_ids=true` and `$CLICKUP_TEAM_ID`. If still 404, list the tag with no title and surface it in the final report. |
 | A merge succeeds but the deploy seems stuck | The 5-minute wait is a heuristic, not a verification. Check Vercel / CI / wherever this repo deploys; if the deploy fails, the release notes are still accurate (the merge is what releases), just hold the message until ops confirms. |
 | User Ctrl-C during the wait | Ask whether to skip the wait and post the message now, or abort entirely. Don't silently continue. |
