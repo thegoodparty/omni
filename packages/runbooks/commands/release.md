@@ -1,0 +1,177 @@
+<!-- v1 — 2026-05-26 -->
+# /release
+
+Merge the pending `qa → master` PR (opened by `/release-prep`) per configured repo, wait 5 minutes for the deploy to settle, then print a `#product-releases` message that lists every ENG-XXXX ticket released along with its ClickUp title.
+
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
+> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+>
+> 1. If `$RUNBOOKS_DIR` is set, use it.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
+> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+<!-- END: resolve-runbooks-dir -->
+
+## Prerequisites
+
+**books/.env variables**: `$RELEASE_DEFAULT_REPOS`, `$RELEASE_REPOS_DIR`, `$RELEASE_PRODUCT_CHANNEL`, `$CLICKUP_TEAM_ID`
+**scripts/.env variables**: `CLICKUP_API_KEY`
+**Tools**: `gh` (authenticated), `git`, `uv` (for ClickUp lookups), `jq`
+
+Defaults if a `books/.env` value is unset: `$RELEASE_DEFAULT_REPOS=gp-webapp,gp-api`, `$RELEASE_REPOS_DIR=$HOME/Documents/gp/dev`, `$RELEASE_PRODUCT_CHANNEL=#product-releases`.
+
+**Never commit on the user's behalf.** This command runs `gh pr merge` (acts on the remote PR) but never `git commit` locally.
+
+This command stands alone — it does not consume any saved state from `/release-prep`. It re-derives the release contents from each repo's open `qa → master` PR at run time.
+
+## Steps
+
+User input may be passed as a comma-separated repo list to override `$RELEASE_DEFAULT_REPOS` for one run (e.g., `gp-webapp,gp-api,election-api`). Treat that input as `$ARGUMENTS` below.
+
+### Phase 1: Resolve repos
+
+1. **Determine the repo list.** If `$ARGUMENTS` is non-empty, use it; otherwise start with `$RELEASE_DEFAULT_REPOS`. Prompt the user once:
+
+   > Release repos so far: `<repo1>, <repo2>`. Include any others this release? (comma-separated, or Enter to skip).
+
+   Should match the list passed to `/release-prep` earlier — but the command is permissive, so if the user passes a different set, just use it.
+
+2. **Resolve each repo to a local path** under `$RELEASE_REPOS_DIR/<name>`. Ask if missing. Confirm the full list back to the user before continuing.
+
+### Phase 2: Find the pending release PR per repo
+
+3. **For each repo**, find the open `qa → master` PR:
+
+   ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   git fetch origin --prune
+   gh pr list --base master --head qa --state open --json number,url,title
+   ```
+
+   - 0 matches → skip this repo (note in the final report — likely `/release-prep` wasn't run, or nothing was pending)
+   - 1 match → continue
+   - 2+ matches → list them and ask the user which to release; if unsure, abort with a message rather than guessing
+
+4. **Confirm the release with the user**:
+
+   > About to merge `qa → master` for:
+   >   - `<repo>`: PR #<n> — `<title>` — `<url>`
+   >   - ...
+   >
+   > After merging, will wait 5 minutes for deploy, then print the `$RELEASE_PRODUCT_CHANNEL` message. Proceed? (`yes` / `no`)
+
+   Wait for explicit `yes`. Anything else aborts.
+
+### Phase 3: Snapshot the release contents before merging
+
+5. **Per repo**, capture the list of commits being released — this must happen **before** the merge, since the merge commit will land on top and complicate post-merge parsing. Capture the hash too, since not every subject ends with `(#<n>)`:
+
+   ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
+   ```
+
+   For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash:
+
+   ```bash
+   gh pr list --search '<commit_hash>' --state merged --json number,title,body --limit 1
+   ```
+
+   If the search returns no PR (direct push), keep the commit as a "no-PR" entry — use `%s` (subject) as a fallback "title", with no ENG-XXXX extraction possible unless the subject itself contains one. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
+
+### Phase 4: Merge qa → master per repo
+
+6. **Per repo**, merge with a merge commit:
+
+   ```bash
+   gh pr merge <pr_number> --merge
+   ```
+
+   On failure, stop and report — don't roll back already-merged repos, but tell the user which succeeded and which didn't so they can recover manually.
+
+### Phase 5: Wait 5 minutes
+
+7. **Sleep for 5 minutes** (the merge → prod deploy buffer), with countdown updates every minute:
+
+   ```
+   Deploy buffer: 5:00 remaining...
+   Deploy buffer: 4:00 remaining...
+   ...
+   ```
+
+   The wait is interruptible — if the user Ctrl-Cs, ask whether to skip the rest of the wait and proceed to Phase 6 or abort entirely.
+
+### Phase 6: Build the #product-releases message
+
+8. **Fetch each released PR's metadata** (for the matched-by-regex cases — hash-search cases from step 5 already returned metadata in the search response). Do this **inside a per-repo loop** so `gh pr view` resolves owner/repo from cwd. Across all repos, for every PR number captured in step 5:
+
+   ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   gh pr view <pr_number> --json number,title,body
+   ```
+
+   **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key — that mix-up would put the wrong PR title (and thus the wrong ClickUp ticket lookup) on a Slack-posted line.
+
+9. **Extract ENG-XXXX tags** from each PR's `title` and `body` with `ENG-\d+` (case-insensitive). Dedupe across all PRs and all repos — the same ticket may have been referenced by both a gp-webapp and a gp-api PR; it should appear only once in the release notes.
+
+10. **Look up each unique ENG-XXXX tag in ClickUp** to get its title. Use an absolute path for `scripts/python` because earlier phases `cd`'d into a repo directory; a relative `cd scripts/python` would resolve to `<repo>/scripts/python` and fail:
+
+    ```bash
+    cd "$RUNBOOKS_DIR/scripts/python" && uv run clickup_api.py GET task/ENG-XXXX \
+      custom_task_ids=true team_id=$CLICKUP_TEAM_ID
+    ```
+
+    Extract `name` from the response. If the lookup 404s, keep the tag in the message but mark its title as "(title lookup failed)" and surface in the final report.
+
+11. **Collect fallback items for PRs with no ENG-XXXX tag.** For each PR whose title and body contain no `ENG-\d+`, use the PR title (with the trailing `(#<n>)` stripped if `gh` included it). These appear as untagged bullets in the message.
+
+12. **Format the message** to match the exact layout used in `$RELEASE_PRODUCT_CHANNEL`:
+
+    ```
+    The following changes have just been released.
+      •  ENG-XXXX: <ClickUp title>
+      •  ENG-YYYY: <ClickUp title>
+      •  <fallback PR title>
+    ```
+
+    Ordering:
+    - Tagged items (ENG-XXXX) in the order their first-referencing PR was merged (oldest first), matching what users saw in the `#devs-only` post.
+    - Untagged fallback items at the end, also in merge order.
+
+### Phase 7: Print and report
+
+13. **Print the formatted message** between visible delimiters so it's easy to copy:
+
+    ```
+    ──────── COPY BELOW INTO #product-releases ────────
+    The following changes have just been released.
+      •  ENG-XXXX: ...
+    ──────── END ────────
+    ```
+
+14. **Final report:**
+    - Repos released (with the merged `qa → master` PR URL for each)
+    - Repos skipped (no open `qa → master` PR found)
+    - Any ENG-XXXX tags whose ClickUp lookup failed
+    - Any PRs that had no ENG-XXXX tag (listed as fallback items in the message)
+    - Any commits with no PR backing them (no `(#<n>)` suffix and no `gh pr list --search <hash>` match) — these appeared as untagged fallback bullets
+    - If any per-repo merge in step 6 failed: a clear note of which succeeded vs. failed and a suggested manual recovery (e.g., "merge `<repo>` PR #<n> from the GitHub UI, then re-run `/release` with `--repos=<repo>` to post a message for just that one — or paste the printed message as-is, since the snapshot was taken before merges started").
+
+## Important Notes
+
+- **No state from `/release-prep`.** This command re-derives everything from the open PR + `qa..master` diff. You can run it independently if you opened the `qa → master` PR manually.
+- **Snapshot before merge.** Step 5 must happen before step 6. Once merged, `qa..master` collapses and the snapshot is lost.
+- **Dedupe ENG-XXXX across repos.** The same ticket often spans gp-webapp + gp-api; the release notes should list it once.
+- **5-minute wait is fixed, not deploy-aware.** This is intentionally simple — it's a hand-wave for the prod deploy pipeline, not a verification. If a deploy genuinely takes longer or shorter, edit the wait inline or interrupt with Ctrl-C.
+- **Don't commit on the user's behalf.** All merges run through `gh pr merge`.
+
+## Troubleshooting
+
+| Failure | Fix |
+|---------|-----|
+| `gh pr list --base master --head qa` returns nothing | Either `/release-prep` wasn't run for this repo, or there's nothing pending. Skip the repo — don't try to construct a PR here. |
+| Multiple open `qa → master` PRs for one repo | A previous release was never closed. Ask the user which to merge, or close the stale one manually from the GitHub UI first. |
+| ClickUp lookup returns 404 for an `ENG-XXXX` | Same as in `/release-prep`: verify `custom_task_ids=true` and `$CLICKUP_TEAM_ID`. If still 404, list the tag with no title and surface it in the final report. |
+| A merge succeeds but the deploy seems stuck | The 5-minute wait is a heuristic, not a verification. Check Vercel / CI / wherever this repo deploys; if the deploy fails, the release notes are still accurate (the merge is what releases), just hold the message until ops confirms. |
+| User Ctrl-C during the wait | Ask whether to skip the wait and post the message now, or abort entirely. Don't silently continue. |
+| Step-6 merge fails on one repo after others succeeded | Don't roll back. Report clearly which succeeded; the printed message will include everything in step 5's snapshot, so if the failed repo's PR ultimately doesn't get merged this release, you'll need to either retry the merge or edit the message before pasting. |
+| `gh pr list --search <hash>` returns no PR for a commit | The commit was likely pushed directly to develop (no PR). Step 5's no-PR fallback should have caught this — the entry appears as an untagged fallback bullet in the message and is surfaced in the final report. |
