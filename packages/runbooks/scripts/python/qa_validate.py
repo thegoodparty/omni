@@ -164,14 +164,21 @@ def _values_at_path(artifact: dict, path: str) -> list[str]:
     """Resolve a spec path to a list of non-empty string values.
 
     Supported forms:
-      'top_field'             → [artifact['top_field']] if string-valued
-      'items[].x.y'           → [item.x.y for each item in artifact['items']]
+      'top_field'                       → [artifact['top_field']] if string-valued
+      'parent.child'                    → [artifact['parent']['child']] if string-valued
+      'items[].x.y'                     → [item.x.y for each item in artifact['items']]
+      'parent.items[].leaf'             → [entry.leaf for each entry in artifact['parent']['items']]
     """
     if "[]." in path:
         before, _, after = path.partition("[].")
-        container = artifact.get(before) or []
+        # _walk resolves dotted prefixes like 'executive_summary.items'.
+        container = _walk(artifact, before)
+        if not isinstance(container, list):
+            return []
         results: list[str] = []
         for entry in container:
+            if not isinstance(entry, dict):
+                continue
             value = _walk(entry, after)
             if isinstance(value, str) and value.strip():
                 results.append(value)
@@ -412,6 +419,104 @@ def run_deterministic(
             status="pass", severity="info",
             message="All claim source_ids resolve to known sources",
             route="pass",
+        ))
+
+    # 4b. executive_summary.items[].item_id must resolve to a top-level items[] entry
+    #     with tier='featured'. Each entry's title must verbatim equal items[item_id].title.
+    #     Cardinality + ordering of exec_summary.items must match the featured items in
+    #     top-level items[]. Resolution/tier failures block (broken UI deep-dive linkage);
+    #     title and ordering mismatches annotate.
+    exec_obj_resolve = artifact.get("executive_summary")
+    if not isinstance(exec_obj_resolve, dict):
+        exec_obj_resolve = {}
+    exec_items = exec_obj_resolve.get("items") or []
+    item_map = {it.get("id"): it for it in items if isinstance(it, dict) and it.get("id")}
+    featured_ids_ordered = [
+        it.get("id") for it in items
+        if isinstance(it, dict) and it.get("tier") == "featured" and it.get("id")
+    ]
+
+    res_unknown: list[str] = []
+    res_not_featured: list[str] = []
+    res_title_mismatch: list[dict] = []
+    for i, e in enumerate(exec_items):
+        if not isinstance(e, dict):
+            continue
+        iid = e.get("item_id")
+        if not iid or iid not in item_map:
+            res_unknown.append(f"index_{i}→{iid!r}")
+            continue
+        target = item_map[iid]
+        if target.get("tier") != "featured":
+            res_not_featured.append(f"{iid}(tier={target.get('tier')!r})")
+            continue
+        expected_title = target.get("title") or ""
+        actual_title = e.get("title") or ""
+        if actual_title != expected_title:
+            res_title_mismatch.append({
+                "item_id": iid,
+                "expected": expected_title[:80],
+                "actual": actual_title[:80],
+            })
+
+    exec_items_ids_ordered = [
+        e.get("item_id") for e in exec_items if isinstance(e, dict)
+    ]
+    ordering_mismatch = exec_items_ids_ordered != featured_ids_ordered
+
+    res_details = {
+        "exec_summary_item_count": len(exec_items),
+        "featured_item_count": len(featured_ids_ordered),
+        "unknown_item_ids": res_unknown,
+        "not_featured_item_ids": res_not_featured,
+        "title_mismatches": res_title_mismatch,
+        "ordering_mismatch": ordering_mismatch,
+        "exec_items_ids_ordered": exec_items_ids_ordered,
+        "featured_ids_ordered": featured_ids_ordered,
+    }
+    block_level = bool(res_unknown or res_not_featured)
+    if block_level:
+        msg_parts: list[str] = []
+        if res_unknown:
+            msg_parts.append(f"{len(res_unknown)} unresolved item_id(s)")
+        if res_not_featured:
+            msg_parts.append(f"{len(res_not_featured)} item_id(s) not tier=featured")
+        results.append(DeterministicCheck(
+            check_id="executive_summary_items_resolve",
+            status="fail", severity="high",
+            message="; ".join(msg_parts) + " (breaks UI deep-dive linkage)",
+            route="block",
+            offending="; ".join(res_unknown + res_not_featured),
+            details=res_details,
+        ))
+    elif res_title_mismatch or ordering_mismatch:
+        msg_parts = []
+        if res_title_mismatch:
+            msg_parts.append(
+                f"{len(res_title_mismatch)} title mismatch(es) vs items[item_id].title"
+            )
+        if ordering_mismatch:
+            msg_parts.append(
+                "exec_summary.items[] order/cardinality differs from featured items[] order"
+            )
+        results.append(DeterministicCheck(
+            check_id="executive_summary_items_resolve",
+            status="warning", severity="low",
+            message="; ".join(msg_parts),
+            route="annotate",
+            offending=", ".join(m["item_id"] for m in res_title_mismatch),
+            details=res_details,
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="executive_summary_items_resolve",
+            status="pass", severity="info",
+            message=(
+                f"{len(exec_items)} executive_summary entry(ies) resolve to featured items "
+                f"with matching titles (featured count: {len(featured_ids_ordered)})"
+            ),
+            route="pass",
+            details=res_details,
         ))
 
     # 5. Every source has non-empty retrieved_text_or_snapshot
@@ -713,10 +818,24 @@ def run_deterministic(
         if min_pri is not None and len(priority_items) < min_pri:
             comp_issues.append(f"only {len(priority_items)} priority item(s) (min {min_pri})")
 
-        # executive summary length
+        # executive summary length — object: len(lead_in) + sum(len(it.overview))
         min_exec = comp.get("min_executive_summary_chars")
-        exec_len = len(artifact.get("executive_summary") or "")
-        comp_measured["executive_summary"] = {"chars": exec_len, "min": min_exec}
+        exec_obj = artifact.get("executive_summary")
+        if not isinstance(exec_obj, dict):
+            exec_obj = {}
+        lead_in_chars = len(exec_obj.get("lead_in") or "")
+        overview_chars = sum(
+            len(it.get("overview") or "")
+            for it in (exec_obj.get("items") or [])
+            if isinstance(it, dict)
+        )
+        exec_len = lead_in_chars + overview_chars
+        comp_measured["executive_summary"] = {
+            "chars": exec_len,
+            "lead_in_chars": lead_in_chars,
+            "overview_chars": overview_chars,
+            "min": min_exec,
+        }
         if min_exec is not None and exec_len < min_exec:
             comp_issues.append(f"executive_summary {exec_len} chars (min {min_exec})")
 
@@ -737,11 +856,17 @@ def run_deterministic(
                     f"{len(short)} priority item(s) with overview < {min_overview} chars: {short[:3]}"
                 )
 
-        # total prose word count
+        # total prose word count — executive_summary is now an object,
+        # so accumulate its lead_in and each items[].overview as separate prose.
         min_words = comp.get("min_total_prose_words")
         prose_parts: list[str] = []
-        if artifact.get("executive_summary"):
-            prose_parts.append(artifact["executive_summary"])
+        exec_obj_prose = artifact.get("executive_summary")
+        if isinstance(exec_obj_prose, dict):
+            if exec_obj_prose.get("lead_in"):
+                prose_parts.append(exec_obj_prose["lead_in"])
+            for e in (exec_obj_prose.get("items") or []):
+                if isinstance(e, dict) and e.get("overview"):
+                    prose_parts.append(e["overview"])
         for it in items:
             d = it.get("display") or {}
             if d.get("summary"):
@@ -835,8 +960,17 @@ def _iter_polish_prose(artifact: dict):
     to the EO and PMs — audit fields (raw_context, source extracts) are NOT
     polished because they must remain verbatim.
     """
-    if artifact.get("executive_summary"):
-        yield ("$.executive_summary", artifact["executive_summary"])
+    exec_obj = artifact.get("executive_summary")
+    if isinstance(exec_obj, dict):
+        lead_in = exec_obj.get("lead_in")
+        if isinstance(lead_in, str) and lead_in:
+            yield ("$.executive_summary.lead_in", lead_in)
+        for i, e in enumerate(exec_obj.get("items") or []):
+            if not isinstance(e, dict):
+                continue
+            overview = e.get("overview")
+            if isinstance(overview, str) and overview:
+                yield (f"$.executive_summary.items[{i}].overview", overview)
     for item in artifact.get("items") or []:
         iid = item.get("id") or "<no-id>"
         display = item.get("display") or {}

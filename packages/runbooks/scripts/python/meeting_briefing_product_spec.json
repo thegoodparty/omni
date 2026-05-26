@@ -1,7 +1,7 @@
 {
   "_comment": "Single source of truth for QA rules. Edit here only — qa_validate.py reads this at runtime.",
   "product_type": "meeting_briefing",
-  "spec_version": "1.1",
+  "spec_version": "1.2",
 
   "identity_fields": ["official_name", "meeting_date", "briefing_type"],
 
@@ -43,7 +43,8 @@
   ],
 
   "prohibited_phrase_paths": [
-    "executive_summary",
+    "executive_summary.lead_in",
+    "executive_summary.items[].overview",
     "items[].display.summary"
   ],
 
@@ -64,10 +65,11 @@
     "phase2": "opus"
   },
 
+  "_completeness_comment": "min_executive_summary_chars is measured as len(executive_summary.lead_in) + sum(len(it.overview) for it in executive_summary.items). 250 covers a tight single-featured agenda (~70 lead + ~180 overview) and is well under the 3-item prototype (~620). Ceremonial agendas with items: [] still pass when the standalone lead_in is substantive; otherwise warn.",
   "completeness": {
     "min_priority_items": 1,
     "target_priority_items": 3,
-    "min_executive_summary_chars": 50,
+    "min_executive_summary_chars": 250,
     "min_overview_chars_per_priority_item": 80,
     "min_total_prose_words": 300
   },
@@ -110,6 +112,12 @@
     {
       "check_id": "citation_ids_resolve",
       "description": "Every source_id referenced by a claim must resolve to a source in the artifact's sources[]",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "executive_summary_items_resolve",
+      "description": "Every executive_summary.items[].item_id must resolve to a top-level items[] entry with tier='featured'. Each entry's title must verbatim equal items[item_id].title. Cardinality and ordering of executive_summary.items[] must match the featured items in top-level items[]. Resolution failures and tier mismatches block (broken UI linkage); title and ordering mismatches annotate.",
       "route_if_fail": "block",
       "severity": "high"
     },
