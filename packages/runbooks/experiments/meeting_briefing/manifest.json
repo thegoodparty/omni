@@ -126,7 +126,7 @@
           "executive_summary": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 400
+            "maxLength": 1200
           },
           "run_metadata": {
             "type": "object",
@@ -276,7 +276,7 @@
           "executive_summary": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 400
+            "maxLength": 1200
           },
           "run_metadata": {
             "type": "object",
