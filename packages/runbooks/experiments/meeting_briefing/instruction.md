@@ -303,8 +303,13 @@ If **zero** substantive items exist — for example, the agenda packet is a titl
 **On failure of either gate** — do not proceed with tier classification or the per-item pipeline. Instead:
 
 1. Set `briefing_status: "awaiting_agenda"`.
-2. Populate `executive_summary` with a brief check-back message, e.g.:
-   _"The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it."_
+2. Populate `executive_summary` with the brief check-back message in `lead_in` and an empty `items: []` array:
+   ```json
+   {
+     "lead_in": "The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it.",
+     "items": []
+   }
+   ```
 3. Record the decision in `run_metadata.run_decisions[]`. Use reason `"packet_not_published"` for Gate A failures and `"agenda_no_substantive_items"` for Gate B failures.
 4. Emit an `items[]` array with **a single placeholder entry** shaped exactly:
    - `id: "item_001"`
@@ -956,13 +961,28 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `location`: the customary location for the meeting (e.g. `"City Hall Council Chambers, 200 Main St"`). Capture from the platform's meeting detail page, the city's published meeting schedule, or the agenda packet header — whichever you consulted in Step 2. If only a building is given without a room, use the building plus street address. **If no source consulted for this run mentions a venue at all** (a realistic case for `agenda_provided_by_user` when the user-supplied PDF has no header), emit an empty string and record the decision in `run_metadata.run_decisions[]`. Do not fabricate a location from general knowledge. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_date`: `YYYY-MM-DD`. For `agenda_provided_by_user` or `awaiting_agenda` runs, this is the target meeting date; for `no_meeting_found` it may be an estimated next date.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
-- `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each bullet reflects what the deep dive actually says. A single lead-in framing sentence followed by a bulleted list — one bullet per **featured** item (not queued, not standard). Bullet format: `- <Item title> — <one-sentence overview of the vote/action and key details>`. Each bullet's overview is a one-sentence distillation of that item's `display.summary` (the Step 9 Overview) — same facts, tighter framing, so the lead-of-briefing matches the deep dive. Default lead-in form when bullets follow: _"The following items on your agenda require action and/or have a vote:"_ (note the trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, omit the bullets and emit a single sentence ending in a period (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Total length capped at 1200 characters (the schema enforces this); keep bullets tight when there are 4+ featured items. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
-  ```
-  The following items on your agenda require action and/or have a vote:
-
-  - Short-term rental ordinance — First full vote on a citywide ordinance requiring short-term rental operators to register, carry liability insurance, and cap whole-home rentals at 90 nights per year.
-  - Lincoln Park renovation bond — Authorization vote on a $6.8M general obligation bond to fund the Lincoln Park renovation: new playground, accessible paths, restrooms, and stormwater retention.
-  - Senior transit subsidy pilot — Vote to authorize a 12-month pilot program subsidizing on-demand transit rides for residents 65+ within city limits.
+- `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each entry reflects what the deep dive actually says. A structured object with `lead_in` (a single framing sentence) and `items` (an array, one entry per **featured** item — not queued, not standard, in the same order they appear in top-level `items[]`). Each `executive_summary.items[]` entry carries: `item_id` (must match an entry in top-level `items[]` with `tier: "featured"` — the UI uses this to link the entry to its deep-dive panel), `title` (must **verbatim equal** `items[item_id].title`; do not paraphrase or shorten), and `overview` (a one-sentence distillation of `items[item_id].display.summary` — same facts, tighter framing, so the lead-of-briefing matches the deep dive). Default `lead_in` when items follow: _"The following items on your agenda require action and/or have a vote:"_ (with trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, set `items: []` and use a standalone `lead_in` covering the case (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Per-field caps enforced by the schema: `lead_in` 300 chars, `title` 100 chars (must match `items[].title`), `overview` 300 chars; max 5 entries. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
+  ```json
+  {
+    "lead_in": "The following items on your agenda require action and/or have a vote:",
+    "items": [
+      {
+        "item_id": "item_007",
+        "title": "Short-term rental ordinance",
+        "overview": "First full vote on a citywide ordinance requiring short-term rental operators to register, carry liability insurance, and cap whole-home rentals at 90 nights per year."
+      },
+      {
+        "item_id": "item_012",
+        "title": "Lincoln Park renovation bond",
+        "overview": "Authorization vote on a $6.8M general obligation bond to fund the Lincoln Park renovation: new playground, accessible paths, restrooms, and stormwater retention."
+      },
+      {
+        "item_id": "item_015",
+        "title": "Senior transit subsidy pilot",
+        "overview": "Vote to authorize a 12-month pilot program subsidizing on-demand transit rides for residents 65+ within city limits."
+      }
+    ]
+  }
   ```
 - `run_metadata`:
   ```json

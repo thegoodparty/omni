@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 3,
+  "version": 4,
   "model": "opus",
   "max_turns": 100,
   "timeout_seconds": 3000,
@@ -124,9 +124,7 @@
             "minimum": 0
           },
           "executive_summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1200
+            "$ref": "#/definitions/executive_summary"
           },
           "run_metadata": {
             "type": "object",
@@ -274,9 +272,7 @@
             "minimum": 0
           },
           "executive_summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1200
+            "$ref": "#/definitions/executive_summary"
           },
           "run_metadata": {
             "type": "object",
@@ -353,6 +349,48 @@
       }
     ],
     "definitions": {
+      "executive_summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lead_in", "items"],
+        "properties": {
+          "lead_in": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Single framing sentence at the top of the briefing. For briefing_ready artifacts: defaults to 'The following items on your agenda require action and/or have a vote:' (with trailing colon when items follow). For awaiting_agenda / no_meeting_found / error: a check-back or no-meeting message; items[] is empty."
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "One entry per featured item in top-level items[], in the same order. Empty when no items qualify as featured (and for placeholder briefing_status values).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["item_id", "title", "overview"],
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "pattern": "^item_[0-9]{3}$",
+                  "description": "Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel."
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "description": "Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience)."
+                },
+                "overview": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "description": "One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing."
+                }
+              }
+            }
+          }
+        }
+      },
       "item": {
         "type": "object",
         "additionalProperties": false,
