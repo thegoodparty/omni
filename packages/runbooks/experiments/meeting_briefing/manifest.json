@@ -65,6 +65,8 @@
           "meeting_name",
           "location",
           "meeting_date",
+          "meeting_time",
+          "meeting_timezone",
           "estimated_read_minutes",
           "executive_summary",
           "run_metadata",
@@ -118,6 +120,16 @@
             "type": "string",
             "format": "date",
             "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
+          },
+          "meeting_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Briefings own this independently of meeting_schedule so the row is self-sufficient."
+          },
+          "meeting_timezone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "IANA timezone name for meeting_time (e.g. 'America/Chicago'). Use the timezone the governing body publishes the meeting in, not UTC."
           },
           "estimated_read_minutes": {
             "type": "integer",
@@ -216,6 +228,8 @@
           "meeting_name",
           "location",
           "meeting_date",
+          "meeting_time",
+          "meeting_timezone",
           "estimated_read_minutes",
           "executive_summary",
           "run_metadata",
@@ -268,6 +282,16 @@
             "type": "string",
             "format": "date",
             "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
+          },
+          "meeting_time": {
+            "type": "string",
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9])?$",
+            "description": "Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error."
+          },
+          "meeting_timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "IANA timezone name for meeting_time (e.g. 'America/Chicago'). Required-but-may-be-empty: populate when the meeting is identified, emit an empty string when no_meeting_found or error."
           },
           "estimated_read_minutes": {
             "type": "integer",
