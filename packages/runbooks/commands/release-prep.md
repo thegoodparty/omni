@@ -157,17 +157,26 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
 
     ```bash
+    cd "$RELEASE_REPOS_DIR/<repo>"
     gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
       --jq '.[0] | {number, title, author: .user.login, body}'
     ```
 
-    Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote.
+    Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
 
-    If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title and `git log -1 --pretty=format:'%an' <hash>` for the author. Mark it in the final report so the user knows there's a commit without a PR backing it.
+    If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title. For the author, do **not** use `git log --pretty='%an'`: that returns the git-configured name (`Bryan McDonell`), but `$RELEASE_AUTHOR_MAP` is keyed on GitHub logins (`bryan-mcdonell`), so the lookup would always miss and the unmapped-authors report would surface a git name the user can't add to the map. Fetch the GitHub login instead:
+
+    ```bash
+    cd "$RELEASE_REPOS_DIR/<repo>"
+    gh api repos/{owner}/{repo}/commits/<commit_hash> --jq '.author.login'
+    ```
+
+    If `.author.login` is `null` (the commit's git email isn't linked to any GitHub account), fall back to `git log -1 --pretty=format:'%ae' <commit_hash>` (the email) as a last resort. Mark either case in the final report so the user knows there's a commit without a clean GitHub-login attribution.
 
 12. **Fetch each PR's metadata** for the matched-by-regex cases (the hash-search cases above already returned metadata in the search response, so skip them here). Do this **inside the per-repo loop from step 11** — `gh pr view` resolves owner/repo from the cwd, so the cwd must still be in the relevant repo. If you process across repos in a flat list later, pass `--repo <owner>/<repo>` explicitly:
 
     ```bash
+    cd "$RELEASE_REPOS_DIR/<repo>"
     gh pr view <pr_number> --json number,title,author,body
     ```
 

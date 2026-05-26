@@ -63,11 +63,12 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
 
    ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
      --jq '.[0] | {number, title, body}'
    ```
 
-   Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote.
+   Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
 
    If the endpoint returns an empty array (no PR ever opened for this commit), keep it as a "no-PR" entry — use `%s` (subject) as a fallback "title", with no ENG-XXXX extraction possible unless the subject itself contains one. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
 
@@ -184,4 +185,4 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 | A merge succeeds but the deploy seems stuck | The 5-minute wait is a heuristic, not a verification. Check Vercel / CI / wherever this repo deploys; if the deploy fails, the release notes are still accurate (the merge is what releases), just hold the message until ops confirms. |
 | User Ctrl-C during the wait | Ask whether to skip the wait and post the message now, or abort entirely. Don't silently continue. |
 | Step-6 merge fails on one repo after others succeeded | Don't roll back. Report clearly which succeeded; the printed message will include everything in step 4's snapshot, so if the failed repo's PR ultimately doesn't get merged this release, you'll need to either retry the merge or edit the message before pasting. |
-| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 5's no-PR fallback should have caught this — the entry appears as an untagged fallback bullet in the message and is surfaced in the final report. |
+| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 4's no-PR fallback should have caught this — the entry appears as an untagged fallback bullet in the message and is surfaced in the final report. |
