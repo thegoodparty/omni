@@ -139,13 +139,16 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
     ```
 
-    For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash:
+    For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
 
     ```bash
-    gh pr list --search '<commit_hash>' --state merged --json number,title,author,body --limit 1
+    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
+      --jq '.[0] | {number, title, author: .user.login, body}'
     ```
 
-    If the search returns no PR (e.g., a direct push to develop), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title and `git log -1 --pretty=format:'%an' <hash>` for the author. Mark it in the final report so the user knows there's a commit without a PR backing it.
+    Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote.
+
+    If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title and `git log -1 --pretty=format:'%an' <hash>` for the author. Mark it in the final report so the user knows there's a commit without a PR backing it.
 
 12. **Fetch each PR's metadata** for the matched-by-regex cases (the hash-search cases above already returned metadata in the search response, so skip them here). Do this **inside the per-repo loop from step 11** — `gh pr view` resolves owner/repo from the cwd, so the cwd must still be in the relevant repo. If you process across repos in a flat list later, pass `--repo <owner>/<repo>` explicitly:
 
@@ -205,7 +208,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     - Repos skipped (empty diff between qa and develop)
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any ENG-XXXX tags that failed to resolve in ClickUp
-    - Any commits with no PR backing them (no `(#<n>)` suffix and no `gh pr list --search <hash>` match) — these appeared in the message with a commit-hash placeholder
+    - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
     - Suggested next step: "After the team has confirmed (:white_check_mark: reactions in `$RELEASE_DEVS_CHANNEL`), run `/release` to merge qa → master and post the release notes."
 
 ## Important Notes
@@ -227,4 +230,4 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 | Two PRs reference the same ENG ticket | Expected (e.g., gp-webapp + gp-api work on the same feature). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
 | Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
 | `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 8 for that repo only. |
-| `gh pr list --search <hash>` returns no PR for a commit | The commit was likely pushed directly to develop (no PR). Step 11's no-PR fallback should have caught this — the entry will appear in the dev-only message with no PR number, and surface in the final report. |
+| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 11's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |

@@ -70,13 +70,16 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
    ```
 
-   For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash:
+   For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
 
    ```bash
-   gh pr list --search '<commit_hash>' --state merged --json number,title,body --limit 1
+   gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
+     --jq '.[0] | {number, title, body}'
    ```
 
-   If the search returns no PR (direct push), keep the commit as a "no-PR" entry — use `%s` (subject) as a fallback "title", with no ENG-XXXX extraction possible unless the subject itself contains one. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
+   Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote.
+
+   If the endpoint returns an empty array (no PR ever opened for this commit), keep it as a "no-PR" entry — use `%s` (subject) as a fallback "title", with no ENG-XXXX extraction possible unless the subject itself contains one. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
 
 ### Phase 4: Merge qa → master per repo
 
@@ -153,7 +156,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     - Repos skipped (no open `qa → master` PR found)
     - Any ENG-XXXX tags whose ClickUp lookup failed
     - Any PRs that had no ENG-XXXX tag (listed as fallback items in the message)
-    - Any commits with no PR backing them (no `(#<n>)` suffix and no `gh pr list --search <hash>` match) — these appeared as untagged fallback bullets
+    - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared as untagged fallback bullets
     - If any per-repo merge in step 6 failed: a clear note of which succeeded vs. failed and a suggested manual recovery (e.g., "merge `<repo>` PR #<n> from the GitHub UI, then re-run `/release` with `--repos=<repo>` to post a message for just that one — or paste the printed message as-is, since the snapshot was taken before merges started").
 
 ## Important Notes
@@ -174,4 +177,4 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 | A merge succeeds but the deploy seems stuck | The 5-minute wait is a heuristic, not a verification. Check Vercel / CI / wherever this repo deploys; if the deploy fails, the release notes are still accurate (the merge is what releases), just hold the message until ops confirms. |
 | User Ctrl-C during the wait | Ask whether to skip the wait and post the message now, or abort entirely. Don't silently continue. |
 | Step-6 merge fails on one repo after others succeeded | Don't roll back. Report clearly which succeeded; the printed message will include everything in step 5's snapshot, so if the failed repo's PR ultimately doesn't get merged this release, you'll need to either retry the merge or edit the message before pasting. |
-| `gh pr list --search <hash>` returns no PR for a commit | The commit was likely pushed directly to develop (no PR). Step 5's no-PR fallback should have caught this — the entry appears as an untagged fallback bullet in the message and is surfaced in the final report. |
+| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 5's no-PR fallback should have caught this — the entry appears as an untagged fallback bullet in the message and is surfaced in the final report. |
