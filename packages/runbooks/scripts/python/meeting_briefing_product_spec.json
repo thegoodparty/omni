@@ -52,11 +52,18 @@
     "fuzzy_threshold": 90
   },
 
-  "_coherence_check_comment": "Per-item coherence between display.summary and the item's combined source_extracts. Verdict: warn when BOTH TF-IDF cosine AND containment fall below their thresholds. Independent signals must agree before flagging. ROUGE-L is recorded per item in qa_bundle.details for diagnostic value but does NOT drive the verdict (brittle n-gram metric that penalizes faithful paraphrasing). Thresholds calibrated against Round-4 Kemah artifact 2026-05-18 — variants A–D pass, variants E–I fail.",
+  "_coherence_check_comment": "Per-item coherence between display.summary and the item's combined source_extracts. Verdict: warn when BOTH TF-IDF cosine AND containment fall below their thresholds AND a semantic embedding cosine (when available) does not rescue the item above embedding_check.rescue_threshold. The lexical AND guards against single-metric false positives; the embedding rescue guards against the residual paraphrase false-positive that lexical metrics can't distinguish from drift. ROUGE-L is recorded per item in qa_bundle.details for diagnostic value but does NOT drive the verdict (brittle n-gram metric that penalizes faithful paraphrasing). Thresholds calibrated against Round-4 Kemah artifact 2026-05-18 — variants A–D pass, variants E–I fail.",
   "coherence_check": {
     "enabled": true,
     "tfidf_threshold": 0.30,
     "containment_threshold": 0.50
+  },
+
+  "_embedding_check_comment": "Semantic rescue signal for summary_source_coherence. When both lexical signals (TF-IDF and containment) fall below their thresholds, qa_validate.py computes a sentence-embedding cosine via the named local model and downgrades the warn to pass when embedding_cosine >= rescue_threshold. Catches faithful paraphrases where the summary uses different vocabulary than the source extracts to express the same meaning. Set enabled:false to revert to lexical-only behavior. all-MiniLM-L6-v2 default is ~22MB, runs on CPU, deterministic per model version. Rescue threshold 0.70 is a defensible starting point — paraphrases of the same fact typically cluster in [0.70, 0.95], topical-but-different sentences in [0.40, 0.65]; recalibrate against the Kemah variant suite if model is changed.",
+  "embedding_check": {
+    "enabled": true,
+    "model": "all-MiniLM-L6-v2",
+    "rescue_threshold": 0.70
   },
 
   "_judges_comment": "Phase 1 and Phase 2 judges by name. Names resolve via the QA_JUDGES env var (format: name:provider:model,...). Same-family Anthropic (Sonnet Phase 1 + Opus Phase 2 with adversarial system prompt) is the in-Fargate production path — broker proxies Anthropic only, no cross-family egress. Cross-family (Anthropic + Google/OpenAI) is preferred for independent second-opinion when both providers are reachable; deferred until/if a broker route for Google or other providers exists.",

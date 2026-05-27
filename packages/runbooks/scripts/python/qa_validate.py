@@ -267,6 +267,42 @@ def _containment(summary: str, source: str) -> float:
     return len(s & e) / len(s)
 
 
+# Module-level cache: model_name → loaded SentenceTransformer (or None if load failed).
+# Lazy-loaded on first call so the import cost is paid only when the coherence
+# check actually runs an embedding pass.
+_EMBEDDING_MODEL_CACHE: dict = {}
+
+
+def _embedding_cosine(a_text: str, b_text: str, model_name: str) -> float | None:
+    """Semantic cosine similarity between two strings via a local sentence-transformer.
+
+    Returns None when the dependency is missing or the model fails to load — the
+    caller treats None as "skip embedding signal", same convention as ROUGE-L.
+    Returns 0.0 when either input is empty.
+
+    Embedding cosine catches paraphrases that TF-IDF + containment miss (different
+    vocabulary expressing the same meaning), but is brittle against small factual
+    swaps ("$1.8M" vs "$2M" can score ~0.99). Used as a rescue signal for the
+    lexical verdict, not as a primary failure detector.
+    """
+    if not a_text.strip() or not b_text.strip():
+        return 0.0
+    if model_name not in _EMBEDDING_MODEL_CACHE:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _EMBEDDING_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+        except Exception:
+            _EMBEDDING_MODEL_CACHE[model_name] = None
+    model = _EMBEDDING_MODEL_CACHE[model_name]
+    if model is None:
+        return None
+    try:
+        vecs = model.encode([a_text, b_text], normalize_embeddings=True, show_progress_bar=False)
+        return float(vecs[0] @ vecs[1])
+    except Exception:
+        return None
+
+
 # ── Deterministic checks ──────────────────────────────────────────────────────
 
 def run_deterministic(
@@ -701,11 +737,13 @@ def run_deterministic(
 
     # 8. summary_source_coherence — TF-IDF cosine + containment between
     #    display.summary and the item's combined source_extracts.
-    #    Warns only when BOTH signals are below their thresholds (AND), so the
-    #    two independent dimensions must agree before we flag drift. ROUGE-L
-    #    is recorded per-item for diagnostic value (does the summary copy or
-    #    paraphrase?) but does NOT drive the verdict — it is a brittle n-gram
-    #    metric that penalizes faithful paraphrasing.
+    #    Warns when BOTH lexical signals are below threshold AND a semantic
+    #    embedding cosine (if available) does not rescue the item. The AND
+    #    on lexical signals guards against single-metric false positives;
+    #    the embedding rescue guards against the residual paraphrase
+    #    false-positive that lexical metrics can't distinguish from drift.
+    #    ROUGE-L is recorded per-item for diagnostic value (does the summary
+    #    copy or paraphrase?) but does NOT drive the verdict.
     coh_cfg = spec.get("coherence_check") or {}
     if coh_cfg.get("enabled", False):
         tfidf_threshold = float(coh_cfg.get("tfidf_threshold", 0.30))
@@ -716,6 +754,11 @@ def run_deterministic(
             rouge_l_scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
         except ImportError:
             rouge_l_scorer = None
+
+        emb_cfg = spec.get("embedding_check") or {}
+        emb_enabled = bool(emb_cfg.get("enabled", False))
+        emb_model_name = str(emb_cfg.get("model", "all-MiniLM-L6-v2"))
+        emb_rescue_threshold = float(emb_cfg.get("rescue_threshold", 0.70))
 
         coherence_scope = [
             it for it in items
@@ -729,6 +772,8 @@ def run_deterministic(
 
         low_coherence: list[str] = []
         scored = 0
+        rescued_count = 0
+        emb_available_observed = False
         per_item_scores: list[dict] = []
         for it in coherence_scope:
             iid = it.get("id")
@@ -747,14 +792,32 @@ def run_deterministic(
                 rouge_l_scorer.score(combined, summary)["rougeL"].fmeasure
                 if rouge_l_scorer is not None else None
             )
-            below = tfidf < tfidf_threshold and contain < contain_threshold
+            emb_cos = (
+                _embedding_cosine(summary, combined, emb_model_name)
+                if emb_enabled else None
+            )
+            if emb_cos is not None:
+                emb_available_observed = True
+
+            below_lexical = tfidf < tfidf_threshold and contain < contain_threshold
+            rescued = (
+                below_lexical
+                and emb_cos is not None
+                and emb_cos >= emb_rescue_threshold
+            )
+            below = below_lexical and not rescued
             scored += 1
+            if rescued:
+                rescued_count += 1
             per_item_scores.append({
                 "item_id": iid,
                 "tier": it.get("tier"),
                 "tfidf_cosine": round(tfidf, 3),
                 "containment": round(contain, 3),
                 "rouge_l": round(rouge_l, 3) if rouge_l is not None else None,
+                "embedding_cosine": round(emb_cos, 3) if emb_cos is not None else None,
+                "below_lexical": below_lexical,
+                "rescued_by_embedding": rescued,
                 "below_threshold": below,
                 "summary_chars": len(summary),
                 "summary_preview": summary[:200] + ("…" if len(summary) > 200 else ""),
@@ -765,36 +828,62 @@ def run_deterministic(
             if below:
                 low_coherence.append(
                     f"{iid}: tfidf={round(tfidf, 3)}, contain={round(contain, 3)}"
+                    + (f", emb={round(emb_cos, 3)}" if emb_cos is not None else "")
                 )
+
+        if not emb_enabled:
+            emb_role = "disabled"
+        elif emb_available_observed:
+            emb_role = "rescue_signal"
+        else:
+            emb_role = "unavailable"
 
         coherence_details = {
             "tfidf_threshold": tfidf_threshold,
             "containment_threshold": contain_threshold,
-            "verdict_logic": "AND (warn when both below)",
+            "verdict_logic": (
+                "(tfidf < t1 AND contain < t2) AND NOT (embedding >= rescue)"
+                if emb_role == "rescue_signal"
+                else "AND (warn when both below)"
+            ),
+            "embedding_role": emb_role,
+            "embedding_model": emb_model_name if emb_enabled else None,
+            "embedding_rescue_threshold": emb_rescue_threshold if emb_enabled else None,
             "rouge_l_role": "info_only" if rouge_l_scorer is not None else "unavailable",
             "scored_items": scored,
+            "rescued_by_embedding_count": rescued_count,
             "below_threshold_count": len(low_coherence),
             "per_item": per_item_scores,
         }
         if low_coherence:
+            rescue_note = (
+                f" ({rescued_count} rescued by embedding ≥ {emb_rescue_threshold})"
+                if rescued_count else ""
+            )
             results.append(DeterministicCheck(
                 check_id="summary_source_coherence",
                 status="warning", severity="low",
                 message=(
                     f"{len(low_coherence)} of {scored} item(s) below both "
                     f"tfidf {tfidf_threshold} AND containment {contain_threshold}"
+                    f"{rescue_note}"
                 ),
                 route="annotate",
                 offending="; ".join(low_coherence[:5]),
                 details=coherence_details,
             ))
         else:
+            rescue_note = (
+                f" ({rescued_count} rescued by embedding)"
+                if rescued_count else ""
+            )
             results.append(DeterministicCheck(
                 check_id="summary_source_coherence",
                 status="pass", severity="info",
                 message=(
                     f"All {scored} scored item(s) clear coherence floor "
-                    f"(tfidf ≥ {tfidf_threshold} OR containment ≥ {contain_threshold})"
+                    f"(tfidf ≥ {tfidf_threshold} OR containment ≥ {contain_threshold}"
+                    f"{rescue_note})"
                 ),
                 route="pass",
                 details=coherence_details,
