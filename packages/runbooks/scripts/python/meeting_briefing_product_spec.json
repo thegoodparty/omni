@@ -44,7 +44,7 @@
 
   "prohibited_phrase_paths": [
     "executive_summary.lead_in",
-    "executive_summary.items[].overview",
+    "items[].display.executive_summary_overview",
     "items[].display.summary"
   ],
 
@@ -119,12 +119,6 @@
     {
       "check_id": "citation_ids_resolve",
       "description": "Every source_id referenced by a claim must resolve to a source in the artifact's sources[]",
-      "route_if_fail": "block",
-      "severity": "high"
-    },
-    {
-      "check_id": "executive_summary_items_resolve",
-      "description": "Every executive_summary.items[].item_id must resolve to a top-level items[] entry with tier='featured'. Each entry's title must verbatim equal items[item_id].title. Cardinality and ordering of executive_summary.items[] must match the featured items in top-level items[]. Resolution failures and tier mismatches block (broken UI linkage); title and ordering mismatches annotate.",
       "route_if_fail": "block",
       "severity": "high"
     },

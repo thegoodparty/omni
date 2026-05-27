@@ -457,104 +457,6 @@ def run_deterministic(
             route="pass",
         ))
 
-    # 4b. executive_summary.items[].item_id must resolve to a top-level items[] entry
-    #     with tier='featured'. Each entry's title must verbatim equal items[item_id].title.
-    #     Cardinality + ordering of exec_summary.items must match the featured items in
-    #     top-level items[]. Resolution/tier failures block (broken UI deep-dive linkage);
-    #     title and ordering mismatches annotate.
-    exec_obj_resolve = artifact.get("executive_summary")
-    if not isinstance(exec_obj_resolve, dict):
-        exec_obj_resolve = {}
-    exec_items = exec_obj_resolve.get("items") or []
-    item_map = {it.get("id"): it for it in items if isinstance(it, dict) and it.get("id")}
-    featured_ids_ordered = [
-        it.get("id") for it in items
-        if isinstance(it, dict) and it.get("tier") == "featured" and it.get("id")
-    ]
-
-    res_unknown: list[str] = []
-    res_not_featured: list[str] = []
-    res_title_mismatch: list[dict] = []
-    for i, e in enumerate(exec_items):
-        if not isinstance(e, dict):
-            continue
-        iid = e.get("item_id")
-        if not iid or iid not in item_map:
-            res_unknown.append(f"index_{i}→{iid!r}")
-            continue
-        target = item_map[iid]
-        if target.get("tier") != "featured":
-            res_not_featured.append(f"{iid}(tier={target.get('tier')!r})")
-            continue
-        expected_title = target.get("title") or ""
-        actual_title = e.get("title") or ""
-        if actual_title != expected_title:
-            res_title_mismatch.append({
-                "item_id": iid,
-                "expected": expected_title[:80],
-                "actual": actual_title[:80],
-            })
-
-    exec_items_ids_ordered = [
-        e.get("item_id") for e in exec_items if isinstance(e, dict)
-    ]
-    ordering_mismatch = exec_items_ids_ordered != featured_ids_ordered
-
-    res_details = {
-        "exec_summary_item_count": len(exec_items),
-        "featured_item_count": len(featured_ids_ordered),
-        "unknown_item_ids": res_unknown,
-        "not_featured_item_ids": res_not_featured,
-        "title_mismatches": res_title_mismatch,
-        "ordering_mismatch": ordering_mismatch,
-        "exec_items_ids_ordered": exec_items_ids_ordered,
-        "featured_ids_ordered": featured_ids_ordered,
-    }
-    block_level = bool(res_unknown or res_not_featured)
-    if block_level:
-        msg_parts: list[str] = []
-        if res_unknown:
-            msg_parts.append(f"{len(res_unknown)} unresolved item_id(s)")
-        if res_not_featured:
-            msg_parts.append(f"{len(res_not_featured)} item_id(s) not tier=featured")
-        results.append(DeterministicCheck(
-            check_id="executive_summary_items_resolve",
-            status="fail", severity="high",
-            message="; ".join(msg_parts) + " (breaks UI deep-dive linkage)",
-            route="block",
-            offending="; ".join(res_unknown + res_not_featured),
-            details=res_details,
-        ))
-    elif res_title_mismatch or ordering_mismatch:
-        msg_parts = []
-        if res_title_mismatch:
-            msg_parts.append(
-                f"{len(res_title_mismatch)} title mismatch(es) vs items[item_id].title"
-            )
-        if ordering_mismatch:
-            msg_parts.append(
-                "exec_summary.items[] order/cardinality differs from featured items[] order"
-            )
-        results.append(DeterministicCheck(
-            check_id="executive_summary_items_resolve",
-            status="warning", severity="low",
-            message="; ".join(msg_parts),
-            route="annotate",
-            offending=", ".join(m["item_id"] for m in res_title_mismatch),
-            details=res_details,
-        ))
-    else:
-        results.append(DeterministicCheck(
-            check_id="executive_summary_items_resolve",
-            status="pass", severity="info",
-            message=(
-                f"{len(exec_items)} executive_summary entry(ies) resolve to featured items "
-                f"with matching titles (featured count: {len(featured_ids_ordered)})"
-            ),
-            route="pass",
-            details=res_details,
-        ))
-
     # 5. Every source has non-empty retrieved_text_or_snapshot
     empty_snapshots = [
         s.get("id") or "<no-id>"
@@ -907,16 +809,19 @@ def run_deterministic(
         if min_pri is not None and len(priority_items) < min_pri:
             comp_issues.append(f"only {len(priority_items)} priority item(s) (min {min_pri})")
 
-        # executive summary length — object: len(lead_in) + sum(len(it.overview))
+        # executive summary length — len(lead_in) plus sum of featured items'
+        # display.executive_summary_overview. The renderer composes the top-of-
+        # briefing section by walking these per-item fields in agenda order, so
+        # the total user-visible length is the sum of lead_in and overviews.
         min_exec = comp.get("min_executive_summary_chars")
         exec_obj = artifact.get("executive_summary")
         if not isinstance(exec_obj, dict):
             exec_obj = {}
         lead_in_chars = len(exec_obj.get("lead_in") or "")
         overview_chars = sum(
-            len(it.get("overview") or "")
-            for it in (exec_obj.get("items") or [])
-            if isinstance(it, dict)
+            len(((it.get("display") or {}).get("executive_summary_overview") or ""))
+            for it in items
+            if isinstance(it, dict) and it.get("tier") == "featured"
         )
         exec_len = lead_in_chars + overview_chars
         comp_measured["executive_summary"] = {
@@ -1054,17 +959,14 @@ def _iter_polish_prose(artifact: dict):
         lead_in = exec_obj.get("lead_in")
         if isinstance(lead_in, str) and lead_in:
             yield ("$.executive_summary.lead_in", lead_in)
-        for i, e in enumerate(exec_obj.get("items") or []):
-            if not isinstance(e, dict):
-                continue
-            overview = e.get("overview")
-            if isinstance(overview, str) and overview:
-                yield (f"$.executive_summary.items[{i}].overview", overview)
     for item in artifact.get("items") or []:
         iid = item.get("id") or "<no-id>"
         display = item.get("display") or {}
         if isinstance(display.get("summary"), str) and display["summary"]:
             yield (f"$.items[{iid}].display.summary", display["summary"])
+        eso = display.get("executive_summary_overview")
+        if isinstance(eso, str) and eso:
+            yield (f"$.items[{iid}].display.executive_summary_overview", eso)
         bi = display.get("budget_impact")
         if bi and isinstance(bi.get("summary"), str) and bi["summary"]:
             yield (f"$.items[{iid}].display.budget_impact.summary", bi["summary"])

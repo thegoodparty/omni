@@ -1,14 +1,19 @@
-"""Tests for qa_validate.py deterministic checks against the structured
-executive_summary shape (manifest v4+).
+"""Tests for qa_validate.py deterministic checks against the flattened
+executive_summary shape (manifest v5+).
 
-Locks the behavior added when executive_summary went from a string to a
-{lead_in, items[]: {item_id, title, overview}} object:
+Locks the behavior after executive_summary collapsed from a structured
+object with items[] to a single-field {lead_in} object. The per-featured-
+item overview now lives on each items[].display.executive_summary_overview;
+the renderer composes the top-of-briefing section at render time by walking
+items[].filter(tier=='featured') in agenda order.
 
-- _values_at_path supports dotted prefixes for arrays (exec.items[].x).
-- completeness_floor measures exec_summary as lead_in + sum(overviews).
-- _iter_polish_prose yields exec_summary string fields separately.
-- executive_summary_items_resolve covers pass / unknown id /
-  not-featured / title mismatch / ordering mismatch / empty cases.
+Coverage:
+- _values_at_path resolves dotted prefixes for arrays and per-item display
+  fields.
+- completeness_floor measures exec_summary as lead_in + sum of featured
+  items' executive_summary_overview.
+- _iter_polish_prose yields lead_in plus each featured item's
+  executive_summary_overview as a separate path.
 """
 from __future__ import annotations
 
@@ -27,7 +32,7 @@ def spec() -> dict:
     return json.loads(SPEC_PATH.read_text())
 
 
-def _featured_item(idx: int, title: str) -> dict:
+def _featured_item(idx: int, title: str, *, overview: str = "Some featured overview.") -> dict:
     return {
         "id": f"item_{idx:03d}",
         "item_number": str(idx),
@@ -35,18 +40,21 @@ def _featured_item(idx: int, title: str) -> dict:
         "tier": "featured",
         "vote_required": True,
         "tier_reason": ["vote_required"],
-        "display": {"summary": "Some featured summary."},
+        "display": {
+            "summary": "Some featured summary.",
+            "executive_summary_overview": overview,
+        },
         "research": {"raw_context": [], "full_treatment": None},
     }
 
 
-def _base_artifact(*, exec_items=None, featured_titles=None) -> dict:
+def _base_artifact(*, featured_titles=None, featured_overviews=None, lead_in="The following items require action:") -> dict:
     featured_titles = featured_titles or []
-    items = [_featured_item(i, t) for i, t in enumerate(featured_titles, start=1)]
-    exec_summary = {
-        "lead_in": "The following items require action:",
-        "items": exec_items if exec_items is not None else [],
-    }
+    featured_overviews = featured_overviews or ["Some featured overview." for _ in featured_titles]
+    items = [
+        _featured_item(i, t, overview=o)
+        for i, (t, o) in enumerate(zip(featured_titles, featured_overviews), start=1)
+    ]
     return {
         "experiment_id": "meeting_briefing",
         "briefing_type": "city_council_meeting",
@@ -57,7 +65,7 @@ def _base_artifact(*, exec_items=None, featured_titles=None) -> dict:
         "location": "City Hall",
         "meeting_date": "2026-06-01",
         "estimated_read_minutes": 5,
-        "executive_summary": exec_summary,
+        "executive_summary": {"lead_in": lead_in},
         "run_metadata": {
             "agenda_packet_url": None,
             "source_bundle_retrieved_at": "2026-05-26T00:00:00Z",
@@ -80,26 +88,26 @@ def _find(results, check_id: str):
 # ── _values_at_path ──────────────────────────────────────────────────────────
 
 
-def test_values_at_path_nested_array_resolves():
+def test_values_at_path_resolves_per_item_display_field():
     artifact = {
-        "executive_summary": {
-            "lead_in": "Lead text.",
-            "items": [
-                {"overview": "First overview."},
-                {"overview": "Second overview."},
-            ],
-        }
+        "items": [
+            {"id": "item_001", "display": {"executive_summary_overview": "First."}},
+            {"id": "item_002", "display": {"executive_summary_overview": "Second."}},
+        ]
     }
-    assert qa_validate._values_at_path(artifact, "executive_summary.lead_in") == ["Lead text."]
     assert qa_validate._values_at_path(
-        artifact, "executive_summary.items[].overview"
-    ) == ["First overview.", "Second overview."]
+        artifact, "items[].display.executive_summary_overview"
+    ) == ["First.", "Second."]
+
+
+def test_values_at_path_resolves_lead_in():
+    artifact = {"executive_summary": {"lead_in": "Lead text."}}
+    assert qa_validate._values_at_path(artifact, "executive_summary.lead_in") == ["Lead text."]
 
 
 def test_values_at_path_returns_empty_for_wrong_shape():
     legacy = {"executive_summary": "legacy string form"}
     assert qa_validate._values_at_path(legacy, "executive_summary.lead_in") == []
-    assert qa_validate._values_at_path(legacy, "executive_summary.items[].overview") == []
 
 
 # ── completeness_floor exec_summary measurement ──────────────────────────────
@@ -109,9 +117,9 @@ def test_completeness_floor_sums_lead_in_and_overviews(spec):
     spec["completeness"]["min_executive_summary_chars"] = 50
     artifact = _base_artifact(
         featured_titles=["A"],
-        exec_items=[{"item_id": "item_001", "title": "A", "overview": "X" * 100}],
+        featured_overviews=["X" * 100],
+        lead_in="Y" * 30,
     )
-    artifact["executive_summary"]["lead_in"] = "Y" * 30
     results = qa_validate.run_deterministic(artifact, spec)
     comp = _find(results, "completeness_floor")
     assert comp is not None
@@ -125,9 +133,9 @@ def test_completeness_floor_warns_when_exec_summary_below_min(spec):
     spec["completeness"]["min_executive_summary_chars"] = 250
     artifact = _base_artifact(
         featured_titles=["Short"],
-        exec_items=[{"item_id": "item_001", "title": "Short", "overview": "tiny"}],
+        featured_overviews=["tiny"],
+        lead_in="Brief lead.",
     )
-    artifact["executive_summary"]["lead_in"] = "Brief lead."
     results = qa_validate.run_deterministic(artifact, spec)
     comp = _find(results, "completeness_floor")
     assert comp is not None
@@ -135,105 +143,47 @@ def test_completeness_floor_warns_when_exec_summary_below_min(spec):
     assert "executive_summary" in comp.message
 
 
+def test_completeness_floor_skips_non_featured_overviews(spec):
+    """Queued / standard items have null executive_summary_overview by schema;
+    they must not contribute to the lead+overview total."""
+    spec["completeness"]["min_executive_summary_chars"] = 1
+    artifact = _base_artifact(featured_titles=["A"], featured_overviews=["F" * 80])
+    # Add a queued item with a (schema-invalid) populated overview; check it's ignored
+    artifact["items"].append({
+        "id": "item_999",
+        "item_number": "99",
+        "title": "Queued thing",
+        "tier": "queued",
+        "vote_required": False,
+        "tier_reason": ["staff_recommendation"],
+        "display": {
+            "summary": "Queued summary.",
+            "executive_summary_overview": "Q" * 200,
+        },
+        "research": {"raw_context": [], "full_treatment": None},
+    })
+    results = qa_validate.run_deterministic(artifact, spec)
+    comp = _find(results, "completeness_floor")
+    assert comp.details["executive_summary"]["overview_chars"] == 80  # not 280
+
+
 # ── _iter_polish_prose ───────────────────────────────────────────────────────
 
 
-def test_iter_polish_prose_yields_exec_summary_strings():
+def test_iter_polish_prose_yields_lead_in_and_per_item_overviews():
     artifact = _base_artifact(
         featured_titles=["Foo"],
-        exec_items=[
-            {"item_id": "item_001", "title": "Foo", "overview": "An overview sentence."}
-        ],
+        featured_overviews=["A featured overview sentence."],
+        lead_in="Lead sentence.",
     )
-    artifact["executive_summary"]["lead_in"] = "Lead sentence."
     paths = dict(qa_validate._iter_polish_prose(artifact))
     assert paths.get("$.executive_summary.lead_in") == "Lead sentence."
-    assert paths.get("$.executive_summary.items[0].overview") == "An overview sentence."
+    assert paths.get("$.items[item_001].display.executive_summary_overview") == "A featured overview sentence."
 
 
-# ── executive_summary_items_resolve ──────────────────────────────────────────
-
-
-def test_exec_summary_items_resolve_pass(spec):
-    artifact = _base_artifact(
-        featured_titles=["A", "B"],
-        exec_items=[
-            {"item_id": "item_001", "title": "A", "overview": "Overview A."},
-            {"item_id": "item_002", "title": "B", "overview": "Overview B."},
-        ],
-    )
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "pass"
-    assert chk.route == "pass"
-
-
-def test_exec_summary_items_resolve_unknown_id_blocks(spec):
-    artifact = _base_artifact(
-        featured_titles=["A"],
-        exec_items=[{"item_id": "item_999", "title": "A", "overview": "Overview."}],
-    )
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "fail"
-    assert chk.route == "block"
-    assert "unresolved" in chk.message
-
-
-def test_exec_summary_items_resolve_not_featured_blocks(spec):
-    artifact = _base_artifact(
-        featured_titles=["A"],
-        exec_items=[{"item_id": "item_001", "title": "A", "overview": "Overview."}],
-    )
-    artifact["items"][0]["tier"] = "standard"  # demote
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "fail"
-    assert chk.route == "block"
-    assert "not tier=featured" in chk.message
-
-
-def test_exec_summary_items_resolve_title_mismatch_annotates(spec):
-    artifact = _base_artifact(
-        featured_titles=["Original Title"],
-        exec_items=[
-            {"item_id": "item_001", "title": "Different Title", "overview": "Overview."}
-        ],
-    )
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "warning"
-    assert chk.route == "annotate"
-    assert "title mismatch" in chk.message
-
-
-def test_exec_summary_items_resolve_ordering_mismatch_annotates(spec):
-    artifact = _base_artifact(
-        featured_titles=["A", "B"],
-        exec_items=[
-            {"item_id": "item_002", "title": "B", "overview": "Overview B."},
-            {"item_id": "item_001", "title": "A", "overview": "Overview A."},
-        ],
-    )
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "warning"
-    assert chk.route == "annotate"
-    assert "order" in chk.message
-
-
-def test_exec_summary_items_resolve_empty_no_featured_passes(spec):
-    """Placeholder-like case: no featured items, exec_summary.items: []."""
-    artifact = _base_artifact(featured_titles=[], exec_items=[])
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "pass"
-
-
-def test_exec_summary_items_resolve_empty_with_featured_annotates(spec):
-    """Featured items exist but exec_summary.items is empty — ordering mismatch."""
-    artifact = _base_artifact(featured_titles=["A"], exec_items=[])
-    chk = _find(qa_validate.run_deterministic(artifact, spec), "executive_summary_items_resolve")
-    assert chk is not None
-    assert chk.status == "warning"
-    assert chk.route == "annotate"
+def test_iter_polish_prose_skips_null_overview():
+    """Non-featured items have null executive_summary_overview — must not yield."""
+    artifact = _base_artifact(featured_titles=["A"])
+    artifact["items"][0]["display"]["executive_summary_overview"] = None
+    paths = dict(qa_validate._iter_polish_prose(artifact))
+    assert "$.items[item_001].display.executive_summary_overview" not in paths
