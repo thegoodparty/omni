@@ -122,6 +122,19 @@
           }
         }
       }
+    },
+    "runtime": {
+      "type": "object",
+      "description": "Optional runtime knobs for the agent harness. Omitted = harness defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_subagents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Opt-in for parallel research fan-out. When > 0, the harness wires a 'researcher' subagent (inheriting the parent's tools, model, permission mode, and broker MCP scope) and the parent may dispatch up to this many concurrently via the Agent tool to research independent items in parallel. 0 or omitted disables fan-out. The harness clamps to its own hard ceiling (8); higher values are reduced."
+        }
+      }
     }
   },
   "$defs": {
