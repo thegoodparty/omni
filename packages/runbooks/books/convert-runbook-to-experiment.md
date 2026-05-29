@@ -195,16 +195,24 @@ The agent only sees its tools, your `output_schema`, your instruction, and the p
 
 **Web (URL discovery + retrieval)** — include if your runbook calls the web:
 
-- **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
-- **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). The response is a **plain dict** (`{"status": int, "headers": dict, "body": str}`) — not a `requests.Response`. Calling `r.status_code` or `r.text` raises `AttributeError`. Verbatim:
-  ```python
-  from pmf_runtime import http
-  r = http.get("https://example.com/article")
-  # r = {"status": 200, "headers": {...}, "body": "<html>…</html>"}
-  print(r["body"][:2000])
-  ```
+**Web-access escalation ladder — instruct the agent to use the cheapest rung that answers the question, in this order. Do NOT jump to the browser.**
+
+1. **`WebSearch`** (free, fast) — discovery. Snippets often answer the question outright; only fetch a page when you must confirm a claim against its body. Do NOT use `WebFetch` — the quarantined network can't reach claude.ai's domain-safety check, so it always fails.
+2. **`pmf_runtime.http.head(url)`** — VERIFY a URL is live (the default for citation checks). Plain, non-browser status check, no Chromium render, ~100x cheaper than `get`, and immune to embedded-tracker SSRF. Returns `{"status": int, "final_url": str}`; drop if not 200, cite `final_url` on redirect.
+3. **`pmf_runtime.http.get(url)`** — **browser render (Chromium), LAST RESORT.** Returns `{"status", "headers", "body", "source_url"}` (plain dict — `r["status"]`/`r["body"]`, never `.status_code`/`.text`). Use ONLY when (a) `head` returned 403/405 on a real site (Cloudflare bot-block the browser's stealth defeats), or (b) you must read the page body. It is slow, so reserve it.
+
+```python
+from pmf_runtime import http
+r = http.head("https://example.com/article")   # {"status": 200, "final_url": "https://..."}
+if r["status"] in (403, 405):                   # bot-blocked? escalate to the browser
+    r = http.get("https://example.com/article") # {"status": 200, "body": "<html>…", ...}
+```
+
+- **Re-rendering every URL with `http.get` is the classic perf trap** — it makes URL-heavy experiments time out. Verify with `head`; render only when forced.
 - **Use `pmf_runtime.pdf.download(url)` for PDFs** — returns raw bytes; `pdftotext -layout file.pdf -` extracts text.
-- The broker enforces an SSRF guard and URL allowlist on `http.get` / `pdf.download`. Private IPs and internal hostnames are blocked.
+- The broker enforces an SSRF guard + URL allowlist on every rung. Private IPs and internal hostnames are blocked; on `http.get`, a blocked third-party *sub-resource* (tracker) no longer fails the host page.
+
+**Parallel fan-out (`runtime.max_parallel_subagents`)** — if your runbook has N independent research units (one per opponent / district / agenda item), set `runtime.max_parallel_subagents` in the manifest (0 = off, cap 8). The harness wires a `researcher` subagent the parent dispatches concurrently via the `Agent` tool, each inheriting the parent's tools, model, permission mode, and broker scope (no extra egress; can't recursively fan out). Structure that step as "one independent unit per item." Keep a sequential loop as the documented fallback. This was previously local-only; it now runs on Fargate.
 
 **Output (always include)**:
 
