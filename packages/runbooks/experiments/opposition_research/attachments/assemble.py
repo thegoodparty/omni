@@ -60,7 +60,7 @@ def _build_markdown(fragments, closing_note):
             + f"No opponents are currently registered for this race as of {today}. "
             + "Continue to monitor, since filing windows may still be open."
         )
-    blocks = [str(frag.get("markdown_block", "")) for frag in fragments]
+    blocks = [str(frag.get("markdown_block") or "") for frag in fragments]
     body = "\n\n".join(blocks)
     markdown = header + body
     if closing_note:
@@ -128,15 +128,23 @@ def _validate_shape(workspace, artifact):
         return []
     try:
         with open(schema_path, "r", encoding="utf-8") as fh:
-            json.load(fh)
+            schema = json.load(fh)
     except (ValueError, OSError) as exc:
         sys.stderr.write(f"warning: could not read contract_schema.json: {exc}\n")
         return []
-    required = ["markdown", "opponents", "race", "generated_at"]
-    missing = [k for k in required if k not in artifact]
-    if missing:
-        return [f"artifact missing required keys: {', '.join(missing)}"]
-    return []
+    try:
+        import jsonschema
+
+        jsonschema.validate(instance=artifact, schema=schema)
+        return []
+    except ImportError:
+        required = ["markdown", "opponents", "race", "generated_at"]
+        missing = [k for k in required if k not in artifact]
+        if missing:
+            return [f"artifact missing required keys: {', '.join(missing)}"]
+        return []
+    except jsonschema.ValidationError as exc:
+        return [f"artifact schema violation: {exc.message}"]
 
 
 def main():

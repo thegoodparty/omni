@@ -210,3 +210,19 @@ def test_skips_non_dict_fragment(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     art = _artifact(ws)
     assert art["race"]["opponent_count"] == 1
+
+
+def test_null_markdown_block_does_not_emit_literal_none(tmp_path):
+    """A fragment with markdown_block: null must contribute empty text, not the
+    literal string 'None' (str(None)). Regression for the .get(..., '') trap where
+    a present-but-null key bypasses the default."""
+    params = _base_params()
+    good = _fragment_with_facts()
+    nulled = _fragment_no_info()
+    nulled["markdown_block"] = None
+    ws = _setup_workspace(tmp_path, [good, nulled], params)
+    proc = _run(ws, params)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    md = _artifact(ws)["markdown"]
+    assert "None" not in md

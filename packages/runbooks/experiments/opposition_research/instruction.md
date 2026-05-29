@@ -85,7 +85,7 @@ Web-surfaced opponents (`source == "web"`) often have `party: null`. Leave them 
 
 ### Step 3 — Research each opponent (the fan-out unit)
 
-Per-opponent web research is the slow part, and opponents are independent. **Treat each same-ballot opponent (`crossPrimary == false`) as one independent research unit.** The harness gives you a `researcher` subagent and lets you dispatch several concurrently via the `Agent` tool — dispatch up to 6 at once, one research unit per opponent, then collect. Cross-primary candidates get no research unit and no enriched entry; they appear only in the Step 5 closing note.
+Per-opponent web research is the slow part, and opponents are independent. **Treat each same-ballot opponent (`crossPrimary == false`) as one independent research unit.** The harness gives you a `researcher` subagent and lets you dispatch several concurrently via the `Agent` tool — dispatch up to 20 at once (one research unit per opponent; dispatch ALL same-ballot opponents in a single turn per Step 3's dispatch rule), then collect. Cross-primary candidates get no research unit and no enriched entry; they appear only in the Step 5 closing note.
 
 **Write the shared researcher brief ONCE, then dispatch SHORT pointers — do NOT re-author a full prompt per opponent (that is the single biggest wall-clock waste).** Write the entire per-unit brief below (the bullets in this step, verbatim, with `<OPPONENT>`/`<SEED>` as placeholders) ONE time to `/workspace/scratch/researcher_brief.md`. Then dispatch each same-ballot researcher with a TINY `Agent` prompt — only the per-opponent slot, not the rules:
 
@@ -174,7 +174,7 @@ For the empty/uncontested cases (zero fragments, or your-primary-uncontested), `
 - Nonpartisan race (`partisanType == "nonpartisan"`): write `Nonpartisan (race is nonpartisan)` — do not imply the party label decides the contest.
 - Missing / null party in a partisan race: `Unknown`.
 
-**Websites found line:** include only campaign and social URLs (campaign site, Facebook, Instagram, X, official campaign LinkedIn). Drop URLs from `urls[]` that are not campaign assets — an employer or government-office page is not an opposition website. Use the verified URL from Step 4; if it redirected, cite `r["source_url"]`. If an opponent has no verifiable campaign or social site, write exactly one bullet: `No campaign or social websites found as of <today's date>.`
+**Websites found line:** include only campaign and social URLs (campaign site, Facebook, Instagram, X, official campaign LinkedIn). Drop URLs from `urls[]` that are not campaign assets — an employer or government-office page is not an opposition website. Use the verified URL from Step 4; if it redirected, cite `r["final_url"]` (the `http.head` redirect key — `source_url` only exists on `http.get`/browser results). If an opponent has no verifiable campaign or social site, write exactly one bullet: `No campaign or social websites found as of <today's date>.`
 
 If no opponent information is found for a given candidate (`no_info: true`), write: `No public information found as of <today's date>. You should conduct local research.`
 
@@ -213,7 +213,7 @@ python3 /workspace/validate_output.py
 
 ## Spot-check
 Validator-passing JSON can still be garbage. Run the spot-check as ONE script that loads the artifact a single time and prints every check at once — do NOT issue a separate `python3 -c` per check (each is a turn with inference between it, and the round-trips dominate the assembly phase). Load once, assert all of the following, print a single PASS/FAIL block, then fix and re-run only if something failed:
-- **A cited URL doesn't load or doesn't mention the opponent** — don't trust search snippets blindly. You `pmf_runtime.http.get`'d the page in Step 3/4; confirm the body actually references the person and the claim before citing.
+- **A cited URL doesn't load or doesn't mention the opponent** — don't trust search snippets blindly. If you fetched the body with `pmf_runtime.http.get` during Step 3 (the last-resort case, when snippets were insufficient), confirm the body actually references the person and the claim. If you did NOT fetch the body (the common case — facts came from search snippets), confirm the snippet text you used is reflected in `facts[].text` with a matching source. Do NOT call `http.get` here — Steps 4 and 5 forbid network calls at assembly time.
 - **Every fact's URL returned 200** in Step 4. If any didn't, the citation must be gone from `markdown` AND from the opponent's `facts`/`websites`.
 - **`opponent_count` equals the number of same-ballot opponents you rendered** in `markdown` (excludes cross-primary candidates and you).
 - **In a nonpartisan race, no opponent entry shows a real party label** — every party line reads `Nonpartisan (race is nonpartisan)`.
