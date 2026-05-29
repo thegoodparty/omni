@@ -211,8 +211,19 @@ if r["status"] in (403, 405):                   # bot-blocked? escalate to the b
 - **Re-rendering every URL with `http.get` is the classic perf trap** — it makes URL-heavy experiments time out. Verify with `head`; render only when forced.
 - **Use `pmf_runtime.pdf.download(url)` for PDFs** — returns raw bytes; `pdftotext -layout file.pdf -` extracts text.
 - The broker enforces an SSRF guard + URL allowlist on every rung. Private IPs and internal hostnames are blocked; on `http.get`, a blocked third-party *sub-resource* (tracker) no longer fails the host page.
+- **The container is network-quarantined — there is NO direct egress.** `urllib`/`requests`/`httpx`/`curl`/`wget`/`socket` cannot reach the internet; a runtime guard now fails them in <1s with an instructive message (before the guard, they hung ~30s+ and torched runs). **The agent reaches for `urllib` reflexively no matter how many times the prompt says not to** — this is a probabilistic prior, not a comprehension gap, so do NOT rely on "never use urllib" prose to prevent it. Two things actually work: (a) the runtime guard (already deployed), and (b) handing the agent the EXACT ready-to-run call. Whenever your instruction tells the agent to verify/fetch a URL, give it the literal line `from pmf_runtime import http; r = http.head(url)` — a "verify URLs" instruction WITHOUT the exact call is what the urllib reflex fills.
 
-**Parallel fan-out (`runtime.max_parallel_subagents`)** — if your runbook has N independent research units (one per opponent / district / agenda item), set `runtime.max_parallel_subagents` in the manifest (0 = off, cap 8). The harness wires a `researcher` subagent the parent dispatches concurrently via the `Agent` tool, each inheriting the parent's tools, model, permission mode, and broker scope (no extra egress; can't recursively fan out). Structure that step as "one independent unit per item." Keep a sequential loop as the documented fallback. This was previously local-only; it now runs on Fargate.
+### Runtime knobs + speed patterns (`runtime.*` in the manifest)
+
+- **`runtime.max_parallel_subagents`** (0 = off, **cap 20**) — if your runbook has N independent research units (one per opponent / district / agenda item), set this. The harness wires a `researcher` subagent the parent dispatches concurrently via the `Agent` tool, each inheriting the parent's tools, model, permission mode, and broker scope (no extra egress; can't recursively fan out). Structure that step as "one independent unit per item," and keep a sequential loop as the documented fallback. The subagent count is bounded by your item count *and* this cap; the join is gated by the slowest unit. **The researcher's base prompt does NOT know your output contract** — it only knows generic "research + verify URLs with `http.head`." So your instruction must hand each subagent the experiment-specific contract (see the templated-dispatch pattern below).
+- **`runtime.max_thinking_tokens`** (e.g. `0`) — set to 0 to DISABLE extended thinking when the experiment is procedural (most are). Extended thinking can eat the whole turn budget on reasoning before any output; disabling it was one of the biggest single speedups measured.
+
+**Fan-out speed patterns (proven on `opposition_research`, ~18min → ~5min):**
+
+1. **Templated dispatch — write the researcher brief ONCE, dispatch SHORT pointers.** Don't hand-author a full prompt per item (that authoring time grows linearly with N). Have the orchestrator write the full per-unit brief (rules + the exact output contract, with `<ITEM>` placeholders) once to `/workspace/scratch/researcher_brief.md`, then dispatch each researcher with a tiny prompt: "Read `/workspace/scratch/researcher_brief.md`; your item is `<X>`; write your result to `/workspace/scratch/item_NN.json`." Emit all N `Agent` calls in ONE assistant turn.
+2. **Write-direct — subagents write fragments, don't return them inline.** Each unit writes its complete result JSON to `/workspace/scratch/item_NN.json` and returns one line. Keeps the parent's context lean and makes assembly a file merge instead of a per-item compose loop. Each unit should also emit its OWN publish-ready `markdown_block` (push per-item formatting into the parallel units, off the serial assembly path).
+3. **Canned merge — ship `assemble.py` as an ATTACHMENT, don't make the agent write it.** Put deterministic helpers (e.g. `assemble.py` that reads the fragments + `PARAMS_JSON` and emits the artifact + runs spot-checks) in `experiments/<slug>/attachments/`; the runner writes every attachment to `/workspace/<basename>`. Step 5 becomes `python3 /workspace/assemble.py` + `validate_output.py` — no build-a-script-then-edit loop. (Static briefs can be shipped this way too.)
+4. **Verify-once / fast-bail** — verify each unique URL at most once; if a unit can't confirm its item in 1-2 searches, bail to `no_info` immediately rather than escalating to the browser and gating the whole join.
 
 **Output (always include)**:
 
@@ -275,61 +286,20 @@ ORDER BY l2_district_type, l2_district_name;
 
 Use the exact `l2_district_type` and `l2_district_name` values returned. WireGuard VPN required (RDS is in a private subnet).
 
-### 3. Dispatch via SQS
+### 3. Dispatch, monitor, and read the artifact
+
+This is the generic run loop — **see `books/run-pmf-experiment-cloud.md`** for the full procedure (dispatch SQS message, confirm the Lambda launched a task, tail runner/broker logs, fetch + validate the artifact, and the deploy-before-run matrix). The one-line dispatch, with your slug + manifest-valid params:
 
 ```bash
-RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-ORG=demo-$(whoami)-$(date +%s)
-EXP=<your_slug>
-
-BODY=$(cat <<EOF
-{
-  "experiment_type": "$EXP",
-  "run_id": "$RUN_ID",
-  "organization_slug": "$ORG",
-  "params": {
-    "state": "NC",
-    "city": "Fayetteville",
-    "l2DistrictType": "City_Ward",
-    "l2DistrictName": "FAYETTEVILLE CITY WARD 2"
-  }
-}
-EOF
-)
-
+RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]'); ORG=demo-$(whoami)-$(date +%s); EXP=<your_slug>
+BODY='{"experiment_type":"'$EXP'","run_id":"'$RUN_ID'","organization_slug":"'$ORG'","params":{ ...match input_schema... }}'
 AWS_PROFILE=work aws sqs send-message \
   --queue-url https://sqs.us-west-2.amazonaws.com/333022194791/agent-dispatch-dev.fifo \
-  --message-body "$BODY" \
-  --message-group-id "agent-dispatch-$ORG" \
-  --message-deduplication-id "$RUN_ID"
-
-echo "expected: s3://gp-agent-artifacts-dev/$EXP/$RUN_ID/artifact.json"
+  --message-body "$BODY" --message-group-id "agent-dispatch-$ORG" --message-deduplication-id "$RUN_ID"
+echo "artifact -> s3://gp-agent-artifacts-dev/$EXP/$RUN_ID/artifact.json"
 ```
 
-The wire field is `experiment_type` (NOT `experiment_id`) — the dispatch Lambda's parser rejects `experiment_id`.
-
-### 4. Tail logs
-
-```bash
-# Lambda dispatch (was your message accepted?)
-AWS_PROFILE=work aws logs tail /aws/lambda/pmf-engine-dispatch-dev --since 5m --format short | grep "$RUN_ID"
-
-# Broker (manifest fetch, databricks queries, artifact publish)
-AWS_PROFILE=work aws logs tail /ecs/broker-dev --since 5m --format short | grep -v health | grep -v anthropic
-
-# Fargate runner (agent reasoning + errors)
-AWS_PROFILE=work aws logs tail /ecs/pmf-engine-dev --since 5m --format short | grep -E "Experiment:|run_agent.*\[|Agent completed|ERROR"
-```
-
-### 5. Read the artifact
-
-```bash
-while ! AWS_PROFILE=work aws s3api head-object \
-  --bucket gp-agent-artifacts-dev \
-  --key "$EXP/$RUN_ID/artifact.json" 2>/dev/null; do sleep 15; done
-
-AWS_PROFILE=work aws s3 cp s3://gp-agent-artifacts-dev/$EXP/$RUN_ID/artifact.json - | python3 -m json.tool
-```
+The wire field is `experiment_type` (NOT `experiment_id`). **Conversion-specific check:** the first dispatch is where instruction gaps surface as wasted turns — watch the runner log for the agent introspecting an API (`dir()`/`help()`), recovering from a broker `ScopeViolation`/`422`, re-validating repeatedly, or reaching for `urllib`. Each wasted turn is a gap to patch in YOUR instruction (or in this converter), then republish and re-dispatch.
 
 ## Iterating on a published experiment
 
@@ -376,6 +346,7 @@ Don't promote until you've verified the experiment works end-to-end in dev, incl
 
 ## See also
 
+- `books/run-pmf-experiment-cloud.md` — how to RUN an existing experiment in the cloud (dispatch, monitor, deploy-before-run matrix, fetch artifact). The operational companion to this creation doc.
 - `experiments/_schema/manifest.schema.json` — the meta-schema (source of truth for manifest validation)
 - `experiments/CLAUDE.md` — runbook → experiment lifecycle and naming convention
 - `books/find-district-issue-pulse.md` — example source runbook (paired with `experiments/district_issue_pulse/`)

@@ -6,7 +6,7 @@
   "max_turns": 80,
   "timeout_seconds": 1200,
   "runtime": {
-    "max_parallel_subagents": 6,
+    "max_parallel_subagents": 20,
     "max_thinking_tokens": 0
   },
   "input_schema": {

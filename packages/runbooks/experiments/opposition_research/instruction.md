@@ -33,7 +33,7 @@ Produce a strategic `### Opposition Research` section for a candidate's campaign
 - **Never use `WebFetch`** — the runner's quarantined network can't reach its domain-safety check; it always fails. Discover with `WebSearch`, verify with `http.head`, render with `http.get` only when forced.
 - **Never make a direct network call from Python or the shell** — `urllib`/`urllib.request.urlopen`, `requests`, `httpx`, `curl`, `wget`, raw `socket`. The container has NO egress; these do not fail fast, they **HANG ~30s+ each and burn the time budget**. The ONLY way to reach a URL is `pmf_runtime.http.head` / `.get` / `.download` (broker-proxied). If you catch yourself importing `urllib` or `requests`, STOP and use `pmf_runtime.http`.
 - **Do NOT call election-api or any other internal API.** The runner has no direct internet egress and cannot reach election-api. The opponent roster is already in `PARAMS.opponents`. Web search + `pmf_runtime.http` are your only outside-world tools.
-- **Write only to `/workspace/output/opposition_research.json`.** The runner publishes nothing else.
+- **The only PUBLISHED artifact is `/workspace/output/opposition_research.json`.** The runner publishes nothing else. You may write intermediate per-opponent fragments to `/workspace/scratch/` (see Step 3) — that directory is scratch space, never published.
 - **Run `python3 /workspace/validate_output.py` before declaring success.** In-loop validation lets you fix violations cheaply; the runner-level validator rejects the artifact post-hoc if you skip it.
 
 ## Steps
@@ -54,7 +54,7 @@ Prefer official sources for the roster: the county / state board of elections, t
 
 **Default-drop on ambiguity:** if you cannot positively confirm all three from an authoritative source, DROP the name. Do not add unconfirmed candidates.
 
-**Hard cap:** the final opponent list (seed + confirmed web adds) must not exceed **8**. If you exceed it, you are pulling in the wrong race — re-check the office match. Web search may add AT MOST 3 names beyond the seed; if you found more, keep the 3 best-confirmed and stop.
+**Hard cap:** the final opponent list (seed + confirmed web adds) must not exceed **20**. The seed roster is authoritative — keep ALL seed opponents (a large race can legitimately have 11+ filers; research every one). The cap guards against discovery pollution, not against a genuinely large seed roster: **web search may add AT MOST 3 names beyond the seed**; if you found more web candidates, keep the 3 best-confirmed and stop. If the seed roster ITSELF exceeds 20, research the first 20 in roster order.
 
 **Merge rules:**
 - Skip any name that is the candidate you write for (`PARAMS.candidate_name`), matching loosely (normalize case, strip middle initials / suffixes / accents).
@@ -87,16 +87,30 @@ Web-surfaced opponents (`source == "web"`) often have `party: null`. Leave them 
 
 Per-opponent web research is the slow part, and opponents are independent. **Treat each same-ballot opponent (`crossPrimary == false`) as one independent research unit.** The harness gives you a `researcher` subagent and lets you dispatch several concurrently via the `Agent` tool — dispatch up to 6 at once, one research unit per opponent, then collect. Cross-primary candidates get no research unit and no enriched entry; they appear only in the Step 5 closing note.
 
+**Write the shared researcher brief ONCE, then dispatch SHORT pointers — do NOT re-author a full prompt per opponent (that is the single biggest wall-clock waste).** Write the entire per-unit brief below (the bullets in this step, verbatim, with `<OPPONENT>`/`<SEED>` as placeholders) ONE time to `/workspace/scratch/researcher_brief.md`. Then dispatch each same-ballot researcher with a TINY `Agent` prompt — only the per-opponent slot, not the rules:
+
+```
+Read /workspace/scratch/researcher_brief.md — that is your full brief, follow it exactly.
+Your assigned opponent: <full name>. Seed data: <the opponent's seed JSON>. Your index: NN.
+Write your result to /workspace/scratch/opp_NN.json and return only the line "opp_NN written".
+```
+
+Emit ALL N of these short `Agent` calls in a SINGLE assistant turn, back to back, with no reasoning between them. Authoring N short pointers costs a fraction of authoring N full prompts, and the brief file means every researcher still gets the complete rules. The researcher's own base prompt already tells it to verify URLs with `pmf_runtime.http.head` — the brief adds the opposition-research specifics (output contract, format).
+
 **Each research unit (whether dispatched as a subagent or run inline) does exactly this, self-contained:**
 
 - **Identity + context:** the opponent's full name, plus `office_name` (the readable one, NOT a BallotReady normalization), `state`, election date.
 - **Seed data for this opponent:** `party`, `isIncumbent`, `websiteUrl`, `urls[]`, `about`, `source`. Facts already in the seed (party, incumbency, the `about` bio) are citeable as "GoodParty.org Data".
-- **Job (keep it tight — this is per-opponent and runs N-way, so wasted calls multiply):** run **AT MOST 2 `WebSearch` queries** for this one person (`"<full name>" <office_name> <state>` and a `campaign`/`candidate` variant). **Pull the 2-3 sentence profile and 2-3 facts from the SEARCH-RESULT SNIPPETS themselves — do NOT fetch or render pages just to extract facts.** Only escalate to fetching a page body (`http.get`, browser, last resort) if a specific claim genuinely cannot be confirmed from snippets. Capture the campaign/social/news URLs worth citing from the results.
+- **Job (keep it tight — this is per-opponent and runs N-way, so wasted calls multiply):** run **AT MOST 2 `WebSearch` queries** for this one person (`"<full name>" <office_name> <state>` and a `campaign`/`candidate` variant). **If the discovery pass (Step 1) already surfaced this person with concrete facts (e.g. vote count, incumbency, role) in its snippets, pass those facts into the research unit and have it run just ONE confirming `WebSearch`** — a second query on someone already well-characterized is wasted time on the critical path, since the slowest research unit gates the whole fan-out. Reserve the second query for thinly-sourced opponents. **Pull the 2-3 sentence profile and 2-3 facts from the SEARCH-RESULT SNIPPETS themselves — do NOT fetch or render pages just to extract facts.** Only escalate to fetching a page body (`http.get`, browser, last resort) if a specific claim genuinely cannot be confirmed from snippets. Capture the campaign/social/news URLs worth citing from the results.
+- **The research unit must NEVER name the candidate you write for (`PARAMS.candidate_name`).** Each unit describes ONLY its one opponent. If a search snippet mentions the candidate alongside the opponent, do not carry that name into the `summary` or `facts`. Naming the candidate forces a costly clean-up round-trip during assembly — prevent it at the source by telling each research unit, in its prompt, that the candidate's name must not appear in its output at all.
 - **Source rules (enforce):**
   - Prefer: official government pages (city/county/state), major news outlets (AP, Reuters, local NPR, regional papers of record), the candidate's own campaign site, Wikipedia only as a secondary source.
   - Avoid / never cite: aggregator sites with stale data; opinion blogs with no named author; LLM-generated summary pages and auto-generated fact-check/aggregator stubs (they return 200 but are machine-generated); PR-wire and self-published press-release sites (`pr.com`, PRNewswire, EIN Presswire — paid placements, not reporting). If a platform claim only appears on a PR wire, attribute it as "according to the candidate's own announcements" rather than citing the wire as fact.
   - Ground every fact in a real result. Do not infer or invent. If nothing is findable beyond the name, return `no_info: true`.
-- **Verify URLs inside the research unit with `pmf_runtime.http.head(url)`** (the cheap, non-browser check — see the escalation ladder in CRITICAL RULES): drop any URL whose `r["status"] != 200`; if it redirected, cite `r["final_url"]`. Only if `head` returns 403/405 on a site you believe is real should you escalate to `http.get(url)` (browser). LinkedIn URLs almost never verify for non-authenticated bots — drop them. The URLs you return are now considered verified; the parent will NOT re-verify them.
+- **Verify URLs inside the research unit with `pmf_runtime.http.head(url)`** (the cheap, non-browser check — see the escalation ladder in CRITICAL RULES): drop any URL whose `r["status"] != 200`; if it redirected, cite `r["final_url"]`. Only if `head` returns 403/405 on a site you believe is real should you escalate to `http.get(url)` (browser). **NEVER verify with `curl`, `wget`, `requests`, `httpx`, or `urllib`** — the container has no egress and each HANGS ~30s+ before failing, multiplied across every URL in every unit. `pmf_runtime.http.head` is the ONLY verification call. LinkedIn URLs almost never verify for non-authenticated bots — drop them. The URLs you return are now considered verified; the parent will NOT re-verify them.
+- **When you author each subagent's prompt, COPY the verification rule into it verbatim:** "Verify URLs with `pmf_runtime.http.head(url)` only. Never use curl/wget/requests/urllib — they hang in this container." A subagent that improvises `curl` is the #1 cause of a research unit running for minutes instead of seconds.
+- **If you cannot confirm an opponent in your 1-2 searches, return `no_info: true` immediately — do NOT keep searching or escalate to browser/curl to chase a name that may not exist.** A mismatched or low-coverage name (e.g. a seed name not found on the ballot) must bail fast; a research unit that flails on an unconfirmable name gates the entire fan-out.
+- **Each research unit also formats its OWN markdown block.** This is the single biggest assembly speedup: per-opponent formatting is the slow serial step when the parent does it for all N at the end, so push it into the parallel units. The unit returns a `markdown_block` string — the fully-formatted, final bullet for THIS opponent, following the exact template in Step 5, with every global rule already applied (refer to the campaign owner as "you" and NEVER name `PARAMS.candidate_name`; no em dashes; for a nonpartisan race the party line reads `Nonpartisan (race is nonpartisan)`; only 200-verified URLs; if `no_info`, the block is the single "No public information found as of <today's date>." line under the opponent's name). The parent will concatenate these blocks verbatim — it will NOT re-format, re-summarize, or re-verify them, so the block must be publish-ready.
 - **Return contract (exactly this shape per opponent):**
   ```json
   {
@@ -107,32 +121,37 @@ Per-opponent web research is the slow part, and opponents are independent. **Tre
       {"text": "fact in 1-2 sentences", "source_label": "LAist", "url": "https://...verified-200..."}
     ],
     "websites": ["https://...verified-200 campaign or social URL..."],
-    "no_info": false
+    "no_info": false,
+    "markdown_block": "- Jane Doe\n  - Party affiliation: ...\n  - Incumbent: ...\n  - Political summary: ...\n    - fact ([source](url))\n  - Websites found:\n    - https://..."
   }
   ```
-  An opponent with nothing found returns `{"full_name": "...", "incumbent": "Unknown", "summary": null, "facts": [], "websites": [], "no_info": true}`. Map `isIncumbent`: `true` -> "Yes", `false` -> "No", `null` -> "Unknown".
+  An opponent with nothing found returns `{"full_name": "...", "incumbent": "Unknown", "summary": null, "facts": [], "websites": [], "no_info": true, "markdown_block": "- <full name>\n  - No public information found as of <today's date>. You should conduct local research."}`. Map `isIncumbent`: `true` -> "Yes", `false` -> "No", `null` -> "Unknown".
+- **The brief (`researcher_brief.md`) must include the exact Step 5 per-opponent template and the global format rules**, and require `markdown_block` in the written fragment. A block that is already publish-ready is what lets assembly be a pure concatenation.
+- **Each research unit WRITES ITS RESULT TO A FILE instead of returning it inline.** Before dispatching, `mkdir -p /workspace/scratch` and assign each same-ballot opponent a zero-padded index NN in original opponent order (01, 02, 03, ...). Each unit writes its complete return-contract JSON object (all fields incl. `markdown_block`) to `/workspace/scratch/opp_<NN>.json` and returns ONLY the line `opp_<NN> written` — NOT the JSON. This keeps the parent's context lean (it never re-reads N full blobs) and lets assembly be a single deterministic merge over the files.
 
-Collect every research unit's JSON into one list in original opponent order.
+After all units return, the fragments are on disk at `/workspace/scratch/opp_*.json`, one per same-ballot opponent. You will merge them in Step 5 with ONE script — do not read them turn-by-turn.
 
 **Sequential fallback:** if no subagent dispatch is available, run the exact same per-opponent brief sequentially — loop over the same-ballot opponents, doing one's `WebSearch` + `pmf_runtime.http` URL verification before the next, producing the same return-contract JSON per opponent. The output is identical; only the wall-clock time differs.
 
 ### Step 4 — Final verification audit
 
-**TRUST the research units — do NOT re-verify what they already checked.** Each unit verified its own URLs with `http.head` and returned only 200 URLs. Re-fetching all of them on the main agent is the single biggest time sink and is forbidden as a default. This audit is a cheap **`http.head`** dedupe/sanity pass, not a re-run:
+**TRUST the research units — do NOT re-verify what they already checked.** Each unit verified its own URLs with `http.head` and returned only 200 URLs. The default audit is a pure **in-memory** dedupe/sanity pass: collect every cited URL into a set, drop exact duplicates, confirm each came from a unit that returned it as 200. Do NOT loop a network check over all cited URLs as a matter of course — that adds a full round-trip batch on the critical path for URLs already known-200.
 
-```python
-from pmf_runtime import http
-for url in all_cited_urls:        # the already-verified URLs the units returned
-    r = http.head(url)            # cheap, non-browser; NOT http.get
-    if r["status"] != 200:
-        pass  # rare (page went down since research) -> drop that citation/website
-```
+**Verify each unique URL AT MOST ONCE.** Within a research unit and across the whole run, never run `http.head` twice on the same URL — dedupe your URL set first, then check each once. Re-checking the same batch (e.g. verifying an opponent's URLs, then verifying an overlapping set again) is wasted time on the critical path and a common slow-down.
 
-Use `http.head` only — never re-render with `http.get` here. Drop any URL that is now not 200 before assembling Step 5. The published section must contain only 200-verified URLs.
+If you DO have a concrete reason to re-check a specific URL (a unit's return looked malformed, or you gathered a new URL yourself during assembly), verify it with **`pmf_runtime.http.head(url)` and NOTHING ELSE.** Verification is ALWAYS `http.head`. **NEVER use `curl`, `wget`, `requests`, `httpx`, or `urllib` to check a URL** — the container has no egress, so each of those HANGS ~30s+ before failing and torches the time budget. If you catch yourself typing `curl` in a Bash command to check a status code, STOP and use `pmf_runtime.http.head` instead. Never `http.get` (browser) here. Drop any URL that is not 200 before assembling Step 5. The published section contains only 200-verified URLs.
 
 ### Step 5 — Assemble the output
 
-Format the `markdown` field exactly as below. **Do not** include a preamble, title page, or closing summary — only the section. Refer to the candidate as "you", never by name. Use numbers, not words ("50% + 1", not "half"). No em dashes. Wherever the template says `<today's date>`, use the current date of the run (YYYY-MM-DD).
+**Assembly is ONE command — do NOT write a merge script, regenerate, re-summarize, re-verify, or hand-compose.** A ready-made merge script `/workspace/assemble.py` is provided for you. The research units already wrote publish-ready fragments to `/workspace/scratch/opp_*.json`. To assemble:
+
+1. (Only if a cross-primary closing note applies — see glue rules below) write the note text to `/workspace/scratch/_closing_note.txt`. For a nonpartisan race there is no closing note; skip this.
+2. Run **`python3 /workspace/assemble.py`** once. It reads the fragments + `PARAMS_JSON`, concatenates each fragment's `markdown_block` under the `### Opposition Research` header (plus the closing note if present), builds `opponents` (without `markdown_block`), sets `race.{office_name,state,partisanType,opponent_count}` and `generated_at`, writes `/workspace/output/opposition_research.json`, and runs the spot-checks (candidate name absent, no em dash, opponent_count matches, nonpartisan party lines) — printing a PASS/FAIL block and exiting non-zero on FAIL.
+3. Run **`python3 /workspace/validate_output.py`** once.
+
+Do NOT run WebSearch, `http.head`, or `http.get` here, and do NOT read the fragments turn-by-turn. If `assemble.py` reports a FAILED spot-check, open the offending `/workspace/scratch/opp_<NN>.json` fragment, fix its text in place (no network, no regeneration), and re-run `assemble.py`.
+
+For the empty/uncontested cases (zero fragments, or your-primary-uncontested), `assemble.py` emits the standard uncontested line automatically when there are no same-ballot fragments. The cross-primary closing note (rare; only partisan primaries) is the one piece you supply via `_closing_note.txt`.
 
 ```markdown
 ### Opposition Research
@@ -169,8 +188,8 @@ If no opponent information is found for a given candidate (`no_info: true`), wri
 - N > 1: `Note: <N> additional candidates are running in different partisan primaries for this seat and would only become opponents at the general election.`
 
 Then build the JSON artifact:
-- `markdown` — the exact section above.
-- `opponents` — the collected per-opponent return-contract objects (`full_name`, `incumbent`, `summary`, `facts`, `websites`, `no_info`), in order, for same-ballot opponents only.
+- `markdown` — the header + concatenated same-ballot `markdown_block`s (in order) + any closing note. Built by joining, not regenerating.
+- `opponents` — the collected per-opponent return-contract objects (`full_name`, `incumbent`, `summary`, `facts`, `websites`, `no_info`), in order, for same-ballot opponents only. Drop the `markdown_block` field from each object here (it lives in the assembled `markdown`, not duplicated per opponent).
 - `race` — `{office_name, state, partisanType, opponent_count}` where `opponent_count` is the number of researched (same-ballot) opponents.
 - `generated_at` — current ISO 8601 timestamp.
 
@@ -193,7 +212,7 @@ python3 /workspace/validate_output.py
 - Every cited URL must have returned HTTP 200 in Step 4.
 
 ## Spot-check
-Validator-passing JSON can still be garbage. Before declaring success:
+Validator-passing JSON can still be garbage. Run the spot-check as ONE script that loads the artifact a single time and prints every check at once — do NOT issue a separate `python3 -c` per check (each is a turn with inference between it, and the round-trips dominate the assembly phase). Load once, assert all of the following, print a single PASS/FAIL block, then fix and re-run only if something failed:
 - **A cited URL doesn't load or doesn't mention the opponent** — don't trust search snippets blindly. You `pmf_runtime.http.get`'d the page in Step 3/4; confirm the body actually references the person and the claim before citing.
 - **Every fact's URL returned 200** in Step 4. If any didn't, the citation must be gone from `markdown` AND from the opponent's `facts`/`websites`.
 - **`opponent_count` equals the number of same-ballot opponents you rendered** in `markdown` (excludes cross-primary candidates and you).
