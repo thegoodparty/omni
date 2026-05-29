@@ -31,6 +31,7 @@ Produce a strategic `### Opposition Research` section for a candidate's campaign
      ```
   3. **`pmf_runtime.http.get(url)`** — the **browser render (Chromium), LAST RESORT.** Use it only when (a) `head` returned **403/405** on a site you believe is real (Cloudflare-style bot protection a bare request can't pass — the browser defeats it), or (b) you must read the page **body** to confirm a claim. `get` returns `{"status", "body", "source_url", ...}`; use `r["status"]`/`r["source_url"]`, never `.status_code`. It is ~100x slower than `head`, so reserve it.
 - **Never use `WebFetch`** — the runner's quarantined network can't reach its domain-safety check; it always fails. Discover with `WebSearch`, verify with `http.head`, render with `http.get` only when forced.
+- **Never make a direct network call from Python or the shell** — `urllib`/`urllib.request.urlopen`, `requests`, `httpx`, `curl`, `wget`, raw `socket`. The container has NO egress; these do not fail fast, they **HANG ~30s+ each and burn the time budget**. The ONLY way to reach a URL is `pmf_runtime.http.head` / `.get` / `.download` (broker-proxied). If you catch yourself importing `urllib` or `requests`, STOP and use `pmf_runtime.http`.
 - **Do NOT call election-api or any other internal API.** The runner has no direct internet egress and cannot reach election-api. The opponent roster is already in `PARAMS.opponents`. Web search + `pmf_runtime.http` are your only outside-world tools.
 - **Write only to `/workspace/output/opposition_research.json`.** The runner publishes nothing else.
 - **Run `python3 /workspace/validate_output.py` before declaring success.** In-loop validation lets you fix violations cheaply; the runner-level validator rejects the artifact post-hoc if you skip it.
@@ -39,7 +40,7 @@ Produce a strategic `### Opposition Research` section for a candidate's campaign
 
 ### Step 1 — Discover late filers via web search and merge
 
-The seed roster in `PARAMS.opponents` is authoritative for known filers but lags reality: late filers, write-ins, and especially independents are often missing. Search the web for the full field using the human office name (`PARAMS.office_name`), state, and election date. Run at least two queries:
+The seed roster in `PARAMS.opponents` is authoritative for known filers but lags reality: late filers, write-ins, and especially independents are often missing. Do discovery in **ONE upfront pass, BEFORE you research anyone** — run AT MOST 2 WebSearch queries, finalize the full opponent list, then never return to discovery. Dispatching researchers, then discovering more, then dispatching again serializes the run and is the #1 cause of slow runs — do not do it.
 
 - `candidates running for <office_name> <state> <electionDate>`
 - `<office_name> candidates <election year>` and a ballot-info variant, e.g. `<state> sample ballot <office_name> <year>`
@@ -53,7 +54,7 @@ Prefer official sources for the roster: the county / state board of elections, t
 
 **Default-drop on ambiguity:** if you cannot positively confirm all three from an authoritative source, DROP the name. Do not add unconfirmed candidates.
 
-**Hard cap:** the final opponent list (seed + confirmed web adds) must not exceed **12**. If you somehow exceed it, you are pulling in the wrong race — re-check the office match.
+**Hard cap:** the final opponent list (seed + confirmed web adds) must not exceed **8**. If you exceed it, you are pulling in the wrong race — re-check the office match. Web search may add AT MOST 3 names beyond the seed; if you found more, keep the 3 best-confirmed and stop.
 
 **Merge rules:**
 - Skip any name that is the candidate you write for (`PARAMS.candidate_name`), matching loosely (normalize case, strip middle initials / suffixes / accents).
@@ -90,7 +91,7 @@ Per-opponent web research is the slow part, and opponents are independent. **Tre
 
 - **Identity + context:** the opponent's full name, plus `office_name` (the readable one, NOT a BallotReady normalization), `state`, election date.
 - **Seed data for this opponent:** `party`, `isIncumbent`, `websiteUrl`, `urls[]`, `about`, `source`. Facts already in the seed (party, incumbency, the `about` bio) are citeable as "GoodParty.org Data".
-- **Job:** `WebSearch` for this one person in this race. Run `"<full name>" <office_name> <state>` and a `campaign`/`candidate` variant. Capture a 2-3 sentence profile, 2-3 key position/background facts, and every campaign/social/news URL worth citing.
+- **Job (keep it tight — this is per-opponent and runs N-way, so wasted calls multiply):** run **AT MOST 2 `WebSearch` queries** for this one person (`"<full name>" <office_name> <state>` and a `campaign`/`candidate` variant). **Pull the 2-3 sentence profile and 2-3 facts from the SEARCH-RESULT SNIPPETS themselves — do NOT fetch or render pages just to extract facts.** Only escalate to fetching a page body (`http.get`, browser, last resort) if a specific claim genuinely cannot be confirmed from snippets. Capture the campaign/social/news URLs worth citing from the results.
 - **Source rules (enforce):**
   - Prefer: official government pages (city/county/state), major news outlets (AP, Reuters, local NPR, regional papers of record), the candidate's own campaign site, Wikipedia only as a secondary source.
   - Avoid / never cite: aggregator sites with stale data; opinion blogs with no named author; LLM-generated summary pages and auto-generated fact-check/aggregator stubs (they return 200 but are machine-generated); PR-wire and self-published press-release sites (`pr.com`, PRNewswire, EIN Presswire — paid placements, not reporting). If a platform claim only appears on a PR wire, attribute it as "according to the candidate's own announcements" rather than citing the wire as fact.
