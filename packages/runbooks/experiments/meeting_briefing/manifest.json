@@ -3,7 +3,7 @@
   "id": "meeting_briefing",
   "version": 4,
   "model": "opus",
-  "max_turns": 100,
+  "max_turns": 200,
   "timeout_seconds": 3000,
   "scope": {
     "allowed_tables": [
