@@ -146,7 +146,7 @@ If you DO have a concrete reason to re-check a specific URL (a unit's return loo
 **Assembly is ONE command — do NOT write a merge script, regenerate, re-summarize, re-verify, or hand-compose.** A ready-made merge script `/workspace/assemble.py` is provided for you. The research units already wrote publish-ready fragments to `/workspace/scratch/opp_*.json`. To assemble:
 
 1. (Only if a cross-primary closing note applies — see glue rules below) write the note text to `/workspace/scratch/_closing_note.txt`. For a nonpartisan race there is no closing note; skip this.
-2. Run **`python3 /workspace/assemble.py`** once. It reads the fragments + `PARAMS_JSON`, concatenates each fragment's `markdown_block` under the `### Opposition Research` header (plus the closing note if present), builds `opponents` (without `markdown_block`), sets `race.{office_name,state,partisanType,opponent_count}` and `generated_at`, writes `/workspace/output/opposition_research.json`, and runs the spot-checks (candidate name absent, no em dash, opponent_count matches, nonpartisan party lines) — printing a PASS/FAIL block and exiting non-zero on FAIL.
+2. Run **`python3 /workspace/assemble.py`** once. It reads the fragments + `PARAMS_JSON`, concatenates each fragment's `markdown_block` under the `### Opposition Research` header (plus the closing note if present), builds `opponents` (without `markdown_block`), sets `race.{office_name,state,partisanType,opponent_count}` and `generated_at`, writes `/workspace/output/opposition_research.json`, and runs the STRUCTURAL/FORMAT spot-checks (candidate name absent, no em dash, opponent_count matches, nonpartisan party lines) — printing a PASS/FAIL block and exiting non-zero on FAIL. `assemble.py` does NOT do the URL-quality checks — you still perform those from the `## Spot-check` section below (a cited URL actually loads and mentions the opponent; every fact URL returned 200 in Step 4).
 3. Run **`python3 /workspace/validate_output.py`** once.
 
 Do NOT run WebSearch, `http.head`, or `http.get` here, and do NOT read the fragments turn-by-turn. If `assemble.py` reports a FAILED spot-check, open the offending `/workspace/scratch/opp_<NN>.json` fragment, fix its text in place (no network, no regeneration), and re-run `assemble.py`.
@@ -224,7 +224,7 @@ Validator-passing JSON can still be garbage. Run the spot-check as ONE script th
 | Symptom | Cause | Fix |
 |---|---|---|
 | `r.status_code` raises `AttributeError` | `pmf_runtime.http.get` returns a plain dict | Use `r["status"]`, not `.status_code` |
-| `WebFetch` returns "Unable to verify if domain X is safe" | Quarantined network can't reach claude.ai's safety check | Discover with `WebSearch`, retrieve/verify with `pmf_runtime.http.get` |
+| `WebFetch` returns "Unable to verify if domain X is safe" | Quarantined network can't reach claude.ai's safety check | Discover with `WebSearch`, verify with `pmf_runtime.http.head`; escalate to `pmf_runtime.http.get` (browser) only if `head` returns 403/405 |
 | LinkedIn URL returns 999 or 404 | LinkedIn hard-blocks non-authenticated bots | Drop the citation; never cite a LinkedIn URL |
 | All opponents show the candidate's party in a nonpartisan race | `party` reflects voter registration, not the contest | Drop party labels; use the nonpartisan party line |
 | A web-surfaced "candidate" isn't really in this race | Wrong district, past cycle, or withdrew | Confirm via an official roster before adding; if you can't confirm they're on THIS ballot for THIS election, drop them |

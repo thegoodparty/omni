@@ -145,6 +145,13 @@ def _validate_shape(workspace, artifact):
         return []
     except jsonschema.ValidationError as exc:
         return [f"artifact schema violation: {exc.message}"]
+    except jsonschema.SchemaError as exc:
+        sys.stderr.write(f"warning: contract_schema.json is not a valid JSON Schema: {exc}\n")
+        required = ["markdown", "opponents", "race", "generated_at"]
+        missing = [k for k in required if k not in artifact]
+        if missing:
+            return [f"artifact missing required keys: {', '.join(missing)}"]
+        return []
 
 
 def main():
