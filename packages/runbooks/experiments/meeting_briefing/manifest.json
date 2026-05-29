@@ -1,9 +1,9 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 3,
+  "version": 4,
   "model": "opus",
-  "max_turns": 100,
+  "max_turns": 200,
   "timeout_seconds": 3000,
   "scope": {
     "allowed_tables": [
@@ -65,6 +65,8 @@
           "meeting_name",
           "location",
           "meeting_date",
+          "meeting_time",
+          "meeting_timezone",
           "estimated_read_minutes",
           "executive_summary",
           "run_metadata",
@@ -119,14 +121,22 @@
             "format": "date",
             "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
           },
+          "meeting_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Briefings own this independently of meeting_schedule so the row is self-sufficient."
+          },
+          "meeting_timezone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "IANA timezone name for meeting_time (e.g. 'America/Chicago'). Use the timezone the governing body publishes the meeting in, not UTC."
+          },
           "estimated_read_minutes": {
             "type": "integer",
             "minimum": 0
           },
           "executive_summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 400
+            "$ref": "#/definitions/executive_summary"
           },
           "run_metadata": {
             "type": "object",
@@ -216,6 +226,8 @@
           "meeting_name",
           "location",
           "meeting_date",
+          "meeting_time",
+          "meeting_timezone",
           "estimated_read_minutes",
           "executive_summary",
           "run_metadata",
@@ -269,14 +281,22 @@
             "format": "date",
             "description": "YYYY-MM-DD. For agenda_provided_by_user or awaiting_agenda runs, this is the target meeting date; for no_meeting_found it may be an estimated next date."
           },
+          "meeting_time": {
+            "type": "string",
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9])?$",
+            "description": "Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error."
+          },
+          "meeting_timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "IANA timezone name for meeting_time (e.g. 'America/Chicago'). Required-but-may-be-empty: populate when the meeting is identified, emit an empty string when no_meeting_found or error."
+          },
           "estimated_read_minutes": {
             "type": "integer",
             "minimum": 0
           },
           "executive_summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 400
+            "$ref": "#/definitions/executive_summary"
           },
           "run_metadata": {
             "type": "object",
@@ -353,6 +373,48 @@
       }
     ],
     "definitions": {
+      "executive_summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lead_in", "items"],
+        "properties": {
+          "lead_in": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Single framing sentence at the top of the briefing. For briefing_ready artifacts: defaults to 'The following items on your agenda require action and/or have a vote:' (with trailing colon when items follow). For awaiting_agenda / no_meeting_found / error: a check-back or no-meeting message; items[] is empty."
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "One entry per featured item in top-level items[], in the same order. Empty when no items qualify as featured (and for placeholder briefing_status values).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["item_id", "title", "overview"],
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "pattern": "^item_[0-9]{3}$",
+                  "description": "Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel."
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "description": "Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience)."
+                },
+                "overview": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "description": "One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing."
+                }
+              }
+            }
+          }
+        }
+      },
       "item": {
         "type": "object",
         "additionalProperties": false,

@@ -202,6 +202,7 @@ If no future meeting of the official's body exists in any of these sources withi
 
 - Set `briefing_status: "no_meeting_found"`.
 - Set `meeting_date` to the estimated next meeting date if you can infer one from cadence; otherwise use the most recent past meeting date as a stable fallback. `meeting_date` is schema-required and cannot be omitted.
+- Emit `meeting_time: ""` and `meeting_timezone: ""` — both are schema-required-but-may-be-empty when no meeting is identified.
 - Emit the single-placeholder `items[]` shape from Step 3's failure path (`item_001`, `tier: "standard"`, `tier_reason: ["placeholder"]`, etc.), and set `claims: []`.
 - Record the decision in `run_metadata.run_decisions[]` with reason `"no_upcoming_meeting_on_calendar"`. List the sources you checked.
 - Skip Steps 4–16. Write the placeholder artifact (Step 17), validate (Step 18), exit.
@@ -237,17 +238,17 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
    - Granicus: WebSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
    - CivicClerk: WebSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
-   - Novus Agenda: WebSearch `"<city>" novusagenda`. *Drill into the meeting search results — landing-page-only checks don't count.*
+   - Novus Agenda: WebSearch `"<city>" novusagenda`. _Drill into the meeting search results — landing-page-only checks don't count._
    - Municode/CivicPlus Meetings: WebSearch `"<city>" meetings civicplus` / `"<city>" municode meetings`.
    - Swagit (streaming): WebSearch `"<city>" swagit.com` — usually only video, but check for linked PDFs.
-   For each platform you try: emit a `run_decisions[]` entry with the search query, URL probed, and result.
+     For each platform you try: emit a `run_decisions[]` entry with the search query, URL probed, and result.
 2. **City's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, `/agendas-minutes/`, or the council clerk page. Drill at least 2 clicks deep into menus before declaring empty.
 3. **City site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable path independent of the streaming platform. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`; Covington TN uses `covingtontn.gov/utility/openPDF/cicotn/BMA_-_DDMMMYYYY.pdf`. Discover the pattern from a recent past meeting on the same site, then probe the predictable filename for the target date.
 4. **Direct WebSearch for the packet PDF on common CDN domains.** This catches the Fulshear-pattern case where the packet exists at a CDN URL but no public-facing UI links to it. Run these queries:
    - `"<city>" "<body>" agenda <month> <year> filetype:pdf`
    - `"<city>" agenda packet <target meeting date> site:cloudfront.net OR site:granicus.com OR site:s3.amazonaws.com OR site:civicclerk.com OR site:legistar.com OR site:boarddocs.com`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
-   For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
+     For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
 5. **Local news.** WebSearch `"<city>" <body> agenda <month> <year>` or `"<city>" city council meeting <date>` — local press regularly re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
 6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
 7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
@@ -269,6 +270,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
   ```
 
   **Token gating note:** some installations (NYC, observed 2026-05) now return HTTP 403 `"Token is required"` on the public OData API even for anonymous reads. When that happens, fall back to scraping the public portal directly: `https://legistar.{client}.gov/Calendar.aspx` for the calendar, `https://legistar.{client}.gov/MeetingDetail.aspx?ID={event_id}` for per-meeting items, `https://legistar.{client}.gov/LegislationDetail.aspx?ID={matter_id}` for matter detail. The portal serves HTML to anonymous clients without a token.
+
 - **BoardDocs** — `https://go.boarddocs.com/{state}/{client}/Board.nsf/Public`. Common for school boards but also some city councils. Meeting agenda items each have a UUID; PDFs at `Board.nsf/files/<uuid>/$file/<filename>.pdf`. Scrape the meeting page and follow file links.
 - **PrimeGov** — `https://{client}.primegov.com/Portal/Meeting`. The portal links to compiled meeting PDFs; individual attachments are also accessible.
 - **eSCRIBE** — meetings endpoint serves HTML with item titles, numbers, and attachment links. Parse HTML rather than expecting JSON.
@@ -303,8 +305,13 @@ If **zero** substantive items exist — for example, the agenda packet is a titl
 **On failure of either gate** — do not proceed with tier classification or the per-item pipeline. Instead:
 
 1. Set `briefing_status: "awaiting_agenda"`.
-2. Populate `executive_summary` with a brief check-back message, e.g.:
-   _"The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it."_
+2. Populate `executive_summary` with the brief check-back message in `lead_in` and an empty `items: []` array:
+   ```json
+   {
+     "lead_in": "The agenda for the upcoming [Council Body] meeting on [date] has not been published yet. Check back closer to the meeting date, or upload the agenda PDF directly if you already have it.",
+     "items": []
+   }
+   ```
 3. Record the decision in `run_metadata.run_decisions[]`. Use reason `"packet_not_published"` for Gate A failures and `"agenda_no_substantive_items"` for Gate B failures.
 4. Emit an `items[]` array with **a single placeholder entry** shaped exactly:
    - `id: "item_001"`
@@ -955,8 +962,32 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `meeting_name`: the official name of the meeting body as the source refers to it (e.g. `"City Council"`, `"Planning Board"`). Use the body label as it appears on the streaming platform or the city's published meeting schedule; do not paraphrase. For `no_meeting_found` or `error` status, emit an empty string. Used as the list-row title in the candidate dashboard.
 - `location`: the customary location for the meeting (e.g. `"City Hall Council Chambers, 200 Main St"`). Capture from the platform's meeting detail page, the city's published meeting schedule, or the agenda packet header — whichever you consulted in Step 2. If only a building is given without a room, use the building plus street address. **If no source consulted for this run mentions a venue at all** (a realistic case for `agenda_provided_by_user` when the user-supplied PDF has no header), emit an empty string and record the decision in `run_metadata.run_decisions[]`. Do not fabricate a location from general knowledge. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_date`: `YYYY-MM-DD`. For `agenda_provided_by_user` or `awaiting_agenda` runs, this is the target meeting date; for `no_meeting_found` it may be an estimated next date.
+- `meeting_time`: start time of the meeting in 24-hour `HH:MM` format, in the local timezone given by `meeting_timezone` (e.g. `"19:00"`). Capture from the same source you used for `meeting_date` (streaming platform meeting detail, city meeting schedule, or agenda packet header). Briefings own this independently of `meeting_schedule` so the row is self-sufficient. For `no_meeting_found` or `error` status, emit an empty string.
+- `meeting_timezone`: IANA timezone name for `meeting_time` (e.g. `"America/Chicago"`). Use the timezone the governing body publishes the meeting in, not UTC. If only an abbreviation like `"CST"` or `"Eastern Time"` is visible on the source, resolve to the matching IANA zone for the city's location. For `no_meeting_found` or `error` status, emit an empty string.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
-- `executive_summary`: a single brief framing sentence at the top of the briefing. Generated, not boilerplate — adapt to what was actually found in the agenda. Length 15–25 words. Default form: _"The following items on your agenda require action and/or have a vote."_ Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. Stay factual; the voice and tone rules apply (this is **not** an approved posture override).
+- `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each entry reflects what the deep dive actually says. A structured object with `lead_in` (a single framing sentence) and `items` (an array, one entry per **featured** item — not queued, not standard, in the same order they appear in top-level `items[]`). Each `executive_summary.items[]` entry carries: `item_id` (must match an entry in top-level `items[]` with `tier: "featured"` — the UI uses this to link the entry to its deep-dive panel), `title` (must **verbatim equal** `items[item_id].title`; do not paraphrase or shorten), and `overview` (a one-sentence distillation of `items[item_id].display.summary` — same facts, tighter framing, so the lead-of-briefing matches the deep dive). Default `lead_in` when items follow: _"The following items on your agenda require action and/or have a vote:"_ (with trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, set `items: []` and use a standalone `lead_in` covering the case (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Per-field caps enforced by the schema: `lead_in` 300 chars, `title` 100 chars (must match `items[].title`), `overview` 300 chars; max 5 entries. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
+  ```json
+  {
+    "lead_in": "The following items on your agenda require action and/or have a vote:",
+    "items": [
+      {
+        "item_id": "item_007",
+        "title": "Short-term rental ordinance",
+        "overview": "First full vote on a citywide ordinance requiring short-term rental operators to register, carry liability insurance, and cap whole-home rentals at 90 nights per year."
+      },
+      {
+        "item_id": "item_012",
+        "title": "Lincoln Park renovation bond",
+        "overview": "Authorization vote on a $6.8M general obligation bond to fund the Lincoln Park renovation: new playground, accessible paths, restrooms, and stormwater retention."
+      },
+      {
+        "item_id": "item_015",
+        "title": "Senior transit subsidy pilot",
+        "overview": "Vote to authorize a 12-month pilot program subsidizing on-demand transit rides for residents 65+ within city limits."
+      }
+    ]
+  }
+  ```
 - `run_metadata`:
   ```json
   {

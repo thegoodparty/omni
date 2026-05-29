@@ -1,0 +1,162 @@
+{
+  "_comment": "Single source of truth for QA rules. Edit here only — qa_validate.py reads this at runtime.",
+  "product_type": "meeting_briefing",
+  "spec_version": "1.2",
+
+  "identity_fields": ["official_name", "meeting_date", "briefing_type"],
+
+  "priority_filter": {
+    "field": "tier",
+    "value": "featured"
+  },
+
+  "priority_required_status": "briefing_ready",
+
+  "product_id_template": "{official_name}_{meeting_date}",
+
+  "claim_types": {
+    "budget_number":          { "weight": "high",   "blockable": true  },
+    "date_or_deadline":       { "weight": "high",   "blockable": true  },
+    "legal_identifier":       { "weight": "high",   "blockable": true  },
+    "named_person_or_role":   { "weight": "high",   "blockable": true  },
+    "vote_or_decision_fact":  { "weight": "high",   "blockable": true  },
+    "meeting_logistics":      { "weight": "high",   "blockable": true  },
+    "constituent_priority":   { "weight": "medium", "blockable": false },
+    "background_context":     { "weight": "medium", "blockable": false },
+    "campaign_commitment":    { "weight": "medium", "blockable": false },
+    "advice":                 { "weight": "low",    "blockable": false },
+    "synthesis":              { "weight": "low",    "blockable": false }
+  },
+
+  "accuracy_categories": {
+    "ok":     ["Accurate", "Directionally Consistent", "Extrapolating", "Modeled"],
+    "not_ok": ["Not in Source — Verified Elsewhere", "Not in Source — Unresolved", "Incorrect", "Unverifiable"]
+  },
+
+  "prohibited_phrases": [
+    {"name": "push_for",         "pattern": "\\bPush for\\b"},
+    {"name": "ensure_that",      "pattern": "\\bEnsure that\\b"},
+    {"name": "make_clear_that",  "pattern": "\\bMake clear that\\b"},
+    {"name": "demand",           "pattern": "\\bDemand\\b"},
+    {"name": "insist",           "pattern": "\\bInsist\\b"},
+    {"name": "frame_your",       "pattern": "\\bFrame your\\b"}
+  ],
+
+  "prohibited_phrase_paths": [
+    "executive_summary.lead_in",
+    "items[].display.executive_summary_overview",
+    "items[].display.summary"
+  ],
+
+  "substring_check": {
+    "fuzzy_threshold": 90
+  },
+
+  "_coherence_check_comment": "Per-item coherence between display.summary and the item's combined source_extracts. Verdict: warn when BOTH TF-IDF cosine AND containment fall below their thresholds AND a semantic embedding cosine (when available) does not rescue the item above embedding_check.rescue_threshold. The lexical AND guards against single-metric false positives; the embedding rescue guards against the residual paraphrase false-positive that lexical metrics can't distinguish from drift. ROUGE-L is recorded per item in qa_bundle.details for diagnostic value but does NOT drive the verdict (brittle n-gram metric that penalizes faithful paraphrasing). Thresholds calibrated against Round-4 Kemah artifact 2026-05-18 — variants A–D pass, variants E–I fail.",
+  "coherence_check": {
+    "enabled": true,
+    "tfidf_threshold": 0.30,
+    "containment_threshold": 0.50
+  },
+
+  "_embedding_check_comment": "Semantic rescue signal for summary_source_coherence. When both lexical signals (TF-IDF and containment) fall below their thresholds, qa_validate.py computes a sentence-embedding cosine via the named local model and downgrades the warn to pass when embedding_cosine >= rescue_threshold. Catches faithful paraphrases where the summary uses different vocabulary than the source extracts to express the same meaning. Set enabled:false to revert to lexical-only behavior. all-MiniLM-L6-v2 default is ~22MB, runs on CPU, deterministic per model version. Rescue threshold 0.70 is a defensible starting point — paraphrases of the same fact typically cluster in [0.70, 0.95], topical-but-different sentences in [0.40, 0.65]; recalibrate against the Kemah variant suite if model is changed.",
+  "embedding_check": {
+    "enabled": true,
+    "model": "all-MiniLM-L6-v2",
+    "rescue_threshold": 0.70
+  },
+
+  "_judges_comment": "Phase 1 and Phase 2 judges by name. Names resolve via the QA_JUDGES env var (format: name:provider:model,...). Same-family Anthropic (Sonnet Phase 1 + Opus Phase 2 with adversarial system prompt) is the in-Fargate production path — broker proxies Anthropic only, no cross-family egress. Cross-family (Anthropic + Google/OpenAI) is preferred for independent second-opinion when both providers are reachable; deferred until/if a broker route for Google or other providers exists.",
+  "judges": {
+    "phase1": "claude",
+    "phase2": "opus"
+  },
+
+  "_completeness_comment": "min_executive_summary_chars is measured as len(executive_summary.lead_in) + sum(len(it.overview) for it in executive_summary.items). 250 covers a tight single-featured agenda (~70 lead + ~180 overview) and is well under the 3-item prototype (~620). Ceremonial agendas with items: [] still pass when the standalone lead_in is substantive; otherwise warn.",
+  "completeness": {
+    "min_priority_items": 1,
+    "target_priority_items": 3,
+    "min_executive_summary_chars": 250,
+    "min_overview_chars_per_priority_item": 80,
+    "min_total_prose_words": 300
+  },
+
+  "_polish_comment": "Deterministic regex polish on EO-facing prose. Findings are annotations (never block); the agent reads qa_bundle.json and can fix specific locations via the per-finding 'path' field, then re-run. Patterns are intentionally conservative — false positives are worse than misses for a non-blocking check.",
+  "polish_patterns": [
+    {"name": "doubled_word",       "pattern": "\\b(\\w+)\\s+\\1\\b", "case_insensitive": true},
+    {"name": "double_space",       "pattern": "  +"},
+    {"name": "common_typo_teh",    "pattern": "\\bteh\\b",           "case_insensitive": true},
+    {"name": "common_typo_adn",    "pattern": "\\badn\\b",           "case_insensitive": true},
+    {"name": "common_typo_recieve","pattern": "\\brecieve\\b",       "case_insensitive": true},
+    {"name": "trailing_whitespace","pattern": " +$"}
+  ],
+
+  "deterministic_checks": [
+    {
+      "check_id": "identity_fields_present",
+      "description": "Every field in spec.identity_fields must be present and non-empty at the top level of the artifact",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "priority_count_nonzero",
+      "description": "When briefing_status matches priority_required_status, at least one item must match priority_filter",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "high_weight_claims_have_extracts",
+      "description": "Every high-weight or blockable claim must carry at least one non-empty source_extract",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "all_claims_have_provenance",
+      "description": "Every claim (regardless of weight) must carry at least one source_id AND at least one non-empty source_extract. Belt-and-suspenders with high_weight_claims_have_extracts which only covers the high-weight subset. Routes block if any failing claim is high-weight or blockable; annotates otherwise.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "citation_ids_resolve",
+      "description": "Every source_id referenced by a claim must resolve to a source in the artifact's sources[]",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "source_snapshots_present",
+      "description": "Every source must carry non-empty retrieved_text_or_snapshot content",
+      "route_if_fail": "annotate",
+      "severity": "medium"
+    },
+    {
+      "check_id": "prohibited_phrases",
+      "description": "Prose at the paths in prohibited_phrase_paths must not match any pattern in prohibited_phrases (talking_points and other override sections are exempt by being excluded from prohibited_phrase_paths)",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "extracts_appear_in_cited_source",
+      "description": "Every source_extract on a claim must appear (exact substring or fuzzy match >= substring_check.fuzzy_threshold) in the retrieved_text_or_snapshot of at least one of the claim's cited source_ids. Search is bounded to cited sources only — never wanders. High-weight failures block; lower-weight failures annotate.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "summary_source_coherence",
+      "description": "Per priority item, summary vs combined source_extracts is scored on TF-IDF cosine AND containment. Warns when BOTH below thresholds in coherence_check (independent signals must agree). Catches summaries that drifted from cited evidence. ROUGE-L is logged per item as info-only.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "completeness_floor",
+      "description": "Artifact must meet the floors declared in spec.completeness (min priority items, min character lengths, min total prose words). Floors are minimums, not goals — most briefings should comfortably exceed them.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "polish_grammar",
+      "description": "Deterministic regex polish on EO-facing prose fields (executive_summary, per-item summary/budget/sentiment summaries, talking_points). Catches doubled words, double spaces, common typos, trailing whitespace. Never blocks; each finding carries a path so the agent can locate and fix it before final write.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    }
+  ]
+}
