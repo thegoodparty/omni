@@ -164,13 +164,16 @@ def test_zero_fragments_uncontested(tmp_path):
 def test_candidate_name_present_fails(tmp_path):
     params = _base_params()
     bad = _fragment_with_facts()
-    bad["markdown_block"] = bad["markdown_block"] + "\n  - Maria Sanchez is the favorite."
+    # Inject a DIFFERENT-case spelling than the param ("Maria Sanchez") so this
+    # exercises the case-insensitive `.lower()` check specifically — a plain
+    # substring check would not catch "maria sanchez".
+    bad["markdown_block"] = bad["markdown_block"] + "\n  - maria sanchez is the favorite."
     ws = _setup_workspace(tmp_path, [bad], params)
     proc = _run(ws, params)
 
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert proc.stdout.strip().startswith("FAIL:")
-    assert "Maria Sanchez".lower() in proc.stdout.lower() or "candidate" in proc.stdout.lower()
+    assert "candidate name 'Maria Sanchez' appears" in proc.stdout
     art = _artifact(ws)
     assert art["race"]["opponent_count"] == 1
 
