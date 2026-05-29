@@ -133,6 +133,11 @@
           "minimum": 0,
           "maximum": 8,
           "description": "Opt-in for parallel research fan-out. When > 0, the harness wires a 'researcher' subagent (inheriting the parent's tools, model, permission mode, and broker MCP scope) and the parent may dispatch up to this many concurrently via the Agent tool to research independent items in parallel. 0 or omitted disables fan-out. The harness clamps to its own hard ceiling (8); higher values are reduced."
+        },
+        "max_thinking_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Extended-thinking control. Omitted = the bundled CLI default (thinking on), which generates reasoning tokens every turn and is the dominant wall-clock cost on long research+assemble runs. 0 = disable thinking entirely. > 0 = enable with that token budget. Lower/disable for mechanical, tool-heavy experiments where step-by-step reasoning isn't needed."
         }
       }
     }
