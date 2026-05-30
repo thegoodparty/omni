@@ -1,7 +1,17 @@
 {
   "_comment": "Single source of truth for QA rules. Edit here only — qa_validate.py reads this at runtime.",
   "product_type": "meeting_briefing",
-  "spec_version": "1.2",
+  "spec_version": "1.3-ws2",
+
+  "_output_format_comment": "WS2 routing backbone. type drives which validation families the spine runs for this artifact shape; structured_json means the artifact is a single JSON object validated by jsonschema (Layer 1) plus the claim/source deterministic checks. schema.manifest_path is repo-relative; when present, Layer-1 jsonschema validation runs against that manifest's output_schema before any other check. inline_citation_pattern is the regex the generic inline-citation extractor uses to pull citation tokens out of prose (meeting_briefing cites via bracketed source ids like [src_1]).",
+  "output_format": {
+    "type": "structured_json",
+    "schema": {
+      "manifest_path": "experiments/meeting_briefing/manifest.json",
+      "schema_key": "output_schema"
+    },
+    "inline_citation_pattern": "\\[(?:src[_-]?)?[A-Za-z]*\\d+\\]"
+  },
 
   "identity_fields": ["official_name", "meeting_date", "briefing_type"],
 
@@ -66,6 +76,29 @@
     "rescue_threshold": 0.70
   },
 
+  "_structured_validators_comment": "WS2 P0. Per-claim-type opt-in deterministic extraction + exact match for high-stakes literals. For each declared claim_type, the spine extracts every token of the named kind from claim_text and requires each to appear, normalized, in the retrieved_text_or_snapshot of at least one cited source. kind is one of: money, date, name, vote_count, legal_citation, percentage. rounding_tolerance (money/percentage only) permits a numeric delta; absent or 0 means exact. These are extraction rules, not calibrated thresholds — the only numeric (rounding_tolerance) is 0 (exact) here because no rounding behavior was prompt-derivable; any non-zero tolerance must come from a committed fixture, never invented. Violations on high-weight/blockable claim types block; others annotate.",
+  "structured_validators": {
+    "budget_number":    { "kind": "money",          "rounding_tolerance": 0 },
+    "date_or_deadline": { "kind": "date" },
+    "vote_count":       { "kind": "vote_count" },
+    "legal_citation":   { "kind": "legal_citation" },
+    "named_person_or_role": { "kind": "name" }
+  },
+
+  "_source_hierarchy_comment": "WS2 P0. Spec-declared claim_type -> allowed source_types. A claim of a listed type may only cite sources whose source_type is in its allow-list; a violating claim is flagged. A claim_type with NO entry here yields a non-blocking diagnostic that surfaces the policy gap (not a hard block, not silent-allow). source_type values match the manifest output_schema source enum: agenda_packet, news, government_website, campaign, haystaq.",
+  "source_hierarchy": {
+    "budget_number":   ["agenda_packet", "government_website"],
+    "vote_count":      ["agenda_packet", "government_website"],
+    "legal_citation":  ["agenda_packet", "government_website"],
+    "date_or_deadline":["agenda_packet", "government_website"]
+  },
+
+  "_embedding_rescue_blocklist_comment": "WS2 P0. Deny-list of claim_types for which the summary_source_coherence embedding rescue is forbidden: numbers, dates, names, vote counts, legal citations, and allegations must never be rescued by semantic similarity (embedding cosine is brittle against small factual swaps, e.g. $1.8M vs $2M scoring ~0.99). When ANY claim feeding an item's coherence comparison is of a blocklisted type, the embedding rescue is refused for that item and the lexical verdict stands. Absence from this list means a type stays rescuable.",
+  "embedding_rescue_blocklist": [
+    "budget_number", "date_or_deadline", "named_person_or_role",
+    "vote_count", "legal_citation", "allegation"
+  ],
+
   "_judges_comment": "Phase 1 and Phase 2 judges by name. Names resolve via the QA_JUDGES env var (format: name:provider:model,...). Same-family Anthropic (Sonnet Phase 1 + Opus Phase 2 with adversarial system prompt) is the in-Fargate production path — broker proxies Anthropic only, no cross-family egress. Cross-family (Anthropic + Google/OpenAI) is preferred for independent second-opinion when both providers are reachable; deferred until/if a broker route for Google or other providers exists.",
   "judges": {
     "phase1": "claude",
@@ -78,7 +111,22 @@
     "target_priority_items": 3,
     "min_executive_summary_chars": 250,
     "min_overview_chars_per_priority_item": 80,
-    "min_total_prose_words": 300
+    "min_total_prose_words": 300,
+    "_field_paths_comment": "WS2 decouple. completeness_floor walks these spec-declared paths instead of hard-coded meeting_briefing field names. exec_summary_overview_paths feed the executive-summary length measurement; total_prose_paths feed the word-count measurement. Paths use the _values_at_path notation (parent.items[].leaf). When exec_summary_overview_paths is absent/empty, the exec-summary length sub-check warns (skip-with-warning) instead of silently undercounting. priority_item_overview_field is the per-priority-item display field measured against min_overview_chars_per_priority_item.",
+    "field_paths": {
+      "lead_in_path": "executive_summary.lead_in",
+      "exec_summary_overview_paths": ["items[].display.executive_summary_overview"],
+      "_exec_summary_overview_scope_comment": "Only items[] entries matching priority_filter (tier==featured) contribute their overview to the exec-summary length. Queued/standard items must never inflate the count even if they carry a (schema-invalid) overview.",
+      "exec_summary_overview_scope": "priority_filter",
+      "priority_item_overview_field": "summary",
+      "total_prose_paths": [
+        "executive_summary.lead_in",
+        "items[].display.executive_summary_overview",
+        "items[].display.summary",
+        "items[].display.budget_impact.summary",
+        "items[].display.constituent_sentiment.summary"
+      ]
+    }
   },
 
   "_polish_comment": "Deterministic regex polish on EO-facing prose. Findings are annotations (never block); the agent reads qa_bundle.json and can fix specific locations via the per-finding 'path' field, then re-run. Patterns are intentionally conservative — false positives are worse than misses for a non-blocking check.",
@@ -92,6 +140,24 @@
   ],
 
   "deterministic_checks": [
+    {
+      "check_id": "schema_validation",
+      "description": "WS2 Layer-1. jsonschema (draft-07) validation of the whole artifact against the manifest output_schema named by output_format.schema, run before any other check. Hard-fails (block) on shape drift. Skipped with a warning when output_format.schema is absent or the manifest/jsonschema is unavailable. Does not re-penalize artifacts already blocked by load (invalid JSON) — those never reach Layer 1.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "high_stakes_structured_match",
+      "description": "WS2 P0. Per-claim-type (structured_validators) deterministic extraction + exact match for high-stakes literals (money, dates, names, vote counts, legal citations, percentages). Every literal of the declared kind in claim_text must appear, normalized, in a cited source snapshot. High-weight/blockable claim-type failures block; others annotate.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "source_hierarchy_policy",
+      "description": "WS2 P0. Spec-declared claim_type -> allowed source_types (source_hierarchy). A claim citing a source whose source_type is not allowed for its claim_type is flagged; high-weight/blockable violations block, others annotate. A claim_type with no source_hierarchy entry yields a non-blocking diagnostic surfacing the policy gap.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
     {
       "check_id": "identity_fields_present",
       "description": "Every field in spec.identity_fields must be present and non-empty at the top level of the artifact",
