@@ -1,0 +1,62 @@
+{
+  "_fixture_note": "Synthetic known-bad briefing. Reproduces the failure mode that correctly blocked one real briefing in the 2026-05-29 frozen 488 run (UUID 019e7352-c13c-755d-ac59-73547980c246): a high-weight claim whose source_extract does not appear in its cited source. Synthetic and PII-free by design — locks the extracts_appear_in_cited_source safeguard without committing real constituent data.",
+  "experiment_id": "meeting_briefing",
+  "briefing_type": "city_council_meeting",
+  "briefing_status": "briefing_ready",
+  "generated_at": "2026-05-28T00:00:00Z",
+  "official_name": "Fixture Official",
+  "meeting_name": "Town Council",
+  "location": "Town Hall",
+  "meeting_date": "2026-06-01",
+  "estimated_read_minutes": 5,
+  "executive_summary": {
+    "lead_in": "The following items on your agenda require action and/or have a vote, and one carries an unsupported claim.",
+    "items": [
+      {
+        "item_id": "item_001",
+        "title": "Stadium Bond Authorization",
+        "overview": "Vote to authorize a bond for the proposed stadium project, with a claimed amount not found in the cited agenda packet."
+      }
+    ]
+  },
+  "run_metadata": {
+    "agenda_packet_url": null,
+    "source_bundle_retrieved_at": "2026-05-28T00:00:00Z"
+  },
+  "items": [
+    {
+      "id": "item_001",
+      "item_number": "1",
+      "title": "Stadium Bond Authorization",
+      "tier": "featured",
+      "vote_required": true,
+      "tier_reason": ["vote_required"],
+      "display": {
+        "summary": "The council will vote to authorize a bond for the proposed stadium project at this meeting."
+      },
+      "research": {"raw_context": [], "full_treatment": null}
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim_001",
+      "item_id": "item_001",
+      "claim_type": "vote_or_decision_fact",
+      "claim_weight": "high",
+      "claim_text": "The committee approved a $5 million bond for the new stadium project.",
+      "source_ids": ["src_1"],
+      "source_extracts": [
+        {"text": "The committee approved a $5 million bond for the new stadium project.", "extract_type": "quote"}
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "src_1",
+      "source_type": "agenda_packet",
+      "retrieved_text_or_snapshot": "Agenda item 1: discussion of park maintenance schedules, tree trimming, and routine facility upkeep for the coming quarter."
+    }
+  ],
+  "required_data_points": [],
+  "disclosure": "Synthetic fixture for QA spine regression testing."
+}
