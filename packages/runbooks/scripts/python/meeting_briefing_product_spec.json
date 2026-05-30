@@ -58,6 +58,20 @@
     "items[].display.summary"
   ],
 
+  "_citation_paths_comment": "Prose paths the new Layer A citation checks (citation_label_url_coherence, social_media_citation, urls_resolve) scan for inline [Label](URL) citations. Meeting briefings rarely embed inline citations (provenance lives in claims[]/sources[] instead), so this list is empty by default — the checks self-skip when empty. Populate per-product when a product produces inline-cited prose.",
+  "citation_paths": [],
+
+  "_label_domain_map_comment": "Label-to-expected-host map for citation_label_url_coherence. Empty for meeting_briefing; populated for products that cite external publishers.",
+  "label_domain_map": {},
+
+  "_url_check_comment": "Opt-in HTTP liveness for cited URLs. enabled:false means urls_resolve self-skips even when --check-urls is passed.",
+  "url_check": {
+    "enabled": false,
+    "timeout_seconds": 5,
+    "parallel": 8,
+    "user_agent": "qa-spine-url-check/0.1"
+  },
+
   "substring_check": {
     "fuzzy_threshold": 90
   },
@@ -223,6 +237,24 @@
       "description": "Deterministic regex polish on EO-facing prose fields (executive_summary, per-item summary/budget/sentiment summaries, talking_points). Catches doubled words, double spaces, common typos, trailing whitespace. Never blocks; each finding carries a path so the agent can locate and fix it before final write.",
       "route_if_fail": "annotate",
       "severity": "low"
+    },
+    {
+      "check_id": "citation_label_url_coherence",
+      "description": "Inline [Label](URL) citations on spec.citation_paths must point at a host matching spec.label_domain_map. Self-skips when either is empty.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "social_media_citation",
+      "description": "Inline citations on spec.citation_paths must not point at social-media hosts (Twitter/X, Facebook, Instagram, TikTok). Self-skips when citation_paths is empty.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "urls_resolve",
+      "description": "Opt-in via --check-urls CLI flag AND spec.url_check.enabled. HEAD probe (with GET retry on 403/405) every URL cited inline on spec.citation_paths; non-200 surfaces as a warning. Self-skips when either gate is off.",
+      "route_if_fail": "annotate",
+      "severity": "medium"
     }
   ]
 }

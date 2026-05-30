@@ -37,11 +37,15 @@ import math
 import os
 import re
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Iterator, Literal, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -643,11 +647,70 @@ def _embedding_cosine(a_text: str, b_text: str, model_name: str) -> float | None
         return None
 
 
+# ── Layer A helpers (citations, host normalization, template expansion) ──────
+
+# Wikipedia-style inline citations. Two valid forms produced by prompts that
+# cite externally: [Label](URL) and the URL-less marker [GoodParty.org Data].
+# URL-less markers are not matched here; checks that need them pattern-match
+# the bare label separately.
+_CITATION_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+
+_SOCIAL_HOSTS: frozenset[str] = frozenset({
+    "twitter.com", "x.com", "facebook.com", "instagram.com", "tiktok.com",
+})
+
+
+def _extract_citations(text: str) -> list[tuple[str, str]]:
+    return _CITATION_RE.findall(text or "")
+
+
+def _normalize_host(url: str) -> str:
+    host = (urllib.parse.urlparse(url).hostname or "").casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _iter_prose_at_paths(artifact: dict, paths: list[str]) -> Iterator[tuple[str, str]]:
+    """Yield (path, text) for each spec-declared prose path that resolves to
+    non-empty string(s). Per-path iteration preserves the source path so
+    findings can report exactly where a problem lives."""
+    for path in paths:
+        for value in _values_at_path(artifact, path):
+            yield (path, value)
+
+
+def _resolve_pattern_template(pattern: str, artifact: dict) -> tuple[Optional[str], list[str]]:
+    """Substitute `{{key}}` placeholders in a regex pattern with re.escape of
+    the artifact's top-level string value at that key. Returns
+    (resolved_pattern, missing_keys). If any referenced key is missing or
+    empty, returns (None, [missing_keys]) so the caller can skip the pattern.
+
+    Top-level string values only. Patterns without placeholders pass through
+    unchanged. Substituted values are re.escape'd so the spec author does not
+    have to worry about regex-special characters in the artifact data."""
+    missing: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        key = m.group(1).strip()
+        value = artifact.get(key)
+        if not isinstance(value, str) or not value:
+            missing.append(key)
+            return ""
+        return re.escape(value)
+
+    resolved = re.sub(r"\{\{([^{}]+)\}\}", _sub, pattern)
+    if missing:
+        return None, missing
+    return resolved, []
+
+
 # ── Deterministic checks ──────────────────────────────────────────────────────
 
 def run_deterministic(
     artifact: dict,
     spec: dict,
+    check_urls: bool = False,
 ) -> list[DeterministicCheck]:
     results: list[DeterministicCheck] = []
     items = artifact.get("items") or []
@@ -840,6 +903,10 @@ def run_deterministic(
     # 6. Prohibited phrases — scan the spec-declared prose paths
     #    (Sections like talking_points with a posture override are EXCLUDED by
     #    being absent from spec.prohibited_phrase_paths.)
+    #    Patterns may include `{{key}}` placeholders that interpolate top-level
+    #    artifact string values (re.escape'd) before regex compile. Lets a spec
+    #    express runtime-variable rules like "never mention {{candidate_name}}"
+    #    without code changes.
     phrase_specs = spec.get("prohibited_phrases") or []
     path_specs = spec.get("prohibited_phrase_paths") or []
     prose_parts: list[str] = []
@@ -847,11 +914,24 @@ def run_deterministic(
         prose_parts.extend(_values_at_path(artifact, p))
     prose = " ".join(prose_parts)
     hit_names: list[str] = []
+    skipped_patterns: list[dict] = []
     for entry in phrase_specs:
         name = entry.get("name") or entry.get("pattern", "<unnamed>")
         pattern = entry.get("pattern", "")
-        if pattern and re.search(pattern, prose, re.IGNORECASE):
+        if not pattern:
+            continue
+        if "{{" in pattern:
+            resolved, missing_keys = _resolve_pattern_template(pattern, artifact)
+            if resolved is None:
+                skipped_patterns.append({"name": name, "missing_keys": missing_keys})
+                continue
+            pattern = resolved
+        if re.search(pattern, prose, re.IGNORECASE):
             hit_names.append(name)
+    phrase_details = {
+        "paths_scanned": path_specs,
+        "skipped_patterns": skipped_patterns,
+    }
     if hit_names:
         results.append(DeterministicCheck(
             check_id="prohibited_phrases",
@@ -863,6 +943,7 @@ def run_deterministic(
             ),
             route="annotate",
             offending="; ".join(hit_names),
+            details=phrase_details,
         ))
     else:
         results.append(DeterministicCheck(
@@ -870,6 +951,7 @@ def run_deterministic(
             status="pass", severity="info",
             message=f"No prohibited phrases found across {len(path_specs)} prose path(s)",
             route="pass",
+            details=phrase_details,
         ))
 
     # 7. extracts_appear_in_cited_source — bounded to cited sources only,
@@ -1501,6 +1583,202 @@ def run_deterministic(
                 route="pass",
                 details=polish_details,
             ))
+
+    # 11. citation_label_url_coherence — inline [Label](URL) citations whose
+    #     label maps to a known publisher (Wikipedia, Ballotpedia, etc.) must
+    #     point at one of that publisher's hosts. Catches drift like
+    #     `[Wikipedia](nytimes.com)`. Spec-driven via label_domain_map and
+    #     citation_paths; skipped entirely when either is absent.
+    label_domain_map: dict = spec.get("label_domain_map") or {}
+    citation_paths: list[str] = spec.get("citation_paths") or []
+    if label_domain_map and citation_paths:
+        # Sort label patterns longest-first so "Twitter" matches before a shorter
+        # overlapping label like "T" would.
+        sorted_labels = sorted(
+            label_domain_map.items(), key=lambda kv: len(kv[0]), reverse=True
+        )
+        mismatches: list[dict] = []
+        cite_count = 0
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                cite_count += 1
+                host = _normalize_host(url)
+                label_l = label.strip().casefold()
+                for label_pattern, expected_domains in sorted_labels:
+                    if label_pattern.casefold() not in label_l:
+                        continue
+                    expected_l = [d.casefold() for d in (expected_domains or [])]
+                    if expected_l and not any(host.endswith(d) for d in expected_l):
+                        mismatches.append({
+                            "path": path,
+                            "label": label,
+                            "url": url,
+                            "host": host,
+                            "expected_label": label_pattern,
+                            "expected_domains": expected_domains,
+                        })
+                    break  # longest match wins; do not double-flag
+        coh_details = {
+            "citations_scanned": cite_count,
+            "label_patterns": list(label_domain_map.keys()),
+            "mismatches": mismatches,
+        }
+        if mismatches:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="warning", severity="low",
+                message=(
+                    f"{len(mismatches)} citation(s) where label and URL host do not align "
+                    f"per label_domain_map"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{m['label']}]({m['url']}) at {m['path']}" for m in mismatches[:5]
+                ),
+                details=coh_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="pass", severity="info",
+                message=f"All {cite_count} citation(s) match label_domain_map expectations",
+                route="pass",
+                details=coh_details,
+            ))
+
+    # 12. social_media_citation — social URLs in citation positions are not
+    #     factual provenance; they belong in a websites[] / handles[] structure.
+    #     Skipped when citation_paths is not declared.
+    if citation_paths:
+        social_findings: list[dict] = []
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                host = _normalize_host(url)
+                if host in _SOCIAL_HOSTS:
+                    social_findings.append({"path": path, "label": label, "url": url, "host": host})
+        social_details = {
+            "social_hosts": sorted(_SOCIAL_HOSTS),
+            "findings": social_findings,
+        }
+        if social_findings:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="warning", severity="low",
+                message=(
+                    f"{len(social_findings)} citation(s) point at social-media hosts; "
+                    "these are handles, not factual sources"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{f['label']}]({f['url']}) at {f['path']}"
+                    for f in social_findings[:5]
+                ),
+                details=social_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="pass", severity="info",
+                message="No social-media URLs found in citation positions",
+                route="pass",
+                details=social_details,
+            ))
+
+    # 13. urls_resolve — opt-in HTTP liveness probe for every cited URL.
+    #     Runs only when both check_urls=True (CLI flag) AND
+    #     spec.url_check.enabled is true. HEAD with GET retry on 403/405.
+    #     Network errors degrade gracefully to a single skip-finding rather
+    #     than per-URL noise.
+    url_check_cfg = spec.get("url_check") or {}
+    if check_urls and url_check_cfg.get("enabled", False) and citation_paths:
+        timeout = float(url_check_cfg.get("timeout_seconds", 5))
+        parallel = int(url_check_cfg.get("parallel", 8))
+        user_agent = str(url_check_cfg.get("user_agent", "qa-spine-url-check/0.1"))
+
+        url_to_paths: dict[str, list[str]] = {}
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for _, url in _extract_citations(text):
+                url_to_paths.setdefault(url, []).append(path)
+        unique_urls = sorted(url_to_paths.keys())
+
+        def _probe(url: str) -> tuple[Optional[int], Optional[str]]:
+            headers = {"User-Agent": user_agent}
+            try:
+                req = urllib.request.Request(url, method="HEAD", headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.status, None
+            except urllib.error.HTTPError as e:
+                if e.code in (403, 405):
+                    try:
+                        req = urllib.request.Request(url, method="GET", headers=headers)
+                        with urllib.request.urlopen(req, timeout=timeout) as resp:
+                            return resp.status, None
+                    except urllib.error.HTTPError as e2:
+                        return e2.code, str(e2)
+                    except Exception as e2:
+                        return None, str(e2)
+                return e.code, str(e)
+            except urllib.error.URLError as e:
+                return None, f"URLError: {e.reason}"
+            except Exception as e:
+                return None, f"{type(e).__name__}: {e}"
+
+        results_by_url: dict[str, tuple[Optional[int], Optional[str]]] = {}
+        if unique_urls:
+            try:
+                with ThreadPoolExecutor(max_workers=parallel) as ex:
+                    for url, outcome in zip(unique_urls, ex.map(_probe, unique_urls)):
+                        results_by_url[url] = outcome
+            except Exception as e:
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="warning", severity="low",
+                    message=f"URL liveness check skipped: {type(e).__name__}: {e}",
+                    route="annotate",
+                    details={"urls_total": len(unique_urls), "error": str(e)},
+                ))
+                results_by_url = {}
+
+        failures: list[dict] = []
+        for url, (status_code, err) in results_by_url.items():
+            if status_code == 200:
+                continue
+            failures.append({
+                "url": url,
+                "status": status_code,
+                "error": err,
+                "paths": url_to_paths.get(url, []),
+            })
+        url_details = {
+            "checked": len(results_by_url),
+            "unique_urls": len(unique_urls),
+            "timeout_seconds": timeout,
+            "parallel": parallel,
+            "failures": failures,
+        }
+        if results_by_url:
+            if failures:
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="warning", severity="medium",
+                    message=(
+                        f"{len(failures)} of {len(results_by_url)} cited URL(s) "
+                        "did not return HTTP 200"
+                    ),
+                    route="annotate",
+                    offending="; ".join(
+                        f"{f['url']} → {f['status']}" for f in failures[:5]
+                    ),
+                    details=url_details,
+                ))
+            else:
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="pass", severity="info",
+                    message=f"All {len(results_by_url)} cited URL(s) returned HTTP 200",
+                    route="pass",
+                    details=url_details,
+                ))
 
     return results
 
@@ -2169,6 +2447,15 @@ def main() -> None:
             "the verdict from qa_bundle.json and decide policy themselves."
         ),
     )
+    parser.add_argument(
+        "--check-urls",
+        action="store_true",
+        help=(
+            "Opt-in HTTP liveness probe for every cited URL on spec.citation_paths. "
+            "Requires spec.url_check.enabled=true; off by default to keep the "
+            "validator offline-runnable."
+        ),
+    )
     args = parser.parse_args()
 
     _load_env()
@@ -2210,7 +2497,7 @@ def main() -> None:
 
     # 2. Deterministic
     print("[2/4] Deterministic checks...")
-    det_checks = load_checks + run_deterministic(artifact, spec)
+    det_checks = load_checks + run_deterministic(artifact, spec, check_urls=args.check_urls)
     det_fails = [c for c in det_checks if c.status == "fail"]
     det_warns = [c for c in det_checks if c.status == "warning"]
     print(f"  {len(det_fails)} failures, {len(det_warns)} warnings")
