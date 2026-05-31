@@ -96,7 +96,11 @@ vote-{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
 vote{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
 ```
 
-Hand this whole pattern set to the domain-search tool; let gp-api enforce ordering. Do not enumerate variants client-side — the tool's job is to find the cheapest available match.
+**TLD allowlist is strict.** Only `run`, `bio`, `fyi`, `win`, `digital`, `site` are valid. Any other suffix (for example `.org`, `.com`, `.net`) is out of spec and must not be purchased.
+
+**Selection must cover the full catalog.** The domain-search request must use all approved patterns and all approved TLDs, and the search order must be randomized per run so the same subset is not repeatedly preferred. If your tool call would only evaluate a subset (for example, fixed ordering with early exit), treat that as a bad request and stop with blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`.
+
+Hand this whole pattern set to the domain-search tool in randomized order for the current run. Do not narrow the list client-side to a "best few" patterns. The tool's job is still to find the cheapest available in-budget match from the full approved catalog.
 
 ## Stage enum
 
@@ -330,4 +334,5 @@ Validator-passing JSON can still be misleading. Before declaring success:
 | Set `next_action.scheduled_for` in the past                          | Used `now` instead of `now + delay`                                   | Use `now + 30 minutes` for DNS waits, `now + 15 minutes` for Vercel waits, ISO 8601 with `Z` suffix                                                              |
 | Wrote `null` in any artifact field                                   | Default coalescing forgotten                                          | Use `""` for strings, `0` for numbers, `false` for booleans, `[]` for arrays. The validator rejects `null`                                                       |
 | Domain purchase 409, but blindly retried search + purchase          | Treated 409 as transient                                              | 409 means someone got there first (likely a duplicate dispatch). Re-read state via Step 1 and continue from the now-current stage                                |
+| Purchased a domain outside the approved TLD list (for example `.org`) | Domain search used a fallback/default suffix set instead of allowlist | Treat as out-of-spec. Stop with blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }` and do not purchase. |
 | Token expired mid-run                                                | Run exceeded broker actor-token TTL                                   | Write a terminal `error: { code: "token_expired", message: "broker actor token expired mid-run", occurred_at: "<ISO 8601 now>", tool: "" }` — all four fields required. The recovery loop will start a fresh run with a fresh token. |
