@@ -1,0 +1,259 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "opposition_research",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 80,
+  "timeout_seconds": 1200,
+  "runtime": {
+    "max_parallel_subagents": 20,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opposition Research input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "candidate_name",
+      "office_name",
+      "state",
+      "opponents"
+    ],
+    "properties": {
+      "candidate_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The person we write FOR. Referred to as 'you' in output, never by name."
+      },
+      "office_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Human-readable office name for web search, e.g. 'Hazleton City Government Study Commission'. Use this, not BallotReady normalizations."
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "2-letter state code (e.g. PA)."
+      },
+      "electionDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Election date (YYYY-MM-DD) or null if unknown."
+      },
+      "partisanType": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "partisan",
+          "nonpartisan",
+          null
+        ],
+        "description": "Race partisan type. nonpartisan means every opponent contests on the same ballot; drop party labels."
+      },
+      "isPrimary": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "description": "Whether this is a primary contest. null if unknown."
+      },
+      "opponents": {
+        "type": "array",
+        "description": "Seed roster of opponents, hydrated by gp-api before dispatch. The agent does NOT call election-api.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "firstName",
+            "lastName",
+            "source"
+          ],
+          "properties": {
+            "firstName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lastName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "party": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "isIncumbent": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "websiteUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "urls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "about": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Where this seed row came from, e.g. 'election-api'."
+            }
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opposition Research artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "markdown",
+      "opponents",
+      "race",
+      "generated_at"
+    ],
+    "properties": {
+      "markdown": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The exact '### Opposition Research' section per the runbook step-6 spec. No preamble, no closing summary."
+      },
+      "opponents": {
+        "type": "array",
+        "description": "Per-opponent structured research, one entry per researched opponent.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "full_name",
+            "incumbent",
+            "summary",
+            "facts",
+            "websites",
+            "no_info"
+          ],
+          "properties": {
+            "full_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "incumbent": {
+              "type": "string",
+              "enum": [
+                "Yes",
+                "No",
+                "Unknown"
+              ]
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "2-3 sentence profile grounded in verified sources, or null when no_info is true."
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text",
+                  "source_label",
+                  "url"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source_label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "url": {
+                    "type": "string",
+                    "pattern": "^https?://",
+                    "description": "Must have returned HTTP 200 via pmf_runtime.http.get."
+                  }
+                }
+              }
+            },
+            "websites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^https?://"
+              }
+            },
+            "no_info": {
+              "type": "boolean",
+              "description": "True when nothing was found beyond the name."
+            }
+          }
+        }
+      },
+      "race": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "office_name",
+          "state",
+          "partisanType",
+          "opponent_count"
+        ],
+        "properties": {
+          "office_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "partisanType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "partisan",
+              "nonpartisan",
+              null
+            ]
+          },
+          "opponent_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of researched opponents (excludes cross-primary candidates and the candidate themselves)."
+          }
+        }
+      },
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}
