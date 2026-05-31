@@ -13,11 +13,11 @@ Open a `develop → qa` PR per configured repo, wait for checks, merge it, then 
 
 ## Prerequisites
 
-**books/.env variables**: `$RELEASE_DEFAULT_REPOS`, `$RELEASE_REPOS_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`
-**scripts/.env variables**: `CLICKUP_API_KEY`
-**Tools**: `gh` (authenticated), `git`, `uv` (for ClickUp lookups), `jq`
+**books/.env variables**: `$RELEASE_DEFAULT_REPOS`, `$RELEASE_REPOS_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
+**scripts/.env variables**: none — this command builds ClickUp ticket links from the custom id (no API call); `CLICKUP_API_KEY` is not required here.
+**Tools**: `gh` (authenticated), `git`, `jq`
 
-Defaults if a `books/.env` value is unset: `$RELEASE_DEFAULT_REPOS=gp-webapp,gp-api`, `$RELEASE_REPOS_DIR=$HOME/Documents/gp/dev`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`.
+Defaults if a `books/.env` value is unset: `$RELEASE_DEFAULT_REPOS=gp-webapp,gp-api`, `$RELEASE_REPOS_DIR=$HOME/Documents/gp/dev`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
 
 **Never commit on the user's behalf.** This command opens and merges PRs through `gh pr merge` (which acts on the remote), but never runs `git commit` locally.
 
@@ -159,10 +159,10 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     ```bash
     cd "$RELEASE_REPOS_DIR/<repo>"
     gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
-      --jq '.[0] | {number, title, author: .user.login, body}'
+      --jq '.[0] | {number, title, author: .user.login, body, branch: .head.ref}'
     ```
 
-    Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
+    Capture `branch` (the PR's head branch) too — it's a primary source for the ENG-XXXX tag in step 13. Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
 
     If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title. For the author, do **not** use `git log --pretty='%an'`: that returns the git-configured name (`Bryan McDonell`), but `$RELEASE_AUTHOR_MAP` is keyed on GitHub logins (`bryan-mcdonell`), so the lookup would always miss and the unmapped-authors report would surface a git name the user can't add to the map. Fetch the GitHub login instead:
 
@@ -177,21 +177,39 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
     ```bash
     cd "$RELEASE_REPOS_DIR/<repo>"
-    gh pr view <pr_number> --json number,title,author,body
+    gh pr view <pr_number> --json number,title,author,body,headRefName
     ```
 
-    Capture `number`, `title`, `author.login`, and `body`. **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key.
+    Capture `number`, `title`, `author.login`, `body`, and `headRefName` (the branch — a primary ENG-tag source). **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key.
 
-13. **Extract ENG-XXXX tags** from each PR's `title` and `body` with the regex `ENG-\d+` (case-insensitive). Dedupe per PR.
+13. **Extract ENG-XXXX tags for each PR.** Scan the regex `ENG-\d+` (case-insensitive, uppercase the results, dedupe) across the **union of four sources**, not just title/body:
+    - PR `title`
+    - PR `body`
+    - PR head branch name (`headRefName` / `branch` from step 11–12)
+    - the subjects of every commit in `master..qa` that maps to this PR (you already have these from step 11's `git log`)
 
-14. **Look up ClickUp titles** for the union of all ENG-XXXX tags across all repos. GoodParty stores these as `custom_id`, not raw task IDs — the lookup needs `custom_task_ids=true` and a team ID. Use an absolute path for `scripts/python` because earlier phases `cd`'d into a repo directory; a relative `cd scripts/python` would resolve to `<repo>/scripts/python` and fail:
+    **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary with no tag. Scanning only title/body silently drops the ticket for the majority of PRs. A PR may legitimately yield **zero** tags (a chore/refactor with no ticket anywhere) or **more than one** (e.g., a PR that closed `ENG-10245` and `ENG-10246`) — both are fine.
+
+    Example, per commit, accumulating tags into the PR keyed by `<repo>:<pr_number>`:
 
     ```bash
-    cd "$RUNBOOKS_DIR/scripts/python" && uv run clickup_api.py GET task/ENG-XXXX \
-      custom_task_ids=true team_id=$CLICKUP_TEAM_ID
+    cd "$RELEASE_REPOS_DIR/<repo>"
+    subj=$(git log -1 --pretty=%s "<commit_hash>")
+    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls | jq -r --arg subj "$subj" '
+      (.[0] // empty)
+      | ([.title, (.body // ""), (.head.ref // ""), $subj] | join(" ")
+         | [scan("ENG-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
     ```
 
-    Cache results — multiple PRs may reference the same ticket. If a tag returns 404, keep the tag in the message but skip the title — note the unresolved tag in the final report.
+14. **Build a ClickUp ticket link for each ENG-XXXX tag.** No API call is needed — ClickUp resolves the custom-id URL directly:
+
+    ```
+    $RELEASE_CLICKUP_TICKET_BASE/<ENG-XXXX>
+    ```
+
+    where `$RELEASE_CLICKUP_TICKET_BASE` defaults to `https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID` (workspace subdomain `goodparty`, team id from `$CLICKUP_TEAM_ID`). A tag `ENG-7506` becomes `https://goodparty.clickup.com/t/90132012119/ENG-7506`.
+
+    Do **not** call `clickup_api.py` here — message 1 shows the PR title plus the ticket link, not the ticket's ClickUp title. (Fetching the ticket title is `/release`'s job for the `#product-releases` notes in message 2.) These links are paste-safe: pasted into Slack as raw URLs they auto-link.
 
 15. **Group PRs by author** using the map loaded in step 3:
     - `author.login` → Slack display name via the JSON map
@@ -205,16 +223,24 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     If you're tagged in this message, please confirm that your changes are ready to go to prod by leaving a :white_check_mark: reaction on this message.
 
     @<Slack name>:
-      •  <repo> #<pr_number>: <pr_title>
+      •  <repo> #<pr_number>: <pr_title> <ticket_link> [<ticket_link2> ...]
       •  ...
 
     @<Slack name>:
       •  ...
     ```
 
-    Ordering: authors in the order they first appear in the diff (oldest merged PR's author first); PRs/commits under each author in merge order. If the PR title contains an ENG-XXXX tag, leave it in the title — don't strip it.
+    Each PR line ends with the ClickUp ticket link(s) from step 14 — one per ENG-XXXX tag, space-separated. A PR with no ENG tag (chore/refactor) gets no link, just the title. Example lines:
 
-    For step-11 no-PR fallback entries (direct pushes, missing search match), use `<repo> <commit_hash[:7]>: <subject>` in place of `<repo> #<n>: <title>`. The user can decide whether to keep or strip these before pasting.
+    ```
+      •  gp-api #1704: feat: update domain registrant to a vercel owner https://goodparty.clickup.com/t/90132012119/ENG-7506
+      •  gp-webapp #1913: fix(TextComplianceStep): update styling ... https://goodparty.clickup.com/t/90132012119/ENG-10245 https://goodparty.clickup.com/t/90132012119/ENG-10246
+      •  gp-webapp #1895: fix: rename useVerisons -> useVersions and add error handling
+    ```
+
+    Ordering: authors in the order they first appear in the diff (oldest merged PR's author first); PRs/commits under each author in merge order. Leave any ENG-XXXX already present in the PR title as-is — don't strip it; the appended link is the canonical reference.
+
+    For step-11 no-PR fallback entries (direct pushes, missing search match), use `<repo> <commit_hash[:7]>: <subject>` in place of `<repo> #<n>: <title>`; still scan the commit subject for an ENG tag and append its link if found. The user can decide whether to keep or strip these before pasting.
 
 ### Phase 5: Print and report
 
@@ -231,7 +257,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     - Repos processed (develop→qa merged, qa→master PR opened) with the open `qa → master` PR URL for each
     - Repos skipped (empty diff between qa and develop)
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
-    - Any ENG-XXXX tags that failed to resolve in ClickUp
+    - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
     - Suggested next step: "After the team has confirmed (:white_check_mark: reactions in `$RELEASE_DEVS_CHANNEL`), run `/release` to merge qa → master and post the release notes."
 
@@ -250,7 +276,8 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 |---------|-----|
 | `gh pr create` returns "no commits between qa and develop" | Step 5 should have caught this — re-run step 5 to confirm the diff is empty, then skip the repo. |
 | `gh pr checks --watch` hangs | The repo's CI may never have started. Check the PR's Checks tab in the GitHub UI. Cancel with Ctrl-C; use `merge-anyway` if you know the build is healthy. |
-| ClickUp lookup returns 404 for an `ENG-XXXX` | The custom ID may not exist in this workspace, or `custom_task_ids=true` / `team_id` were not passed. Verify `$CLICKUP_TEAM_ID` is set. If still 404, list the tag in the message with no title and surface it in the final report. |
+| A PR you expected to have a ticket shows no link | No `ENG-\d+` was found in its title, body, branch name, or any of its commit subjects. Either the ticket was never referenced (add it to the PR/branch and re-run) or it's a genuine no-ticket chore. The link is built from the custom id — there's no API call to fail here. |
+| Ticket link 404s when clicked | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<ENG-XXXX>`. Fix the var; no re-fetch needed. |
 | Two PRs reference the same ENG ticket | Expected (e.g., gp-webapp + gp-api work on the same feature). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
 | Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
 | `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 8 for that repo only. |
