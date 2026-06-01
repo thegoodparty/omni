@@ -85,7 +85,7 @@ class DeterministicCheck:
     status: Literal["pass", "fail", "warning"]
     severity: str
     message: str
-    route: Literal["block", "annotate", "pass"]
+    route: Literal["block", "annotate", "pass", "diagnostic"]
     offending: str = ""
     details: Optional[dict] = None  # structured per-check measurements for inspection
 
@@ -770,7 +770,11 @@ def run_deterministic(
                     f"tfidf {tfidf_threshold} AND containment {contain_threshold}"
                     f"{rescue_note}"
                 ),
-                route="annotate",
+                # Diagnostic-only: the TF-IDF IDF term is degenerate over the
+                # N=2 strings compared (down-weights shared tokens, backwards for
+                # a support signal). Scores are recorded for triage but never
+                # drive the verdict — see compute_release_verdict.
+                route="diagnostic",
                 offending="; ".join(low_coherence[:5]),
                 details=coherence_details,
             ))
@@ -809,28 +813,35 @@ def run_deterministic(
         if min_pri is not None and len(priority_items) < min_pri:
             comp_issues.append(f"only {len(priority_items)} priority item(s) (min {min_pri})")
 
-        # executive summary length — len(lead_in) plus sum of featured items'
-        # display.executive_summary_overview. The renderer composes the top-of-
-        # briefing section by walking these per-item fields in agenda order, so
-        # the total user-visible length is the sum of lead_in and overviews.
+        # executive summary length — len(lead_in) plus the sum of the per-item
+        # overviews under the flattened executive_summary.items[].overview path
+        # (manifest v5+). Each check declares the exact field it reads so it can
+        # neither pass silently nor fire for the wrong reason: when the overview
+        # field resolves to nothing on a briefing that does carry featured items,
+        # that is reported as a missing/empty field rather than a length shortfall.
         min_exec = comp.get("min_executive_summary_chars")
         exec_obj = artifact.get("executive_summary")
         if not isinstance(exec_obj, dict):
             exec_obj = {}
         lead_in_chars = len(exec_obj.get("lead_in") or "")
-        overview_chars = sum(
-            len(((it.get("display") or {}).get("executive_summary_overview") or ""))
-            for it in items
-            if isinstance(it, dict) and it.get("tier") == "featured"
-        )
+        overview_field = "executive_summary.items[].overview"
+        overviews = _values_at_path(artifact, overview_field)
+        overview_chars = sum(len(v) for v in overviews)
         exec_len = lead_in_chars + overview_chars
         comp_measured["executive_summary"] = {
             "chars": exec_len,
             "lead_in_chars": lead_in_chars,
             "overview_chars": overview_chars,
+            "overview_field": overview_field,
+            "overview_count": len(overviews),
             "min": min_exec,
         }
-        if min_exec is not None and exec_len < min_exec:
+        if not overviews and priority_items:
+            comp_issues.append(
+                f"required field missing or empty: {overview_field} "
+                f"({len(priority_items)} featured item(s) present)"
+            )
+        elif min_exec is not None and exec_len < min_exec:
             comp_issues.append(f"executive_summary {exec_len} chars (min {min_exec})")
 
         # per-priority-item overview length
@@ -892,6 +903,65 @@ def run_deterministic(
                 message="All completeness thresholds met",
                 route="pass",
                 details=comp_measured,
+            ))
+
+    # 9b. claim_coverage — diagnostic-only. Per featured item, flag items that
+    #     carry prose (display.summary) but have fewer than the spec cutoff of
+    #     referencing claims (join claim.item_id == item.id). Surfaces generator
+    #     under-emission, which biases downstream accuracy rates. Recorded but
+    #     never drives the verdict (route diagnostic).
+    cov_cfg = spec.get("coverage_check") or {}
+    if cov_cfg.get("enabled", False):
+        min_claims = int(cov_cfg.get("min_claims_per_featured_item", 2))
+        claim_counts_by_item: dict[str, int] = {}
+        for c in claims:
+            iid = c.get("item_id")
+            if iid:
+                claim_counts_by_item[iid] = claim_counts_by_item.get(iid, 0) + 1
+        low_coverage: list[dict] = []
+        per_item_coverage: list[dict] = []
+        for it in priority_items:
+            iid = it.get("id")
+            summary = (it.get("display") or {}).get("summary") or ""
+            has_prose = bool(summary.strip())
+            n_claims = claim_counts_by_item.get(iid, 0)
+            per_item_coverage.append({
+                "item_id": iid,
+                "claim_count": n_claims,
+                "has_prose": has_prose,
+            })
+            if has_prose and n_claims < min_claims:
+                low_coverage.append({"item_id": iid, "claim_count": n_claims})
+        coverage_details = {
+            "min_claims_per_featured_item": min_claims,
+            "featured_items_scored": len(priority_items),
+            "below_count": len(low_coverage),
+            "per_item": per_item_coverage,
+        }
+        if low_coverage:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="warning", severity="low",
+                message=(
+                    f"{len(low_coverage)} of {len(priority_items)} featured item(s) "
+                    f"carry prose but have < {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                offending="; ".join(
+                    f"{f['item_id']}: {f['claim_count']} claim(s)" for f in low_coverage[:5]
+                ),
+                details=coverage_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="pass", severity="info",
+                message=(
+                    f"All {len(priority_items)} featured item(s) with prose carry "
+                    f"≥ {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                details=coverage_details,
             ))
 
     # 10. polish_grammar — deterministic regex polish on EO-facing prose.
@@ -959,14 +1029,20 @@ def _iter_polish_prose(artifact: dict):
         lead_in = exec_obj.get("lead_in")
         if isinstance(lead_in, str) and lead_in:
             yield ("$.executive_summary.lead_in", lead_in)
+        # Per-item overviews live under executive_summary.items[].overview in
+        # the flattened shape (manifest v5+), not items[].display.
+        for e in exec_obj.get("items") or []:
+            if not isinstance(e, dict):
+                continue
+            eid = e.get("item_id") or "<no-id>"
+            overview = e.get("overview")
+            if isinstance(overview, str) and overview:
+                yield (f"$.executive_summary.items[{eid}].overview", overview)
     for item in artifact.get("items") or []:
         iid = item.get("id") or "<no-id>"
         display = item.get("display") or {}
         if isinstance(display.get("summary"), str) and display["summary"]:
             yield (f"$.items[{iid}].display.summary", display["summary"])
-        eso = display.get("executive_summary_overview")
-        if isinstance(eso, str) and eso:
-            yield (f"$.items[{iid}].display.executive_summary_overview", eso)
         bi = display.get("budget_impact")
         if bi and isinstance(bi.get("summary"), str) and bi["summary"]:
             yield (f"$.items[{iid}].display.budget_impact.summary", bi["summary"])
@@ -1492,6 +1568,10 @@ def compute_release_verdict(
     enforce it (default exit 0). Downstream callers (the agent invoking
     qa_validate.py, the Fargate runner) read this field and decide whether
     to act on it.
+
+    Only routes 'block' and 'annotate' are verdict-bearing. A check emitting
+    route='diagnostic' is recorded in the bundle but never affects the verdict
+    (used by summary_source_coherence and claim_coverage); do not wire it in.
     """
     # block: any blocking deterministic failure OR any blockable/high-weight phase2 not-OK
     for chk in det_checks:

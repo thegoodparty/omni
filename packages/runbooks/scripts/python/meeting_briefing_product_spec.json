@@ -1,7 +1,7 @@
 {
   "_comment": "Single source of truth for QA rules. Edit here only — qa_validate.py reads this at runtime.",
   "product_type": "meeting_briefing",
-  "spec_version": "1.2",
+  "spec_version": "1.3",
 
   "identity_fields": ["official_name", "meeting_date", "briefing_type"],
 
@@ -44,7 +44,7 @@
 
   "prohibited_phrase_paths": [
     "executive_summary.lead_in",
-    "items[].display.executive_summary_overview",
+    "executive_summary.items[].overview",
     "items[].display.summary"
   ],
 
@@ -72,18 +72,24 @@
     "phase2": "opus"
   },
 
-  "_completeness_comment": "min_executive_summary_chars is measured as len(executive_summary.lead_in) + sum(len(it.overview) for it in executive_summary.items). 250 covers a tight single-featured agenda (~70 lead + ~180 overview) and is well under the 3-item prototype (~620). Ceremonial agendas with items: [] still pass when the standalone lead_in is substantive; otherwise warn.",
+  "_completeness_comment": "min_executive_summary_chars is measured as len(executive_summary.lead_in) + sum(len(it.overview) for it in executive_summary.items). Set to 150: real single-featured-item agendas run ~220-245 (~60 lead + ~170 overview), and the prior 250 floor false-warned 8 such complete briefings in the 2026-05-29 run. A true skeleton (stub lead_in + near-empty overview) lands ~80-130, so 150 still warns on those. Ceremonial agendas with items: [] still pass when the standalone lead_in is substantive; otherwise warn.",
   "completeness": {
     "min_priority_items": 1,
     "target_priority_items": 3,
-    "min_executive_summary_chars": 250,
+    "min_executive_summary_chars": 150,
     "min_overview_chars_per_priority_item": 80,
     "min_total_prose_words": 300
   },
 
+  "_coverage_check_comment": "Diagnostic-only claim-coverage signal. Per featured item, count claims whose claim.item_id matches the item id and flag items that carry prose (display.summary) but have fewer than min_claims_per_featured_item referencing claims. Cutoff of 2 (flag items with <2 = 0 or 1 claim) is set from the frozen 2026-05-29 488-briefing run, where claims per featured item ranged 1 to 17, median 5, with ~2% at 1 or fewer; a cutoff of 2 flags roughly the bottom 2% (~25 items) as outliers rather than normal items. Recorded in qa_bundle.details, never affects the verdict.",
+  "coverage_check": {
+    "enabled": true,
+    "min_claims_per_featured_item": 2
+  },
+
   "_polish_comment": "Deterministic regex polish on EO-facing prose. Findings are annotations (never block); the agent reads qa_bundle.json and can fix specific locations via the per-finding 'path' field, then re-run. Patterns are intentionally conservative — false positives are worse than misses for a non-blocking check.",
   "polish_patterns": [
-    {"name": "doubled_word",       "pattern": "\\b(\\w+)\\s+\\1\\b", "case_insensitive": true},
+    {"name": "doubled_word",       "pattern": "\\b(\\w+)\\s+\\1\\b(?!-\\w)", "case_insensitive": true},
     {"name": "double_space",       "pattern": "  +"},
     {"name": "common_typo_teh",    "pattern": "\\bteh\\b",           "case_insensitive": true},
     {"name": "common_typo_adn",    "pattern": "\\badn\\b",           "case_insensitive": true},
@@ -142,8 +148,14 @@
     },
     {
       "check_id": "summary_source_coherence",
-      "description": "Per priority item, summary vs combined source_extracts is scored on TF-IDF cosine AND containment. Warns when BOTH below thresholds in coherence_check (independent signals must agree). Catches summaries that drifted from cited evidence. ROUGE-L is logged per item as info-only.",
-      "route_if_fail": "annotate",
+      "description": "Per priority item, summary vs combined source_extracts is scored on TF-IDF cosine AND containment. Records per-item scores for diagnostics only — does NOT drive the verdict. The TF-IDF IDF term is degenerate over the N=2 strings being compared, which down-weights shared tokens (backwards for a support signal); triage is the better instrument, so this check is diagnostic-only.",
+      "route_if_fail": "diagnostic",
+      "severity": "low"
+    },
+    {
+      "check_id": "claim_coverage",
+      "description": "Per featured item, flags items that carry prose (display.summary) but have at most coverage_check.min_claims_per_featured_item-1 referencing claims (join on claim.item_id == item.id). Surfaces generator under-emission, which biases every downstream accuracy rate. Diagnostic-only — recorded but never drives the verdict.",
+      "route_if_fail": "diagnostic",
       "severity": "low"
     },
     {
