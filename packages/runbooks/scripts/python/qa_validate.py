@@ -85,7 +85,7 @@ class DeterministicCheck:
     status: Literal["pass", "fail", "warning"]
     severity: str
     message: str
-    route: Literal["block", "annotate", "pass"]
+    route: Literal["block", "annotate", "pass", "diagnostic"]
     offending: str = ""
     details: Optional[dict] = None  # structured per-check measurements for inspection
 
@@ -913,18 +913,18 @@ def run_deterministic(
     cov_cfg = spec.get("coverage_check") or {}
     if cov_cfg.get("enabled", False):
         min_claims = int(cov_cfg.get("min_claims_per_featured_item", 2))
-        claims_by_item: dict[str, int] = {}
+        claim_counts_by_item: dict[str, int] = {}
         for c in claims:
             iid = c.get("item_id")
             if iid:
-                claims_by_item[iid] = claims_by_item.get(iid, 0) + 1
+                claim_counts_by_item[iid] = claim_counts_by_item.get(iid, 0) + 1
         low_coverage: list[dict] = []
         per_item_coverage: list[dict] = []
         for it in priority_items:
             iid = it.get("id")
             summary = (it.get("display") or {}).get("summary") or ""
             has_prose = bool(summary.strip())
-            n_claims = claims_by_item.get(iid, 0)
+            n_claims = claim_counts_by_item.get(iid, 0)
             per_item_coverage.append({
                 "item_id": iid,
                 "claim_count": n_claims,
