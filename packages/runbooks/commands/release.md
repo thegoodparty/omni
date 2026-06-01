@@ -1,4 +1,4 @@
-<!-- v1 — 2026-05-26 -->
+<!-- v2 — 2026-06-01 -->
 # /release
 
 Merge the pending `qa → master` PR (opened by `/release-prep`) per configured repo, wait 5 minutes for the deploy to settle, then print a `#product-releases` message that lists every ENG-XXXX ticket released along with its ClickUp title.
@@ -65,12 +65,14 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
-     --jq '.[0] | {number, title, body}'
+     --jq '.[0] | {number, title, body, branch: .head.ref}'
    ```
 
-   Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
+   Capture `branch` (the PR's head branch) too — together with the commit subject it's a primary ENG-XXXX source in step 9. Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
 
-   If the endpoint returns an empty array (no PR ever opened for this commit), keep it as a "no-PR" entry — use `%s` (subject) as a fallback "title", with no ENG-XXXX extraction possible unless the subject itself contains one. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
+   **Keep each commit's subject keyed to its PR** as you go — step 9 needs the union of all commit subjects per PR to find the ticket id, since it usually isn't in the PR title.
+
+   If the endpoint returns an empty array (no PR ever opened for this commit), keep it as a "no-PR" entry — use `%s` (subject) as a fallback "title"; still scan that subject for an ENG-XXXX. Mark it in the final report. Store the per-repo list (PR-matched + no-PR fallbacks) in working memory — this is the source of truth for what's being released.
 
 ### Phase 4: Confirm and merge
 
@@ -131,12 +133,29 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
-   gh pr view <pr_number> --json number,title,body
+   gh pr view <pr_number> --json number,title,body,headRefName
    ```
 
-   **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key — that mix-up would put the wrong PR title (and thus the wrong ClickUp ticket lookup) on a Slack-posted line.
+   Capture `headRefName` (the branch — a primary ENG-tag source). **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key — that mix-up would put the wrong PR title (and thus the wrong ClickUp ticket lookup) on a Slack-posted line.
 
-9. **Extract ENG-XXXX tags** from each PR's `title` and `body` with `ENG-\d+` (case-insensitive). Dedupe across all PRs and all repos — the same ticket may have been referenced by both a gp-webapp and a gp-api PR; it should appear only once in the release notes.
+9. **Extract ENG-XXXX tags for each PR.** Scan the regex `ENG-\d+` (case-insensitive, uppercase, dedupe) across the **union of four sources**, not just title/body:
+   - PR `title`
+   - PR `body`
+   - PR head branch name (`headRefName` / `branch` from steps 4 and 8)
+   - the subjects of every commit in `master..qa` that maps to this PR (kept in step 4)
+
+   **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary. Scanning only title/body silently drops the ticket for the majority of PRs and produces a near-empty release-notes list. After collecting per-PR, **dedupe the tags across all PRs and all repos** — the same ticket may have been referenced by both a gp-webapp and a gp-api PR; it appears once in the notes.
+
+   Per commit, accumulating tags into the PR keyed by `<repo>:<pr_number>`:
+
+   ```bash
+   cd "$RELEASE_REPOS_DIR/<repo>"
+   subj=$(git log -1 --pretty=%s "<commit_hash>")
+   gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls | jq -r --arg subj "$subj" '
+     (.[0] // empty)
+     | ([.title, (.body // ""), (.head.ref // ""), $subj] | join(" ")
+        | [scan("ENG-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
+   ```
 
 10. **Look up each unique ENG-XXXX tag in ClickUp** to get its title. Use an absolute path for `scripts/python` because earlier phases `cd`'d into a repo directory; a relative `cd scripts/python` would resolve to `<repo>/scripts/python` and fail:
 
@@ -147,7 +166,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
     Extract `name` from the response. If the lookup 404s, keep the tag in the message but mark its title as "(title lookup failed)" and surface in the final report.
 
-11. **Collect fallback items for PRs with no ENG-XXXX tag.** For each PR whose title and body contain no `ENG-\d+`, use the PR title (with the trailing `(#<n>)` stripped if `gh` included it). These appear as untagged bullets in the message.
+11. **Collect fallback items for PRs with no ENG-XXXX tag.** For each PR that yielded **zero** tags in step 9 (none in title, body, branch, or any commit subject), use the PR title (with the trailing `(#<n>)` stripped if `gh` included it). These appear as untagged bullets in the message. A PR genuinely without a ticket (a chore/refactor) is a normal case, not an error.
 
 12. **Format the message** to match the exact layout used in `$RELEASE_PRODUCT_CHANNEL`:
 
