@@ -299,10 +299,26 @@ def test_urls_resolve_self_skips_when_check_urls_flag_off(spec):
     assert _find(results, "urls_resolve") is None
 
 
-def test_urls_resolve_self_skips_when_spec_disabled_even_with_flag(spec):
+def test_urls_resolve_force_flag_overrides_disabled_spec(spec, monkeypatch):
+    """check_urls=True (the --check-urls force-on override) runs the check even
+    when spec.url_check.enabled is false. Network is stubbed offline."""
+    monkeypatch.setattr(
+        qa_validate.socket, "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
+
+    class _Resp:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class _Opener:
+        def open(self, req, timeout=None): return _Resp()
+
+    monkeypatch.setattr(qa_validate.urllib.request, "build_opener", lambda *a, **k: _Opener())
     spec["citation_paths"] = ["items[].display.summary"]
     spec["url_check"] = {"enabled": False}
     artifact = _base_artifact(featured_titles=["Foo"])
     artifact["items"][0]["display"]["summary"] = "[Example](https://example.com/) page."
     results = qa_validate.run_deterministic(artifact, spec, check_urls=True)
-    assert _find(results, "urls_resolve") is None
+    assert _find(results, "urls_resolve") is not None

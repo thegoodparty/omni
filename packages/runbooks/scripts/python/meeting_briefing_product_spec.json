@@ -64,12 +64,13 @@
   "_label_domain_map_comment": "Label-to-expected-host map for citation_label_url_coherence. Empty for meeting_briefing; populated for products that cite external publishers.",
   "label_domain_map": {},
 
-  "_url_check_comment": "Opt-in HTTP liveness for cited URLs. enabled:false means urls_resolve self-skips even when --check-urls is passed.",
+  "_url_check_comment": "HTTP liveness for URLs the briefing cites. enabled:true is the default trigger — urls_resolve runs without the --check-urls CLI flag (pass --no-check-urls to force it off, e.g. offline CI). url_paths names structured-artifact paths whose string values are URLs to probe; they are UNIONed with any inline [Label](URL) citations on citation_paths. SSRF-hardened (rejects non-http(s) schemes and hosts resolving to private/loopback/link-local/reserved/multicast/metadata IPs; refuses redirects) and advisory — dead, unreachable, or rejected URLs annotate (warn), never block.",
   "url_check": {
-    "enabled": false,
+    "enabled": true,
     "timeout_seconds": 5,
     "parallel": 8,
-    "user_agent": "qa-spine-url-check/0.1"
+    "user_agent": "qa-spine-url-check/0.1",
+    "url_paths": ["sources[].url", "run_metadata.agenda_packet_url"]
   },
 
   "substring_check": {
@@ -252,7 +253,7 @@
     },
     {
       "check_id": "urls_resolve",
-      "description": "Opt-in via --check-urls CLI flag AND spec.url_check.enabled. HEAD probe (with GET retry on 403/405) every URL cited inline on spec.citation_paths; non-200 surfaces as a warning. Self-skips when either gate is off.",
+      "description": "Default-on via spec.url_check.enabled=true (no CLI flag needed; --no-check-urls forces off, --check-urls forces on). HEAD probe (with GET retry on 403/405) of every URL from inline citations on spec.citation_paths UNION the structured paths in spec.url_check.url_paths (sources[].url, run_metadata.agenda_packet_url). SSRF-hardened: non-http(s) schemes and hosts resolving to private/loopback/link-local/reserved/multicast/metadata IPs are rejected, redirects refused. Non-200, unreachable, or rejected URLs surface as a single advisory warning. Self-skips when no URLs are found.",
       "route_if_fail": "annotate",
       "severity": "medium"
     }

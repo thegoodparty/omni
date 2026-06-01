@@ -32,10 +32,12 @@ Product spec default: meeting_briefing_product_spec.json (same directory as this
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import math
 import os
 import re
+import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -676,6 +678,80 @@ def _normalize_host(url: str) -> str:
     return host
 
 
+# Cloud-metadata endpoint — explicitly blocked even though it is link-local
+# (defence in depth; some resolvers/proxies could shadow the link-local range).
+_METADATA_IP = "169.254.169.254"
+
+
+def _ip_is_blocked(ip: str) -> bool:
+    """True if an IP literal falls in a range we must never probe (SSRF guard).
+
+    Blocks private, loopback, link-local, reserved, multicast and unspecified
+    ranges, plus the cloud metadata IP explicitly. Unparseable input is treated
+    as blocked (fail closed)."""
+    if ip == _METADATA_IP:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _ssrf_check_url(url: str) -> Optional[str]:
+    """Validate a URL is safe to probe. Returns None when safe, else a short
+    human-readable reason the URL was rejected (advisory — never raises).
+
+    Rejects non-http(s) schemes and any host that resolves to a private,
+    loopback, link-local, reserved, multicast or metadata IP. Resolves every
+    address the host maps to and blocks if ANY is unsafe (DNS-rebinding-aware
+    for the resolved set)."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = (parsed.scheme or "").casefold()
+    if scheme not in ("http", "https"):
+        return f"non-http(s) scheme '{parsed.scheme}'"
+    host = parsed.hostname
+    if not host:
+        return "missing host"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        return f"DNS resolution failed: {e}"
+    ips = {str(info[4][0]) for info in infos}
+    if not ips:
+        return "host did not resolve to any address"
+    blocked = sorted(ip for ip in ips if _ip_is_blocked(ip))
+    if blocked:
+        return f"host resolves to blocked IP(s): {', '.join(blocked)}"
+    return None
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow HTTP redirects. A redirect could point at an internal
+    host that the SSRF pre-check never saw, so we re-validate by simply
+    declining the hop and surfacing it as an HTTPError to the caller."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        reason = _ssrf_check_url(newurl)
+        if reason is not None:
+            raise urllib.error.HTTPError(
+                newurl, code, f"blocked redirect ({reason})", headers, fp
+            )
+        # Redirect target is safe by the same IP rules — still refuse to follow
+        # automatically; treat the redirect as a non-200 outcome the caller can
+        # report rather than silently chasing arbitrary hops.
+        raise urllib.error.HTTPError(
+            newurl, code, f"redirect not followed (-> {newurl})", headers, fp
+        )
+
+
 def _iter_prose_at_paths(artifact: dict, paths: list[str]) -> Iterator[tuple[str, str]]:
     """Yield (path, text) for each spec-declared prose path that resolves to
     non-empty string(s). Per-path iteration preserves the source path so
@@ -715,7 +791,7 @@ def _resolve_pattern_template(pattern: str, artifact: dict) -> tuple[Optional[st
 def run_deterministic(
     artifact: dict,
     spec: dict,
-    check_urls: bool = False,
+    check_urls: Optional[bool] = None,
 ) -> list[DeterministicCheck]:
     results: list[DeterministicCheck] = []
     items = artifact.get("items") or []
@@ -1694,34 +1770,67 @@ def run_deterministic(
                 details=social_details,
             ))
 
-    # 13. urls_resolve — opt-in HTTP liveness probe for every cited URL.
-    #     Runs only when both check_urls=True (CLI flag) AND
-    #     spec.url_check.enabled is true. HEAD with GET retry on 403/405.
-    #     Network errors degrade gracefully to a single skip-finding rather
-    #     than per-URL noise.
+    # 13. urls_resolve — HTTP liveness probe for cited/structured URLs.
+    #     Gating: spec.url_check.enabled is the default trigger — when true the
+    #     check runs WITHOUT requiring the --check-urls CLI flag. check_urls is
+    #     a tri-state override: None defers to the spec, True force-enables,
+    #     False force-disables (so callers can suppress network access on an
+    #     enabled spec, e.g. offline CI).
+    #     URL sources: inline [Label](URL) citations on spec.citation_paths
+    #     (legacy) UNION the structured-artifact values at spec.url_check.
+    #     url_paths (e.g. sources[].url, run_metadata.agenda_packet_url).
+    #     SSRF guard: every URL is host-validated before probing and redirects
+    #     are refused (see _ssrf_check_url / _NoRedirectHandler). Liveness is
+    #     ADVISORY — dead, unreachable, or SSRF-rejected URLs route to annotate,
+    #     never block.
     url_check_cfg = spec.get("url_check") or {}
-    if check_urls and url_check_cfg.get("enabled", False) and citation_paths:
+    url_check_on = check_urls if check_urls is not None else bool(url_check_cfg.get("enabled", False))
+    url_paths: list[str] = url_check_cfg.get("url_paths") or []
+    if url_check_on and (citation_paths or url_paths):
         timeout = float(url_check_cfg.get("timeout_seconds", 5))
         parallel = int(url_check_cfg.get("parallel", 8))
         user_agent = str(url_check_cfg.get("user_agent", "qa-spine-url-check/0.1"))
 
+        # Union the two URL sources, tracking which spec path each URL came from.
         url_to_paths: dict[str, list[str]] = {}
         for path, text in _iter_prose_at_paths(artifact, citation_paths):
             for _, url in _extract_citations(text):
                 url_to_paths.setdefault(url, []).append(path)
+        for path in url_paths:
+            for url in _values_at_path(artifact, path):
+                paths = url_to_paths.setdefault(url, [])
+                if path not in paths:
+                    paths.append(path)
         unique_urls = sorted(url_to_paths.keys())
+
+        # SSRF pre-screen: reject unsafe URLs up front so we never open a
+        # connection to them. Rejected URLs are advisory findings, not probes.
+        rejected: list[dict] = []
+        probe_urls: list[str] = []
+        for url in unique_urls:
+            reason = _ssrf_check_url(url)
+            if reason is not None:
+                rejected.append({
+                    "url": url, "reason": reason, "paths": url_to_paths.get(url, []),
+                })
+            else:
+                probe_urls.append(url)
+
+        # No-redirect opener so a 30x to an internal host can't bypass the
+        # pre-screen; the handler re-validates and refuses the hop regardless.
+        opener = urllib.request.build_opener(_NoRedirectHandler())
 
         def _probe(url: str) -> tuple[Optional[int], Optional[str]]:
             headers = {"User-Agent": user_agent}
             try:
                 req = urllib.request.Request(url, method="HEAD", headers=headers)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with opener.open(req, timeout=timeout) as resp:
                     return resp.status, None
             except urllib.error.HTTPError as e:
                 if e.code in (403, 405):
                     try:
                         req = urllib.request.Request(url, method="GET", headers=headers)
-                        with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        with opener.open(req, timeout=timeout) as resp:
                             return resp.status, None
                     except urllib.error.HTTPError as e2:
                         return e2.code, str(e2)
@@ -1734,19 +1843,14 @@ def run_deterministic(
                 return None, f"{type(e).__name__}: {e}"
 
         results_by_url: dict[str, tuple[Optional[int], Optional[str]]] = {}
-        if unique_urls:
+        probe_error: Optional[str] = None
+        if probe_urls:
             try:
                 with ThreadPoolExecutor(max_workers=parallel) as ex:
-                    for url, outcome in zip(unique_urls, ex.map(_probe, unique_urls)):
+                    for url, outcome in zip(probe_urls, ex.map(_probe, probe_urls)):
                         results_by_url[url] = outcome
             except Exception as e:
-                results.append(DeterministicCheck(
-                    check_id="urls_resolve",
-                    status="warning", severity="low",
-                    message=f"URL liveness check skipped: {type(e).__name__}: {e}",
-                    route="annotate",
-                    details={"urls_total": len(unique_urls), "error": str(e)},
-                ))
+                probe_error = f"{type(e).__name__}: {e}"
                 results_by_url = {}
 
         failures: list[dict] = []
@@ -1765,27 +1869,50 @@ def run_deterministic(
             "timeout_seconds": timeout,
             "parallel": parallel,
             "failures": failures,
+            "rejected": rejected,
         }
-        if results_by_url:
-            if failures:
+
+        # Aggregate everything into one urls_resolve check. Any failure,
+        # rejection, or probe error is advisory (route=annotate); a clean pass
+        # routes to pass.
+        if probe_error is not None:
+            results.append(DeterministicCheck(
+                check_id="urls_resolve",
+                status="warning", severity="low",
+                message=f"URL liveness check skipped: {probe_error}",
+                route="annotate",
+                details={**url_details, "error": probe_error},
+            ))
+        elif unique_urls:
+            n_ok = len(results_by_url) - len(failures)
+            problems = len(failures) + len(rejected)
+            if problems:
+                parts: list[str] = []
+                if failures:
+                    parts.append(f"{len(failures)} unreachable/non-200")
+                if rejected:
+                    parts.append(f"{len(rejected)} SSRF-rejected")
+                offending_bits = [
+                    f"{f['url']} → {f['status']}" for f in failures[:5]
+                ] + [
+                    f"{r['url']} → rejected ({r['reason']})" for r in rejected[:5]
+                ]
                 results.append(DeterministicCheck(
                     check_id="urls_resolve",
                     status="warning", severity="medium",
                     message=(
-                        f"{len(failures)} of {len(results_by_url)} cited URL(s) "
-                        "did not return HTTP 200"
+                        f"{len(unique_urls)} URL(s) checked: {n_ok} OK, "
+                        + ", ".join(parts)
                     ),
                     route="annotate",
-                    offending="; ".join(
-                        f"{f['url']} → {f['status']}" for f in failures[:5]
-                    ),
+                    offending="; ".join(offending_bits[:5]),
                     details=url_details,
                 ))
             else:
                 results.append(DeterministicCheck(
                     check_id="urls_resolve",
                     status="pass", severity="info",
-                    message=f"All {len(results_by_url)} cited URL(s) returned HTTP 200",
+                    message=f"All {len(results_by_url)} checked URL(s) returned HTTP 200",
                     route="pass",
                     details=url_details,
                 ))
@@ -2459,11 +2586,24 @@ def main() -> None:
     )
     parser.add_argument(
         "--check-urls",
+        dest="check_urls",
         action="store_true",
+        default=None,
         help=(
-            "Opt-in HTTP liveness probe for every cited URL on spec.citation_paths. "
-            "Requires spec.url_check.enabled=true; off by default to keep the "
-            "validator offline-runnable."
+            "Force-enable the HTTP liveness probe for cited/structured URLs "
+            "(spec.citation_paths inline citations UNION spec.url_check.url_paths "
+            "structured paths), overriding spec.url_check.enabled. By default the "
+            "check follows spec.url_check.enabled — when that is true it runs "
+            "without this flag. SSRF-hardened and advisory (never blocks)."
+        ),
+    )
+    parser.add_argument(
+        "--no-check-urls",
+        dest="check_urls",
+        action="store_false",
+        help=(
+            "Force-disable the URL liveness probe even when spec.url_check.enabled "
+            "is true (e.g. to keep an offline CI run from touching the network)."
         ),
     )
     args = parser.parse_args()
