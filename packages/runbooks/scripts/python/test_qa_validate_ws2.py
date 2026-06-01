@@ -380,13 +380,15 @@ def test_layer1_passes_on_valid_artifact(spec):
     assert chk.status == "pass"
 
 
-def test_layer1_blocks_on_shape_drift(spec):
+def test_layer1_annotates_on_shape_drift(spec):
+    # Staged as annotate (warning), not block, during the initial trial window so
+    # shape drift does not retroactively fail previously-passing briefings.
     pytest.importorskip("jsonschema")
     art = _valid_full_artifact()
     art["items"][0]["tier"] = "headline"  # not in the tier enum → shape drift
     chk = _find(qa_validate.run_deterministic(art, spec), "schema_validation")
     assert chk.status == "fail"
-    assert chk.route == "block"
+    assert chk.route == "annotate"
     assert chk.details["error_count"] >= 1
 
 

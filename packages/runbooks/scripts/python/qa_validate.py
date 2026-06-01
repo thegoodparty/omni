@@ -264,9 +264,14 @@ def schema_validate_layer1(
             status="fail", severity="high",
             message=(
                 f"Artifact failed Layer-1 schema validation: {len(errors)} error(s) "
-                f"against {manifest_path.name} output_schema"
+                f"against {manifest_path.name} output_schema (staged: warning only, "
+                f"not blocking, while we confirm existing briefings conform)"
             ),
-            route="block",
+            # Staged as annotate, not block, for an initial trial window: a shape
+            # drift surfaces as a warning so it does not retroactively fail
+            # briefings that passed before this gate existed. Promote to "block"
+            # once production briefings are confirmed to conform to the schema.
+            route="annotate",
             offending="; ".join(f"{p['path']}: {p['message']}" for p in preview[:5]),
             details={"manifest": manifest_path.name, "error_count": len(errors), "errors": preview},
         )
