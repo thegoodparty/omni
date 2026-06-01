@@ -432,7 +432,7 @@ def extract_inline_citations(text: str, pattern: Optional[str] = None) -> list[d
 # committed fixture, never invented here.
 
 _MONEY_RE = re.compile(
-    r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s?(?:million|billion|thousand|m|bn|k)?",
+    r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:million|billion|thousand|m|bn|k)?",
     re.IGNORECASE,
 )
 _PERCENT_RE = re.compile(r"\d+(?:\.\d+)?\s?(?:%|percent)", re.IGNORECASE)
@@ -1097,7 +1097,7 @@ def run_deterministic(
             literals = extract_literals(claim.get("claim_text", ""), kind)
             if not literals:
                 continue
-            cited_haystacks = " ".join(
+            cited_haystack_text = " ".join(
                 _norm_text(source_map.get(sid, {}).get("retrieved_text_or_snapshot") or "")
                 for sid in (claim.get("source_ids") or [])
             )
@@ -1106,9 +1106,9 @@ def run_deterministic(
             missing: list[str] = []
             for lit in literals:
                 if kind in ("money", "percentage", "vote_count"):
-                    present = lit in extract_literals(cited_haystacks, kind)
+                    present = lit in extract_literals(cited_haystack_text, kind)
                 else:
-                    present = lit in cited_haystacks
+                    present = lit in cited_haystack_text
                 if not present:
                     missing.append(lit)
             cid = claim.get("claim_id", "<no-id>")
@@ -1305,7 +1305,8 @@ def run_deterministic(
             # vote counts, legal citations, allegations). Deny-list semantics:
             # an item with no blocklisted claim stays rescuable.
             item_claim_types = {
-                c.get("claim_type") for c in claims_by_item.get(iid, [])
+                ct for c in claims_by_item.get(iid, [])
+                if (ct := c.get("claim_type"))
             }
             rescue_forbidden = bool(item_claim_types & rescue_blocklist)
             blocking_types = sorted(item_claim_types & rescue_blocklist)

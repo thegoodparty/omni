@@ -130,6 +130,9 @@ def test_extract_inline_citations_empty():
     [
         ("money", "approved $5,000,000 for the project", ["5000000"]),
         ("money", "a $1.8 million grant", ["1800000"]),
+        # Regression: uncomma'd amounts must match too. Previously the regex
+        # required comma grouping, so "$5000000" matched only "$500".
+        ("money", "a $5000000 grant", ["5000000"]),
         ("percentage", "rose by 12.5%", ["12.5%"]),
         ("vote_count", "passed 4-1 last night", ["4-1"]),
         ("date", "due by 2026-06-01 sharp", ["2026-06-01"]),
