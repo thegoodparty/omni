@@ -186,6 +186,26 @@ def test_structured_match_known_bad_blocks(spec_no_layer1):
     assert "5000000" in chk.offending
 
 
+def test_structured_match_non_high_weight_annotates(spec_no_layer1):
+    # vote_count has a structured validator but is NOT in the blockable set, so a
+    # medium-weight claim whose figure is absent from its source warns (annotate),
+    # it does not block. (Covers the sv_other_fail branch.)
+    art = {
+        "official_name": "X", "meeting_date": "2026-06-01", "briefing_type": "council",
+        "briefing_status": "briefing_ready", "items": [],
+        "claims": [{
+            "claim_id": "c1", "item_id": "item_001", "claim_type": "vote_count",
+            "claim_weight": "medium", "claim_text": "The motion passed 5-2.",
+            "source_ids": ["s1"], "source_extracts": [{"text": "The motion passed"}],
+        }],
+        "sources": [{"id": "s1", "source_type": "agenda_packet",
+                     "retrieved_text_or_snapshot": "The motion passed 6-1 last night."}],
+    }
+    chk = _find(qa_validate.run_deterministic(art, spec_no_layer1), "high_stakes_structured_match")
+    assert chk.status == "warning"
+    assert chk.route == "annotate"
+
+
 # ── Check 2: source-hierarchy policy ──────────────────────────────────────────
 
 
@@ -398,6 +418,26 @@ def test_layer1_skips_with_warning_when_no_schema_declared(spec):
     chk = _find(qa_validate.run_deterministic(_valid_full_artifact(), s), "schema_validation")
     assert chk.status == "warning"
     assert chk.route == "annotate"  # skip-with-warning, never silent-skip
+
+
+def test_layer1_skips_with_warning_when_manifest_not_found(spec):
+    # Fail-open branch: declared manifest path resolves nowhere → warn, not crash.
+    s = copy.deepcopy(spec)
+    s["output_format"]["schema"]["manifest_path"] = "experiments/meeting_briefing/__does_not_exist__.json"
+    chk = _find(qa_validate.run_deterministic(_valid_full_artifact(), s), "schema_validation")
+    assert chk.status == "warning"
+    assert chk.route == "annotate"
+    assert chk.details["reason"] == "manifest_not_found"
+
+
+def test_layer1_skips_with_warning_when_schema_unreadable(spec):
+    # Fail-open branch: manifest loads but the schema_key is absent → warn, not crash.
+    s = copy.deepcopy(spec)
+    s["output_format"]["schema"]["schema_key"] = "__no_such_key__"
+    chk = _find(qa_validate.run_deterministic(_valid_full_artifact(), s), "schema_validation")
+    assert chk.status == "warning"
+    assert chk.route == "annotate"
+    assert chk.details["reason"] == "schema_unreadable"
 
 
 def test_layer1_runs_first(spec):
