@@ -187,9 +187,17 @@ def test_structured_match_known_bad_blocks(spec_no_layer1):
 
 
 def test_structured_match_non_high_weight_annotates(spec_no_layer1):
-    # vote_count has a structured validator but is NOT in the blockable set, so a
-    # medium-weight claim whose figure is absent from its source warns (annotate),
-    # it does not block. (Covers the sv_other_fail branch.)
+    # Defensive branch: in the shipped spec every claim_type carrying a
+    # structured_validators entry (budget_number, date_or_deadline, vote_count,
+    # legal_citation, named_person_or_role) is also blockable, and
+    # _is_high_weight() treats any blockable type as high-weight regardless of
+    # claim_weight. So the sv_other_fail (annotate) branch is currently
+    # UNREACHABLE via the real spec — it is forward-looking code for a future
+    # spec that declares a non-blockable structured-validator type. We exercise
+    # it via a deepcopy that marks vote_count non-blockable FOR THIS TEST ONLY,
+    # without touching production behavior.
+    spec = copy.deepcopy(spec_no_layer1)
+    spec["claim_types"]["vote_count"]["blockable"] = False
     art = {
         "official_name": "X", "meeting_date": "2026-06-01", "briefing_type": "council",
         "briefing_status": "briefing_ready", "items": [],
@@ -201,7 +209,7 @@ def test_structured_match_non_high_weight_annotates(spec_no_layer1):
         "sources": [{"id": "s1", "source_type": "agenda_packet",
                      "retrieved_text_or_snapshot": "The motion passed 6-1 last night."}],
     }
-    chk = _find(qa_validate.run_deterministic(art, spec_no_layer1), "high_stakes_structured_match")
+    chk = _find(qa_validate.run_deterministic(art, spec), "high_stakes_structured_match")
     assert chk.status == "warning"
     assert chk.route == "annotate"
 
@@ -251,15 +259,26 @@ def test_source_hierarchy_other_fail_and_gap_co_occur(spec_no_layer1):
     """When an artifact has BOTH a non-high-weight source-type violation AND an
     unpolicied claim_type, the annotate result and the diagnostic result must each
     be emitted separately — the gap diagnostic must not be suppressed by the
-    other-fail branch."""
+    other-fail branch.
+
+    Defensive branch: in the shipped spec every claim_type with a
+    source_hierarchy entry (budget_number, vote_count, legal_citation,
+    date_or_deadline) is also blockable, so _is_high_weight() forces them
+    high-weight and the sh_other_fail (annotate) branch is UNREACHABLE via the
+    real spec. To exercise the annotate-vs-diagnostic co-occurrence we deepcopy
+    the spec and mark legal_citation non-blockable FOR THIS TEST ONLY, leaving
+    production behavior unchanged."""
+    spec_no_layer1 = copy.deepcopy(spec_no_layer1)
+    spec_no_layer1["claim_types"]["legal_citation"]["blockable"] = False
     art = {
         "official_name": "X", "meeting_date": "2026-06-01", "briefing_type": "council",
         "briefing_status": "briefing_ready", "items": [],
         "claims": [
             {
-                # policied, NON-blockable type (legal_citation →
-                # agenda_packet/government_website) citing 'news' at non-high
-                # weight → other-fail (annotate, not block).
+                # policied type (legal_citation →
+                # agenda_packet/government_website), made non-blockable for this
+                # test via the deepcopy above, citing 'news' at non-high weight
+                # → other-fail (annotate, not block).
                 "claim_id": "c1", "item_id": "item_001", "claim_type": "legal_citation",
                 "claim_weight": "medium", "claim_text": "A legal claim.",
                 "source_ids": ["s1"], "source_extracts": [{"text": "A legal claim."}],

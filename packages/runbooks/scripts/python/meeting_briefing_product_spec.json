@@ -27,9 +27,9 @@
   "claim_types": {
     "budget_number":          { "weight": "high",   "blockable": true  },
     "date_or_deadline":       { "weight": "high",   "blockable": true  },
-    "legal_identifier":       { "weight": "high",   "blockable": true  },
+    "legal_citation":         { "weight": "high",   "blockable": true  },
     "named_person_or_role":   { "weight": "high",   "blockable": true  },
-    "vote_or_decision_fact":  { "weight": "high",   "blockable": true  },
+    "vote_count":             { "weight": "high",   "blockable": true  },
     "meeting_logistics":      { "weight": "high",   "blockable": true  },
     "constituent_priority":   { "weight": "medium", "blockable": false },
     "background_context":     { "weight": "medium", "blockable": false },
