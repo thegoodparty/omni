@@ -1,7 +1,7 @@
 <!-- v2 — 2026-06-01 -->
 # /release
 
-Merge the pending `qa → master` PR (opened by `/release-prep`) per configured repo, wait 5 minutes for the deploy to settle, then print a `#product-releases` message that lists every ENG-XXXX ticket released along with its ClickUp title.
+Merge the pending `qa → master` PR (opened by `/release-prep`) per configured repo, wait 5 minutes for the deploy to settle, then print a `#product-releases` message: a one-paragraph plain-language summary of what shipped (grouped by epic/theme) followed by every ENG-XXXX ticket released along with its ClickUp title.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 > **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
@@ -168,31 +168,46 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
 11. **Collect fallback items for PRs with no ENG-XXXX tag.** For each PR that yielded **zero** tags in step 9 (none in title, body, branch, or any commit subject), use the PR title (with the trailing `(#<n>)` stripped if `gh` included it). These appear as untagged bullets in the message. A PR genuinely without a ticket (a chore/refactor) is a normal case, not an error.
 
-12. **Format the message** to match the exact layout used in `$RELEASE_PRODUCT_CHANNEL`:
+12. **Write a one-paragraph, plain-language summary** of what shipped, to sit at the top of the message above the bullet list. This is the part a non-engineer actually reads — write it in a human voice, not as a list of ticket ids.
+
+    - **Group by epic/theme, not by ticket.** Use the ClickUp titles from step 10 (and the PR titles) to cluster related work. When several tickets belong to one initiative, name what the initiative does in one phrase rather than listing each ticket. (Example: instead of listing six mobile bug-fix tickets individually, say "a round of mobile and UI polish across onboarding and the dashboard.")
+    - Lead with the largest/most user-visible theme, then the next, then fold the rest into a short "also" clause. Two to four sentences total.
+    - Mention the repos it shipped across at the end (e.g., "shipped across gp-webapp and gp-api").
+    - Style: plain U.S. English, sentence case, no em dashes, no emoji, no internal jargon or ticket ids in the prose. The bullet list below it carries the ticket-level detail.
+
+    If you can identify the parent Epic for a cluster (the tickets reference one, or the ClickUp titles share an obvious initiative like "Phase 1: Website & Domain"), name that Epic's goal directly.
+
+13. **Format the message** to match the exact layout used in `$RELEASE_PRODUCT_CHANNEL` — the summary paragraph first, a blank line, then the bullet list:
 
     ```
     The following changes have just been released.
+
+    <one-paragraph plain-language summary from step 12>
+
       •  ENG-XXXX: <ClickUp title>
       •  ENG-YYYY: <ClickUp title>
       •  <fallback PR title>
     ```
 
-    Ordering:
+    Ordering of the bullets:
     - Tagged items (ENG-XXXX) in the order their first-referencing PR was merged (oldest first), matching what users saw in the `#devs-only` post.
     - Untagged fallback items at the end, also in merge order.
 
 ### Phase 7: Print and report
 
-13. **Print the formatted message** between visible delimiters so it's easy to copy:
+14. **Print the formatted message** between visible delimiters so it's easy to copy:
 
     ```
     ──────── COPY BELOW INTO #product-releases ────────
     The following changes have just been released.
+
+    <summary paragraph>
+
       •  ENG-XXXX: ...
     ──────── END ────────
     ```
 
-14. **Final report:**
+15. **Final report:**
     - Repos released (with the merged `qa → master` PR URL for each)
     - Repos skipped (no open `qa → master` PR found)
     - Repos aborted on snapshot mismatch in step 6 (qa moved between confirmation and merge) — user should re-run `/release` to review the updated contents
