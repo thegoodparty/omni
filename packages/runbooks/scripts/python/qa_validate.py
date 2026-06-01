@@ -1199,6 +1199,10 @@ def run_deterministic(
             "claim_types_without_policy": sorted(sh_gaps),
             "violations": sh_trace,
         }
+        # Each condition emits independently so co-occurring signals all surface.
+        # A policy gap must always produce its own route="diagnostic" result, even
+        # when the same artifact also has a (block) high-fail or (annotate)
+        # other-fail — otherwise the gap diagnostic would only survive in details.
         if sh_high_fail:
             results.append(DeterministicCheck(
                 check_id="source_hierarchy_policy",
@@ -1208,7 +1212,7 @@ def run_deterministic(
                 offending="; ".join(sh_high_fail[:5]),
                 details=sh_details,
             ))
-        elif sh_other_fail:
+        if sh_other_fail:
             results.append(DeterministicCheck(
                 check_id="source_hierarchy_policy",
                 status="warning", severity="medium",
@@ -1217,7 +1221,7 @@ def run_deterministic(
                 offending="; ".join(sh_other_fail[:5]),
                 details=sh_details,
             ))
-        elif sh_gaps:
+        if sh_gaps:
             results.append(DeterministicCheck(
                 check_id="source_hierarchy_policy",
                 status="warning", severity="low",
@@ -1229,7 +1233,7 @@ def run_deterministic(
                 offending=", ".join(sorted(sh_gaps)),
                 details=sh_details,
             ))
-        else:
+        if not sh_high_fail and not sh_other_fail and not sh_gaps:
             results.append(DeterministicCheck(
                 check_id="source_hierarchy_policy",
                 status="pass", severity="info",

@@ -156,8 +156,8 @@
   "deterministic_checks": [
     {
       "check_id": "schema_validation",
-      "description": "WS2 Layer-1. jsonschema (draft-07) validation of the whole artifact against the manifest output_schema named by output_format.schema, run before any other check. Hard-fails (block) on shape drift. Skipped with a warning when output_format.schema is absent or the manifest/jsonschema is unavailable. Does not re-penalize artifacts already blocked by load (invalid JSON) — those never reach Layer 1.",
-      "route_if_fail": "block",
+      "description": "WS2 Layer-1. jsonschema (draft-07) validation of the whole artifact against the manifest output_schema named by output_format.schema, run before any other check. Staged as annotate (warning) for a trial window — surfaces shape drift without blocking; will be promoted to block once briefings are confirmed to conform. Skipped with a warning when output_format.schema is absent or the manifest/jsonschema is unavailable. Does not re-penalize artifacts already blocked by load (invalid JSON) — those never reach Layer 1. (Routing is driven by code, not by reading this field; this value is descriptive.)",
+      "route_if_fail": "annotate",
       "severity": "high"
     },
     {

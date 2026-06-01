@@ -247,6 +247,44 @@ def test_source_hierarchy_missing_policy_is_diagnostic_not_block(spec_no_layer1)
     assert "constituent_priority" in chk.offending
 
 
+def test_source_hierarchy_other_fail_and_gap_co_occur(spec_no_layer1):
+    """When an artifact has BOTH a non-high-weight source-type violation AND an
+    unpolicied claim_type, the annotate result and the diagnostic result must each
+    be emitted separately — the gap diagnostic must not be suppressed by the
+    other-fail branch."""
+    art = {
+        "official_name": "X", "meeting_date": "2026-06-01", "briefing_type": "council",
+        "briefing_status": "briefing_ready", "items": [],
+        "claims": [
+            {
+                # policied, NON-blockable type (legal_citation →
+                # agenda_packet/government_website) citing 'news' at non-high
+                # weight → other-fail (annotate, not block).
+                "claim_id": "c1", "item_id": "item_001", "claim_type": "legal_citation",
+                "claim_weight": "medium", "claim_text": "A legal claim.",
+                "source_ids": ["s1"], "source_extracts": [{"text": "A legal claim."}],
+            },
+            {
+                # unpolicied type → gap (diagnostic).
+                "claim_id": "c2", "item_id": "item_001", "claim_type": "constituent_priority",
+                "claim_weight": "medium", "claim_text": "A priority claim.",
+                "source_ids": ["s2"], "source_extracts": [{"text": "A priority claim."}],
+            },
+        ],
+        "sources": [
+            {"id": "s1", "source_type": "news", "retrieved_text_or_snapshot": "A legal claim."},
+            {"id": "s2", "source_type": "news", "retrieved_text_or_snapshot": "A priority claim."},
+        ],
+    }
+    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    sh = _all(res, "source_hierarchy_policy")
+    routes = {r.route for r in sh}
+    assert "annotate" in routes  # the non-high-weight violation surfaces
+    assert "diagnostic" in routes  # the policy gap surfaces on its own result
+    diag = next(r for r in sh if r.route == "diagnostic")
+    assert "constituent_priority" in diag.offending
+
+
 # ── Check 3: embedding-rescue blocklist ───────────────────────────────────────
 
 
@@ -276,12 +314,27 @@ def test_non_blocklisted_type_stays_rescuable(spec_no_layer1):
     """Deny-list semantics: a claim_type absent from the blocklist keeps its
     rescue eligibility. Same artifact, claim_type swapped to a non-blocklisted
     type → rescue is no longer forbidden."""
+    # The positive rescue path only exists when the embedding model can load;
+    # without it emb_cos is None and the rescue can never fire, which would make
+    # a bare rescue_forbidden assertion vacuously pass. Skip cleanly instead.
+    pytest.importorskip("sentence_transformers")
     art = json.loads((FIXTURES / "ws2_blocklist_no_rescue.json").read_text())
     art["claims"][0]["claim_type"] = "background_context"  # not on the blocklist
-    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    # The fixture summary is a faithful low-lexical paraphrase; its real MiniLM
+    # embedding cosine (~0.44) clears a rescue threshold set just below it. Lower
+    # the threshold so the actual model output drives the rescue — proving the
+    # positive path engages, not just that the type is rescuable on paper.
+    spec = copy.deepcopy(spec_no_layer1)
+    spec["embedding_check"]["rescue_threshold"] = 0.40
+    res = qa_validate.run_deterministic(art, spec)
     coh = _find(res, "summary_source_coherence")
     item = {p["item_id"]: p for p in coh.details["per_item"]}["item_001"]
     assert item["rescue_forbidden"] is False
+    # Prove the positive path actually fired with the model present.
+    assert item["below_lexical"] is True
+    assert item["embedding_cosine"] is not None
+    assert item["rescued_by_embedding"] is True
+    assert item["below_threshold"] is False
 
 
 # ── Check 4: completeness_floor decouple ──────────────────────────────────────
