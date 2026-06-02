@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 4,
+  "version": 5,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -18,7 +18,7 @@
   "input_schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["officialName", "state"],
+    "required": ["officialName", "state", "meetingDate"],
     "properties": {
       "officialName": {
         "type": "string",
@@ -29,6 +29,23 @@
         "type": "string",
         "pattern": "^[A-Z]{2}$",
         "description": "2-letter state code (e.g. NY)."
+      },
+      "meetingDate": {
+        "type": "string",
+        "format": "date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "description": "Target meeting date in YYYY-MM-DD. Required. The caller (gp-api) supplies this from the official's meeting_schedule. The agent does NOT discover the meeting date — it uses this value as the target and verifies the platform shows a meeting on that date."
+      },
+      "meetingTime": {
+        "type": "string",
+        "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+        "description": "Start time of the target meeting in 24-hour HH:MM (local time of meetingTimezone). Optional but recommended. When provided, the agent treats this as the source-of-truth meeting time and copies it through to the artifact's meeting_time field. When omitted, the agent reads the time from the streaming platform."
+      },
+      "meetingTimezone": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "IANA timezone name for meetingTime (e.g. \"America/New_York\"). Optional but recommended. Pair with meetingTime."
       },
       "positionName": {
         "type": "string",
@@ -255,7 +272,7 @@
           "briefing_status": {
             "type": "string",
             "enum": ["awaiting_agenda", "no_meeting_found", "error"],
-            "description": "Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when no upcoming meeting exists within the 60-day search window. Use 'error' for unrecoverable run failures \u2014 populate run_metadata.run_decisions[] with the diagnostic trail."
+            "description": "Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when the streaming platform shows no meeting of the official's body on the caller-supplied PARAMS.meetingDate (stale schedule signal). Use 'error' for unrecoverable run failures \u2014 populate run_metadata.run_decisions[] with the diagnostic trail."
           },
           "generated_at": {
             "type": "string",

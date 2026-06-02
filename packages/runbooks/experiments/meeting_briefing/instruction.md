@@ -1,6 +1,6 @@
 # Meeting Briefing
 
-Run a meeting briefing for one elected official's next city council meeting. Produces a single JSON artifact with featured/queued/standard agenda items, Haystaq sentiment, news, budget figures, talking points, sources, and claims for QA. The artifact combines agenda-packet evidence (the canonical record of what is being decided) with Haystaq modeled constituent sentiment and recent local news so a single briefing covers what the item does, what the district appears to want, and what coverage surrounds it.
+Run a meeting briefing for one elected official's specific city council meeting. The target meeting date is provided in `PARAMS.meetingDate` (required); the agent does NOT discover the next meeting. Produces a single JSON artifact with featured/queued/standard agenda items, Haystaq sentiment, news, budget figures, talking points, sources, and claims for QA. The artifact combines agenda-packet evidence (the canonical record of what is being decided) with Haystaq modeled constituent sentiment and recent local news so a single briefing covers what the item does, what the district appears to want, and what coverage surrounds it.
 
 ## BEFORE YOU START
 
@@ -15,8 +15,8 @@ Run a meeting briefing for one elected official's next city council meeting. Pro
 
 Two conditions abort the run with a placeholder artifact instead of a full briefing. Check both before you start downloading attachments or running Databricks queries:
 
-1. **No upcoming meeting on the calendar** within 60 days for the official's body → `briefing_status: "no_meeting_found"`. A past meeting is not a valid target; do not brief it.
-2. **No agenda packet published yet** for the upcoming meeting (only a summary exists) → `briefing_status: "awaiting_agenda"`.
+1. **No meeting on the platform for `PARAMS.meetingDate`** → `briefing_status: "no_meeting_found"`. The caller supplied the target date from the official's meeting_schedule; if the streaming platform shows no meeting of the official's body on that date, the schedule was stale or the meeting was cancelled. Do not invent a substitute date.
+2. **No agenda packet published yet** for the target meeting (only a summary exists) → `briefing_status: "awaiting_agenda"`.
 
 Either condition: emit the single-placeholder `items[]` shape (see Step 3), `claims: []`, write the artifact, validate, exit. Do not do web research or Databricks queries in either case — the artifact's job is to tell the UI "check back later," not to fabricate a briefing.
 
@@ -47,8 +47,8 @@ The packet is **not** the published agenda summary page. The summary lists item 
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON; verify Databricks env via a trivial ping query.
-2. Find the **next upcoming meeting** (date `>= today`) for the official's body. If none in a 60-day window, set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source — full briefing PDFs, not the summary page — per the precondition above (path > URL > platform discovery).
+1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date.
+2. Verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`. If the platform shows no meeting on that date (stale schedule signal), set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > platform discovery).
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
 5. Classify items into featured / queued / standard tiers.
@@ -164,7 +164,12 @@ Read `PARAMS_JSON` once at the top:
 ```python
 import json, os
 PARAMS = json.loads(os.environ["PARAMS_JSON"])
+TARGET_MEETING_DATE = PARAMS["meetingDate"]  # required, YYYY-MM-DD
+TARGET_MEETING_TIME = PARAMS.get("meetingTime")  # optional, "HH:MM" 24-hour
+TARGET_MEETING_TIMEZONE = PARAMS.get("meetingTimezone")  # optional, IANA name
 ```
+
+**`meetingDate` is the target.** The caller (gp-api) has already determined which meeting to brief based on the official's meeting_schedule. The agent uses this date directly — it does NOT discover the next meeting. If `meetingTime` and `meetingTimezone` are provided, treat them as source-of-truth and copy them through to the artifact's `meeting_time` and `meeting_timezone` fields; the agent does not need to re-look-up the time from the platform when these are present.
 
 **`city` is not in PARAMS.** Derive the city for narrative use (WebSearch queries, source naming, summary prose) by reasoning over `PARAMS.positionName`, `PARAMS.l2DistrictName`, and `PARAMS.state`. `positionName` usually contains the jurisdiction verbatim (e.g. `"Cheyenne City Council"` → city is `Cheyenne`). When the position name is generic (e.g. `"City Council Member"`), use `l2DistrictName` (which often encodes the city, e.g. `"NEW YORK CITY CNCL DIST 25 (EST.)"`) plus `state` to identify it; confirm via WebSearch when ambiguous. Record the derived city in `run_metadata.run_decisions[]` with reason `"derived_city_for_narrative"`. The derived city is **not** used as an L2 query filter — scope is set by `l2DistrictType`/`l2DistrictName` (district) or by the broker's auto-injected state clause (state).
 
@@ -186,28 +191,20 @@ Failure: the call raises (connection error, scope violation, or `UpstreamError`)
 
 **Target: the agenda packet, not the summary.** Re-read "WHAT COUNTS AS THE AGENDA PACKET" above before proceeding. You are looking for the substantive briefing PDFs (staff reports, ordinances, exhibits, etc.) — either one compiled file or the per-item attachments collection. If you end this step with only a summary, you have not resolved the packet and must route to `awaiting_agenda` in Step 3.
 
-**Precondition — there must be an upcoming meeting of the official's body.** Before resolving any agenda source, confirm at least one upcoming meeting **of the official's body specifically** (not a committee meeting, not a different body) exists within a 60-day window. Use `PARAMS.meetingDate` if provided. Otherwise check sources in this order, stopping when two sources agree:
+**Precondition — `PARAMS.meetingDate` is the target.** The caller (gp-api) supplies the target meeting date based on the official's `meeting_schedule` artifact. The agent does NOT discover the next meeting on its own. Your job in Step 2 is to **verify** that `PARAMS.meetingDate` corresponds to a real meeting of the official's body on the streaming platform, then proceed to resolve the agenda packet for that specific date.
 
-1. **The streaming platform's calendar** (Granicus `ViewPublisher.php?view_id=N`, Legistar `Calendar.aspx`, PrimeGov `/Portal/Meeting`, etc.). Filter to the specific body — committee meetings are not the same as the parent body's meeting.
-2. **The city's own published meeting schedule** (often at `<city-site>/Your-Government/<body>/` or `/meetings/`). Cities frequently publish a calendar-year schedule independent of the streaming platform.
-3. **At least one WebSearch.** Use `"<city>" "<body name>" meeting <month> <year>` (e.g. `"Cheyenne" "city council" meeting May 2026`). Local news regularly covers upcoming meetings and pre-announces holiday shifts. Treat news from the last 14 days as authoritative for date confirmation.
+**Verification procedure.** Fetch the streaming platform's calendar (Granicus `ViewPublisher.php?view_id=N`, Legistar `Calendar.aspx`, PrimeGov `/Portal/Meeting`, CivicClerk Events API, etc.) and confirm there is a meeting **of the official's body specifically** (not a committee meeting) on `PARAMS.meetingDate`. If `PARAMS.meetingTime` and `PARAMS.meetingTimezone` are provided, treat them as the source-of-truth time and copy them through to `meeting_time` and `meeting_timezone` in the artifact. If they are not provided, read the time and timezone from the platform.
 
-**Watch for holiday shifts.** Cadence inference (e.g. "2nd and 4th Mondays") is unreliable around federal holidays — Memorial Day, July 4 week, Labor Day, Thanksgiving, Christmas/New Year often shift meetings by one day or a week. If today's date falls in or adjacent to one of these weeks, the pure cadence guess is presumed wrong until news or the city schedule confirms.
-
-**Resolve conflicts in favor of explicit published dates over cadence.** Cadence is a fallback; the city's own schedule or news coverage is authoritative when they disagree.
-
-Record which sources you consulted and what you found in `run_metadata.run_decisions[]`.
-
-If no future meeting of the official's body exists in any of these sources within 60 days:
+If the streaming platform shows NO meeting on `PARAMS.meetingDate` for the official's body (rare — usually means the schedule was stale or the meeting was cancelled):
 
 - Set `briefing_status: "no_meeting_found"`.
-- Set `meeting_date` to the estimated next meeting date if you can infer one from cadence; otherwise use the most recent past meeting date as a stable fallback. `meeting_date` is schema-required and cannot be omitted.
-- Emit `meeting_time: ""` and `meeting_timezone: ""` — both are schema-required-but-may-be-empty when no meeting is identified.
+- Set `meeting_date` to `PARAMS.meetingDate` (echoed for the artifact's self-sufficiency).
+- Emit `meeting_time: ""` and `meeting_timezone: ""` if not provided in PARAMS; otherwise echo them.
 - Emit the single-placeholder `items[]` shape from Step 3's failure path (`item_001`, `tier: "standard"`, `tier_reason: ["placeholder"]`, etc.), and set `claims: []`.
-- Record the decision in `run_metadata.run_decisions[]` with reason `"no_upcoming_meeting_on_calendar"`. List the sources you checked.
+- Record the decision in `run_metadata.run_decisions[]` with reason `"no_meeting_on_target_date"`. Include what the platform DID show (other dates, cancellation notices) so the caller can mark the schedule for re-running.
 - Skip Steps 4–16. Write the placeholder artifact (Step 17), validate (Step 18), exit.
 
-**Distinguish target meeting vs. enrichment sources.** The TARGET meeting (the one this briefing is _about_) must be in the future. Do NOT brief a past meeting as if it were the target — if the platform's most recent event has a date `< today` and no future meeting exists in the 60-day window, bail to `no_meeting_found`. The product is forward-looking.
+Record what you verified (platform URL, meeting ID/event ID if available, observed time) in `run_metadata.run_decisions[]`.
 
 **Past meeting packets ARE allowed as enrichment** for the target meeting's items. Many agenda items have legislative history that lives in prior packets:
 

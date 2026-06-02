@@ -446,10 +446,18 @@ def check_run_decisions_meaningful(artifact: dict, findings: list[Finding]) -> N
 
 _CHANNEL_PREFIX_RE = re.compile(r"^channel_([1-7])_")
 _REQUIRED_CHANNELS = frozenset(range(1, 8))
+# When `no_meeting_found` is recorded as a stale-schedule signal (the agent
+# verified the caller-supplied date and the platform showed no meeting on
+# that date), the agent emits a single decision with the
+# `no_meeting_on_target_date` reason instead of exhausting the 7-channel
+# packet discovery. Packet discovery only applies when a target meeting was
+# confirmed but the packet may or may not exist yet (the `awaiting_agenda`
+# path).
+_STALE_SCHEDULE_REASONS = frozenset({"no_meeting_on_target_date"})
 
 
 def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding]) -> None:
-    """awaiting_agenda / no_meeting_found requires all 7 discovery channels attempted.
+    """awaiting_agenda requires all 7 discovery channels attempted.
 
     The packet-discovery procedure has 7 distinct channels (instruction.md). Each
     attempted channel must produce a run_decisions[] entry whose `decision`
@@ -461,11 +469,20 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
     This check is the teeth behind the instruction's claim that the validator
     rejects awaiting_agenda artifacts that skip channels — without it, the
     instruction's enforcement promise was vacuous.
+
+    `no_meeting_found` artifacts that record `no_meeting_on_target_date`
+    (the stale-schedule signal path) are exempt from the 7-channel
+    requirement: the agent never reached packet discovery because the
+    target meeting did not exist on the platform.
     """
     status = artifact.get("briefing_status")
     if status not in ("awaiting_agenda", "no_meeting_found"):
         return
     decisions = (artifact.get("run_metadata") or {}).get("run_decisions") or []
+    if status == "no_meeting_found" and any(
+        (d.get("reason") or "") in _STALE_SCHEDULE_REASONS for d in decisions
+    ):
+        return
     channels_seen: set[int] = set()
     for d in decisions:
         m = _CHANNEL_PREFIX_RE.match((d.get("decision") or ""))
