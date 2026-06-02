@@ -35,9 +35,9 @@ curl -sS "$ELECTION_API_URL/v1/candidacies?slug=$CANDIDATE_SLUG&includeRace=true
   | jq '.[0].Race | {electionDate, isPrimary, isRunoff, partisanType, officeType, officialOfficeName}'
 ```
 
-If you only have name + state, resolve the slug exactly as in `books/find-opposition-research.md` step 1, then read `.Race.electionDate`.
+If you only have name + state, resolve the slug exactly as in `books/find-opposition-research.md` step 1 (which indexes the array with `.[0]`), then read the resolved candidacy's `.Race.electionDate`.
 
-Any place where a matched race carries a NON-null `electionDate` is seeded high-confidence (candidate-specific authoritative data); drop it from the fan-out in step 3. A matched race with a **null** `electionDate` does not count as found and falls through to step 3. election-api misses small, independent, and late-filed local races entirely, so expect the small-town long tail to fall through. That tail is exactly what the web-research phase is for.
+Any place where a matched race carries an `electionDate` **in the target year** is seeded high-confidence (candidate-specific authoritative data); drop it from the fan-out in step 3. A matched race whose `electionDate` is **null, or in any year other than the target**, does not count as found and falls through to step 3. This is the same target-year rule step 3 enforces: a different-year `electionDate` usually means you matched a past or wrong-cycle race record, not the one you are filling, so a stale date never gets seeded as truth. election-api also misses small, independent, and late-filed local races entirely, so expect the small-town long tail to fall through. That tail is exactly what the web-research phase is for.
 
 ### 3. Fan out parallel web-research subagents, batched by state / jurisdiction
 
@@ -117,6 +117,7 @@ Then print a short summary: filled vs not_found counts, the breakdown by state, 
 | A source returns 200 but is machine-generated or an aggregator | Auto-generated per-candidate stubs and data aggregators verify clean but are not authoritative | Do not cite. Use an official `.gov` page or a named reputable source. Same rule as `find-opposition-research.md` |
 | LinkedIn or a PR-wire page is the only "source" | These are not election authorities | Never cite them for an election date |
 | election-api returns the race but `electionDate` is null | BallotReady has the race but not the date for this local contest | Does not count as found. Route the jurisdiction to the web-research fan-out in step 3 |
+| election-api seed `electionDate` is in a year other than the target | You matched a past-cycle or wrong-cycle race record | Do not seed it. The step 2 target-year gate drops any non-target-year date and routes the jurisdiction to the web-research fan-out |
 | Two offices in one town return different dates | One is a special election, or a primary vs general stage was conflated | Re-check the source. Regular municipal council and mayor share the regular municipal date; a differing date usually means a special election or a misread stage |
 
 ## Promote to a self-service experiment
