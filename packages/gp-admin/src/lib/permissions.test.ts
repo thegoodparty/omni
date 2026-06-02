@@ -22,6 +22,8 @@ describe('PERMISSIONS', () => {
       MANAGE_INVITES: 'org:admin_portal:manage_invites',
       MANAGE_ECANVASSER: 'org:admin_portal:manage_ecanvasser',
       IMPERSONATE_USERS: 'org:admin_portal:impersonate_users',
+      READ_AGENT_RUNS: 'org:admin_portal:read_agent_runs',
+      WRITE_AGENT_RUNS: 'org:admin_portal:write_agent_runs',
     })
   })
 })
