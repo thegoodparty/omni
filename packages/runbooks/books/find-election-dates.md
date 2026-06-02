@@ -1,7 +1,5 @@
 Recover missing election dates for a list of candidates: dedupe to distinct jurisdictions, seed from election-api where possible, fan out parallel web-research subagents for the rest, verify every source URL returns 200, and emit a sourced date table keyed on the caller's id.
 
-This is the source runbook. It captures the human-runnable version of the workflow. Once stable, port it into a PMF agent experiment by following `books/convert-runbook-to-experiment.md`. Naming convention: runbook `find-X.md` becomes experiment `experiments/X/` (kebab-case to snake_case, drop the `find-` prefix).
-
 ## Prerequisites
 
 **books/.env variables**: `$ELECTION_API_URL` (optional seed step only; e.g. `https://election-api-dev.goodparty.org`)
@@ -121,17 +119,3 @@ Then print a short summary: filled vs not_found counts, the breakdown by state, 
 | election-api returns the race but `electionDate` is null | BallotReady has the race but not the date for this local contest | Does not count as found. Route the jurisdiction to the web-research fan-out in step 3 |
 | election-api seed `electionDate` is in a year other than the target | You matched a past-cycle or wrong-cycle race record | Do not seed it. The step 2 target-year gate drops any non-target-year date and routes the jurisdiction to the web-research fan-out |
 | Two offices in one town return different dates | One is a special election, or a primary vs general stage was conflated | Re-check the source. Regular municipal council and mayor share the regular municipal date; a differing date usually means a special election or a misread stage |
-
-## Promote to a self-service experiment
-
-This runbook is a one-off you run manually. To make it a self-service experiment, follow `books/convert-runbook-to-experiment.md`. Naming:
-
-- This runbook: `find-election-dates.md`
-- The PMF experiment: `experiments/election_dates/` (drop `find-`, kebab to snake)
-
-The translation encodes the steps above into `manifest.json` (`input_schema` for the candidate list and target year, `output_schema` for the per-candidate sourced date row, scope `allowed_external_tools: [WebSearch, http]`) and `instruction.md` (the same steps with the data-quality rules called out as CRITICAL RULES).
-
-Two carry-over notes from `find-opposition-research.md`:
-
-- **Fan-out ports to Fargate.** The harness supports native subagent fan-out gated by the manifest field `runtime.max_parallel_subagents` (0 = off; cap 20). Set it and the harness dispatches one research subagent per batch concurrently. Keep step 3's sequential loop as the documented graceful-degrade fallback.
-- **URL verification uses the cheap rung first.** `verify_urls.py` does not port (the Fargate runner is quarantined). The web-access ladder there is WebSearch to discover, `pmf_runtime.http.head(url)` to verify status, and `pmf_runtime.http.get(url)` only as a last resort. Re-rendering every URL with `http.get` is what makes a port time out; verify with `http.head` and escalate only on a 403/405 from a real site.
