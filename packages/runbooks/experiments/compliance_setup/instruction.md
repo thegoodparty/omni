@@ -76,7 +76,7 @@ Then maintain a TodoWrite list with these 7 items, **numbered 1:1 with the prose
 
 ## Domain pattern catalog
 
-Search the registrar for the first available domain matching any of these patterns, in this order. The placeholders are derived from the candidate's data:
+Search the registrar for an available domain matching any of these patterns. Ordering is **randomized per run** (see "Selection must cover the full catalog" below) — there is no fixed pattern or TLD priority. The placeholders are derived from the candidate's data:
 
 - `{last_name}` — `candidate_last_name`, lowercased, stripped of non-`[a-z]` characters
 - `{first_initial}` — first character of the candidate's first name (lowercase). When unset **or empty string**, skip the two patterns that need it.
@@ -96,7 +96,11 @@ vote-{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
 vote{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
 ```
 
-Hand this whole pattern set to the domain-search tool; let gp-api enforce ordering. Do not enumerate variants client-side — the tool's job is to find the cheapest available match.
+**TLD allowlist is strict.** Only `run`, `bio`, `fyi`, `win`, `digital`, `site` are valid. Any other suffix (for example `.org`, `.com`, `.net`) is out of spec and must never be purchased. If the search tool ever returns a candidate whose TLD is outside this allowlist, do **not** purchase it — append blocker `{ step: "domain_search", code: "unapproved_tld_returned", detail: <the returned domain>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
+
+**Selection must cover the full catalog.** The domain-search request must use all approved patterns and all approved TLDs, and the search order must be randomized per run so the same subset is not repeatedly preferred. If your tool call would only evaluate a subset (for example, fixed ordering with early exit), treat that as a bad request and stop with blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7. Step 2 has a pre-call guard for exactly this.
+
+Hand this whole pattern set to the domain-search tool in randomized order for the current run. Do not narrow the list client-side to a "best few" patterns. The tool's job is still to find the cheapest available in-budget match from the full approved catalog.
 
 ## Stage enum
 
@@ -147,12 +151,14 @@ Call the gp-api MCP tool **that searches the registrar for an available domain m
 - The full pattern catalog from above (the candidate's `candidate_last_name`, `election_date`, etc., substituted).
 - For the **first** call, `price_cap_usd = min(10, domain_budget_cap_usd)` — the cheap-first cap. When `domain_budget_cap_usd >= 10` this is `10`; when params explicitly restricts further (e.g. `7`), it is `7`.
 
+**Pre-call guard — validate the request before sending it.** Before invoking the search tool, confirm the request you are about to send (a) includes **all** approved patterns applicable to this candidate (all six, or the four that don't need `{first_initial}` when first name is empty), (b) includes **all six** approved TLDs (`run`, `bio`, `fyi`, `win`, `digital`, `site`), and (c) presents them in **randomized order** for this run. If you cannot satisfy all three — for example the tool surface only accepts a subset, or forces a fixed ordering with early exit — do **not** call it with a narrowed catalog. Append blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
+
 Set `stage` to `domain_search_started` while the call is in flight.
 
 Let `initial_cap = min(10, domain_budget_cap_usd)`. Outcomes:
 
-- **A match at ≤ `initial_cap`.** Proceed to Step 3 with that name + price.
-- **No match at `initial_cap` and `domain_budget_cap_usd > 10`.** Re-call **once** with `price_cap_usd = domain_budget_cap_usd` (the explicit higher override). If a match appears, proceed.
+- **A match at ≤ `initial_cap`.** First confirm the returned domain's TLD is in the allowlist (`run`, `bio`, `fyi`, `win`, `digital`, `site`). If it is not, append blocker `{ step: "domain_search", code: "unapproved_tld_returned", detail: <the returned domain>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7 — do **not** purchase. Otherwise proceed to Step 3 with that name + price.
+- **No match at `initial_cap` and `domain_budget_cap_usd > 10`.** Re-call **once** with `price_cap_usd = domain_budget_cap_usd` (the explicit higher override). **The pre-call guard above applies to this call as well** — before sending, confirm the request still satisfies all three conditions (full pattern catalog, all six approved TLDs, randomized order); if not, append the `pattern_catalog_incomplete` blocker, set `stage: "failed"`, and go to Step 7. If a match appears, first confirm the returned domain's TLD is in the allowlist (`run`, `bio`, `fyi`, `win`, `digital`, `site`). If it is not, append blocker `{ step: "domain_search", code: "unapproved_tld_returned", detail: <the returned domain>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7 — do **not** purchase. Otherwise proceed to Step 3 with that name + price.
 - **No match within budget** (either `initial_cap == domain_budget_cap_usd` so no escalation is possible, or the escalated retry also returned nothing). Append blocker `{ step: "domain_search", code: "budget_exceeded", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7.
 - **Tool 5xx / transient.** Retry up to 3 attempts (backoff above). If still failing, append blocker `{ step: "domain_search", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `domain_search_started`. Go to Step 7 and exit — the recovery loop reads `is_recoverable: true` and will re-dispatch the whole run.
 
@@ -330,4 +336,6 @@ Validator-passing JSON can still be misleading. Before declaring success:
 | Set `next_action.scheduled_for` in the past                          | Used `now` instead of `now + delay`                                   | Use `now + 30 minutes` for DNS waits, `now + 15 minutes` for Vercel waits, ISO 8601 with `Z` suffix                                                              |
 | Wrote `null` in any artifact field                                   | Default coalescing forgotten                                          | Use `""` for strings, `0` for numbers, `false` for booleans, `[]` for arrays. The validator rejects `null`                                                       |
 | Domain purchase 409, but blindly retried search + purchase          | Treated 409 as transient                                              | 409 means someone got there first (likely a duplicate dispatch). Re-read state via Step 1 and continue from the now-current stage                                |
+| Domain search returns a result outside the approved TLD list (for example `.org`) | Search tool returned a fallback/default suffix instead of the allowlist | Do **not** purchase. Append blocker `{ step: "domain_search", code: "unapproved_tld_returned", detail: <the returned domain>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, go to Step 7. |
+| Search request would only cover a subset of the catalog or a fixed (non-randomized) order | Tool surface forces a subset/fixed ordering; pre-call guard tripped | Do **not** call the tool with a narrowed catalog. Append blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, go to Step 7. |
 | Token expired mid-run                                                | Run exceeded broker actor-token TTL                                   | Write a terminal `error: { code: "token_expired", message: "broker actor token expired mid-run", occurred_at: "<ISO 8601 now>", tool: "" }` — all four fields required. The recovery loop will start a fresh run with a fresh token. |

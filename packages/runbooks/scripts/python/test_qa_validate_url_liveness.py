@@ -13,6 +13,7 @@ network. Covers:
 """
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -181,6 +182,40 @@ def test_dead_url_annotates_not_blocks(monkeypatch):
     assert chk.details["failures"][0]["status"] == 404
 
 
+def test_head_403_then_get_200_passes(monkeypatch):
+    # Many servers reject HEAD with 403/405 but serve GET. The probe must retry
+    # with GET and treat the 200 as reachable.
+    _stub_safe_dns(monkeypatch)
+
+    def fn(url, method):
+        return (200, None) if method == "GET" else (403, "Forbidden")
+
+    monkeypatch.setattr(qa_validate.urllib.request, "build_opener",
+                        lambda *a, **k: _FakeOpener(fn))
+    artifact = _artifact(source_urls=["https://example.com/head-forbidden"])
+    chk = _find(qa_validate.run_deterministic(artifact, _spec_urls_only()), "urls_resolve")
+    assert chk is not None
+    assert chk.status == "pass"
+    assert chk.route == "pass"
+
+
+def test_head_405_then_get_404_annotates(monkeypatch):
+    # HEAD 405 triggers the GET retry; a GET 404 is the real status and annotates.
+    _stub_safe_dns(monkeypatch)
+
+    def fn(url, method):
+        return (404, "Not Found") if method == "GET" else (405, "Method Not Allowed")
+
+    monkeypatch.setattr(qa_validate.urllib.request, "build_opener",
+                        lambda *a, **k: _FakeOpener(fn))
+    artifact = _artifact(source_urls=["https://example.com/gone"])
+    chk = _find(qa_validate.run_deterministic(artifact, _spec_urls_only()), "urls_resolve")
+    assert chk is not None
+    assert chk.status == "warning"
+    assert chk.route == "annotate"
+    assert chk.details["failures"][0]["status"] == 404
+
+
 def test_unreachable_url_annotates(monkeypatch):
     _stub_safe_dns(monkeypatch)
     monkeypatch.setattr(qa_validate.urllib.request, "build_opener",
@@ -299,15 +334,23 @@ class _FakeResp:
 
 
 class _FakeOpener:
-    """Mimics urllib's OpenerDirector. `fn(url) -> (status, err)`; a non-None
-    err with status set raises HTTPError, a None status raises URLError."""
+    """Mimics urllib's OpenerDirector. The probe fn is called as `fn(url)` or, when
+    it declares a second parameter, `fn(url, method)` — so a test can make HEAD and
+    GET return different statuses and exercise the HEAD→GET retry. It returns
+    (status, err); a non-None err with status set raises HTTPError, a None status
+    raises URLError."""
 
     def __init__(self, fn):
         self._fn = fn
+        try:
+            self._wants_method = len(inspect.signature(fn).parameters) >= 2
+        except (TypeError, ValueError):
+            self._wants_method = False
 
     def open(self, req, timeout=None):
         url = req.full_url
-        status, err = self._fn(url)
+        method = req.get_method()
+        status, err = self._fn(url, method) if self._wants_method else self._fn(url)
         if status is None:
             raise qa_validate.urllib.error.URLError(err or "unreachable")
         if status != 200:

@@ -444,6 +444,16 @@ _MONEY_RE = re.compile(
 )
 _PERCENT_RE = re.compile(r"\d+(?:\.\d+)?\s?(?:%|percent)", re.IGNORECASE)
 _VOTE_RE = re.compile(r"\b\d{1,3}\s?[-–to]{1,3}\s?\d{1,3}\b", re.IGNORECASE)
+# "page 4-1", "Section 3-2", "Exhibit 4-1", "Table 2-1" are document-structural
+# references, not vote tallies. Python's re only allows fixed-width lookbehind, so
+# a word-alternation negative lookbehind on _VOTE_RE won't compile; instead a vote
+# match immediately preceded by one of these labels is rejected at extraction time
+# (see extract_literals). Leading \b prevents "rampage" from matching "page".
+_VOTE_STRUCT_PREFIX_RE = re.compile(
+    r"\b(?:page|pg|section|sec|exhibit|exh|figure|fig|table|tab|appendix|app|"
+    r"attachment|att)\.?\s*[-–]?\s*$",
+    re.IGNORECASE,
+)
 # Legal citations: "Ordinance 2024-17", "Resolution No. 12", "Section 3.4",
 # "Ord. 17", "HB 1234", "Chapter 5", "Article IV".
 _LEGAL_RE = re.compile(
@@ -490,6 +500,10 @@ def _norm_money(tok: str) -> str:
         val = float(t) * mult
     except ValueError:
         return _norm_text(tok)
+    # Round to cents before the integer check: float multiplication of fractional
+    # millions (e.g. 1.1 * 1_000_000 → 1100000.0000000002) can leave a tiny residue
+    # that makes val != int(val), so "$1.1M" would mismatch "$1,100,000".
+    val = round(val, 2)
     # Integer-valued magnitudes render without a trailing .0
     return str(int(val)) if val == int(val) else str(val)
 
@@ -532,6 +546,10 @@ def extract_literals(text: str, kind: str) -> list[str]:
     rx, norm = spec
     seen: list[str] = []
     for m in rx.finditer(text):
+        # Reject document-structural references ("page 4-1", "Table 2-1") that
+        # would otherwise satisfy a vote_count claim with a non-vote digit pair.
+        if kind == "vote_count" and _VOTE_STRUCT_PREFIX_RE.search(text[: m.start()]):
+            continue
         key = norm(m.group(0))
         if key and key not in seen:
             seen.append(key)
@@ -1185,9 +1203,21 @@ def run_deterministic(
             # Compare normalized keys: money/percent compare canonical magnitude,
             # the rest compare normalized substring presence in the haystack.
             missing: list[str] = []
+            # Source name tokens (lowercased words), used for the name kind so a
+            # reordered or comma-separated rendering ("Michael Brown, Mayor" vs
+            # "Mayor Michael Brown") is not a false fail — see the name branch.
+            haystack_words = (
+                set(re.findall(r"[a-z0-9]+", cited_haystack_text)) if kind == "name" else set()
+            )
             for lit in literals:
                 if kind in ("money", "percentage", "vote_count"):
                     present = lit in extract_literals(cited_haystack_text, kind)
+                elif kind == "name":
+                    # A contiguous-substring test yields false fails when the
+                    # source reorders the name or separates title from name.
+                    # Require instead that every token of the claim's name run
+                    # appears as a word somewhere in the cited source.
+                    present = all(tok in haystack_words for tok in re.findall(r"[a-z0-9]+", lit))
                 else:
                     present = lit in cited_haystack_text
                 if not present:
@@ -1469,7 +1499,11 @@ def run_deterministic(
                     f"tfidf {tfidf_threshold} AND containment {contain_threshold}"
                     f"{rescue_note}"
                 ),
-                route="annotate",
+                # Diagnostic-only: the TF-IDF IDF term is degenerate over the
+                # N=2 strings compared (down-weights shared tokens, backwards for
+                # a support signal). Scores are recorded for triage but never
+                # drive the verdict — see compute_release_verdict.
+                route="diagnostic",
                 offending="; ".join(low_coherence[:5]),
                 details=coherence_details,
             ))
@@ -1619,6 +1653,65 @@ def run_deterministic(
                 message="All completeness thresholds met",
                 route="pass",
                 details=comp_measured,
+            ))
+
+    # 9b. claim_coverage — diagnostic-only. Per featured item, flag items that
+    #     carry prose (display.summary) but have fewer than the spec cutoff of
+    #     referencing claims (join claim.item_id == item.id). Surfaces generator
+    #     under-emission, which biases downstream accuracy rates. Recorded but
+    #     never drives the verdict (route diagnostic).
+    cov_cfg = spec.get("coverage_check") or {}
+    if cov_cfg.get("enabled", False):
+        min_claims = int(cov_cfg.get("min_claims_per_featured_item", 2))
+        claim_counts_by_item: dict[str, int] = {}
+        for c in claims:
+            iid = c.get("item_id")
+            if iid:
+                claim_counts_by_item[iid] = claim_counts_by_item.get(iid, 0) + 1
+        low_coverage: list[dict] = []
+        per_item_coverage: list[dict] = []
+        for it in priority_items:
+            iid = it.get("id")
+            summary = (it.get("display") or {}).get("summary") or ""
+            has_prose = bool(summary.strip())
+            n_claims = claim_counts_by_item.get(iid, 0)
+            per_item_coverage.append({
+                "item_id": iid,
+                "claim_count": n_claims,
+                "has_prose": has_prose,
+            })
+            if has_prose and n_claims < min_claims:
+                low_coverage.append({"item_id": iid, "claim_count": n_claims})
+        coverage_details = {
+            "min_claims_per_featured_item": min_claims,
+            "featured_items_scored": len(priority_items),
+            "below_count": len(low_coverage),
+            "per_item": per_item_coverage,
+        }
+        if low_coverage:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="warning", severity="low",
+                message=(
+                    f"{len(low_coverage)} of {len(priority_items)} featured item(s) "
+                    f"carry prose but have < {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                offending="; ".join(
+                    f"{f['item_id']}: {f['claim_count']} claim(s)" for f in low_coverage[:5]
+                ),
+                details=coverage_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="pass", severity="info",
+                message=(
+                    f"All {len(priority_items)} featured item(s) with prose carry "
+                    f"≥ {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                details=coverage_details,
             ))
 
     # 10. polish_grammar — deterministic regex polish on EO-facing prose.
@@ -1933,14 +2026,20 @@ def _iter_polish_prose(artifact: dict):
         lead_in = exec_obj.get("lead_in")
         if isinstance(lead_in, str) and lead_in:
             yield ("$.executive_summary.lead_in", lead_in)
+        # Per-item overviews live under executive_summary.items[].overview in
+        # the flattened shape (manifest v5+), not items[].display.
+        for e in exec_obj.get("items") or []:
+            if not isinstance(e, dict):
+                continue
+            eid = e.get("item_id") or "<no-id>"
+            overview = e.get("overview")
+            if isinstance(overview, str) and overview:
+                yield (f"$.executive_summary.items[{eid}].overview", overview)
     for item in artifact.get("items") or []:
         iid = item.get("id") or "<no-id>"
         display = item.get("display") or {}
         if isinstance(display.get("summary"), str) and display["summary"]:
             yield (f"$.items[{iid}].display.summary", display["summary"])
-        eso = display.get("executive_summary_overview")
-        if isinstance(eso, str) and eso:
-            yield (f"$.items[{iid}].display.executive_summary_overview", eso)
         bi = display.get("budget_impact")
         if bi and isinstance(bi.get("summary"), str) and bi["summary"]:
             yield (f"$.items[{iid}].display.budget_impact.summary", bi["summary"])
@@ -2466,6 +2565,10 @@ def compute_release_verdict(
     enforce it (default exit 0). Downstream callers (the agent invoking
     qa_validate.py, the Fargate runner) read this field and decide whether
     to act on it.
+
+    Only routes 'block' and 'annotate' are verdict-bearing. A check emitting
+    route='diagnostic' is recorded in the bundle but never affects the verdict
+    (used by summary_source_coherence and claim_coverage); do not wire it in.
     """
     # block: any blocking deterministic failure OR any blockable/high-weight phase2 not-OK
     for chk in det_checks:
@@ -2606,6 +2709,11 @@ def main() -> None:
             "is true (e.g. to keep an offline CI run from touching the network)."
         ),
     )
+    # Pin the tri-state default explicitly so "no flag = follow spec" (None) holds
+    # regardless of the registration order of --check-urls / --no-check-urls.
+    # (argparse lets the first-registered action's default win for a shared dest;
+    # --no-check-urls carries an implicit default=True that would otherwise leak.)
+    parser.set_defaults(check_urls=None)
     args = parser.parse_args()
 
     _load_env()

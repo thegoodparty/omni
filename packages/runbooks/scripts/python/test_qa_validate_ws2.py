@@ -130,6 +130,9 @@ def test_extract_inline_citations_empty():
     [
         ("money", "approved $5,000,000 for the project", ["5000000"]),
         ("money", "a $1.8 million grant", ["1800000"]),
+        # Fractional millions must normalize to the same key as the comma form,
+        # despite float-multiplication residue (1.1 * 1e6 != 1100000 exactly).
+        ("money", "a $1.1 million grant", ["1100000"]),
         # Regression: uncomma'd amounts must match too. Previously the regex
         # required comma grouping, so "$5000000" matched only "$500".
         ("money", "a $5000000 grant", ["5000000"]),
@@ -137,6 +140,10 @@ def test_extract_inline_citations_empty():
         ("vote_count", "passed 4-1 last night", ["4-1"]),
         ("date", "due by 2026-06-01 sharp", ["2026-06-01"]),
         ("legal_citation", "per Ordinance 2024-17", ["ordinance 2024-17"]),
+        # named_person_or_role is blockable, so its extraction is high-stakes.
+        ("name", "Mayor Michael Brown will vote", ["mayor michael brown"]),
+        # Document-structural digit pairs must not be extracted as vote tallies.
+        ("vote_count", "see page 4-1 for details", []),
     ],
 )
 def test_extract_literals_kinds(kind, text, expected):
@@ -184,6 +191,59 @@ def test_structured_match_known_bad_blocks(spec_no_layer1):
     assert chk.status == "fail"
     assert chk.route == "block"
     assert "5000000" in chk.offending
+
+
+def test_structured_match_vote_page_reference_false_pass(spec_no_layer1):
+    # Source mentions '4-1' only as a page reference, not a vote result. The
+    # check must fail (block), not pass, because no actual vote is recorded.
+    art = _structured_artifact(
+        "The council voted 4-1 on the motion.",
+        "See page 4-1 for the full staff report.",
+        claim_type="vote_count",
+    )
+    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    chk = _find(res, "high_stakes_structured_match")
+    assert chk.status == "fail"
+    assert chk.route == "block"
+    assert "4-1" in chk.offending
+
+
+def test_structured_match_vote_genuine_passes(spec_no_layer1):
+    # A real vote tally in the source must still pass (guard against the
+    # page-reference reject over-rejecting genuine votes).
+    art = _structured_artifact(
+        "The council voted 4-1 on the motion.",
+        "The council voted 4-1 to approve the motion.",
+        claim_type="vote_count",
+    )
+    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    assert _find(res, "high_stakes_structured_match").status == "pass"
+
+
+def test_structured_match_name_reordered_source_passes(spec_no_layer1):
+    # "Mayor Michael Brown" (claim) vs "Michael Brown, Mayor" (source): the name
+    # is reordered/comma-separated, which a contiguous-substring test would
+    # falsely fail. Token-level matching must accept it.
+    art = _structured_artifact(
+        "Mayor Michael Brown will introduce the measure.",
+        "The measure was introduced by Michael Brown, Mayor of the city.",
+        claim_type="named_person_or_role",
+    )
+    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    assert _find(res, "high_stakes_structured_match").status == "pass"
+
+
+def test_structured_match_name_absent_blocks(spec_no_layer1):
+    # A name whose tokens are not all present in the source must still block.
+    art = _structured_artifact(
+        "Mayor Michael Brown will introduce the measure.",
+        "The measure was introduced by Councilmember Dana Lee.",
+        claim_type="named_person_or_role",
+    )
+    res = qa_validate.run_deterministic(art, spec_no_layer1)
+    chk = _find(res, "high_stakes_structured_match")
+    assert chk.status == "fail"
+    assert chk.route == "block"
 
 
 def test_structured_match_non_high_weight_annotates(spec_no_layer1):
@@ -363,11 +423,14 @@ def test_completeness_reads_spec_declared_paths(spec):
     art = {
         "official_name": "X", "meeting_date": "2026-06-01", "briefing_type": "council",
         "briefing_status": "briefing_ready",
-        "executive_summary": {"lead_in": "Y" * 40},
+        "executive_summary": {
+            "lead_in": "Y" * 40,
+            "items": [{"item_id": "item_001", "title": "T", "overview": "Z" * 120}],
+        },
         "items": [{
             "id": "item_001", "item_number": "1", "title": "T", "tier": "featured",
             "vote_required": True, "tier_reason": ["vote_required"],
-            "display": {"summary": "S" * 90, "executive_summary_overview": "Z" * 120},
+            "display": {"summary": "S" * 90},
             "research": {"raw_context": [], "full_treatment": None},
         }],
         "claims": [], "sources": [], "required_data_points": [], "disclosure": "d",
