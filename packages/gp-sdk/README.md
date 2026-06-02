@@ -101,6 +101,18 @@ await client.ecanvasser.syncAll()
 
 await client.ecanvasser.delete(campaignId)
 
+// Admin agent runs (admin / M2M)
+const runs = await client.adminAgentRuns.list({
+  experimentType: 'compliance_setup',
+  status: 'COMPLETED',
+  offset: 0,
+  limit: 20,
+})
+
+const runDetail = await client.adminAgentRuns.get('run-uuid')
+
+const retriedRun = await client.adminAgentRuns.retry('run-uuid')
+
 client.destroy()
 ```
 

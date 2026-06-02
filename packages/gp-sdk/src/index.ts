@@ -37,6 +37,12 @@ export type {
   CreateEcanvasserInput,
   Ecanvasser,
   EcanvasserSummary,
+  AgentRun,
+  AgentRunCandidateSummary,
+  AgentRunListItem,
+  AgentRunDetail,
+  AgentRunsListQuery,
+  ExperimentRunStatus,
 } from '@goodparty_org/contracts'
 
 export {

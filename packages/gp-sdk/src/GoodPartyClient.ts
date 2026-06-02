@@ -1,4 +1,5 @@
 import { HttpClient } from './http/HttpClient'
+import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
 import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { EcanvasserResource } from './resources/EcanvasserResource'
@@ -15,6 +16,7 @@ export type GoodPartyClientConfig = {
 
 export class GoodPartyClient {
   readonly admin: AdminResource
+  readonly adminAgentRuns: AdminAgentRunsResource
   readonly users: UsersResource
   readonly campaigns: CampaignsResource
   readonly ecanvasser: EcanvasserResource
@@ -27,6 +29,7 @@ export class GoodPartyClient {
     this.clerkService = clerkService
     const httpClient = new HttpClient(gpApiRootUrl, clerkService.getToken)
     this.admin = new AdminResource(httpClient)
+    this.adminAgentRuns = new AdminAgentRunsResource(httpClient)
     this.users = new UsersResource(httpClient)
     this.campaigns = new CampaignsResource(httpClient)
     this.ecanvasser = new EcanvasserResource(httpClient)
