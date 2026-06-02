@@ -6,7 +6,7 @@ Recover missing election dates for a list of candidates: dedupe to distinct juri
 **scripts/.env variables**: none (election-api is unauthenticated; network-gated only)
 **Tools**: `curl`, `jq` (optional election-api seed), `uv` (for `scripts/python/verify_urls.py`), web search of your choice, and the ability to spawn parallel subagents (Agent/Task tool). If you have the `superpowers:dispatching-parallel-agents` skill, use it to structure the fan-out. If the runtime cannot spawn subagents, the research phase degrades to a sequential loop over the same per-jurisdiction brief.
 **Inputs**: a list of candidates missing election dates. Each row needs: name, office type (e.g. Mayor, City Council), jurisdiction or city, state, and the caller's own id (the key you map results back onto). Also the target election year (the cycle you are filling). If the year is not supplied and cannot be inferred unambiguously from the request, stop and ask the caller for it before proceeding; do not guess or default to the current calendar year, since the target-year gate in steps 2 and 3 would otherwise misclassify every row.
-**Output**: one row per input candidate, keyed on the caller's id, with columns: name, jurisdiction, state, office type, Primary Election Date, General Election Date, Election Date, Source URL, Confidence (high / medium / blank), Status (filled / not_found). Dates as ISO `YYYY-MM-DD`.
+**Output**: one row per input candidate, keyed on the caller's id, with columns: name, jurisdiction, state, office type, Primary Election Date, General Election Date, Election Date, Source URL, Confidence (high / medium / blank), Status (filled / not_found), Notes. Dates as ISO `YYYY-MM-DD`. Notes carries one line per row; on a not_found row it states why the row is blank (e.g. odd-year cycle, or no authoritative source online), so the not_found list reads as a triageable phone-call queue rather than a column of bare blanks.
 
 ## What you need to know about election dates
 
@@ -94,7 +94,7 @@ Drop or re-source any citation that is not 200 before emitting.
 
 ### 5. Map dates back to all candidates and emit the table
 
-Expand each (state, jurisdiction) result back onto every input candidate in that place. Council and mayor in the same town get the same municipal date unless a source says otherwise. Emit one row per input candidate keyed on the caller's id, with the output columns from Prerequisites.
+Expand each (state, jurisdiction) result back onto every input candidate in that place. Council and mayor in the same town get the same municipal date unless a source says otherwise. Emit one row per input candidate keyed on the caller's id, with the output columns from Prerequisites. Carry each jurisdiction's `note` from the step 3 return contract (or the seed step) into the Notes column rather than dropping it, so a not_found row records its reason (odd-year cycle, no online source); the caller reviews every not_found, and the reason is what makes that queue triageable.
 
 Then print a short summary: filled vs not_found counts, the breakdown by state, and the list of jurisdictions still not_found. The not_found list is the phone-call queue (county auditor or city clerk).
 
