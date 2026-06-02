@@ -1,0 +1,134 @@
+Recover missing election dates for a list of candidates: dedupe to distinct jurisdictions, seed from election-api where possible, fan out parallel web-research subagents for the rest, verify every source URL returns 200, and emit a sourced date table keyed on the caller's id.
+
+This is the source runbook. It captures the human-runnable version of the workflow. Once stable, port it into a PMF agent experiment by following `books/convert-runbook-to-experiment.md`. Naming convention: runbook `find-X.md` becomes experiment `experiments/X/` (kebab-case to snake_case, drop the `find-` prefix).
+
+## Prerequisites
+
+**books/.env variables**: `$ELECTION_API_URL` (optional seed step only; e.g. `https://election-api-dev.goodparty.org`)
+**scripts/.env variables**: none (election-api is unauthenticated; network-gated only)
+**Tools**: `curl`, `jq` (optional election-api seed), `uv` (for `scripts/python/verify_urls.py`), web search of your choice, and the ability to spawn parallel subagents (Agent/Task tool). If you have the `superpowers:dispatching-parallel-agents` skill, use it to structure the fan-out. If the runtime cannot spawn subagents, the research phase degrades to a sequential loop over the same per-jurisdiction brief.
+**Inputs**: a list of candidates missing election dates. Each row needs: name, office type (e.g. Mayor, City Council), jurisdiction or city, state, and the caller's own id (the key you map results back onto). Optionally the target election year; default to the cycle you are filling.
+**Output**: one row per input candidate, keyed on the caller's id, with columns: name, jurisdiction, state, office type, Primary Election Date, General Election Date, Election Date, Source URL, Confidence (high / medium / blank), Status (filled / not_found). Dates as ISO `YYYY-MM-DD`.
+
+## What you need to know about election dates
+
+- **The date is a property of the race, not the candidate.** A jurisdiction sets one election date and every candidate in it shares that date. Search at the jurisdiction grain, never per candidate.
+- **Many local elections are fixed by state statute to one uniform date**, so a single authoritative Secretary of State source can validate many jurisdictions at once. Reusable examples: some states hold all city elections at the June state primary; some consolidate municipal elections onto the May primary; some run city elections only in odd years.
+- **Nonpartisan single-election municipal races have ONE date.** There is no primary / general split. Put the date in the consolidated Election Date field and leave Primary and General blank. A two-stage partisan race gets a Primary date and a General date.
+- **Odd-year vs even-year cycles.** If a candidate's jurisdiction holds no election in the target year, the contact is probably mis-cycled (entered against the wrong cycle). Return not_found. Do not borrow a date from an adjacent year.
+- **Tiny jurisdictions are often not online.** A not_found plus a flag to phone the county auditor or city clerk is the correct output. A wrong date is worse than a blank.
+- **Confidence tags drive review.** The caller verifies every medium row and every not_found before importing anything downstream, so tag honestly.
+
+## Steps
+
+### 1. Dedupe to distinct (state, jurisdiction)
+
+Collapse the input to distinct (state, jurisdiction) places. Offices within the same municipality (city council, mayor, city commission) almost always share one municipal election date, so a list of dozens of candidates usually collapses to a couple dozen places. Look up once per place, then map the date back to every candidate in that place in step 5.
+
+### 2. Seed from election-api (optional, recommended)
+
+Some dates are only missing from the caller's copy and already exist in election-api (BallotReady-sourced). It is cheap and authoritative, so check it before doing any web research. If you have a candidate slug:
+
+```bash
+CANDIDATE_SLUG=        # e.g. jane-doe/north-dakota-...
+curl -sS "$ELECTION_API_URL/v1/candidacies?slug=$CANDIDATE_SLUG&includeRace=true" \
+  | jq '.[0].Race | {electionDate, isPrimary, isRunoff, partisanType, officeType, officialOfficeName}'
+```
+
+If you only have name + state, resolve the slug exactly as in `books/find-opposition-research.md` step 1, then read `.Race.electionDate`.
+
+Any place where a matched race carries a NON-null `electionDate` is seeded high-confidence (candidate-specific authoritative data); drop it from the fan-out in step 3. A matched race with a **null** `electionDate` does not count as found and falls through to step 3. election-api misses small, independent, and late-filed local races entirely, so expect the small-town long tail to fall through. That tail is exactly what the web-research phase is for.
+
+### 3. Fan out parallel web-research subagents, batched by state / jurisdiction
+
+The remaining places are independent, so research them concurrently. Batch them (for example one subagent per state, or per 3 to 5 jurisdictions) and dispatch all subagents in a single turn. Each subagent starts cold with no shared context, so its brief must carry everything it needs.
+
+**Per-subagent brief (fill in per batch):**
+
+- **Scope:** the list of (state, jurisdiction, office types) it owns, and the target election year.
+- **Job:** for each jurisdiction, find the target-year election date(s) from an authoritative source.
+- **Source priority:** (1) the state Secretary of State election calendar, (2) the county auditor / clerk or board of elections, (3) an official sample ballot, (4) Ballotpedia or a reputable local-news notice of election. Prefer official `.gov`.
+- **Hard rules (enforce inside the subagent):**
+  - Cite a source URL for every date. No URL means it does not count as found.
+  - The date must fall in the target calendar year. Reject any other-year date. If the only election you can find for a jurisdiction is in another year, return not_found and note the year you saw (a likely cycle mismatch).
+  - Do not guess and do not infer from a similar jurisdiction. If no authoritative target-year date is verifiable, return not_found.
+  - A single nonpartisan municipal election with no stage label goes in Election Date. A two-stage partisan race fills Primary and General.
+  - Confidence: `high` = official `.gov` source. `medium` = a reputable secondary source (Ballotpedia, local news), or a date that rests only on a statewide statutory date with no jurisdiction-specific confirmation. Leave blank for not_found.
+  - Never cite: aggregator pages that return 200 but are machine-generated, PR-wire or self-published release pages, or LinkedIn. Same source discipline as `books/find-opposition-research.md`.
+- **Verify URLs inside the subagent** (so verification parallelizes too):
+
+```bash
+cd scripts/python
+uv run python verify_urls.py <url1> <url2> ...   # or: ... < urls.txt
+# keep only rows where ok == true; if a URL redirected, use final_url
+# unless the redirect only appended tracking query params
+```
+
+- **Return contract (one object per jurisdiction):**
+
+```json
+{
+  "state": "North Dakota",
+  "jurisdiction": "Example City",
+  "primary_date": null,
+  "general_date": null,
+  "election_date": "2026-06-09",
+  "source_url": "https://...verified-200...",
+  "confidence": "high | medium",
+  "status": "filled | not_found",
+  "note": "one line on what the source said and any cycle caveat"
+}
+```
+
+### 4. Collect and run a final verification audit
+
+Gather every subagent's rows. Each subagent already verified its own URLs, so this is a fast sanity check, not a re-run. Concatenate every cited `source_url` and re-run the verifier once:
+
+```bash
+cd scripts/python
+uv run python verify_urls.py < all_source_urls.txt > url_status.json
+jq '[.[] | select(.ok == false)]' url_status.json   # must be empty
+```
+
+Drop or re-source any citation that is not 200 before emitting.
+
+### 5. Map dates back to all candidates and emit the table
+
+Expand each (state, jurisdiction) result back onto every input candidate in that place. Council and mayor in the same town get the same municipal date unless a source says otherwise. Emit one row per input candidate keyed on the caller's id, with the output columns from Prerequisites.
+
+Then print a short summary: filled vs not_found counts, the breakdown by state, and the list of jurisdictions still not_found. The not_found list is the phone-call queue (county auditor or city clerk).
+
+## Data-quality bar (must follow)
+
+- Accuracy over coverage: a wrong date is worse than a blank one. Anything downstream (a CRM import, a mailing) treats a populated date as truth.
+- Every populated date has a 200-verified source URL and a confidence tag.
+- Dates are in the target year only.
+- not_found is a valid and expected outcome. Do not fill it to improve coverage.
+- The caller reviews every medium row and every not_found before importing anything downstream. The confidence tags exist to route that review.
+- Plain, direct U.S. English in any output prose. No em dashes.
+
+## Failure modes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| State SoS lists one statutory election date, but a city votes on a different day | Home-rule / charter cities can set their own date | Treat the statewide date as medium until a jurisdiction-specific `.gov` source (county auditor, city clerk, sample ballot) confirms it. Verify per town for charter cities |
+| A jurisdiction has no election in the target year | Odd-year vs even-year municipal cycle | Return not_found and flag the contact as likely mis-cycled. Do not borrow a date from an adjacent year |
+| A tiny town has no election info online | Very small jurisdictions do not publish online | Return not_found plus a "call the county auditor / city clerk" flag. A blank beats a guess |
+| A source returns 200 but is machine-generated or an aggregator | Auto-generated per-candidate stubs and data aggregators verify clean but are not authoritative | Do not cite. Use an official `.gov` page or a named reputable source. Same rule as `find-opposition-research.md` |
+| LinkedIn or a PR-wire page is the only "source" | These are not election authorities | Never cite them for an election date |
+| election-api returns the race but `electionDate` is null | BallotReady has the race but not the date for this local contest | Does not count as found. Route the jurisdiction to the web-research fan-out in step 3 |
+| Two offices in one town return different dates | One is a special election, or a primary vs general stage was conflated | Re-check the source. Regular municipal council and mayor share the regular municipal date; a differing date usually means a special election or a misread stage |
+
+## Promote to a self-service experiment
+
+This runbook is a one-off you run manually. To make it a self-service experiment, follow `books/convert-runbook-to-experiment.md`. Naming:
+
+- This runbook: `find-election-dates.md`
+- The PMF experiment: `experiments/election_dates/` (drop `find-`, kebab to snake)
+
+The translation encodes the steps above into `manifest.json` (`input_schema` for the candidate list and target year, `output_schema` for the per-candidate sourced date row, scope `allowed_external_tools: [WebSearch, http]`) and `instruction.md` (the same steps with the data-quality rules called out as CRITICAL RULES).
+
+Two carry-over notes from `find-opposition-research.md`:
+
+- **Fan-out ports to Fargate.** The harness supports native subagent fan-out gated by the manifest field `runtime.max_parallel_subagents` (0 = off; cap 20). Set it and the harness dispatches one research subagent per batch concurrently. Keep step 3's sequential loop as the documented graceful-degrade fallback.
+- **URL verification uses the cheap rung first.** `verify_urls.py` does not port (the Fargate runner is quarantined). The web-access ladder there is WebSearch to discover, `pmf_runtime.http.head(url)` to verify status, and `pmf_runtime.http.get(url)` only as a last resort. Re-rendering every URL with `http.get` is what makes a port time out; verify with `http.head` and escalate only on a 403/405 from a real site.
