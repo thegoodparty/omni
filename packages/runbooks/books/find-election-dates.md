@@ -5,7 +5,7 @@ Recover missing election dates for a list of candidates: dedupe to distinct juri
 **books/.env variables**: `$ELECTION_API_URL` (optional seed step only; e.g. `https://election-api-dev.goodparty.org`)
 **scripts/.env variables**: none (election-api is unauthenticated; network-gated only)
 **Tools**: `curl`, `jq` (optional election-api seed), `uv` (for `scripts/python/verify_urls.py`), web search of your choice, and the ability to spawn parallel subagents (Agent/Task tool). If you have the `superpowers:dispatching-parallel-agents` skill, use it to structure the fan-out. If the runtime cannot spawn subagents, the research phase degrades to a sequential loop over the same per-jurisdiction brief.
-**Inputs**: a list of candidates missing election dates. Each row needs: name, office type (e.g. Mayor, City Council), jurisdiction or city, state, and the caller's own id (the key you map results back onto). Optionally the target election year; default to the cycle you are filling.
+**Inputs**: a list of candidates missing election dates. Each row needs: name, office type (e.g. Mayor, City Council), jurisdiction or city, state, and the caller's own id (the key you map results back onto). Also the target election year (the cycle you are filling). If the year is not supplied and cannot be inferred unambiguously from the request, stop and ask the caller for it before proceeding; do not guess or default to the current calendar year, since the target-year gate in steps 2 and 3 would otherwise misclassify every row.
 **Output**: one row per input candidate, keyed on the caller's id, with columns: name, jurisdiction, state, office type, Primary Election Date, General Election Date, Election Date, Source URL, Confidence (high / medium / blank), Status (filled / not_found). Dates as ISO `YYYY-MM-DD`.
 
 ## What you need to know about election dates
@@ -33,9 +33,9 @@ curl -sS "$ELECTION_API_URL/v1/candidacies?slug=$CANDIDATE_SLUG&includeRace=true
   | jq '.[0].Race | {electionDate, isPrimary, isRunoff, partisanType, officeType, officialOfficeName}'
 ```
 
-If you only have name + state, resolve the slug exactly as in `books/find-opposition-research.md` step 1 (which indexes the array with `.[0]`), then read the resolved candidacy's `.Race.electionDate`.
+If you only have name + state, resolve the slug via the name+state branch of `books/find-opposition-research.md` step 1 (search by state, filter by first and last name, disambiguate by `placeName` if multiple rows match, then re-run the slug query with the chosen slug), then read that candidacy's `.Race.electionDate`.
 
-Any place where a matched race carries an `electionDate` **in the target year** is seeded high-confidence (candidate-specific authoritative data); drop it from the fan-out in step 3. A matched race whose `electionDate` is **null, or in any year other than the target**, does not count as found and falls through to step 3. This is the same target-year rule step 3 enforces: a different-year `electionDate` usually means you matched a past or wrong-cycle race record, not the one you are filling, so a stale date never gets seeded as truth. election-api also misses small, independent, and late-filed local races entirely, so expect the small-town long tail to fall through. That tail is exactly what the web-research phase is for.
+Any place where a matched race carries an `electionDate` **in the target year** is seeded high-confidence (candidate-specific authoritative data); drop it from the fan-out in step 3. Record its source as `election-api` (BallotReady-sourced data), not a web URL; seed rows are exempt from the step 4 web 200-verify, which applies only to web-researched sources. A matched race whose `electionDate` is **null, or in any year other than the target**, does not count as found and falls through to step 3. This is the same target-year rule step 3 enforces: a different-year `electionDate` usually means you matched a past or wrong-cycle race record, not the one you are filling, so a stale date never gets seeded as truth. election-api also misses small, independent, and late-filed local races entirely, so expect the small-town long tail to fall through. That tail is exactly what the web-research phase is for.
 
 ### 3. Fan out parallel web-research subagents, batched by state / jurisdiction
 
@@ -78,7 +78,7 @@ uv run python verify_urls.py <url1> <url2> ...   # or: ... < urls.txt
 }
 ```
 
-On a `not_found` row, set `status` to `not_found` and leave `confidence` and the three date fields `null`.
+On a `not_found` row, set `status` to `not_found` and leave `confidence` and the three date fields `null` (rendered as blank in the emitted output table).
 
 ### 4. Collect and run a final verification audit
 
@@ -101,7 +101,7 @@ Then print a short summary: filled vs not_found counts, the breakdown by state, 
 ## Data-quality bar (must follow)
 
 - Accuracy over coverage: a wrong date is worse than a blank one. Anything downstream (a CRM import, a mailing) treats a populated date as truth.
-- Every populated date has a 200-verified source URL and a confidence tag.
+- Every web-researched date has a 200-verified source URL; a date seeded from election-api records its source as `election-api` instead (there is no web URL to verify). Every populated date carries a confidence tag.
 - Dates are in the target year only.
 - not_found is a valid and expected outcome. Do not fill it to improve coverage.
 - The caller reviews every medium row and every not_found before importing anything downstream. The confidence tags exist to route that review.
