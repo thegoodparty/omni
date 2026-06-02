@@ -74,11 +74,13 @@ uv run python verify_urls.py <url1> <url2> ...   # or: ... < urls.txt
   "general_date": null,
   "election_date": "2026-06-09",
   "source_url": "https://...verified-200...",
-  "confidence": "high | medium",
+  "confidence": "high | medium | null",
   "status": "filled | not_found",
   "note": "one line on what the source said and any cycle caveat"
 }
 ```
+
+On a `not_found` row, set `status` to `not_found` and leave `confidence` and the three date fields `null`.
 
 ### 4. Collect and run a final verification audit
 
