@@ -1,5 +1,14 @@
 # @goodparty_org/sdk
 
+## 2.2.0
+
+### Minor Changes
+
+- [#63](https://github.com/thegoodparty/gp-sdk/pull/63) [`3349cfe`](https://github.com/thegoodparty/gp-sdk/commit/3349cfef7864c91968fd2bd122d3ec18fb393e65) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add `client.adminAgentRuns` resource with `list`, `get`, and `retry` methods for
+  the admin agent-runs endpoints. Run shapes (`AgentRunListItem`, `AgentRunDetail`,
+  `AgentRunsListQuery`, and related types) are re-exported from
+  `@goodparty_org/contracts`.
+
 ## 2.1.0
 
 ### Minor Changes
