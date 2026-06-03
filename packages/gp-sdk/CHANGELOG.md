@@ -1,5 +1,14 @@
 # @goodparty_org/sdk
 
+## 2.3.0
+
+### Minor Changes
+
+- [#65](https://github.com/thegoodparty/gp-sdk/pull/65) [`6784937`](https://github.com/thegoodparty/gp-sdk/commit/6784937526d81c35526832fd1407392127da1b27) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Bump `@goodparty_org/contracts` to expose the agent-run resume fields (`stage`,
+  `dataQuality`, `resumeScheduledFor`, `resumeAttempts`) and the `AWAITING_RESUME`
+  `ExperimentRunStatus` value, re-exported for the gp-admin agent-runs dashboard
+  (ENG-7554).
+
 ## 2.2.0
 
 ### Minor Changes
