@@ -1,17 +1,17 @@
 {
   "$schema": "../_schema/manifest.schema.json",
-  "id": "opposition_research",
-  "version": 9,
+  "id": "opportunities_and_challenges",
+  "version": 7,
   "model": "sonnet",
-  "max_turns": 30,
-  "timeout_seconds": 600,
+  "max_turns": 40,
+  "timeout_seconds": 900,
   "runtime": {
     "max_parallel_subagents": 0,
     "max_thinking_tokens": 0
   },
   "input_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Opposition Research input params",
+    "title": "Opportunities and Challenges input params",
     "type": "object",
     "additionalProperties": false,
     "required": [
@@ -45,7 +45,7 @@
       "user_full_name": {
         "type": "string",
         "minLength": 1,
-        "description": "The candidate we write FOR. Referred to as 'you' in output, never by name. Fallback for is_user when the email doesn't match a roster row."
+        "description": "The candidate we write FOR. Referred to as 'you' in output, never by name."
       },
       "user_party_affiliation": {
         "type": [
@@ -64,7 +64,7 @@
       "campaign_strategy_context": {
         "type": "object",
         "additionalProperties": false,
-        "description": "The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is its only roster source besides web search. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.",
+        "description": "The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is the source of the race numbers the opportunities/challenges are derived from. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.",
         "required": [
           "candidate_count",
           "candidate_office",
@@ -82,7 +82,7 @@
           },
           "candidates": {
             "type": "array",
-            "description": "Full seed roster (NOT pre-filtered). The agent marks the candidate via is_user and excludes them; it does not receive a pre-trimmed opponent list.",
+            "description": "Provisional seed roster - incomplete and lagging (the real field is owned by opposition_research). Do NOT derive opportunities/challenges from candidate_count, this roster, or is_incumbent; base bullets on the race numbers + web search.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -181,7 +181,7 @@
               "string",
               "null"
             ],
-            "description": "Race partisan type from election-api (e.g. 'partisan' / 'nonpartisan'). 'nonpartisan' means the party labels are voter-registration noise, not the contest. May be null until election-api populates it. Not enum-constrained - election-api is the source of truth for the value."
+            "description": "Race partisan type from election-api (e.g. 'partisan' / 'nonpartisan'). 'nonpartisan' means party labels are voter-registration noise, not the contest. May be null until election-api populates it."
           },
           "primary_election_date": {
             "type": [
@@ -308,42 +308,33 @@
   },
   "output_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Opposition Research artifact",
+    "title": "Opportunities and Challenges artifact",
     "type": "object",
     "additionalProperties": false,
     "required": [
-      "opponents"
+      "opportunities",
+      "challenges"
     ],
     "properties": {
-      "opponents": {
+      "opportunities": {
         "type": "array",
-        "description": "Confirmed opponents running in this race (seed roster plus any web-confirmed late filers, candidate excluded). Empty array if uncontested. gp-api renders the campaign-plan Opposition Research section from this structured data.",
+        "description": "Up to 3 structural advantages for this race, each a finished 1-3 sentence bullet with its citation inlined as '... ([source](url))'. At least 1.",
         "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "full_name",
-            "party_affiliation",
-            "incumbent"
-          ],
-          "properties": {
-            "full_name": {
-              "type": "string",
-              "minLength": 1
-            },
-            "party_affiliation": {
-              "type": "string",
-              "description": "Party name, 'Nonpartisan', or 'Unknown'."
-            },
-            "incumbent": {
-              "type": [
-                "boolean",
-                "null"
-              ],
-              "description": "true if known to be the incumbent, false if known not to be, null if unknown."
-            }
-          }
-        }
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1,
+        "maxItems": 3
+      },
+      "challenges": {
+        "type": "array",
+        "description": "Up to 3 structural risks for this race, each a finished 1-3 sentence bullet with its citation inlined as '... ([source](url))'. At least 1.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1,
+        "maxItems": 3
       }
     }
   }

@@ -1,8 +1,27 @@
-import glob
 import json
 import os
 import sys
-from datetime import date, datetime, timezone
+import unicodedata
+
+_NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "esq"}
+
+
+def _normalize_name(name):
+    # Match the instruction's fuzzy rule: case-fold, strip accents, drop
+    # middle initials (single-letter tokens) and common suffixes. So a roster
+    # "María A. Sánchez Jr." matches a candidate_name of "Maria Sanchez".
+    ascii_name = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    # Treat hyphens as separators so "María-José" matches "Maria Jose".
+    tokens = [
+        t
+        for t in ascii_name.lower().replace("-", " ").split()
+        if len(t.rstrip(".")) > 1 and t.rstrip(".") not in _NAME_SUFFIXES
+    ]
+    return " ".join(tokens)
 
 
 def _workspace():
@@ -15,110 +34,106 @@ def _load_params():
         params = json.loads(raw)
     except (ValueError, TypeError):
         params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return params
+    return params if isinstance(params, dict) else {}
 
 
-def _load_fragments(scratch_dir):
-    fragments = []
-    paths = sorted(glob.glob(os.path.join(scratch_dir, "opp_*.json")))
-    for path in paths:
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (ValueError, OSError) as exc:
-            sys.stderr.write(f"warning: skipping {path}: {exc}\n")
-            continue
-        if not isinstance(data, dict):
-            sys.stderr.write(
-                f"warning: skipping {path}: not a JSON object\n"
-            )
-            continue
-        fragments.append(data)
-    return fragments
-
-
-def _load_closing_note(scratch_dir):
-    path = os.path.join(scratch_dir, "_closing_note.txt")
-    if not os.path.exists(path):
-        return None
+def _load_race(scratch_dir):
+    # partisan_type (+ optional candidate_name) derived by the agent in Step 0.
+    # The input contract nests the race under campaign_strategy_context, so the
+    # agent writes the bits the assembler needs here. Returns None only when the
+    # file is missing/unreadable, so an explicit empty {} the agent wrote is
+    # used as-is rather than silently falling back to PARAMS_JSON.
+    path = os.path.join(scratch_dir, "_race.json")
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return fh.read().strip()
-    except OSError as exc:
-        sys.stderr.write(f"warning: could not read closing note: {exc}\n")
+            data = json.load(fh)
+    except (ValueError, OSError):
         return None
+    return data if isinstance(data, dict) else None
 
 
-def _build_markdown(fragments, closing_note):
-    header = "### Opposition Research\n\n"
-    if not fragments:
-        today = date.today().isoformat()
-        return (
-            header
-            + f"No opponents are currently registered for this race as of {today}. "
-            + "Continue to monitor, since filing windows may still be open."
-        )
-    blocks = [str(frag.get("markdown_block") or "") for frag in fragments]
-    body = "\n\n".join(blocks)
-    markdown = header + body
-    if closing_note:
-        markdown = markdown + "\n\n" + closing_note
-    return markdown
+def _load_opponents(scratch_dir):
+    # The agent writes the full confirmed opponent list (seed roster + any
+    # web-confirmed late filers, candidate excluded) to a single file. No
+    # per-opponent fan-out, no research fragments.
+    path = os.path.join(scratch_dir, "opponents.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return []
+    if not isinstance(data, list):
+        sys.stderr.write(f"warning: {path} is not a JSON array\n")
+        return []
+    out = []
+    seen_names = set()
+    for item in data:
+        if not isinstance(item, dict):
+            sys.stderr.write("warning: skipping non-object opponent entry\n")
+            continue
+        name = item.get("full_name")
+        if not isinstance(name, str) or not name.strip():
+            sys.stderr.write("warning: skipping opponent without a full_name\n")
+            continue
+        # Dedup by normalized name: the same person can legitimately appear in
+        # both the general and primary rosters (the agent folds primary into
+        # the seed list), and must not be published twice.
+        norm = _normalize_name(name)
+        if norm in seen_names:
+            sys.stderr.write(f"warning: skipping duplicate opponent '{name}'\n")
+            continue
+        seen_names.add(norm)
+        out.append(item)
+    return out
 
 
-def _build_opponents(fragments):
-    opponents = []
-    for frag in fragments:
-        opp = {k: v for k, v in frag.items() if k != "markdown_block"}
-        opponents.append(opp)
-    return opponents
+_INCUMBENT = {"yes": True, "no": False, "unknown": None}
 
 
-def _build_artifact(params, fragments, closing_note):
+def _incumbent(value):
+    # Accept the "Yes" / "No" / "Unknown" strings the instruction asks for, and
+    # also a raw boolean / null straight from the roster's is_incumbent.
+    if value is True or value is False or value is None:
+        return value
+    return _INCUMBENT.get(str(value).strip().lower())
+
+
+def _party_affiliation(party, partisan_type):
+    # Nonpartisan race -> the party labels are registration noise, not the
+    # contest, so normalize to "Nonpartisan". Otherwise the opponent's party,
+    # or "Unknown".
+    if str(partisan_type or "").strip().lower() == "nonpartisan":
+        return "Nonpartisan"
+    if party:
+        return party
+    return "Unknown"
+
+
+def _to_opponent(frag, partisan_type):
     return {
-        "markdown": _build_markdown(fragments, closing_note),
-        "opponents": _build_opponents(fragments),
-        "race": {
-            "office_name": params.get("office_name"),
-            "state": params.get("state"),
-            "partisanType": params.get("partisanType"),
-            "opponent_count": len(fragments),
-        },
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "full_name": frag.get("full_name"),
+        "party_affiliation": _party_affiliation(frag.get("party"), partisan_type),
+        "incumbent": _incumbent(frag.get("incumbent")),
     }
 
 
-def _spot_checks(artifact, params):
+def _build_artifact(race, opponents):
+    partisan_type = race.get("partisan_type")
+    return {"opponents": [_to_opponent(o, partisan_type) for o in opponents]}
+
+
+def _spot_checks(artifact, race):
     reasons = []
-    markdown = artifact["markdown"]
-
-    candidate_name = params.get("candidate_name")
+    candidate_name = race.get("candidate_name")
     if isinstance(candidate_name, str) and candidate_name.strip():
-        if candidate_name.lower() in markdown.lower():
-            reasons.append(
-                f"candidate name '{candidate_name}' appears in markdown"
-            )
-
-    if "—" in markdown:
-        reasons.append("em dash (U+2014) present in markdown")
-
-    count = artifact["race"]["opponent_count"]
-    n_opp = len(artifact["opponents"])
-    if count != n_opp:
-        reasons.append(
-            f"opponent_count {count} does not match opponents length {n_opp}"
-        )
-
-    if params.get("partisanType") == "nonpartisan":
-        allowed = "Party affiliation: Nonpartisan (race is nonpartisan)"
-        for line in markdown.splitlines():
-            content = line.strip().lstrip("-").strip()
-            if "Party affiliation:" in content and content != allowed:
+        norm_candidate = _normalize_name(candidate_name)
+        for opp in artifact["opponents"]:
+            name = opp.get("full_name")
+            if isinstance(name, str) and _normalize_name(name) == norm_candidate:
                 reasons.append(
-                    f"nonpartisan race has non-nonpartisan party line: '{content}'"
+                    f"candidate '{candidate_name}' appears as an opponent"
                 )
+                break
     return reasons
 
 
@@ -138,20 +153,14 @@ def _validate_shape(workspace, artifact):
         jsonschema.validate(instance=artifact, schema=schema)
         return []
     except ImportError:
-        required = ["markdown", "opponents", "race", "generated_at"]
-        missing = [k for k in required if k not in artifact]
-        if missing:
-            return [f"artifact missing required keys: {', '.join(missing)}"]
-        return []
+        return [] if "opponents" in artifact else ["artifact missing 'opponents'"]
     except jsonschema.ValidationError as exc:
         return [f"artifact schema violation: {exc.message}"]
     except jsonschema.SchemaError as exc:
-        sys.stderr.write(f"warning: contract_schema.json is not a valid JSON Schema: {exc}\n")
-        required = ["markdown", "opponents", "race", "generated_at"]
-        missing = [k for k in required if k not in artifact]
-        if missing:
-            return [f"artifact missing required keys: {', '.join(missing)}"]
-        return []
+        sys.stderr.write(
+            f"warning: contract_schema.json is not a valid JSON Schema: {exc}\n"
+        )
+        return [] if "opponents" in artifact else ["artifact missing 'opponents'"]
 
 
 def main():
@@ -160,22 +169,28 @@ def main():
     output_dir = os.path.join(workspace, "output")
     os.makedirs(output_dir, exist_ok=True)
 
-    params = _load_params()
-    fragments = _load_fragments(scratch_dir)
-    closing_note = _load_closing_note(scratch_dir)
+    # Prefer the agent's derived race fields (_race.json); fall back to PARAMS
+    # for older callers / tests that pass them top-level. Only fall back when
+    # the file is absent (None) — an explicit {} the agent wrote is used as-is.
+    race = _load_race(scratch_dir)
+    if race is None:
+        race = _load_params()
+    opponents = _load_opponents(scratch_dir)
 
-    artifact = _build_artifact(params, fragments, closing_note)
+    artifact = _build_artifact(race, opponents)
 
-    output_path = os.path.join(output_dir, "opposition_research.json")
-    with open(output_path, "w", encoding="utf-8") as fh:
-        json.dump(artifact, fh, indent=2, ensure_ascii=False)
-
-    reasons = _spot_checks(artifact, params)
+    # Validate before writing so a known-bad artifact never lands in the
+    # published output dir.
+    reasons = _spot_checks(artifact, race)
     reasons += _validate_shape(workspace, artifact)
 
     if reasons:
         print("FAIL: " + "; ".join(reasons))
         sys.exit(1)
+
+    output_path = os.path.join(output_dir, "opposition_research.json")
+    with open(output_path, "w", encoding="utf-8") as fh:
+        json.dump(artifact, fh, indent=2, ensure_ascii=False)
     print("PASS")
     sys.exit(0)
 

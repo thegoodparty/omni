@@ -68,6 +68,30 @@ def test_falls_back_to_get_when_head_returns_403():
     assert result['ok'] is True
 
 
+def test_falls_back_to_get_when_head_returns_501():
+    def head(url, timeout, allow_redirects, headers=None):
+        return FakeResponse(status_code=501, url=url)
+
+    def get(url, timeout, allow_redirects, stream, headers=None):
+        return FakeResponse(status_code=200, url=url)
+
+    result = verify('https://blocks-head.example.com', head=head, get=get)
+    assert result['status'] == 200
+    assert result['ok'] is True
+
+
+def test_fallback_get_status_propagates_when_get_also_fails():
+    def head(url, timeout, allow_redirects, headers=None):
+        return FakeResponse(status_code=405, url=url)
+
+    def get(url, timeout, allow_redirects, stream, headers=None):
+        return FakeResponse(status_code=404, url=url)
+
+    result = verify('https://blocks-head.example.com', head=head, get=get)
+    assert result['status'] == 404
+    assert result['ok'] is False
+
+
 def test_sends_browser_user_agent_to_avoid_bot_blocks():
     captured = {}
 

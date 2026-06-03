@@ -3,10 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import date
 from pathlib import Path
-
-import pytest
 
 SCRIPT_SRC = (
     Path(__file__).resolve().parents[2]
@@ -17,215 +14,303 @@ SCRIPT_SRC = (
 )
 
 
-def _fragment_with_facts():
+def _seed_opponent():
+    # Shape the agent writes per opponent into scratch/opponents.json: roster
+    # essentials only, no summary / facts / websites.
     return {
         "full_name": "Jane Doe",
+        "party": "Nonpartisan",
         "incumbent": "Yes",
-        "summary": "Jane Doe is the two-term incumbent on the commission. She has focused on zoning reform.",
-        "facts": [
-            {
-                "text": "Won her last race with 5,000 votes.",
-                "source_label": "Local Times",
-                "url": "https://example.com/jane-results",
-            }
-        ],
-        "websites": ["https://janedoe.example.com"],
-        "no_info": False,
-        "markdown_block": (
-            "- Jane Doe\n"
-            "  - Party affiliation: Nonpartisan (race is nonpartisan)\n"
-            "  - Incumbent: Yes\n"
-            "  - Political summary: Jane Doe is the two-term incumbent.\n"
-            "    - Won her last race with 5,000 votes. ([Local Times](https://example.com/jane-results))\n"
-            "  - Websites found:\n"
-            "    - https://janedoe.example.com"
-        ),
     }
 
 
-def _fragment_no_info():
+def _web_add():
+    # A late filer surfaced by web search.
     return {
         "full_name": "John Roe",
+        "party": None,
         "incumbent": "Unknown",
-        "summary": None,
-        "facts": [],
-        "websites": [],
-        "no_info": True,
-        "markdown_block": (
-            "- John Roe\n"
-            "  - No public information found as of 2026-05-29. You should conduct local research."
-        ),
     }
 
 
-def _setup_workspace(tmp_path, fragments, params, closing_note=None):
+def _setup_workspace(tmp_path, opponents, race):
     ws = tmp_path / "workspace"
     scratch = ws / "scratch"
     scratch.mkdir(parents=True)
     (ws / "output").mkdir(parents=True)
     shutil.copy(SCRIPT_SRC, ws / "assemble.py")
-    for idx, frag in enumerate(fragments, start=1):
-        (scratch / f"opp_{idx:02d}.json").write_text(
-            json.dumps(frag), encoding="utf-8"
-        )
-    if closing_note is not None:
-        (scratch / "_closing_note.txt").write_text(closing_note, encoding="utf-8")
+    (scratch / "opponents.json").write_text(
+        json.dumps(opponents), encoding="utf-8"
+    )
+    # production path: the agent writes derived race fields to _race.json
+    (scratch / "_race.json").write_text(json.dumps(race), encoding="utf-8")
     return ws
 
 
-def _run(ws, params):
+def _run(ws, extra_env=None):
     env = dict(os.environ)
-    env["PARAMS_JSON"] = json.dumps(params)
     env["ASSEMBLE_WORKSPACE"] = str(ws)
-    proc = subprocess.run(
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
         [sys.executable, str(ws / "assemble.py")],
         env=env,
         capture_output=True,
         text=True,
     )
-    return proc
 
 
 def _artifact(ws):
     return json.loads((ws / "output" / "opposition_research.json").read_text())
 
 
-def _base_params(**overrides):
-    p = {
-        "candidate_name": "Maria Sanchez",
-        "office_name": "Hazleton City Government Study Commission",
-        "state": "PA",
-        "partisanType": "nonpartisan",
-    }
-    p.update(overrides)
-    return p
+def _race(**overrides):
+    r = {"candidate_name": "Maria Sanchez", "partisan_type": "nonpartisan"}
+    r.update(overrides)
+    return r
 
 
-def test_two_fragments_assembles_artifact(tmp_path):
-    params = _base_params()
-    ws = _setup_workspace(
-        tmp_path, [_fragment_with_facts(), _fragment_no_info()], params
-    )
-    proc = _run(ws, params)
-
+def test_two_opponents_structured(tmp_path):
+    ws = _setup_workspace(tmp_path, [_seed_opponent(), _web_add()], _race())
+    proc = _run(ws)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout.strip().splitlines()[-1] == "PASS"
 
     art = _artifact(ws)
-    assert art["race"]["opponent_count"] == 2
+    # top-level shape: only opponents
+    assert set(art.keys()) == {"opponents"}
     assert len(art["opponents"]) == 2
-    for opp in art["opponents"]:
-        assert "markdown_block" not in opp
-    assert art["opponents"][0]["full_name"] == "Jane Doe"
-    assert art["opponents"][1]["full_name"] == "John Roe"
 
-    assert art["markdown"].startswith("### Opposition Research\n\n")
-    jane_block = _fragment_with_facts()["markdown_block"]
-    john_block = _fragment_no_info()["markdown_block"]
-    assert jane_block in art["markdown"]
-    assert john_block in art["markdown"]
-    assert art["markdown"].index(jane_block) < art["markdown"].index(john_block)
+    jane, john = art["opponents"]
+    # slimmed per-opponent contract: no political_summary / key_facts / websites
+    assert set(jane.keys()) == {"full_name", "party_affiliation", "incumbent"}
+    assert jane["full_name"] == "Jane Doe"
+    assert jane["party_affiliation"] == "Nonpartisan"
+    assert jane["incumbent"] is True
 
-    assert art["race"]["office_name"] == params["office_name"]
-    assert art["race"]["state"] == "PA"
-    assert art["race"]["partisanType"] == "nonpartisan"
-    assert "generated_at" in art and art["generated_at"]
+    assert john["full_name"] == "John Roe"
+    assert john["incumbent"] is None
 
 
-def test_closing_note_appended(tmp_path):
-    params = _base_params(partisanType="partisan")
-    note = "Note: 1 additional candidate is running in a different partisan primary for this seat."
+def test_zero_opponents_empty(tmp_path):
+    ws = _setup_workspace(tmp_path, [], _race())
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws) == {"opponents": []}
+
+
+def test_nonpartisan_normalizes_party(tmp_path):
+    # Even if a roster row carries a partisan registration label, a nonpartisan
+    # race normalizes it to "Nonpartisan".
+    opp = _seed_opponent()
+    opp["party"] = "Democratic"
+    ws = _setup_workspace(tmp_path, [opp], _race(partisan_type="nonpartisan"))
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws)["opponents"][0]["party_affiliation"] == "Nonpartisan"
+
+
+def test_partisan_uses_party_or_unknown(tmp_path):
+    dem = _seed_opponent()
+    dem["party"] = "Democratic"
+    unknown = _seed_opponent()
+    unknown["full_name"] = "No Party Person"
+    unknown["party"] = None
+    ws = _setup_workspace(tmp_path, [dem, unknown], _race(partisan_type="partisan"))
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    opps = _artifact(ws)["opponents"]
+    assert opps[0]["party_affiliation"] == "Democratic"
+    assert opps[1]["party_affiliation"] == "Unknown"
+
+
+def test_incumbent_string_mapping(tmp_path):
+    no = _seed_opponent()
+    no["full_name"] = "Not Incumbent"
+    no["incumbent"] = "No"
+    ws = _setup_workspace(tmp_path, [no], _race())
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws)["opponents"][0]["incumbent"] is False
+
+
+def test_incumbent_raw_boolean(tmp_path):
+    # The assembler also accepts a raw boolean / null straight from is_incumbent.
+    t = _seed_opponent()
+    t["incumbent"] = True
+    f = _seed_opponent()
+    f["full_name"] = "Challenger"
+    f["incumbent"] = False
+    u = _seed_opponent()
+    u["full_name"] = "Mystery"
+    u["incumbent"] = None
+    ws = _setup_workspace(tmp_path, [t, f, u], _race(partisan_type="partisan"))
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    opps = _artifact(ws)["opponents"]
+    assert [o["incumbent"] for o in opps] == [True, False, None]
+
+
+def test_candidate_as_opponent_fails(tmp_path):
+    bad = _seed_opponent()
+    bad["full_name"] = "maria sanchez"  # case-insensitive match against candidate
+    ws = _setup_workspace(tmp_path, [bad], _race())
+    proc = _run(ws)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert proc.stdout.strip().startswith("FAIL:")
+    assert "appears as an opponent" in proc.stdout
+
+
+def test_candidate_as_opponent_fails_with_accents_and_suffix(tmp_path):
+    # Roster carries accents + middle initial + suffix; candidate_name is the
+    # plain form. Fuzzy normalization must still catch the self-as-opponent.
+    bad = _seed_opponent()
+    bad["full_name"] = "María A. Sánchez Jr."
+    ws = _setup_workspace(tmp_path, [bad], _race(candidate_name="Maria Sanchez"))
+    proc = _run(ws)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "appears as an opponent" in proc.stdout
+
+
+def test_candidate_as_opponent_fails_with_hyphenated_name(tmp_path):
+    # Hyphenated roster name vs spaced candidate_name must still match.
+    bad = _seed_opponent()
+    bad["full_name"] = "María-José Sánchez"
     ws = _setup_workspace(
-        tmp_path, [_fragment_with_facts()], params, closing_note=note
+        tmp_path, [bad], _race(candidate_name="Maria Jose Sanchez")
     )
-    proc = _run(ws, params)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    art = _artifact(ws)
-    assert art["markdown"].endswith(note)
+    proc = _run(ws)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "appears as an opponent" in proc.stdout
 
 
-def test_zero_fragments_uncontested(tmp_path):
-    params = _base_params()
-    ws = _setup_workspace(tmp_path, [], params)
-    proc = _run(ws, params)
-
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    art = _artifact(ws)
-    assert art["race"]["opponent_count"] == 0
-    assert art["opponents"] == []
-    today = date.today().isoformat()
-    assert (
-        f"No opponents are currently registered for this race as of {today}."
-        in art["markdown"]
+def test_empty_race_file_is_used_not_params_fallback(tmp_path):
+    # _race.json exists but is {} -> use it as-is (no partisan_type, so party is
+    # NOT normalized). It must NOT silently fall back to PARAMS_JSON; if it did,
+    # the nonpartisan partisan_type there would force party_affiliation.
+    opp = _seed_opponent()
+    opp["party"] = "Democratic"
+    ws = _setup_workspace(tmp_path, [opp], {})
+    proc = _run(
+        ws,
+        extra_env={"PARAMS_JSON": json.dumps({"partisan_type": "nonpartisan"})},
     )
-    assert "Continue to monitor" in art["markdown"]
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws)["opponents"][0]["party_affiliation"] == "Democratic"
 
 
-def test_candidate_name_present_fails(tmp_path):
-    params = _base_params()
-    bad = _fragment_with_facts()
-    # Inject a DIFFERENT-case spelling than the param ("Maria Sanchez") so this
-    # exercises the case-insensitive `.lower()` check specifically — a plain
-    # substring check would not catch "maria sanchez".
-    bad["markdown_block"] = bad["markdown_block"] + "\n  - maria sanchez is the favorite."
-    ws = _setup_workspace(tmp_path, [bad], params)
-    proc = _run(ws, params)
+def test_skips_non_dict_entries(tmp_path):
+    ws = _setup_workspace(
+        tmp_path, [_seed_opponent(), "not an object", [1, 2, 3]], _race()
+    )
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert len(_artifact(ws)["opponents"]) == 1
 
+
+def test_skips_opponent_without_full_name(tmp_path):
+    # A row missing / blank full_name is dropped rather than emitted as null
+    # (which would violate the output_schema).
+    missing = {"party": "Democratic", "incumbent": "No"}
+    blank = {"full_name": "   ", "party": "Green", "incumbent": "No"}
+    ws = _setup_workspace(
+        tmp_path, [_seed_opponent(), missing, blank], _race()
+    )
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    opps = _artifact(ws)["opponents"]
+    assert len(opps) == 1
+    assert opps[0]["full_name"] == "Jane Doe"
+
+
+def test_missing_opponents_file_yields_empty(tmp_path):
+    ws = _setup_workspace(tmp_path, [_seed_opponent()], _race())
+    (ws / "scratch" / "opponents.json").unlink()
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws) == {"opponents": []}
+
+
+def test_non_array_opponents_file_yields_empty(tmp_path):
+    # A JSON object (not an array) is rejected, not iterated.
+    ws = _setup_workspace(tmp_path, {"not": "a list"}, _race())
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws) == {"opponents": []}
+
+
+def test_race_falls_back_to_params_json(tmp_path):
+    # No _race.json on disk -> assemble reads race fields from PARAMS_JSON.
+    # The nonpartisan partisan_type from PARAMS must still normalize the party.
+    ws = _setup_workspace(tmp_path, [_seed_opponent()], _race())
+    (ws / "scratch" / "_race.json").unlink()
+    proc = _run(
+        ws,
+        extra_env={
+            "PARAMS_JSON": json.dumps(
+                {"candidate_name": "Maria Sanchez", "partisan_type": "nonpartisan"}
+            )
+        },
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _artifact(ws)["opponents"][0]["party_affiliation"] == "Nonpartisan"
+
+
+def test_schema_validation_passes_with_contract_schema(tmp_path):
+    ws = _setup_workspace(tmp_path, [_seed_opponent()], _race())
+    (ws / "contract_schema.json").write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "required": ["opponents"],
+                "properties": {"opponents": {"type": "array"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    proc = _run(ws)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout.strip().splitlines()[-1] == "PASS"
+    assert len(_artifact(ws)["opponents"]) == 1
+
+
+def test_schema_violation_fails_without_writing_artifact(tmp_path):
+    ws = _setup_workspace(tmp_path, [_seed_opponent()], _race())
+    # Require a top-level field the assembler never emits -> validation fails.
+    (ws / "contract_schema.json").write_text(
+        json.dumps({"type": "object", "required": ["opponents", "extra_top"]}),
+        encoding="utf-8",
+    )
+    proc = _run(ws)
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert proc.stdout.strip().startswith("FAIL:")
-    assert "candidate name 'Maria Sanchez' appears" in proc.stdout
-    art = _artifact(ws)
-    assert art["race"]["opponent_count"] == 1
+    # the bad artifact must NOT be written to the published output dir
+    assert not (ws / "output" / "opposition_research.json").exists()
 
 
-def test_nonpartisan_party_line_violation_fails(tmp_path):
-    params = _base_params()
-    bad = _fragment_with_facts()
-    bad["markdown_block"] = bad["markdown_block"].replace(
-        "Party affiliation: Nonpartisan (race is nonpartisan)",
-        "Party affiliation: Democratic",
-    )
-    ws = _setup_workspace(tmp_path, [bad], params)
-    proc = _run(ws, params)
-
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert proc.stdout.strip().startswith("FAIL:")
-
-
-def test_em_dash_fails(tmp_path):
-    params = _base_params()
-    bad = _fragment_with_facts()
-    bad["markdown_block"] = bad["markdown_block"] + "\n  - Strong record — well known."
-    ws = _setup_workspace(tmp_path, [bad], params)
-    proc = _run(ws, params)
-
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert proc.stdout.strip().startswith("FAIL:")
-
-
-def test_skips_non_dict_fragment(tmp_path):
-    params = _base_params()
-    ws = _setup_workspace(tmp_path, [_fragment_with_facts()], params)
-    (ws / "scratch" / "opp_99.json").write_text("not json at all", encoding="utf-8")
-    (ws / "scratch" / "opp_98.json").write_text("[1, 2, 3]", encoding="utf-8")
-    proc = _run(ws, params)
-
+def test_dedupes_same_person_across_rosters(tmp_path):
+    # The agent folds the primary roster into the general one, so the same
+    # person can land in opponents.json twice; the assembler must publish them
+    # once (matched by normalized name, ignoring accents / middle initials).
+    a = _seed_opponent()
+    b = _seed_opponent()
+    b["full_name"] = "Jane A. Doe"  # same person, primary-roster spelling
+    ws = _setup_workspace(tmp_path, [a, b], _race())
+    proc = _run(ws)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    art = _artifact(ws)
-    assert art["race"]["opponent_count"] == 1
+    opps = _artifact(ws)["opponents"]
+    assert len(opps) == 1
+    assert opps[0]["full_name"] == "Jane Doe"
 
 
-def test_null_markdown_block_does_not_emit_literal_none(tmp_path):
-    """A fragment with markdown_block: null must contribute empty text, not the
-    literal string 'None' (str(None)). Regression for the .get(..., '') trap where
-    a present-but-null key bypasses the default."""
-    params = _base_params()
-    good = _fragment_with_facts()
-    nulled = _fragment_no_info()
-    nulled["markdown_block"] = None
-    ws = _setup_workspace(tmp_path, [good, nulled], params)
-    proc = _run(ws, params)
-
+def test_candidate_as_opponent_no_candidate_name_bypass(tmp_path):
+    # When _race.json has no candidate_name the self-inclusion guard cannot
+    # fire — it silently no-ops. This documents that the bypass is known and
+    # expected (candidate_name is optional in _race.json; the contract relies
+    # on the agent always writing it).
+    bad = _seed_opponent()
+    bad["full_name"] = "Maria Sanchez"  # the candidate, but no candidate_name to match
+    ws = _setup_workspace(tmp_path, [bad], {"partisan_type": "nonpartisan"})
+    proc = _run(ws)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    md = _artifact(ws)["markdown"]
-    assert "None" not in md
+    assert _artifact(ws)["opponents"][0]["full_name"] == "Maria Sanchez"
