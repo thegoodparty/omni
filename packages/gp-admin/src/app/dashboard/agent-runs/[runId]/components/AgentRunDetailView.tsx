@@ -90,6 +90,28 @@ export function AgentRunDetailView() {
               </Badge>
             </DataList.Value>
           </DataList.Item>
+          {run.stage && (
+            <DataList.Item>
+              <DataList.Label>Stage</DataList.Label>
+              <DataList.Value>{run.stage}</DataList.Value>
+            </DataList.Item>
+          )}
+          {run.status === 'AWAITING_RESUME' && (
+            <>
+              <DataList.Item>
+                <DataList.Label>Next resume</DataList.Label>
+                <DataList.Value>
+                  {run.resumeScheduledFor
+                    ? formatTimestamp(run.resumeScheduledFor)
+                    : '—'}
+                </DataList.Value>
+              </DataList.Item>
+              <DataList.Item>
+                <DataList.Label>Resume attempts</DataList.Label>
+                <DataList.Value>{run.resumeAttempts}</DataList.Value>
+              </DataList.Item>
+            </>
+          )}
           <DataList.Item>
             <DataList.Label>Organization</DataList.Label>
             <DataList.Value>{run.organizationSlug}</DataList.Value>
