@@ -22,11 +22,13 @@ export type SearchParamUpdates = Partial<
   Record<SearchParamKey, string | undefined>
 >
 
-// RUNNING / COMPLETED / FAILED — `satisfies` validates each literal against the
-// SDK union so a typo fails to compile. The SDK re-exports the type but not the
-// values array, so this is the local source for the status filter options.
+// RUNNING / AWAITING_RESUME / COMPLETED / FAILED — `satisfies` validates each
+// literal against the SDK union so a typo fails to compile. The SDK re-exports
+// the type but not the values array, so this is the local source for the status
+// filter options.
 export const AGENT_RUN_STATUSES = [
   'RUNNING',
+  'AWAITING_RESUME',
   'COMPLETED',
   'FAILED',
 ] as const satisfies readonly ExperimentRunStatus[]
@@ -39,9 +41,10 @@ export function isAgentRunStatus(value: string): value is ExperimentRunStatus {
 // until a colour is chosen here.
 export const STATUS_BADGE_COLORS: Record<
   ExperimentRunStatus,
-  'blue' | 'green' | 'red'
+  'blue' | 'green' | 'red' | 'amber'
 > = {
   RUNNING: 'blue',
+  AWAITING_RESUME: 'amber',
   COMPLETED: 'green',
   FAILED: 'red',
 }
