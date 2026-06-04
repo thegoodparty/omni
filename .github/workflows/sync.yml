@@ -1,7 +1,7 @@
 name: Sync source repos
 
 # Continuously imports commits from the legacy source repos into omni under
-# apps/<name>/ with full history, until cutover. Safe to run repeatedly: each
+# packages/<name>/ with full history, until cutover. Safe to run repeatedly: each
 # run only brings in commits merged upstream since the last sync (idempotent).
 #
 # Disable without deleting: set repo variable SYNC_DISABLED=true.
@@ -33,14 +33,14 @@ jobs:
       # has read on the source repos and write on omni.
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Checkout omni (develop, full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: develop
           fetch-depth: 0
