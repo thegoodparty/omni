@@ -21,7 +21,7 @@ Validate a qa-spine-compliant artifact JSON against the QA protocol and write `q
 
 2. The script runs in four stages:
    - Load artifact (file present and valid JSON).
-   - Deterministic checks (rule-based, no LLM).
+   - Deterministic checks (rule-based, no LLM) — Layer-1 schema validation first, then the claim/source family (see "Routing backbone" below).
    - Phase 1 LLM triage of every claim (uses `judges.phase1` from the product spec).
    - Phase 2 LLM escalation of high-weight Phase-1-not-OK claims only (uses `judges.phase2`).
 
@@ -62,6 +62,20 @@ By default the script always exits `0` so callers can read the verdict from `qa_
 | `ok` | 0 |
 | `warn` | 1 |
 | `block` | 2 |
+
+## Routing backbone (config-driven)
+
+The spine routes validation by artifact shape and runs a set of config-driven checks. All mechanisms are generic; a product opts in purely through its `<product>_product_spec.json`.
+
+- `output_format.type` — declares the artifact shape (`structured_json`, `inline_cited_prose`). The spine maps the type to which validation families run. A missing or unrecognized type routes to the strictest known type and emits an `output_format_routing` warning (never a silent skip).
+- `output_format.schema` (`manifest_path`, `schema_key`) — when present, **Layer-1 `schema_validation`** runs the artifact through the named manifest's `output_schema` (jsonschema draft-07) **before any other check** and warns on shape drift (staged; will be promoted to block once briefings are confirmed to conform). Absent schema, unreadable manifest, or missing `jsonschema` → skip-with-warning. Invalid JSON is caught at load and never reaches Layer 1, so there is no double-penalty.
+- `output_format.inline_citation_pattern` — regex the generic inline-citation extractor uses to pull bracketed citation tokens out of prose.
+- `structured_validators` — per-`claim_type` opt-in `{kind, rounding_tolerance}`. The `high_stakes_structured_match` check extracts every literal of `kind` (`money`, `date`, `name`, `vote_count`, `legal_citation`, `percentage`) from `claim_text` and requires each, normalized, to appear in a cited source. High-weight/blockable failures block; others annotate. `rounding_tolerance` defaults to exact (0); any non-zero value must come from a committed fixture, never invented.
+- `source_hierarchy` — `claim_type → allowed source_types`. `source_hierarchy_policy` flags claims citing a disallowed source type (block when high-weight, annotate otherwise). A `claim_type` with **no** entry yields a non-blocking `diagnostic` surfacing the policy gap (not a block, not silent-allow).
+- `embedding_rescue_blocklist` — deny-list of `claim_type`s for which the `summary_source_coherence` embedding rescue is refused (numbers, dates, names, vote counts, legal citations, allegations). A type absent from the list stays rescuable.
+- `completeness.field_paths` — `completeness_floor` walks these spec-declared paths (`lead_in_path`, `exec_summary_overview_paths`, `priority_item_overview_field`, `total_prose_paths`) instead of hard-coded field names. No declared overview paths → skip-with-warning; declared paths that resolve empty while priority items exist → reported as a missing required field (no silent undercount).
+
+The `diagnostic` route is recorded in `qa_bundle.json` but never drives `release_verdict`.
 
 ## Adding a new product
 

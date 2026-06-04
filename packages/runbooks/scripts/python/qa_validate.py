@@ -32,16 +32,22 @@ Product spec default: meeting_briefing_product_spec.json (same directory as this
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import math
 import os
 import re
+import socket
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Iterator, Literal, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -66,7 +72,11 @@ def load_product_spec(spec_path: Optional[Path] = None) -> dict:
         spec_path = Path(__file__).parent / "meeting_briefing_product_spec.json"
     if not spec_path.exists():
         sys.exit(f"ERROR: Product spec not found: {spec_path}")
-    return json.loads(spec_path.read_text())
+    spec = json.loads(spec_path.read_text())
+    # Record where the spec was loaded from so repo-relative paths declared in
+    # the spec (e.g. output_format.schema.manifest_path) can be resolved.
+    spec["_spec_path"] = str(spec_path.resolve())
+    return spec
 
 
 def blockable_types(spec: dict) -> set[str]:
@@ -85,6 +95,9 @@ class DeterministicCheck:
     status: Literal["pass", "fail", "warning"]
     severity: str
     message: str
+    # 'diagnostic' is recorded in the bundle but never drives the release
+    # verdict (see compute_release_verdict) — used for non-verdict signals
+    # like a missing source-hierarchy policy gap.
     route: Literal["block", "annotate", "pass", "diagnostic"]
     offending: str = ""
     details: Optional[dict] = None  # structured per-check measurements for inspection
@@ -147,6 +160,132 @@ def load_artifact(artifact_path: Path) -> tuple[dict, list[DeterministicCheck]]:
     return artifact, results
 
 
+# ── Layer-1 schema validation (WS2) ───────────────────────────────────────────
+
+def _spec_dir(spec: dict) -> Path:
+    """Directory the product spec was loaded from; repo-relative manifest paths
+    in output_format.schema.manifest_path resolve against the repo root, which we
+    locate by walking up from the spec dir until we find experiments/."""
+    sp = spec.get("_spec_path")
+    base = Path(sp).resolve().parent if sp else Path(__file__).resolve().parent
+    return base
+
+
+def _resolve_repo_relative(spec: dict, rel: str) -> Optional[Path]:
+    """Resolve a repo-relative path (e.g. 'experiments/.../manifest.json').
+
+    Walks up from the spec's directory looking for a parent that contains the
+    given relative path. Returns the first hit or None. Keeps the spine free of
+    hard-coded absolute paths (portability rule)."""
+    start = _spec_dir(spec)
+    for base in [start, *start.parents]:
+        candidate = base / rel
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def schema_validate_layer1(
+    artifact: dict, spec: dict, output_format: dict
+) -> Optional[DeterministicCheck]:
+    """Layer-1 jsonschema validation against the manifest output_schema.
+
+    Returns a DeterministicCheck (the spine inserts it FIRST), or None when the
+    resolved output type does not call for schema_layer1 (e.g. inline_cited_prose).
+
+    Routing/edge-case behavior (resolved defaults):
+      - output_format.schema absent      → skip-with-warning (never silent-skip).
+      - manifest / schema_key unreadable → skip-with-warning.
+      - jsonschema import unavailable    → skip-with-warning (strictest could not
+        run; surfaced, not silently dropped).
+      - schema present & artifact invalid → BLOCK (hard-fail on shape drift).
+      - schema present & artifact valid   → pass.
+    It never re-penalizes an artifact already rejected at load (invalid JSON
+    never reaches here — main() halts first), so no double-penalty.
+    """
+    if not output_format["routes"].get("schema_layer1"):
+        return None
+
+    sch = output_format["schema"]
+    if not sch or not sch.get("manifest_path"):
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=(
+                "Layer-1 schema validation skipped: output_format.schema.manifest_path "
+                "not declared (skip-with-warning; never silent-skip)"
+            ),
+            route="annotate",
+            details={"reason": "no_manifest_path"},
+        )
+
+    manifest_path = _resolve_repo_relative(spec, sch["manifest_path"])
+    if manifest_path is None:
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=f"Layer-1 schema validation skipped: manifest not found at {sch['manifest_path']!r}",
+            route="annotate",
+            details={"reason": "manifest_not_found", "manifest_path": sch["manifest_path"]},
+        )
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        schema = manifest[sch.get("schema_key", "output_schema")]
+    except Exception as e:  # noqa: BLE001 — any read/parse failure is skip-with-warning
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=f"Layer-1 schema validation skipped: could not load schema ({e})",
+            route="annotate",
+            details={"reason": "schema_unreadable", "error": str(e)},
+        )
+
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=(
+                "Layer-1 schema validation skipped: jsonschema not installed "
+                "(strictest route could not run; surfaced, not silent-skipped)"
+            ),
+            route="annotate",
+            details={"reason": "jsonschema_unavailable"},
+        )
+
+    errors = sorted(Draft7Validator(schema).iter_errors(artifact), key=lambda e: list(e.path))
+    if errors:
+        preview = [
+            {"path": "$." + ".".join(str(p) for p in e.path), "message": e.message}
+            for e in errors[:8]
+        ]
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="fail", severity="high",
+            message=(
+                f"Artifact failed Layer-1 schema validation: {len(errors)} error(s) "
+                f"against {manifest_path.name} output_schema (staged: warning only, "
+                f"not blocking, while we confirm existing briefings conform)"
+            ),
+            # Staged as annotate, not block, for an initial trial window: a shape
+            # drift surfaces as a warning so it does not retroactively fail
+            # briefings that passed before this gate existed. Promote to "block"
+            # once production briefings are confirmed to conform to the schema.
+            route="annotate",
+            offending="; ".join(f"{p['path']}: {p['message']}" for p in preview[:5]),
+            details={"manifest": manifest_path.name, "error_count": len(errors), "errors": preview},
+        )
+    return DeterministicCheck(
+        check_id="schema_validation",
+        status="pass", severity="info",
+        message=f"Artifact passed Layer-1 schema validation against {manifest_path.name} output_schema",
+        route="pass",
+        details={"manifest": manifest_path.name},
+    )
+
+
 # ── Path walker (for spec-declared field paths) ───────────────────────────────
 
 def _walk(obj, dotted: str):
@@ -185,6 +324,236 @@ def _values_at_path(artifact: dict, path: str) -> list[str]:
         return results
     value = _walk(artifact, path)
     return [value] if isinstance(value, str) and value.strip() else []
+
+
+# ── Output-format routing backbone (WS2 foundation) ───────────────────────────
+#
+# A product spec declares output_format.type so the spine routes validation by
+# artifact shape instead of assuming one structure. The mechanism is generic:
+# the spine knows a small set of known types and which validation families each
+# runs; product-specific detail (which manifest, which inline-citation pattern)
+# lives in the product spec, never here.
+
+# Known artifact-shape types → the validation families the spine runs for them.
+# Families are advisory routing labels read by run_deterministic; adding a type
+# here is how a new artifact shape opts into the routing backbone.
+VALIDATION_ROUTES: dict[str, dict] = {
+    # A single JSON object validated by jsonschema (Layer 1) plus the standard
+    # claim/source deterministic family.
+    "structured_json": {"schema_layer1": True, "claim_source_family": True},
+    # Free prose with inline citations — no whole-document jsonschema, but the
+    # claim/source family still applies once claims are extracted.
+    "inline_cited_prose": {"schema_layer1": False, "claim_source_family": True},
+}
+
+# When output_format.type is missing or unparseable we route to the STRICTEST
+# known type and warn — never silent-skip. Strictest = the one that runs the
+# most validation (schema_layer1 + claim_source_family).
+_STRICTEST_OUTPUT_TYPE = "structured_json"
+
+
+def resolve_output_format(spec: dict) -> dict:
+    """Normalize spec.output_format into a routing descriptor.
+
+    Returns a dict with:
+      type        — the resolved (possibly defaulted) type string
+      routes      — the VALIDATION_ROUTES entry for that type
+      warnings    — list of human-readable routing warnings (never raises)
+      defaulted   — True when we fell back to the strictest type
+      schema      — the raw output_format.schema block (or {})
+      inline_citation_pattern — regex string or None
+
+    Edge case (resolved default): a missing or unparseable type routes to the
+    strictest validation and warns; it never silent-skips. Blocking only happens
+    downstream if the strictest route cannot run (e.g. schema unavailable), and
+    that is surfaced by the individual check, not here.
+    """
+    of = spec.get("output_format") or {}
+    warnings: list[str] = []
+    raw_type = of.get("type")
+    defaulted = False
+    if not isinstance(raw_type, str) or raw_type not in VALIDATION_ROUTES:
+        if raw_type is None:
+            warnings.append(
+                f"output_format.type missing — routing to strictest "
+                f"validation ('{_STRICTEST_OUTPUT_TYPE}')"
+            )
+        else:
+            warnings.append(
+                f"output_format.type {raw_type!r} unrecognized — routing to "
+                f"strictest validation ('{_STRICTEST_OUTPUT_TYPE}')"
+            )
+        resolved_type = _STRICTEST_OUTPUT_TYPE
+        defaulted = True
+    else:
+        resolved_type = raw_type
+    return {
+        "type": resolved_type,
+        "routes": VALIDATION_ROUTES[resolved_type],
+        "warnings": warnings,
+        "defaulted": defaulted,
+        "schema": of.get("schema") or {},
+        "inline_citation_pattern": of.get("inline_citation_pattern"),
+    }
+
+
+# Default inline-citation token shapes if a spec declares none: [1], [S1],
+# [src_1], [src-12]. Conservative — bracketed numeric/alphanumeric refs only.
+_DEFAULT_INLINE_CITATION_RE = re.compile(r"\[(?:src[_-]?)?[A-Za-z]*\d+\]")
+
+
+def extract_inline_citations(text: str, pattern: Optional[str] = None) -> list[dict]:
+    """Generic inline-citation extractor.
+
+    Pulls bracketed citation tokens (e.g. '[src_1]', '[S3]', '[12]') out of prose
+    and returns them with their character spans, so a caller can map inline
+    citations back to sources[] or flag uncited prose. Product-specific token
+    shapes come from spec.output_format.inline_citation_pattern; absent that, a
+    conservative default pattern is used.
+
+    Returns a list of {token, ref, start, end} dicts in order of appearance.
+    'ref' is the token with surrounding brackets and any 'src'/'S' prefix
+    stripped to the bare identifier (best-effort; callers that need exact
+    matching should use 'token').
+    """
+    if not text:
+        return []
+    rx = re.compile(pattern) if pattern else _DEFAULT_INLINE_CITATION_RE
+    out: list[dict] = []
+    for m in rx.finditer(text):
+        token = m.group(0)
+        ref = token.strip("[]")
+        ref = re.sub(r"(?i)^src[_-]?", "", ref)
+        out.append({"token": token, "ref": ref, "start": m.start(), "end": m.end()})
+    return out
+
+
+# ── High-stakes literal extractors (WS2 structured validators) ────────────────
+#
+# Each extractor pulls every literal of one kind out of a piece of text and
+# returns them as NORMALIZED comparison keys. The spine's structured-validator
+# check requires every literal extracted from a claim_text to be present (by
+# normalized key) in at least one cited source snapshot. These are extraction
+# rules, not calibrated thresholds — the only numeric knob (money/percentage
+# rounding tolerance) defaults to exact and any non-zero value must come from a
+# committed fixture, never invented here.
+
+_MONEY_RE = re.compile(
+    r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:million|billion|thousand|m|bn|k)?",
+    re.IGNORECASE,
+)
+_PERCENT_RE = re.compile(r"\d+(?:\.\d+)?\s?(?:%|percent)", re.IGNORECASE)
+_VOTE_RE = re.compile(r"\b\d{1,3}\s?[-–to]{1,3}\s?\d{1,3}\b", re.IGNORECASE)
+# "page 4-1", "Section 3-2", "Exhibit 4-1", "Table 2-1" are document-structural
+# references, not vote tallies. Python's re only allows fixed-width lookbehind, so
+# a word-alternation negative lookbehind on _VOTE_RE won't compile; instead a vote
+# match immediately preceded by one of these labels is rejected at extraction time
+# (see extract_literals). Leading \b prevents "rampage" from matching "page".
+_VOTE_STRUCT_PREFIX_RE = re.compile(
+    r"\b(?:page|pg|section|sec|exhibit|exh|figure|fig|table|tab|appendix|app|"
+    r"attachment|att)\.?\s*[-–]?\s*$",
+    re.IGNORECASE,
+)
+# Legal citations: "Ordinance 2024-17", "Resolution No. 12", "Section 3.4",
+# "Ord. 17", "HB 1234", "Chapter 5", "Article IV".
+_LEGAL_RE = re.compile(
+    r"\b(?:ordinance|resolution|res|ord|section|sec|chapter|ch|article|art|"
+    r"bill|hb|sb|case|docket|cause|no)\.?\s?(?:no\.?\s?)?[A-Za-z]?\d[\w.\-/]*",
+    re.IGNORECASE,
+)
+_DATE_RE = re.compile(
+    r"\b(?:"
+    r"\d{4}-\d{2}-\d{2}"  # 2026-06-01
+    r"|\d{1,2}/\d{1,2}/\d{2,4}"  # 6/1/2026
+    r"|(?:January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)\s+\d{1,2}(?:,\s*\d{4})?"  # June 1, 2026
+    r")\b",
+    re.IGNORECASE,
+)
+# Proper-noun name runs: 1+ capitalized words (allows middle initials, hyphens).
+# Heuristic — drops common sentence-initial false positives is left to the
+# caller; for high-stakes matching we only require the run appears in source.
+_NAME_RE = re.compile(r"\b(?:[A-Z][a-z]+(?:\.|)\s?){2,}")
+
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def _norm_money(tok: str) -> str:
+    """Normalize a money literal to a canonical numeric magnitude string.
+
+    '$1,800,000' and '$1.8 million' both normalize to '1800000'. This lets the
+    exact-match compare across surface forms while still catching a $1.8M vs $2M
+    swap (different magnitudes → different keys).
+    """
+    t = tok.lower().replace("$", "").replace(",", "").strip()
+    mult = 1
+    for word, m in (("billion", 1_000_000_000), ("bn", 1_000_000_000),
+                    ("million", 1_000_000), ("m", 1_000_000),
+                    ("thousand", 1_000), ("k", 1_000)):
+        if t.endswith(word):
+            mult = m
+            t = t[: -len(word)].strip()
+            break
+    try:
+        val = float(t) * mult
+    except ValueError:
+        return _norm_text(tok)
+    # Round to cents before the integer check: float multiplication of fractional
+    # millions (e.g. 1.1 * 1_000_000 → 1100000.0000000002) can leave a tiny residue
+    # that makes val != int(val), so "$1.1M" would mismatch "$1,100,000".
+    val = round(val, 2)
+    # Integer-valued magnitudes render without a trailing .0
+    return str(int(val)) if val == int(val) else str(val)
+
+
+def _norm_percent(tok: str) -> str:
+    t = re.sub(r"(?i)\s*(?:%|percent)\s*$", "", tok).strip()
+    try:
+        val = float(t)
+    except ValueError:
+        return _norm_text(tok)
+    return f"{val:g}%"
+
+
+def _norm_vote(tok: str) -> str:
+    nums = re.findall(r"\d+", tok)
+    return "-".join(nums)
+
+
+# kind → (compiled regex, normalizer). Used by the structured-validator check
+# and by tests. Adding a kind is purely additive here.
+STRUCTURED_EXTRACTORS: dict[str, tuple] = {
+    "money": (_MONEY_RE, _norm_money),
+    "percentage": (_PERCENT_RE, _norm_percent),
+    "vote_count": (_VOTE_RE, _norm_vote),
+    "legal_citation": (_LEGAL_RE, _norm_text),
+    "date": (_DATE_RE, _norm_text),
+    "name": (_NAME_RE, _norm_text),
+}
+
+
+def extract_literals(text: str, kind: str) -> list[str]:
+    """Extract every literal of `kind` from text, returned as normalized keys.
+
+    Unknown kind → empty list (the caller treats an unconfigured kind as
+    "nothing to check", not an error).
+    """
+    spec = STRUCTURED_EXTRACTORS.get(kind)
+    if not spec or not text:
+        return []
+    rx, norm = spec
+    seen: list[str] = []
+    for m in rx.finditer(text):
+        # Reject document-structural references ("page 4-1", "Table 2-1") that
+        # would otherwise satisfy a vote_count claim with a non-vote digit pair.
+        if kind == "vote_count" and _VOTE_STRUCT_PREFIX_RE.search(text[: m.start()]):
+            continue
+        key = norm(m.group(0))
+        if key and key not in seen:
+            seen.append(key)
+    return seen
 
 
 def _format_safe(template: str, data: dict) -> str:
@@ -303,16 +672,167 @@ def _embedding_cosine(a_text: str, b_text: str, model_name: str) -> float | None
         return None
 
 
+# ── Layer A helpers (citations, host normalization, template expansion) ──────
+
+# Wikipedia-style inline citations. Two valid forms produced by prompts that
+# cite externally: [Label](URL) and the URL-less marker [GoodParty.org Data].
+# URL-less markers are not matched here; checks that need them pattern-match
+# the bare label separately.
+_CITATION_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+
+_SOCIAL_HOSTS: frozenset[str] = frozenset({
+    "twitter.com", "x.com", "facebook.com", "instagram.com", "tiktok.com",
+})
+
+
+def _extract_citations(text: str) -> list[tuple[str, str]]:
+    return _CITATION_RE.findall(text or "")
+
+
+def _normalize_host(url: str) -> str:
+    host = (urllib.parse.urlparse(url).hostname or "").casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+# Cloud-metadata endpoint — explicitly blocked even though it is link-local
+# (defence in depth; some resolvers/proxies could shadow the link-local range).
+_METADATA_IP = "169.254.169.254"
+
+
+def _ip_is_blocked(ip: str) -> bool:
+    """True if an IP literal falls in a range we must never probe (SSRF guard).
+
+    Blocks private, loopback, link-local, reserved, multicast and unspecified
+    ranges, plus the cloud metadata IP explicitly. Unparseable input is treated
+    as blocked (fail closed)."""
+    if ip == _METADATA_IP:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _ssrf_check_url(url: str) -> Optional[str]:
+    """Validate a URL is safe to probe. Returns None when safe, else a short
+    human-readable reason the URL was rejected (advisory — never raises).
+
+    Rejects non-http(s) schemes and any host that resolves to a private,
+    loopback, link-local, reserved, multicast or metadata IP. Resolves every
+    address the host maps to and blocks if ANY is unsafe (DNS-rebinding-aware
+    for the resolved set)."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = (parsed.scheme or "").casefold()
+    if scheme not in ("http", "https"):
+        return f"non-http(s) scheme '{parsed.scheme}'"
+    host = parsed.hostname
+    if not host:
+        return "missing host"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        return f"DNS resolution failed: {e}"
+    ips = {str(info[4][0]) for info in infos}
+    if not ips:
+        return "host did not resolve to any address"
+    blocked = sorted(ip for ip in ips if _ip_is_blocked(ip))
+    if blocked:
+        return f"host resolves to blocked IP(s): {', '.join(blocked)}"
+    return None
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow HTTP redirects. A redirect could point at an internal
+    host that the SSRF pre-check never saw, so we re-validate by simply
+    declining the hop and surfacing it as an HTTPError to the caller."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        reason = _ssrf_check_url(newurl)
+        if reason is not None:
+            raise urllib.error.HTTPError(
+                newurl, code, f"blocked redirect ({reason})", headers, fp
+            )
+        # Redirect target is safe by the same IP rules — still refuse to follow
+        # automatically; treat the redirect as a non-200 outcome the caller can
+        # report rather than silently chasing arbitrary hops.
+        raise urllib.error.HTTPError(
+            newurl, code, f"redirect not followed (-> {newurl})", headers, fp
+        )
+
+
+def _iter_prose_at_paths(artifact: dict, paths: list[str]) -> Iterator[tuple[str, str]]:
+    """Yield (path, text) for each spec-declared prose path that resolves to
+    non-empty string(s). Per-path iteration preserves the source path so
+    findings can report exactly where a problem lives."""
+    for path in paths:
+        for value in _values_at_path(artifact, path):
+            yield (path, value)
+
+
+def _resolve_pattern_template(pattern: str, artifact: dict) -> tuple[Optional[str], list[str]]:
+    """Substitute `{{key}}` placeholders in a regex pattern with re.escape of
+    the artifact's top-level string value at that key. Returns
+    (resolved_pattern, missing_keys). If any referenced key is missing or
+    empty, returns (None, [missing_keys]) so the caller can skip the pattern.
+
+    Top-level string values only. Patterns without placeholders pass through
+    unchanged. Substituted values are re.escape'd so the spec author does not
+    have to worry about regex-special characters in the artifact data."""
+    missing: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        key = m.group(1).strip()
+        value = artifact.get(key)
+        if not isinstance(value, str) or not value:
+            missing.append(key)
+            return ""
+        return re.escape(value)
+
+    resolved = re.sub(r"\{\{([^{}]+)\}\}", _sub, pattern)
+    if missing:
+        return None, missing
+    return resolved, []
+
+
 # ── Deterministic checks ──────────────────────────────────────────────────────
 
 def run_deterministic(
     artifact: dict,
     spec: dict,
+    check_urls: Optional[bool] = None,
 ) -> list[DeterministicCheck]:
     results: list[DeterministicCheck] = []
     items = artifact.get("items") or []
     claims = artifact.get("claims") or []
     sources = artifact.get("sources") or []
+
+    # 0. output_format routing (WS2 backbone). Resolve which validation families
+    #    run for this artifact shape. Missing/unparseable type → strictest + warn.
+    output_format = resolve_output_format(spec)
+    for w in output_format["warnings"]:
+        results.append(DeterministicCheck(
+            check_id="output_format_routing",
+            status="warning", severity="medium",
+            message=w,
+            route="annotate",
+            details={"resolved_type": output_format["type"], "defaulted": output_format["defaulted"]},
+        ))
+
+    # 0b. Layer-1 schema validation — runs BEFORE every other check; hard-fails
+    #     on shape drift, skip-with-warning when schema/jsonschema unavailable.
+    layer1 = schema_validate_layer1(artifact, spec, output_format)
+    if layer1 is not None:
+        results.append(layer1)
 
     # 1. Identity fields present (driven by spec.identity_fields)
     identity_fields = spec.get("identity_fields") or []
@@ -482,6 +1002,10 @@ def run_deterministic(
     # 6. Prohibited phrases — scan the spec-declared prose paths
     #    (Sections like talking_points with a posture override are EXCLUDED by
     #    being absent from spec.prohibited_phrase_paths.)
+    #    Patterns may include `{{key}}` placeholders that interpolate top-level
+    #    artifact string values (re.escape'd) before regex compile. Lets a spec
+    #    express runtime-variable rules like "never mention {{candidate_name}}"
+    #    without code changes.
     phrase_specs = spec.get("prohibited_phrases") or []
     path_specs = spec.get("prohibited_phrase_paths") or []
     prose_parts: list[str] = []
@@ -489,11 +1013,24 @@ def run_deterministic(
         prose_parts.extend(_values_at_path(artifact, p))
     prose = " ".join(prose_parts)
     hit_names: list[str] = []
+    skipped_patterns: list[dict] = []
     for entry in phrase_specs:
         name = entry.get("name") or entry.get("pattern", "<unnamed>")
         pattern = entry.get("pattern", "")
-        if pattern and re.search(pattern, prose, re.IGNORECASE):
+        if not pattern:
+            continue
+        if "{{" in pattern:
+            resolved, missing_keys = _resolve_pattern_template(pattern, artifact)
+            if resolved is None:
+                skipped_patterns.append({"name": name, "missing_keys": missing_keys})
+                continue
+            pattern = resolved
+        if re.search(pattern, prose, re.IGNORECASE):
             hit_names.append(name)
+    phrase_details = {
+        "paths_scanned": path_specs,
+        "skipped_patterns": skipped_patterns,
+    }
     if hit_names:
         results.append(DeterministicCheck(
             check_id="prohibited_phrases",
@@ -505,6 +1042,7 @@ def run_deterministic(
             ),
             route="annotate",
             offending="; ".join(hit_names),
+            details=phrase_details,
         ))
     else:
         results.append(DeterministicCheck(
@@ -512,6 +1050,7 @@ def run_deterministic(
             status="pass", severity="info",
             message=f"No prohibited phrases found across {len(path_specs)} prose path(s)",
             route="pass",
+            details=phrase_details,
         ))
 
     # 7. extracts_appear_in_cited_source — bounded to cited sources only,
@@ -637,6 +1176,178 @@ def run_deterministic(
             details=substring_details,
         ))
 
+    # 7b. high_stakes_structured_match (WS2 P0) — per-claim-type opt-in
+    #     extraction + exact match for high-stakes literals. For each claim whose
+    #     claim_type is declared in spec.structured_validators, extract every
+    #     literal of the declared kind from claim_text and require each to appear
+    #     (normalized) in a cited source snapshot. High-weight/blockable failures
+    #     block; others annotate.
+    structured_cfg = spec.get("structured_validators") or {}
+    if structured_cfg:
+        sv_high_fail: list[str] = []
+        sv_other_fail: list[str] = []
+        sv_trace: list[dict] = []
+        for claim in claims:
+            ctype = claim.get("claim_type", "")
+            rule = structured_cfg.get(ctype)
+            if not rule:
+                continue
+            kind = rule.get("kind", "")
+            literals = extract_literals(claim.get("claim_text", ""), kind)
+            if not literals:
+                continue
+            cited_haystack_text = " ".join(
+                _norm_text(source_map.get(sid, {}).get("retrieved_text_or_snapshot") or "")
+                for sid in (claim.get("source_ids") or [])
+            )
+            # Compare normalized keys: money/percent compare canonical magnitude,
+            # the rest compare normalized substring presence in the haystack.
+            missing: list[str] = []
+            # Source name tokens (lowercased words), used for the name kind so a
+            # reordered or comma-separated rendering ("Michael Brown, Mayor" vs
+            # "Mayor Michael Brown") is not a false fail — see the name branch.
+            haystack_words = (
+                set(re.findall(r"[a-z0-9]+", cited_haystack_text)) if kind == "name" else set()
+            )
+            for lit in literals:
+                if kind in ("money", "percentage", "vote_count"):
+                    present = lit in extract_literals(cited_haystack_text, kind)
+                elif kind == "name":
+                    # A contiguous-substring test yields false fails when the
+                    # source reorders the name or separates title from name.
+                    # Require instead that every token of the claim's name run
+                    # appears as a word somewhere in the cited source.
+                    present = all(tok in haystack_words for tok in re.findall(r"[a-z0-9]+", lit))
+                else:
+                    present = lit in cited_haystack_text
+                if not present:
+                    missing.append(lit)
+            cid = claim.get("claim_id", "<no-id>")
+            sv_trace.append({
+                "claim_id": cid, "claim_type": ctype, "kind": kind,
+                "literals": literals, "missing": missing,
+            })
+            if missing:
+                entry = f"{cid}({kind}): missing {missing[:3]}"
+                if _is_high_weight(claim):
+                    sv_high_fail.append(entry)
+                else:
+                    sv_other_fail.append(entry)
+        sv_details = {
+            "claim_types_checked": list(structured_cfg.keys()),
+            "claims_with_literals": len(sv_trace),
+            "per_claim": sv_trace,
+        }
+        if sv_high_fail:
+            results.append(DeterministicCheck(
+                check_id="high_stakes_structured_match",
+                status="fail", severity="high",
+                message=f"{len(sv_high_fail)} high-weight claim(s) with high-stakes literals not found in cited source",
+                route="block",
+                offending="; ".join(sv_high_fail[:5]),
+                details=sv_details,
+            ))
+        elif sv_other_fail:
+            results.append(DeterministicCheck(
+                check_id="high_stakes_structured_match",
+                status="warning", severity="medium",
+                message=f"{len(sv_other_fail)} non-high-weight claim(s) with high-stakes literals not found in cited source",
+                route="annotate",
+                offending="; ".join(sv_other_fail[:5]),
+                details=sv_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="high_stakes_structured_match",
+                status="pass", severity="info",
+                message=f"All extracted high-stakes literals found in cited sources ({len(sv_trace)} claim(s) checked)",
+                route="pass",
+                details=sv_details,
+            ))
+
+    # 7c. source_hierarchy_policy (WS2 P0) — spec-declared claim_type → allowed
+    #     source_types. A claim citing a source whose source_type is not allowed
+    #     for its claim_type is flagged. A claim_type with NO entry yields a
+    #     non-blocking diagnostic surfacing the policy gap (not block, not allow).
+    hierarchy = spec.get("source_hierarchy") or {}
+    if hierarchy:
+        source_type_map = {s.get("id"): s.get("source_type") for s in sources if s.get("id")}
+        sh_high_fail: list[str] = []
+        sh_other_fail: list[str] = []
+        sh_gaps: set[str] = set()
+        sh_trace: list[dict] = []
+        for claim in claims:
+            ctype = claim.get("claim_type", "")
+            allowed = hierarchy.get(ctype)
+            if allowed is None:
+                if ctype:
+                    sh_gaps.add(ctype)
+                continue
+            allowed_set = set(allowed)
+            violations = []
+            for sid in claim.get("source_ids") or []:
+                stype = source_type_map.get(sid)
+                if stype is not None and stype not in allowed_set:
+                    violations.append(f"{sid}={stype}")
+            cid = claim.get("claim_id", "<no-id>")
+            if violations:
+                sh_trace.append({
+                    "claim_id": cid, "claim_type": ctype,
+                    "allowed": allowed, "violations": violations,
+                })
+                entry = f"{cid}({ctype}): {violations[:3]} not in {allowed}"
+                if _is_high_weight(claim):
+                    sh_high_fail.append(entry)
+                else:
+                    sh_other_fail.append(entry)
+        sh_details = {
+            "policy": hierarchy,
+            "claim_types_without_policy": sorted(sh_gaps),
+            "violations": sh_trace,
+        }
+        # Each condition emits independently so co-occurring signals all surface.
+        # A policy gap must always produce its own route="diagnostic" result, even
+        # when the same artifact also has a (block) high-fail or (annotate)
+        # other-fail — otherwise the gap diagnostic would only survive in details.
+        if sh_high_fail:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="fail", severity="high",
+                message=f"{len(sh_high_fail)} high-weight claim(s) cite source types not allowed for their claim_type",
+                route="block",
+                offending="; ".join(sh_high_fail[:5]),
+                details=sh_details,
+            ))
+        if sh_other_fail:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="warning", severity="medium",
+                message=f"{len(sh_other_fail)} non-high-weight claim(s) cite disallowed source types",
+                route="annotate",
+                offending="; ".join(sh_other_fail[:5]),
+                details=sh_details,
+            ))
+        if sh_gaps:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="warning", severity="low",
+                message=(
+                    f"No source-hierarchy policy declared for {len(sh_gaps)} claim_type(s): "
+                    f"{sorted(sh_gaps)} (diagnostic — not a block, not silent-allow)"
+                ),
+                route="diagnostic",
+                offending=", ".join(sorted(sh_gaps)),
+                details=sh_details,
+            ))
+        if not sh_high_fail and not sh_other_fail and not sh_gaps:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="pass", severity="info",
+                message="All claims cite source types allowed for their claim_type",
+                route="pass",
+                details=sh_details,
+            ))
+
     # 8. summary_source_coherence — TF-IDF cosine + containment between
     #    display.summary and the item's combined source_extracts.
     #    Warns when BOTH lexical signals are below threshold AND a semantic
@@ -661,6 +1372,9 @@ def run_deterministic(
         emb_enabled = bool(emb_cfg.get("enabled", False))
         emb_model_name = str(emb_cfg.get("model", "all-MiniLM-L6-v2"))
         emb_rescue_threshold = float(emb_cfg.get("rescue_threshold", 0.70))
+        # WS2 P0 deny-list: claim_types for which embedding rescue is forbidden.
+        # Absence from this list means a type stays rescuable.
+        rescue_blocklist = set(spec.get("embedding_rescue_blocklist") or [])
 
         coherence_scope = [
             it for it in items
@@ -701,9 +1415,21 @@ def run_deterministic(
             if emb_cos is not None:
                 emb_available_observed = True
 
+            # WS2: refuse embedding rescue when ANY claim feeding this item's
+            # comparison is of a blocklisted claim_type (numbers, dates, names,
+            # vote counts, legal citations, allegations). Deny-list semantics:
+            # an item with no blocklisted claim stays rescuable.
+            item_claim_types = {
+                ct for c in claims_by_item.get(iid, [])
+                if (ct := c.get("claim_type"))
+            }
+            rescue_forbidden = bool(item_claim_types & rescue_blocklist)
+            blocking_types = sorted(item_claim_types & rescue_blocklist)
+
             below_lexical = tfidf < tfidf_threshold and contain < contain_threshold
             rescued = (
                 below_lexical
+                and not rescue_forbidden
                 and emb_cos is not None
                 and emb_cos >= emb_rescue_threshold
             )
@@ -720,6 +1446,8 @@ def run_deterministic(
                 "embedding_cosine": round(emb_cos, 3) if emb_cos is not None else None,
                 "below_lexical": below_lexical,
                 "rescued_by_embedding": rescued,
+                "rescue_forbidden": rescue_forbidden,
+                "rescue_blocked_by_claim_types": blocking_types,
                 "below_threshold": below,
                 "summary_chars": len(summary),
                 "summary_preview": summary[:200] + ("…" if len(summary) > 200 else ""),
@@ -751,6 +1479,7 @@ def run_deterministic(
             "embedding_role": emb_role,
             "embedding_model": emb_model_name if emb_enabled else None,
             "embedding_rescue_threshold": emb_rescue_threshold if emb_enabled else None,
+            "embedding_rescue_blocklist": sorted(rescue_blocklist),
             "rouge_l_role": "info_only" if rouge_l_scorer is not None else "unavailable",
             "scored_items": scored,
             "rescued_by_embedding_count": rescued_count,
@@ -813,41 +1542,68 @@ def run_deterministic(
         if min_pri is not None and len(priority_items) < min_pri:
             comp_issues.append(f"only {len(priority_items)} priority item(s) (min {min_pri})")
 
-        # executive summary length — len(lead_in) plus the sum of the per-item
-        # overviews under the flattened executive_summary.items[].overview path
-        # (manifest v5+). Each check declares the exact field it reads so it can
-        # neither pass silently nor fire for the wrong reason: when the overview
-        # field resolves to nothing on a briefing that does carry featured items,
-        # that is reported as a missing/empty field rather than a length shortfall.
+        # executive summary length — WS2 decouple: walk spec-declared paths from
+        # completeness.field_paths instead of hard-coded meeting_briefing field
+        # names. lead_in_path + exec_summary_overview_paths feed the measurement.
+        # Edge case (resolved): no overview paths declared → skip-with-warning,
+        # never silent-skip.
+        fpaths = comp.get("field_paths") or {}
         min_exec = comp.get("min_executive_summary_chars")
-        exec_obj = artifact.get("executive_summary")
-        if not isinstance(exec_obj, dict):
-            exec_obj = {}
-        lead_in_chars = len(exec_obj.get("lead_in") or "")
-        overview_field = "executive_summary.items[].overview"
-        overviews = _values_at_path(artifact, overview_field)
-        overview_chars = sum(len(v) for v in overviews)
+        lead_in_path = fpaths.get("lead_in_path")
+        overview_paths = fpaths.get("exec_summary_overview_paths") or []
+        lead_in_values = _values_at_path(artifact, lead_in_path) if lead_in_path else []
+        lead_in_chars = sum(len(v) for v in lead_in_values)
+        # Optional scope: when 'priority_filter', an items[]-rooted overview path
+        # only counts entries that match priority_filter (e.g. tier==featured),
+        # so queued/standard items can't inflate the exec-summary length.
+        overview_scope = fpaths.get("exec_summary_overview_scope")
+        priority_ids = {it.get("id") for it in priority_items}
+        overview_values: list[str] = []
+        for op in overview_paths:
+            if overview_scope == "priority_filter" and op.startswith("items[]."):
+                leaf = op[len("items[]."):]
+                for it in items:
+                    if not isinstance(it, dict) or it.get("id") not in priority_ids:
+                        continue
+                    v = _walk(it, leaf)
+                    if isinstance(v, str) and v.strip():
+                        overview_values.append(v)
+            else:
+                overview_values.extend(_values_at_path(artifact, op))
+        overview_chars = sum(len(v) for v in overview_values)
         exec_len = lead_in_chars + overview_chars
         comp_measured["executive_summary"] = {
             "chars": exec_len,
             "lead_in_chars": lead_in_chars,
             "overview_chars": overview_chars,
-            "overview_field": overview_field,
-            "overview_count": len(overviews),
+            "lead_in_path": lead_in_path,
+            "overview_paths": overview_paths,
+            "overview_count": len(overview_values),
             "min": min_exec,
         }
-        if not overviews and priority_items:
+        if not overview_paths:
             comp_issues.append(
-                f"required field missing or empty: {overview_field} "
+                "executive_summary length not measured: no "
+                "completeness.field_paths.exec_summary_overview_paths declared "
+                "(skip-with-warning)"
+            )
+        elif not overview_values and priority_items:
+            # Paths declared but resolve to nothing while featured items exist —
+            # report as a missing/empty required field, not a length shortfall,
+            # so it can't silently undercount (the prior MB silent-undercount bug).
+            comp_issues.append(
+                f"required exec-summary overview missing or empty at {overview_paths} "
                 f"({len(priority_items)} featured item(s) present)"
             )
         elif min_exec is not None and exec_len < min_exec:
             comp_issues.append(f"executive_summary {exec_len} chars (min {min_exec})")
 
-        # per-priority-item overview length
+        # per-priority-item overview length — field name from spec.field_paths
+        # (default 'summary' under each priority item's display).
         min_overview = comp.get("min_overview_chars_per_priority_item")
+        pi_field = fpaths.get("priority_item_overview_field", "summary")
         per_item_overview = {
-            it.get("id"): len((it.get("display") or {}).get("summary") or "")
+            it.get("id"): len((it.get("display") or {}).get(pi_field) or "")
             for it in priority_items
         }
         comp_measured["overview_chars_per_priority_item"] = {
@@ -861,29 +1617,23 @@ def run_deterministic(
                     f"{len(short)} priority item(s) with overview < {min_overview} chars: {short[:3]}"
                 )
 
-        # total prose word count — executive_summary is now an object,
-        # so accumulate its lead_in and each items[].overview as separate prose.
+        # total prose word count — WS2 decouple: accumulate prose from the
+        # spec-declared total_prose_paths. Falls back to the exec lead+overview
+        # paths when total_prose_paths is absent, so a partial spec still counts
+        # something rather than silently scoring zero.
         min_words = comp.get("min_total_prose_words")
+        total_prose_paths = fpaths.get("total_prose_paths")
+        if not total_prose_paths:
+            total_prose_paths = ([lead_in_path] if lead_in_path else []) + list(overview_paths)
         prose_parts: list[str] = []
-        exec_obj_prose = artifact.get("executive_summary")
-        if isinstance(exec_obj_prose, dict):
-            if exec_obj_prose.get("lead_in"):
-                prose_parts.append(exec_obj_prose["lead_in"])
-            for e in (exec_obj_prose.get("items") or []):
-                if isinstance(e, dict) and e.get("overview"):
-                    prose_parts.append(e["overview"])
-        for it in items:
-            d = it.get("display") or {}
-            if d.get("summary"):
-                prose_parts.append(d["summary"])
-            for tp in d.get("talking_points") or []:
-                if isinstance(tp, str):
-                    prose_parts.append(tp)
+        for pp in total_prose_paths:
+            prose_parts.extend(_values_at_path(artifact, pp))
         total_words = sum(len(p.split()) for p in prose_parts)
         comp_measured["total_prose"] = {
             "words": total_words,
             "min": min_words,
             "parts_counted": len(prose_parts),
+            "paths": total_prose_paths,
         }
         if min_words is not None and total_words < min_words:
             comp_issues.append(f"total prose ~{total_words} words (min {min_words})")
@@ -1012,6 +1762,253 @@ def run_deterministic(
                 route="pass",
                 details=polish_details,
             ))
+
+    # 11. citation_label_url_coherence — inline [Label](URL) citations whose
+    #     label maps to a known publisher (Wikipedia, Ballotpedia, etc.) must
+    #     point at one of that publisher's hosts. Catches drift like
+    #     `[Wikipedia](nytimes.com)`. Spec-driven via label_domain_map and
+    #     citation_paths; skipped entirely when either is absent.
+    label_domain_map: dict = spec.get("label_domain_map") or {}
+    citation_paths: list[str] = spec.get("citation_paths") or []
+    if label_domain_map and citation_paths:
+        # Sort label patterns longest-first so "Twitter" matches before a shorter
+        # overlapping label like "T" would.
+        sorted_labels = sorted(
+            label_domain_map.items(), key=lambda kv: len(kv[0]), reverse=True
+        )
+        mismatches: list[dict] = []
+        cite_count = 0
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                cite_count += 1
+                host = _normalize_host(url)
+                label_l = label.strip().casefold()
+                for label_pattern, expected_domains in sorted_labels:
+                    if label_pattern.casefold() not in label_l:
+                        continue
+                    expected_l = [d.casefold() for d in (expected_domains or [])]
+                    if expected_l and not any(host.endswith(d) for d in expected_l):
+                        mismatches.append({
+                            "path": path,
+                            "label": label,
+                            "url": url,
+                            "host": host,
+                            "expected_label": label_pattern,
+                            "expected_domains": expected_domains,
+                        })
+                    break  # longest match wins; do not double-flag
+        coh_details = {
+            "citations_scanned": cite_count,
+            "label_patterns": list(label_domain_map.keys()),
+            "mismatches": mismatches,
+        }
+        if mismatches:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="warning", severity="low",
+                message=(
+                    f"{len(mismatches)} citation(s) where label and URL host do not align "
+                    f"per label_domain_map"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{m['label']}]({m['url']}) at {m['path']}" for m in mismatches[:5]
+                ),
+                details=coh_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="pass", severity="info",
+                message=f"All {cite_count} citation(s) match label_domain_map expectations",
+                route="pass",
+                details=coh_details,
+            ))
+
+    # 12. social_media_citation — social URLs in citation positions are not
+    #     factual provenance; they belong in a websites[] / handles[] structure.
+    #     Skipped when citation_paths is not declared.
+    if citation_paths:
+        social_findings: list[dict] = []
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                host = _normalize_host(url)
+                if host in _SOCIAL_HOSTS:
+                    social_findings.append({"path": path, "label": label, "url": url, "host": host})
+        social_details = {
+            "social_hosts": sorted(_SOCIAL_HOSTS),
+            "findings": social_findings,
+        }
+        if social_findings:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="warning", severity="low",
+                message=(
+                    f"{len(social_findings)} citation(s) point at social-media hosts; "
+                    "these are handles, not factual sources"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{f['label']}]({f['url']}) at {f['path']}"
+                    for f in social_findings[:5]
+                ),
+                details=social_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="pass", severity="info",
+                message="No social-media URLs found in citation positions",
+                route="pass",
+                details=social_details,
+            ))
+
+    # 13. urls_resolve — HTTP liveness probe for cited/structured URLs.
+    #     Gating: spec.url_check.enabled is the default trigger — when true the
+    #     check runs WITHOUT requiring the --check-urls CLI flag. check_urls is
+    #     a tri-state override: None defers to the spec, True force-enables,
+    #     False force-disables (so callers can suppress network access on an
+    #     enabled spec, e.g. offline CI).
+    #     URL sources: inline [Label](URL) citations on spec.citation_paths
+    #     (legacy) UNION the structured-artifact values at spec.url_check.
+    #     url_paths (e.g. sources[].url, run_metadata.agenda_packet_url).
+    #     SSRF guard: every URL is host-validated before probing and redirects
+    #     are refused (see _ssrf_check_url / _NoRedirectHandler). Liveness is
+    #     ADVISORY — dead, unreachable, or SSRF-rejected URLs route to annotate,
+    #     never block.
+    url_check_cfg = spec.get("url_check") or {}
+    url_check_on = check_urls if check_urls is not None else bool(url_check_cfg.get("enabled", False))
+    url_paths: list[str] = url_check_cfg.get("url_paths") or []
+    if url_check_on and (citation_paths or url_paths):
+        timeout = float(url_check_cfg.get("timeout_seconds", 5))
+        parallel = int(url_check_cfg.get("parallel", 8))
+        user_agent = str(url_check_cfg.get("user_agent", "qa-spine-url-check/0.1"))
+
+        # Union the two URL sources, tracking which spec path each URL came from.
+        url_to_paths: dict[str, list[str]] = {}
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for _, url in _extract_citations(text):
+                url_to_paths.setdefault(url, []).append(path)
+        for path in url_paths:
+            for url in _values_at_path(artifact, path):
+                paths = url_to_paths.setdefault(url, [])
+                if path not in paths:
+                    paths.append(path)
+        unique_urls = sorted(url_to_paths.keys())
+
+        # SSRF pre-screen: reject unsafe URLs up front so we never open a
+        # connection to them. Rejected URLs are advisory findings, not probes.
+        rejected: list[dict] = []
+        probe_urls: list[str] = []
+        for url in unique_urls:
+            reason = _ssrf_check_url(url)
+            if reason is not None:
+                rejected.append({
+                    "url": url, "reason": reason, "paths": url_to_paths.get(url, []),
+                })
+            else:
+                probe_urls.append(url)
+
+        # No-redirect opener so a 30x to an internal host can't bypass the
+        # pre-screen; the handler re-validates and refuses the hop regardless.
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+
+        def _probe(url: str) -> tuple[Optional[int], Optional[str]]:
+            headers = {"User-Agent": user_agent}
+            try:
+                req = urllib.request.Request(url, method="HEAD", headers=headers)
+                with opener.open(req, timeout=timeout) as resp:
+                    return resp.status, None
+            except urllib.error.HTTPError as e:
+                if e.code in (403, 405):
+                    try:
+                        req = urllib.request.Request(url, method="GET", headers=headers)
+                        with opener.open(req, timeout=timeout) as resp:
+                            return resp.status, None
+                    except urllib.error.HTTPError as e2:
+                        return e2.code, str(e2)
+                    except Exception as e2:
+                        return None, str(e2)
+                return e.code, str(e)
+            except urllib.error.URLError as e:
+                return None, f"URLError: {e.reason}"
+            except Exception as e:
+                return None, f"{type(e).__name__}: {e}"
+
+        results_by_url: dict[str, tuple[Optional[int], Optional[str]]] = {}
+        probe_error: Optional[str] = None
+        if probe_urls:
+            try:
+                with ThreadPoolExecutor(max_workers=parallel) as ex:
+                    for url, outcome in zip(probe_urls, ex.map(_probe, probe_urls)):
+                        results_by_url[url] = outcome
+            except Exception as e:
+                probe_error = f"{type(e).__name__}: {e}"
+                results_by_url = {}
+
+        failures: list[dict] = []
+        for url, (status_code, err) in results_by_url.items():
+            if status_code == 200:
+                continue
+            failures.append({
+                "url": url,
+                "status": status_code,
+                "error": err,
+                "paths": url_to_paths.get(url, []),
+            })
+        url_details = {
+            "checked": len(results_by_url),
+            "unique_urls": len(unique_urls),
+            "timeout_seconds": timeout,
+            "parallel": parallel,
+            "failures": failures,
+            "rejected": rejected,
+        }
+
+        # Aggregate everything into one urls_resolve check. Any failure,
+        # rejection, or probe error is advisory (route=annotate); a clean pass
+        # routes to pass.
+        if probe_error is not None:
+            results.append(DeterministicCheck(
+                check_id="urls_resolve",
+                status="warning", severity="low",
+                message=f"URL liveness check skipped: {probe_error}",
+                route="annotate",
+                details={**url_details, "error": probe_error},
+            ))
+        elif unique_urls:
+            n_ok = len(results_by_url) - len(failures)
+            problems = len(failures) + len(rejected)
+            if problems:
+                parts: list[str] = []
+                if failures:
+                    parts.append(f"{len(failures)} unreachable/non-200")
+                if rejected:
+                    parts.append(f"{len(rejected)} SSRF-rejected")
+                offending_bits = [
+                    f"{f['url']} → {f['status']}" for f in failures[:5]
+                ] + [
+                    f"{r['url']} → rejected ({r['reason']})" for r in rejected[:5]
+                ]
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="warning", severity="medium",
+                    message=(
+                        f"{len(unique_urls)} URL(s) checked: {n_ok} OK, "
+                        + ", ".join(parts)
+                    ),
+                    route="annotate",
+                    offending="; ".join(offending_bits[:5]),
+                    details=url_details,
+                ))
+            else:
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="pass", severity="info",
+                    message=f"All {len(results_by_url)} checked URL(s) returned HTTP 200",
+                    route="pass",
+                    details=url_details,
+                ))
 
     return results
 
@@ -1690,6 +2687,33 @@ def main() -> None:
             "the verdict from qa_bundle.json and decide policy themselves."
         ),
     )
+    parser.add_argument(
+        "--check-urls",
+        dest="check_urls",
+        action="store_true",
+        default=None,
+        help=(
+            "Force-enable the HTTP liveness probe for cited/structured URLs "
+            "(spec.citation_paths inline citations UNION spec.url_check.url_paths "
+            "structured paths), overriding spec.url_check.enabled. By default the "
+            "check follows spec.url_check.enabled — when that is true it runs "
+            "without this flag. SSRF-hardened and advisory (never blocks)."
+        ),
+    )
+    parser.add_argument(
+        "--no-check-urls",
+        dest="check_urls",
+        action="store_false",
+        help=(
+            "Force-disable the URL liveness probe even when spec.url_check.enabled "
+            "is true (e.g. to keep an offline CI run from touching the network)."
+        ),
+    )
+    # Pin the tri-state default explicitly so "no flag = follow spec" (None) holds
+    # regardless of the registration order of --check-urls / --no-check-urls.
+    # (argparse lets the first-registered action's default win for a shared dest;
+    # --no-check-urls carries an implicit default=True that would otherwise leak.)
+    parser.set_defaults(check_urls=None)
     args = parser.parse_args()
 
     _load_env()
@@ -1731,7 +2755,7 @@ def main() -> None:
 
     # 2. Deterministic
     print("[2/4] Deterministic checks...")
-    det_checks = load_checks + run_deterministic(artifact, spec)
+    det_checks = load_checks + run_deterministic(artifact, spec, check_urls=args.check_urls)
     det_fails = [c for c in det_checks if c.status == "fail"]
     det_warns = [c for c in det_checks if c.status == "warning"]
     print(f"  {len(det_fails)} failures, {len(det_warns)} warnings")

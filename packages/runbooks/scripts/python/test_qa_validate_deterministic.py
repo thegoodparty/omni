@@ -66,7 +66,20 @@ def _featured_item(
         "vote_required": True,
         "tier_reason": ["vote_required"],
         "display": {"summary": summary},
-        "research": {"raw_context": [], "full_treatment": None},
+        "research": {
+            "raw_context": [
+                {
+                    "chunk_id": f"chunk_{idx:03d}",
+                    "item_id": f"item_{idx:03d}",
+                    "item_title": title,
+                    "tier": "featured",
+                    "source_id": "src_1",
+                    "pages": [1],
+                    "text": "Source context for the item.",
+                }
+            ],
+            "full_treatment": None,
+        },
     }
     return item
 
@@ -109,6 +122,8 @@ def _base_artifact(
         "meeting_name": "City Council",
         "location": "City Hall",
         "meeting_date": "2026-06-01",
+        "meeting_time": "19:00",
+        "meeting_timezone": "America/Chicago",
         "estimated_read_minutes": 5,
         "executive_summary": {"lead_in": lead_in, "items": exec_items},
         "run_metadata": {
@@ -175,7 +190,7 @@ def test_completeness_floor_sums_lead_in_and_overviews(spec):
     assert measured["lead_in_chars"] == 30
     assert measured["overview_chars"] == 100
     assert measured["chars"] == 130
-    assert measured["overview_field"] == "executive_summary.items[].overview"
+    assert measured["overview_paths"] == ["executive_summary.items[].overview"]
     assert measured["overview_count"] == 1
 
 
@@ -207,7 +222,7 @@ def test_completeness_floor_reports_missing_overview_field_when_featured_present
     comp = _find(results, "completeness_floor")
     assert comp is not None
     assert comp.status == "warning"
-    assert "required field missing or empty" in comp.message
+    assert "required exec-summary overview missing or empty" in comp.message
     assert "executive_summary.items[].overview" in comp.message
     assert comp.details["executive_summary"]["overview_count"] == 0
 
@@ -231,6 +246,141 @@ def test_iter_polish_prose_skips_null_overview():
     artifact["executive_summary"]["items"][0]["overview"] = None
     paths = dict(qa_validate._iter_polish_prose(artifact))
     assert "$.executive_summary.items[item_001].overview" not in paths
+
+
+# ── Layer A: template-expanded prohibited_phrases ────────────────────────────
+
+
+def test_prohibited_phrases_expands_template_against_artifact_value(spec):
+    """Pattern with {{candidate_name}} must resolve against artifact[candidate_name]."""
+    spec["prohibited_phrases"] = [{"name": "candidate_by_name", "pattern": "\\b{{candidate_name}}\\b"}]
+    spec["prohibited_phrase_paths"] = ["items[].display.summary"]
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["candidate_name"] = "Maya Alvarez"
+    artifact["items"][0]["display"]["summary"] = "As Maya Alvarez has demonstrated, the race is winnable."
+    results = qa_validate.run_deterministic(artifact, spec)
+    phrase = _find(results, "prohibited_phrases")
+    assert phrase.status == "warning"
+    assert "candidate_by_name" in phrase.offending
+
+
+def test_prohibited_phrases_skips_pattern_when_artifact_field_missing(spec):
+    """Missing key → pattern skipped, recorded in details.skipped_patterns, no false match."""
+    spec["prohibited_phrases"] = [{"name": "candidate_by_name", "pattern": "\\b{{candidate_name}}\\b"}]
+    spec["prohibited_phrase_paths"] = ["items[].display.summary"]
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = "Some prose with no name."
+    # NOTE: artifact has no top-level candidate_name field
+    results = qa_validate.run_deterministic(artifact, spec)
+    phrase = _find(results, "prohibited_phrases")
+    assert phrase.status == "pass"
+    skipped = phrase.details["skipped_patterns"]
+    assert len(skipped) == 1
+    assert skipped[0]["name"] == "candidate_by_name"
+    assert skipped[0]["missing_keys"] == ["candidate_name"]
+
+
+def test_prohibited_phrases_template_escapes_regex_special_chars(spec):
+    """A candidate name with regex-special chars (e.g. parentheses) must not break the regex."""
+    spec["prohibited_phrases"] = [{"name": "candidate_by_name", "pattern": "\\b{{candidate_name}}\\b"}]
+    spec["prohibited_phrase_paths"] = ["items[].display.summary"]
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["candidate_name"] = "Maya (Maya) Alvarez"  # parens would explode an unescaped regex
+    artifact["items"][0]["display"]["summary"] = "Maya (Maya) Alvarez ran a strong race."
+    results = qa_validate.run_deterministic(artifact, spec)
+    phrase = _find(results, "prohibited_phrases")
+    assert phrase.status == "warning"
+
+
+# ── Layer A: citation_label_url_coherence ────────────────────────────────────
+
+
+def test_citation_label_url_coherence_self_skips_when_paths_empty(spec):
+    spec["citation_paths"] = []
+    spec["label_domain_map"] = {"Wikipedia": ["wikipedia.org"]}
+    artifact = _base_artifact(featured_titles=["Foo"])
+    results = qa_validate.run_deterministic(artifact, spec)
+    assert _find(results, "citation_label_url_coherence") is None
+
+
+def test_citation_label_url_coherence_flags_mismatch_case_insensitive(spec):
+    spec["citation_paths"] = ["items[].display.summary"]
+    spec["label_domain_map"] = {"Wikipedia": ["wikipedia.org"]}
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = (
+        "Per the official record [wikipedia entry](https://www.nytimes.com/article)."
+    )
+    results = qa_validate.run_deterministic(artifact, spec)
+    coh = _find(results, "citation_label_url_coherence")
+    assert coh.status == "warning"
+    assert len(coh.details["mismatches"]) == 1
+    assert coh.details["mismatches"][0]["host"] == "nytimes.com"
+
+
+def test_citation_label_url_coherence_accepts_subdomain_suffix(spec):
+    spec["citation_paths"] = ["items[].display.summary"]
+    spec["label_domain_map"] = {"Wikipedia": ["wikipedia.org"]}
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = (
+        "Background [Wikipedia](https://en.wikipedia.org/wiki/Page) on the topic."
+    )
+    results = qa_validate.run_deterministic(artifact, spec)
+    coh = _find(results, "citation_label_url_coherence")
+    assert coh.status == "pass"
+
+
+# ── Layer A: social_media_citation ───────────────────────────────────────────
+
+
+def test_social_media_citation_warns_on_facebook_url(spec):
+    spec["citation_paths"] = ["items[].display.summary"]
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = (
+        "Per their campaign [Facebook](https://www.facebook.com/SomeCampaign/) page."
+    )
+    results = qa_validate.run_deterministic(artifact, spec)
+    social = _find(results, "social_media_citation")
+    assert social.status == "warning"
+    assert social.details["findings"][0]["host"] == "facebook.com"
+
+
+# ── Layer A: urls_resolve gating ─────────────────────────────────────────────
+
+
+def test_urls_resolve_self_skips_when_check_urls_flag_off(spec):
+    """The URL liveness check must not register a finding when the CLI flag is off,
+    even with a spec that has url_check.enabled and a populated citation_paths."""
+    spec["citation_paths"] = ["items[].display.summary"]
+    spec["url_check"] = {"enabled": True}
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = "[Example](https://example.com/) page."
+    results = qa_validate.run_deterministic(artifact, spec, check_urls=False)
+    assert _find(results, "urls_resolve") is None
+
+
+def test_urls_resolve_force_flag_overrides_disabled_spec(spec, monkeypatch):
+    """check_urls=True (the --check-urls force-on override) runs the check even
+    when spec.url_check.enabled is false. Network is stubbed offline."""
+    monkeypatch.setattr(
+        qa_validate.socket, "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
+
+    class _Resp:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class _Opener:
+        def open(self, req, timeout=None): return _Resp()
+
+    monkeypatch.setattr(qa_validate.urllib.request, "build_opener", lambda *a, **k: _Opener())
+    spec["citation_paths"] = ["items[].display.summary"]
+    spec["url_check"] = {"enabled": False}
+    artifact = _base_artifact(featured_titles=["Foo"])
+    artifact["items"][0]["display"]["summary"] = "[Example](https://example.com/) page."
+    results = qa_validate.run_deterministic(artifact, spec, check_urls=True)
+    assert _find(results, "urls_resolve") is not None
 
 
 # ── claim_coverage ───────────────────────────────────────────────────────────
@@ -291,13 +441,15 @@ def test_claim_coverage_does_not_flag_item_with_empty_summary(spec):
 def test_diagnostic_route_does_not_affect_verdict(spec):
     """A clean artifact whose only non-pass deterministic findings are
     diagnostic (claim_coverage / coherence) must still verdict 'ok'."""
-    # Make completeness trivially satisfiable so it cannot warn.
-    spec["completeness"] = {
+    # Make completeness trivially satisfiable so it cannot warn. Lower the
+    # thresholds in place rather than replacing the dict, so the spec-declared
+    # field_paths (which the completeness check walks to measure prose) survive.
+    spec["completeness"].update({
         "min_priority_items": 1,
         "min_executive_summary_chars": 1,
         "min_overview_chars_per_priority_item": 1,
         "min_total_prose_words": 1,
-    }
+    })
     spec["embedding_check"]["enabled"] = False
     artifact = _base_artifact(
         featured_titles=["A"],
@@ -420,15 +572,22 @@ def test_known_good_artifact_no_block_no_false_warnings(spec):
     ]
 
     results = qa_validate.run_deterministic(artifact, spec)
+    # This artifact is hand-built to exercise the content-quality checks
+    # (completeness, polish, prohibited phrases, provenance), using minimal
+    # claims/sources whose claim_type vocabulary is not the manifest's enum, so
+    # it is not a Layer-1-schema-complete briefing. Layer-1 schema_validation is
+    # a separate, staged (warning-only) concern with its own coverage in
+    # test_qa_validate_ws2.py, so exclude it here.
+    content = [r for r in results if r.check_id != "schema_validation"]
     # No blocking failure.
-    assert not [r for r in results if r.route == "block" and r.status == "fail"]
+    assert not [r for r in content if r.route == "block" and r.status == "fail"]
     # No annotate-routed warning (completeness, polish, prohibited phrases, provenance).
     assert not [
-        r for r in results
+        r for r in content
         if r.route == "annotate" and r.status in ("warning", "fail")
     ]
-    assert qa_validate.compute_release_verdict(results, []) == "ok"
-    status, _ = qa_validate.route(results, [], qa_validate.blockable_types(spec))
+    assert qa_validate.compute_release_verdict(content, []) == "ok"
+    status, _ = qa_validate.route(content, [], qa_validate.blockable_types(spec))
     assert status == "OK"
 
 
