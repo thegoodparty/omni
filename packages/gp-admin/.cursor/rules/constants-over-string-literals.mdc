@@ -1,0 +1,22 @@
+---
+description: Prefer exported constants over string literals for repeated or semantic values
+globs: "**/*"
+alwaysApply: true
+---
+
+# Constants Over String Literals
+
+Prefer using exported constants over string literals, especially for values used in multiple places or as function arguments. This improves type safety, enables autocomplete, and makes refactoring easier.
+
+```typescript
+// ✅ Good: Use constants
+export const TEST_USERS = {
+  DEV_ADMIN: 'dev-admin',
+  DEV_SALES: 'dev-sales',
+} as const
+
+await signIn(page, TEST_USERS.DEV_ADMIN)
+
+// ❌ Bad: String literals
+await signIn(page, 'dev-admin')
+```

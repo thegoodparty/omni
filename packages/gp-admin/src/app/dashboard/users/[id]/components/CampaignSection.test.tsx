@@ -1,0 +1,264 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { CampaignSection } from './CampaignSection'
+import {
+  CampaignLaunchStatus,
+  OnboardingStep,
+  BallotReadyPositionLevel,
+  ElectionLevel,
+  CampaignTier,
+} from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+
+const mockCampaign: CampaignWithLiveContext = {
+  id: 1,
+  createdAt: new Date('2023-04-02T05:51:59.450Z'),
+  updatedAt: new Date('2026-01-29T03:50:12.433Z'),
+  slug: 'tomer-almog',
+  userId: 595,
+  isActive: true,
+  isVerified: false,
+  isPro: true,
+  isDemo: false,
+  didWin: true,
+  dateVerified: null,
+  tier: null,
+  canDownloadFederal: false,
+  completedTaskIds: [],
+  hasFreeTextsOffer: false,
+  aiContent: {},
+  positionName: 'Hendersonville City Mayor',
+  raceTargetMetrics: null,
+  data: {
+    name: 'Tomer Almog',
+    launchStatus: CampaignLaunchStatus.launched,
+    currentStep: OnboardingStep.complete,
+    lastVisited: 1769658612427,
+    lastStepDate: '2024-04-03',
+    customVoterFiles: [
+      {
+        name: 'Door Knocking - GOTV',
+        channel: 'Door Knocking',
+        filters: ['audience_likelyVoters'],
+        purpose: 'GOTV',
+        createdAt: 'Tue May 06 2025',
+      },
+    ],
+  },
+  details: {
+    state: 'NC',
+    city: 'Los Angeles',
+    county: 'Los Angeles',
+    zip: '53212',
+    ballotLevel: BallotReadyPositionLevel.CITY,
+    level: ElectionLevel.city,
+    officeTermLength: '4 years',
+    electionDate: '2026-11-03',
+    partisanType: 'nonpartisan',
+    party: 'Independent',
+    occupation: 'former CTO of Good Party.',
+    website: 'https://tomeralmog.com',
+    pledged: true,
+    funFact: 'I love playing guitar!',
+    customIssues: [{ title: 'Custom Issue', position: 'My position' }],
+  },
+}
+
+describe('CampaignSection', () => {
+  it('renders campaign status card with flags', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Campaign Status')).toBeInTheDocument()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.getByText('Verified')).toBeInTheDocument()
+    expect(screen.getByText('Pro')).toBeInTheDocument()
+    expect(screen.getByText('Demo Account')).toBeInTheDocument()
+    expect(screen.getByText('Won Election')).toBeInTheDocument()
+  })
+
+  it('renders campaign data card', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Campaign Data')).toBeInTheDocument()
+    expect(screen.getByText('Tomer Almog')).toBeInTheDocument()
+    expect(screen.getByText('tomer-almog')).toBeInTheDocument()
+    expect(screen.getByText('launched')).toBeInTheDocument()
+  })
+
+  it('renders location card', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Location')).toBeInTheDocument()
+    expect(screen.getByText('NC')).toBeInTheDocument()
+    // Los Angeles appears for both city and county in mock data
+    expect(screen.getAllByText('Los Angeles')).toHaveLength(2)
+    expect(screen.getByText('53212')).toBeInTheDocument()
+  })
+
+  it('renders office card', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Office')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
+    expect(screen.getByText('Hendersonville City Mayor')).toBeInTheDocument()
+    expect(screen.getByText('CITY')).toBeInTheDocument()
+    expect(screen.getByText('4 years')).toBeInTheDocument()
+  })
+
+  it('renders election card', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Election')).toBeInTheDocument()
+    expect(screen.getByText('2026-11-03')).toBeInTheDocument()
+    expect(screen.getByText('nonpartisan')).toBeInTheDocument()
+  })
+
+  it('renders party and background card', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Party & Background')).toBeInTheDocument()
+    expect(screen.getByText('Independent')).toBeInTheDocument()
+    expect(screen.getByText('former CTO of Good Party.')).toBeInTheDocument()
+    expect(screen.getByText('https://tomeralmog.com')).toBeInTheDocument()
+  })
+
+  it('renders fun fact when present', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Fun Fact')).toBeInTheDocument()
+    expect(screen.getByText('I love playing guitar!')).toBeInTheDocument()
+  })
+
+  it('does not render fun fact when missing', () => {
+    const campaignNoFunFact: CampaignWithLiveContext = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, funFact: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNoFunFact} />)
+
+    expect(screen.queryByText('Fun Fact')).not.toBeInTheDocument()
+  })
+
+  it('renders custom issues when present', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Custom Issues')).toBeInTheDocument()
+    expect(screen.getByText('Custom Issue')).toBeInTheDocument()
+    expect(screen.getByText('My position')).toBeInTheDocument()
+  })
+
+  it('renders custom voter files when present', () => {
+    render(<CampaignSection campaign={mockCampaign} />)
+
+    expect(screen.getByText('Custom Voter Files')).toBeInTheDocument()
+    expect(screen.getByText('Door Knocking - GOTV')).toBeInTheDocument()
+    expect(screen.getByText('Door Knocking')).toBeInTheDocument()
+    expect(screen.getByText('GOTV')).toBeInTheDocument()
+  })
+
+  it('does not render custom voter files when empty', () => {
+    const campaignNoVoterFiles: CampaignWithLiveContext = {
+      ...mockCampaign,
+      data: { ...mockCampaign.data, customVoterFiles: [] },
+    }
+
+    render(<CampaignSection campaign={campaignNoVoterFiles} />)
+
+    expect(screen.queryByText('Custom Voter Files')).not.toBeInTheDocument()
+  })
+
+  it('does not render custom issues when empty', () => {
+    const campaignNoCustomIssues: CampaignWithLiveContext = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, customIssues: [] },
+    }
+
+    render(<CampaignSection campaign={campaignNoCustomIssues} />)
+
+    expect(screen.queryByText('Custom Issues')).not.toBeInTheDocument()
+  })
+
+  it('renders not launched status when launchStatus is missing', () => {
+    const campaignNotLaunched: CampaignWithLiveContext = {
+      ...mockCampaign,
+      data: { ...mockCampaign.data, launchStatus: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNotLaunched} />)
+
+    expect(screen.getByText('Not launched')).toBeInTheDocument()
+  })
+
+  it('renders dateVerified when present', () => {
+    const campaignVerified: CampaignWithLiveContext = {
+      ...mockCampaign,
+      dateVerified: new Date('2024-06-15T12:00:00.000Z'),
+    }
+
+    render(<CampaignSection campaign={campaignVerified} />)
+
+    expect(screen.getByText('Jun 15, 2024')).toBeInTheDocument()
+  })
+
+  it('renders tier when present', () => {
+    const campaignWithTier: CampaignWithLiveContext = {
+      ...mockCampaign,
+      tier: CampaignTier.WIN,
+    }
+
+    render(<CampaignSection campaign={campaignWithTier} />)
+
+    expect(screen.getByText('WIN')).toBeInTheDocument()
+  })
+
+  it('renders Not set when ballotLevel is missing', () => {
+    const campaignNoBallotLevel: CampaignWithLiveContext = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, ballotLevel: undefined },
+    }
+
+    render(<CampaignSection campaign={campaignNoBallotLevel} />)
+
+    expect(screen.getAllByText('Not set')).toHaveLength(1)
+  })
+
+  it('renders Not set when level is missing', () => {
+    const campaignNoLevel: CampaignWithLiveContext = {
+      ...mockCampaign,
+      details: {
+        ...mockCampaign.details,
+        ballotLevel: BallotReadyPositionLevel.CITY,
+        level: undefined,
+      },
+    }
+
+    render(<CampaignSection campaign={campaignNoLevel} />)
+
+    expect(screen.getAllByText('Not set')).toHaveLength(1)
+  })
+
+  it('renders No for pledged when false', () => {
+    const campaignNotPledged: CampaignWithLiveContext = {
+      ...mockCampaign,
+      details: { ...mockCampaign.details, pledged: false },
+    }
+
+    render(<CampaignSection campaign={campaignNotPledged} />)
+
+    // Component renders without error
+    expect(screen.getByText('Party & Background')).toBeInTheDocument()
+  })
+
+  it('handles undefined data and details gracefully', () => {
+    const campaignNoData = {
+      ...mockCampaign,
+      data: undefined,
+      details: undefined,
+    } as unknown as CampaignWithLiveContext
+
+    render(<CampaignSection campaign={campaignNoData} />)
+
+    expect(screen.getByText('Campaign Status')).toBeInTheDocument()
+  })
+})

@@ -1,0 +1,24 @@
+---
+description: No index.ts barrel files — always import directly from source files
+globs: "**/*"
+alwaysApply: true
+---
+
+# No Barrel Files
+
+Do not create `index.ts` barrel files that re-export from other modules. Import directly from the specific file instead:
+
+```typescript
+// ❌ Bad: barrel file (types/index.ts)
+export * from './user'
+export * from './campaign'
+
+// ❌ Bad: importing from barrel
+import type { User, Campaign } from '../types'
+
+// ✅ Good: import directly from specific files
+import type { User } from '../types/user'
+import type { Campaign } from '../types/campaign'
+```
+
+Benefits: clearer dependencies, better tree-shaking, easier to trace imports.

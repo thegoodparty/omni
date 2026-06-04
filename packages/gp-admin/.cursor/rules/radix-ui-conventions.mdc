@@ -1,0 +1,32 @@
+---
+description: Radix UI component and styling conventions for gp-admin
+globs: "**/*.{tsx,jsx}"
+alwaysApply: true
+---
+
+# UI / Component Conventions
+
+When using Radix UI Select components, never use empty string ('') as a value — Radix treats it as no value. Use a sentinel like 'none' or undefined instead. Always add proper spacing (e.g., gap or margin) between labels and Select/Input components.
+
+## Radix UI Pattern
+
+When building UI components in the web app:
+
+1. **Use Radix UI Components Directly**: Import components directly from `@radix-ui/themes` - do NOT create wrapper components for components that already exist in Radix UI.
+
+   - ✅ Good: `import { Button, Flex, Text } from '@radix-ui/themes'`
+   - ❌ Bad: Creating a custom `Button` component that wraps Radix Button
+
+2. **Component Usage Hierarchy**:
+
+   - **Layout**: Use `<Flex>`, `<Box>`, `<Grid>`, `<Container>`, `<Section>`
+   - **Typography**: Use `<Text>`, `<Heading>`, `<Code>`, `<Em>`, `<Strong>`, `<Link>`
+   - **Interactive**: Use `<Button>`, `<IconButton>`, `<Switch>`, `<Checkbox>`, `<Select>`, etc.
+   - **Data Display**: Use `<Card>`, `<Badge>`, `<Avatar>`, `<Table>`, etc.
+
+3. **Styling Pattern**:
+
+   - Use Radix props for spacing, sizing, and basic styles:
+     <Flex direction="column" gap="4" p="4" align="center">
+       <Text size="2" weight="medium">Content</Text>
+     </Flex>
