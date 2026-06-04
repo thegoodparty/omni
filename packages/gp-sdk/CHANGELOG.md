@@ -1,0 +1,250 @@
+# @goodparty_org/sdk
+
+## 2.3.0
+
+### Minor Changes
+
+- [#65](https://github.com/thegoodparty/gp-sdk/pull/65) [`6784937`](https://github.com/thegoodparty/gp-sdk/commit/6784937526d81c35526832fd1407392127da1b27) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Bump `@goodparty_org/contracts` to expose the agent-run resume fields (`stage`,
+  `dataQuality`, `resumeScheduledFor`, `resumeAttempts`) and the `AWAITING_RESUME`
+  `ExperimentRunStatus` value, re-exported for the gp-admin agent-runs dashboard
+  (ENG-7554).
+
+## 2.2.0
+
+### Minor Changes
+
+- [#63](https://github.com/thegoodparty/gp-sdk/pull/63) [`3349cfe`](https://github.com/thegoodparty/gp-sdk/commit/3349cfef7864c91968fd2bd122d3ec18fb393e65) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add `client.adminAgentRuns` resource with `list`, `get`, and `retry` methods for
+  the admin agent-runs endpoints. Run shapes (`AgentRunListItem`, `AgentRunDetail`,
+  `AgentRunsListQuery`, and related types) are re-exported from
+  `@goodparty_org/contracts`.
+
+## 2.1.0
+
+### Minor Changes
+
+- [#59](https://github.com/thegoodparty/gp-sdk/pull/59) [`1e7311f`](https://github.com/thegoodparty/gp-sdk/commit/1e7311fb7d4b29ddbe534d304e839a1684154aef) Thanks [@awardquick](https://github.com/awardquick)! - Change `AdminResource.impersonateUser` parameter from `actorClerkId` to `actorEmail`. The API now accepts an email address and resolves it to the correct Clerk ID server-side, enabling cross-Clerk-instance impersonation.
+
+## 2.0.0
+
+### Major Changes
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - Drop the `pathsToVictory` resource and related types (`PathToVictory`, `PathToVictoryData`, `ViabilityScore`, `ListPathsToVictoryOptions`, `UpdatePathToVictoryInput`, `P2VStatus`, `P2VSource`).
+
+  The underlying `gp-api` `path_to_victory` table has been removed; race-target metrics are now computed live and exposed through the enriched campaign endpoints. Consumers that previously called `client.pathsToVictory.list/get/update` should read `raceTargetMetrics` off the campaign returned by `client.campaigns.get(id)` instead.
+
+### Minor Changes
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `client.organizations` resource with `get(slug)`, `list(options?)`, and `patch(slug, input)` methods. These call the M2M-capable admin endpoints (`GET /organizations/admin/:slug`, `GET /organizations/admin/list`, `PATCH /organizations/admin/:slug`) so SDK consumers can read and update any organization without a user context.
+  - Export the related types: `Organization`, `OrgPosition`, `OrgDistrict`, `OrganizationListItem`, `OrganizationOwnerSummary`, `ListOrganizationsOptions`, `PatchOrganizationInput`.
+  - Add a `patchRequest` helper to the internal `BaseResource` so resources can issue PATCH requests.
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `CampaignWithPositionName` type, modeling the enriched per-item response from `GET /campaigns/list` (M2M), which now includes `positionName` resolved from each campaign's organization.
+  - `client.campaigns.list()` now returns `PaginatedList<CampaignWithPositionName>` instead of `PaginatedList<ReadCampaignOutput>`. This is type-only and additive: `CampaignWithPositionName extends ReadCampaignOutput`, so existing field access continues to work.
+  - Live race-target metrics are intentionally omitted from list responses to keep them cheap; use `client.campaigns.get(id)` to fetch `raceTargetMetrics` for a single campaign.
+
+- [#58](https://github.com/thegoodparty/gp-sdk/pull/58) [`69a88a9`](https://github.com/thegoodparty/gp-sdk/commit/69a88a972ccd471faad71f1e0bf107c082b92e50) Thanks [@oakinh](https://github.com/oakinh)! - - Add `client.electedOffices.updateDistrict(id, { state, L2DistrictType, L2DistrictName })` for the M2M `PUT /elected-office/:id/district` endpoint, along with the `UpdateElectedOfficeDistrictInput` and `SetElectedOfficeDistrictOutput` types.
+  - Add `CampaignWithLiveContext` and `RaceTargetMetrics` types to model the enriched response from `GET /campaigns/:id` (M2M), which now includes `positionName` and live-computed `raceTargetMetrics`.
+  - `client.campaigns.get(id)` now returns `CampaignWithLiveContext` instead of `ReadCampaignOutput`. This is type-only and additive: `CampaignWithLiveContext extends ReadCampaignOutput`, so existing field access continues to work.
+
+## 1.14.0
+
+### Minor Changes
+
+- [#56](https://github.com/thegoodparty/gp-sdk/pull/56) [`f035cad`](https://github.com/thegoodparty/gp-sdk/commit/f035cadfe26baed6761f0f5d6bc80b7212f1bd9d) Thanks [@awardquick](https://github.com/awardquick)! - Add AdminResource with impersonateUser method to GoodPartyClient
+
+## 1.13.0
+
+### Minor Changes
+
+- [#54](https://github.com/thegoodparty/gp-sdk/pull/54) [`de2caf0`](https://github.com/thegoodparty/gp-sdk/commit/de2caf04a8cfc62f2e7c25952beeed73d2573e42) Thanks [@awardquick](https://github.com/awardquick)! - Add elections resource with district type/name lookups and campaign district update method
+
+## 1.12.0
+
+### Minor Changes
+
+- [#51](https://github.com/thegoodparty/gp-sdk/pull/51) [`79a49fc`](https://github.com/thegoodparty/gp-sdk/commit/79a49fc1ccda2b388c4045778c32d575b26df3cf) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add EcanvasserResource with create, list, syncAll, and delete endpoints
+
+## 1.11.3
+
+### Patch Changes
+
+- [#49](https://github.com/thegoodparty/gp-sdk/pull/49) [`6e4453b`](https://github.com/thegoodparty/gp-sdk/commit/6e4453b22d522aea8e273ac228b2b2a9a4c356ce) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Bump @goodparty_org/contracts to pick up CJS interop fix for validator package
+
+- [#49](https://github.com/thegoodparty/gp-sdk/pull/49) [`6e4453b`](https://github.com/thegoodparty/gp-sdk/commit/6e4453b22d522aea8e273ac228b2b2a9a4c356ce) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Pin @goodparty_org/contracts to exact version to prevent npm semver sorting from resolving a stale RC
+
+## 1.11.2
+
+### Patch Changes
+
+- [#47](https://github.com/thegoodparty/gp-sdk/pull/47) [`0c1ffdb`](https://github.com/thegoodparty/gp-sdk/commit/0c1ffdb0838b5a0a8cc58b2852e1c02d227b3817) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Bump @goodparty_org/contracts to pick up CJS interop fix for validator package
+
+## 1.11.1
+
+### Patch Changes
+
+- [#44](https://github.com/thegoodparty/gp-sdk/pull/44) [`86c6e67`](https://github.com/thegoodparty/gp-sdk/commit/86c6e67d60c90deeaff8abfca5563670ee29b1c6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Rename UpdateCampaignM2MInput export to UpdateCampaignInput for backward compatibility with consumers
+
+## 1.11.0
+
+### Minor Changes
+
+- [#41](https://github.com/thegoodparty/gp-sdk/pull/41) [`fc56dd2`](https://github.com/thegoodparty/gp-sdk/commit/fc56dd2c4564b26ea3b1a8bd6bae22b65590d519) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Replace all locally-defined types with imports from @goodparty_org/contracts.
+  - Delete `types/campaign.ts` and `types/user.ts` — all types now come from contracts
+  - Delete local `PaginationOptions` from `types/result.ts` — uses contracts' `PaginationOptions`
+  - Replace `Campaign` with `ReadCampaignOutput`, `ListCampaignsOptions` with `ListCampaignsPagination`, `UpdateCampaignInput` with `UpdateCampaignM2MInput` from contracts
+  - Replace `ListUsersOptions` with `ListUsersPagination`, `UpdateUserInput` with contracts' `UpdateUserInput`
+  - Add `src/enums.ts` with runtime enum-like objects (UserRole, CampaignTier, etc.) derived from contracts const arrays via declaration merging, preserving backward-compatible `EnumName.value` access for consumers
+  - Export all const value arrays (USER_ROLE_VALUES, CAMPAIGN_TIER_VALUES, etc.) from contracts
+  - Update `electedOffice.ts` and `pathToVictory.ts` to import `PaginationOptions` from contracts
+
+## 1.10.0
+
+### Minor Changes
+
+- [#39](https://github.com/thegoodparty/gp-sdk/pull/39) [`711cb28`](https://github.com/thegoodparty/gp-sdk/commit/711cb283d87edd3d781efcddd860214a93e866e0) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Replace all locally-defined types with imports from @goodparty_org/contracts.
+  - Delete `types/campaign.ts` and `types/user.ts` — all types now come from contracts
+  - Delete local `PaginationOptions` from `types/result.ts` — uses contracts' `PaginationOptions`
+  - Replace `Campaign` with `ReadCampaignOutput`, `ListCampaignsOptions` with `ListCampaignsPagination`, `UpdateCampaignInput` with `UpdateCampaignM2MInput` from contracts
+  - Replace `ListUsersOptions` with `ListUsersPagination`, `UpdateUserInput` with contracts' `UpdateUserInput`
+  - Add `src/enums.ts` with runtime enum-like objects (UserRole, CampaignTier, etc.) derived from contracts const arrays via declaration merging, preserving backward-compatible `EnumName.value` access for consumers
+  - Export all const value arrays (USER_ROLE_VALUES, CAMPAIGN_TIER_VALUES, etc.) from contracts
+  - Update `electedOffice.ts` and `pathToVictory.ts` to import `PaginationOptions` from contracts
+
+## 1.9.0
+
+### Minor Changes
+
+- [#37](https://github.com/thegoodparty/gp-sdk/pull/37) [`92d8d65`](https://github.com/thegoodparty/gp-sdk/commit/92d8d6574626e66038e6b38fcd9e4c552166c5a8) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Replace duplicated local types with imports from @goodparty_org/contracts.
+  - User types (ReadUserOutput, UpdatePasswordInput, PaginatedList, PaginationMeta, SIGN_UP_MODE) now come from contracts
+  - Resource files import directly from @goodparty_org/contracts instead of local type files
+  - Removed duplicated type definitions from src/types/user.ts and src/types/result.ts
+  - Added @goodparty_org/contracts as a dependency
+  - Re-export ReadUserOutput as User for backward compatibility
+
+## 1.8.0
+
+### Minor Changes
+
+- [#35](https://github.com/thegoodparty/gp-sdk/pull/35) [`565f99b`](https://github.com/thegoodparty/gp-sdk/commit/565f99b9722c6beb39fbcacbcdd4826988959b2a) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add ElectedOffice resource with list, get, and update methods
+
+## 1.7.0
+
+### Minor Changes
+
+- [#30](https://github.com/thegoodparty/gp-sdk/pull/30) [`7e5b3e4`](https://github.com/thegoodparty/gp-sdk/commit/7e5b3e4b04b2514c770b817b4c1a46c40dd556a2) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add `campaigns.get(id)` method to fetch a single campaign by ID
+
+- [#32](https://github.com/thegoodparty/gp-sdk/pull/32) [`3723793`](https://github.com/thegoodparty/gp-sdk/commit/3723793b378c70755b49256fd158d09797d5c992) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add abstract `resourceBasePath` to `BaseResource` to enforce path definition on extending classes, replacing hardcoded path strings in `CampaignsResource` and `UsersResource`
+
+## 1.6.0
+
+### Minor Changes
+
+- [#29](https://github.com/thegoodparty/gp-sdk/pull/29) [`3e22bd3`](https://github.com/thegoodparty/gp-sdk/commit/3e22bd35b701f4d4c2ba9f73a9d8e0f643358689) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add PathsToVictory resource with list, get, and update methods, along with supporting types and enums
+
+## 1.5.1
+
+### Patch Changes
+
+- [#28](https://github.com/thegoodparty/gp-sdk/pull/28) [`ae92ecb`](https://github.com/thegoodparty/gp-sdk/commit/ae92ecb2e6ee6d7e4283e415471ee8f8fa8f8d92) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Remove incorrect fields from CampaignDetails and CampaignData that were not in the API schema, add missing einSupportingDocument field, and remove unused helper types (TopIssuePosition, CampaignFinance, CampaignPlan, CampaignPlanStatus) to align SDK types with campaign.jsonTypes.d.ts
+
+## 1.5.0
+
+### Minor Changes
+
+- [`dbff349`](https://github.com/thegoodparty/gp-sdk/commit/dbff349a52f350e90fdf8f5284b96e59082e20b8) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add named types for campaign sub-objects (CampaignFinance, CampaignPlan, TopIssuePosition, GeoLocation, CustomIssue, Opponent, etc.) and expand CampaignDetails and CampaignData with missing fields to align with the API schema
+
+## 1.4.0
+
+### Minor Changes
+
+- [#25](https://github.com/thegoodparty/gp-sdk/pull/25) [`7ce5da0`](https://github.com/thegoodparty/gp-sdk/commit/7ce5da0c911651734510c9bd49b51c5a36c99532) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add metaData to UpdateUserInput for updating user metadata via the admin endpoint
+
+## 1.3.0
+
+### Minor Changes
+
+- [#23](https://github.com/thegoodparty/gp-sdk/pull/23) [`1f44cff`](https://github.com/thegoodparty/gp-sdk/commit/1f44cff62300e325e35b322fdd9e32de66f41a6b) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add CampaignsResource with list and update operations
+
+## 1.2.0
+
+### Minor Changes
+
+- [#21](https://github.com/thegoodparty/gp-sdk/pull/21) [`53c9486`](https://github.com/thegoodparty/gp-sdk/commit/53c94868c56bfe94832d73d74eb505e77d41bec9) Thanks [@tomer-tgp](https://github.com/tomer-tgp)! - Add user update method to UsersResource
+
+## 1.1.0
+
+### Minor Changes
+
+- [#19](https://github.com/thegoodparty/gp-sdk/pull/19) [`1551a0c`](https://github.com/thegoodparty/gp-sdk/commit/1551a0c11a89965c1ff81fe6d95a6199967c9d46) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Extract M2M token provisioning into ClerkService with automatic renewal before expiration
+
+## 1.0.0
+
+### Major Changes
+
+- [#17](https://github.com/thegoodparty/gp-sdk/pull/17) [`2457df3`](https://github.com/thegoodparty/gp-sdk/commit/2457df3f1c66a8110fad12baef910cbf4baa6512) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Align users list endpoint with gp-api contract
+  - **BREAKING**: `PaginationOptions` now uses `offset` instead of `page`, adds `sortBy` and `sortOrder`
+  - **BREAKING**: `PaginationMeta` now uses `offset` instead of `page`, removes `totalPages`
+  - **BREAKING**: `PaginatedList<T>` now uses `meta` instead of `pagination`
+  - Add `ListUsersOptions` type with `firstName`, `lastName`, `email` filter fields
+  - Simplify `UsersResource.list` to pass through API response directly
+
+## 0.1.0
+
+### Minor Changes
+
+- [#15](https://github.com/thegoodparty/gp-sdk/pull/15) [`a070e2e`](https://github.com/thegoodparty/gp-sdk/commit/a070e2ee50b06ce28fb9e2681441beb84421cf8c) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add User CRUD module with M2M token authentication
+  - Introduce modular resource architecture (BaseResource, HttpClient, UsersResource)
+  - Add `client.users.get(id)`, `client.users.delete(id)`, `client.users.updatePassword(id, input)`, and `client.users.list(options?)` methods
+  - Use `ofetch` for HTTP requests with automatic JSON handling, baseURL resolution, and unified error handling
+  - Export typed `User`, `UserRole`, `UserMetaData`, `UpdatePasswordInput`, `SdkError`, `PaginatedList`, `PaginationOptions`, and `PaginationMeta`
+  - Throw `SdkError` (extends Error) on failed requests with status, message, and optional raw Response
+
+## 0.0.7
+
+### Patch Changes
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix GitHub Release creation by using gh CLI directly instead of relying on changesets/action createGithubReleases, which fails silently with app tokens on scoped packages.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Use changeset publish instead of npm publish so the changesets action correctly sets the published output, enabling the GitHub Release creation step.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#13](https://github.com/thegoodparty/gp-sdk/pull/13) [`bac3bd6`](https://github.com/thegoodparty/gp-sdk/commit/bac3bd6be73d938afebd4f90cdce838bf561cbf6) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
+## 0.0.6
+
+### Patch Changes
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix GitHub Release creation by using gh CLI directly instead of relying on changesets/action createGithubReleases, which fails silently with app tokens on scoped packages.
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#11](https://github.com/thegoodparty/gp-sdk/pull/11) [`0abc058`](https://github.com/thegoodparty/gp-sdk/commit/0abc058cccc381dcfe661284f8628dfc9ea07772) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
+## 0.0.5
+
+### Patch Changes
+
+- [#9](https://github.com/thegoodparty/gp-sdk/pull/9) [`a665008`](https://github.com/thegoodparty/gp-sdk/commit/a665008d9658c304a34037d7edad55ae4d94e87b) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Add repository URL to package.json, required by npm Trusted Publishing to validate provenance against the GitHub repo.
+
+- [#9](https://github.com/thegoodparty/gp-sdk/pull/9) [`a665008`](https://github.com/thegoodparty/gp-sdk/commit/a665008d9658c304a34037d7edad55ae4d94e87b) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
+## 0.0.4
+
+### Patch Changes
+
+- [#7](https://github.com/thegoodparty/gp-sdk/pull/7) [`b69f192`](https://github.com/thegoodparty/gp-sdk/commit/b69f192d2c097d9d3e66a59c3b10dc8d93e29dd0) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Fix npm publishing by using Node 24 in the publish workflow to support OIDC Trusted Publishing. Remove NPM_TOKEN and --provenance flag, both unnecessary with npm 11.5.1+.
+
+## 0.0.3
+
+### Patch Changes
+
+- [#6](https://github.com/thegoodparty/gp-sdk/pull/6) [`f5c917c`](https://github.com/thegoodparty/gp-sdk/commit/f5c917cd0dc77eef922c08208cc20ee79481c7a8) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Auto-approve changeset release PRs using GITHUB_TOKEN to satisfy branch protection review requirements, enabling fully automated version bumps and publishing.
+
+- [#4](https://github.com/thegoodparty/gp-sdk/pull/4) [`a28a12d`](https://github.com/thegoodparty/gp-sdk/commit/a28a12d9591051debc98b4ba80cf1d28fc56d3fc) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Auto-merge and delete the changeset release PR branch after all checks pass, removing the need for manual review and merge of version bump PRs.
+
+## 0.0.2
+
+### Patch Changes
+
+- [#2](https://github.com/thegoodparty/gp-sdk/pull/2) [`d07e9f7`](https://github.com/thegoodparty/gp-sdk/commit/d07e9f77f6951369a5232addbaafbc59ba57ed79) Thanks [@RavenHursT](https://github.com/RavenHursT)! - Integrate changesets for automated versioning and npm publishing. Replace manual version bump and tag workflow with changesets/action. Configure changelog-github for PR-linked changelogs.

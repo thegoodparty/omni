@@ -1,0 +1,28 @@
+---
+description: Always investigate and use library-provided features before implementing custom solutions
+globs: "**/*"
+alwaysApply: true
+---
+
+# Use Library Features Before Rolling Your Own
+
+CRITICAL REQUIREMENT:
+- Before implementing ANY functionality, FIRST check whether the libraries already in use provide that capability.
+- Read the library's documentation AND inspect its type definitions to discover available options.
+- NEVER manually implement something a library already handles.
+
+EXAMPLES OF VIOLATIONS:
+- Manually building query strings when the HTTP library has a `query`/`params` option
+- Manually stringifying JSON when the HTTP library auto-serializes objects
+- Manually parsing responses when the library handles content-type detection
+- Manually joining URL paths when the library has a `baseURL` option
+- Building custom retry logic when the library has built-in retry support
+
+REQUIRED WORKFLOW:
+1. Identify what you need to do (e.g., add query params to a request)
+2. Check the library's type definitions for relevant options
+3. Check the library's documentation for the feature
+4. Use the library's built-in solution
+5. Only implement custom logic if the library genuinely does not support the use case
+
+This rule applies to ALL libraries, not just HTTP clients.
