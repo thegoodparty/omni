@@ -3,7 +3,10 @@ import { fetchHelper } from '@/helpers/fetchHelper'
 import WebsitePage from './components/WebsitePage'
 import { Website } from './types/website.type'
 import { getCandidateMetaData } from '../shared/utils/candidateMetaData'
-import { getImageDimensionsServer, ImageDimensions } from '../shared/utils/getImageDimensions'
+import {
+  getImageDimensionsServer,
+  ImageDimensions,
+} from '../shared/utils/getImageDimensions'
 
 export interface PageProps {
   params: Promise<{ vanityPath: string }>
@@ -31,7 +34,10 @@ export async function generateMetadata({ params }: PageProps) {
   return getCandidateMetaData(website)
 }
 
-export default async function CandidateWebsitePage({ params, searchParams }: PageProps) {
+export default async function CandidateWebsitePage({
+  params,
+  searchParams,
+}: PageProps) {
   const website = await getWebsite(await params)
   const { privacy, 'sms-terms': smsTerms } = await searchParams
 

@@ -132,9 +132,10 @@ const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
       SIZE_CLASSES[size as keyof typeof SIZE_CLASSES] || SIZE_CLASSES.medium
 
     // Use theme colors if provided, otherwise use default color classes
-    const finalColorClasses = theme?.accent && theme?.accentText 
-      ? `${theme.accent} ${theme.accentText} hover:opacity-80` 
-      : colorClasses
+    const finalColorClasses =
+      theme?.accent && theme?.accentText
+        ? `${theme.accent} ${theme.accentText} hover:opacity-80`
+        : colorClasses
 
     const compiledClassName = `${baseClasses} ${sizeClasses} ${finalColorClasses} ${
       className || ''

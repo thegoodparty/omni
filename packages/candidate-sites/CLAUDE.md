@@ -12,8 +12,8 @@ Next.js 15 (App Router) + React 19 + MUI 7 + Tailwind 3 app that renders **publi
 npm run dev              # next dev --turbopack --port 4001
 npm run build            # next build (also runs TS type-checking)
 npm run start            # next start (serve the production build)
-npm run lint             # next lint (ESLint)
-npm run lint:fix         # next lint --fix (mutates files — stage first)
+npm run lint             # eslint . (ESLint CLI, flat config)
+npm run lint:fix         # eslint . --fix (mutates files — stage first)
 npm run format           # prettier -c .   (read-only check)
 npm run format:fix       # prettier --write . (mutates files — stage first)
 ```
@@ -24,13 +24,13 @@ There is **no `npm run typecheck` script.** Type errors surface during `next bui
 
 ## Pointer table — when in doubt
 
-| Doing                                                            | Read                         |
-| ---------------------------------------------------------------- | ---------------------------- |
-| App shape, env vars, deploy basics                               | `README.md`                  |
-| Adding a route, section, or data flow                            | `docs/architecture.md`       |
-| Local dev quirks (gp-api wiring, custom-domain trick, port 4001) | `docs/getting-started.md`    |
-| AI rule-by-rule code review                                      | `ai-rules/` (git submodule)  |
-| Why a thing is the way it is                                     | `docs/adr/`                  |
+| Doing                                                            | Read                        |
+| ---------------------------------------------------------------- | --------------------------- |
+| App shape, env vars, deploy basics                               | `README.md`                 |
+| Adding a route, section, or data flow                            | `docs/architecture.md`      |
+| Local dev quirks (gp-api wiring, custom-domain trick, port 4001) | `docs/getting-started.md`   |
+| AI rule-by-rule code review                                      | `ai-rules/` (git submodule) |
+| Why a thing is the way it is                                     | `docs/adr/`                 |
 
 ## Code style
 
@@ -89,7 +89,7 @@ Both entry points (`app/page.tsx` for custom-domain, `app/[vanityPath]/page.tsx`
 
 ## Environment
 
-- **Node 20+** per README; no `.nvmrc`, no `engines` field. Next 15 + React 19 + Turbopack realistically need 20+. If you pin a version, do it via `.nvmrc` and update the README in the same change.
+- **Node 22.x** — pinned via `.nvmrc` (`22.12.0`) and `engines.node` (`22.x`). Next 15 + React 19 + Turbopack need a modern LTS; the monorepo standardizes on Node 22. Run `nvm use` before installing.
 - **npm**, single workspace.
 - Required runtime env (set in Vercel or `.env.local`):
   - `NEXT_PUBLIC_API_BASE` — full `gp-api` base URL including `/v1` prefix (defaults to `http://localhost:3000/v1`).

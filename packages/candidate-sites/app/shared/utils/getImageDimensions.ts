@@ -15,7 +15,9 @@ export function getImageDimensions(imageUrl: string): Promise<ImageDimensions> {
   return new Promise((resolve, reject) => {
     // Check if we're in a browser environment
     if (typeof window === 'undefined') {
-      reject(new Error('getImageDimensions can only be used in browser environment'))
+      reject(
+        new Error('getImageDimensions can only be used in browser environment'),
+      )
       return
     }
 
@@ -25,18 +27,18 @@ export function getImageDimensions(imageUrl: string): Promise<ImageDimensions> {
     }
 
     const img = new Image()
-    
+
     img.onload = () => {
       resolve({
         width: img.naturalWidth,
-        height: img.naturalHeight
+        height: img.naturalHeight,
       })
     }
-    
+
     img.onerror = (error) => {
       reject(new Error(`Failed to load image: ${imageUrl}. ${error}`))
     }
-    
+
     // Handle CORS for S3 URLs
     img.crossOrigin = 'anonymous'
     img.src = imageUrl
@@ -51,7 +53,7 @@ export function getImageDimensions(imageUrl: string): Promise<ImageDimensions> {
  */
 export async function getImageDimensionsWithFallback(
   imageUrl: string,
-  fallback?: ImageDimensions
+  fallback?: ImageDimensions,
 ): Promise<ImageDimensions | null> {
   try {
     return await getImageDimensions(imageUrl)
@@ -67,27 +69,38 @@ export async function getImageDimensionsWithFallback(
  * @param imageUrl - The URL of the image to get dimensions for
  * @returns Promise that resolves to dimensions
  */
-export async function getImageDimensionsServer(imageUrl: string): Promise<ImageDimensions> {
+export async function getImageDimensionsServer(
+  imageUrl: string,
+): Promise<ImageDimensions> {
   try {
     const response = await fetch(imageUrl)
     if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`)
+      throw new Error(
+        `Failed to fetch image: ${response.status} ${response.statusText}`,
+      )
     }
-    
+
     const buffer = await response.arrayBuffer()
     const uint8Array = new Uint8Array(buffer)
-    
+
     // Basic JPEG dimension parsing
-    if (uint8Array[0] === 0xFF && uint8Array[1] === 0xD8) {
+    if (uint8Array[0] === 0xff && uint8Array[1] === 0xd8) {
       return parseJPEGDimensions(uint8Array)
     }
-    
+
     // Basic PNG dimension parsing
-    if (uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && uint8Array[2] === 0x4E && uint8Array[3] === 0x47) {
+    if (
+      uint8Array[0] === 0x89 &&
+      uint8Array[1] === 0x50 &&
+      uint8Array[2] === 0x4e &&
+      uint8Array[3] === 0x47
+    ) {
       return parsePNGDimensions(uint8Array)
     }
-    
-    throw new Error('Unsupported image format. Only JPEG and PNG are supported.')
+
+    throw new Error(
+      'Unsupported image format. Only JPEG and PNG are supported.',
+    )
   } catch (error) {
     throw new Error(`Failed to get image dimensions: ${error}`)
   }
@@ -98,24 +111,24 @@ export async function getImageDimensionsServer(imageUrl: string): Promise<ImageD
  */
 function parseJPEGDimensions(buffer: Uint8Array): ImageDimensions {
   let offset = 2 // Skip SOI marker
-  
+
   while (offset < buffer.length) {
-    if (buffer[offset] !== 0xFF) break
-    
+    if (buffer[offset] !== 0xff) break
+
     const marker = buffer[offset + 1]
-    
+
     // SOF0, SOF1, SOF2 markers contain dimension info
-    if (marker >= 0xC0 && marker <= 0xC3) {
+    if (marker >= 0xc0 && marker <= 0xc3) {
       const height = (buffer[offset + 5] << 8) | buffer[offset + 6]
       const width = (buffer[offset + 7] << 8) | buffer[offset + 8]
       return { width, height }
     }
-    
+
     // Skip to next marker
     const segmentLength = (buffer[offset + 2] << 8) | buffer[offset + 3]
     offset += 2 + segmentLength
   }
-  
+
   throw new Error('Could not parse JPEG dimensions')
 }
 
@@ -124,8 +137,10 @@ function parseJPEGDimensions(buffer: Uint8Array): ImageDimensions {
  */
 function parsePNGDimensions(buffer: Uint8Array): ImageDimensions {
   // PNG width is at bytes 16-19, height at bytes 20-23
-  const width = (buffer[16] << 24) | (buffer[17] << 16) | (buffer[18] << 8) | buffer[19]
-  const height = (buffer[20] << 24) | (buffer[21] << 16) | (buffer[22] << 8) | buffer[23]
-  
+  const width =
+    (buffer[16] << 24) | (buffer[17] << 16) | (buffer[18] << 8) | buffer[19]
+  const height =
+    (buffer[20] << 24) | (buffer[21] << 16) | (buffer[22] << 8) | buffer[23]
+
   return { width, height }
 }

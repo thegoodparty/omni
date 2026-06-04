@@ -55,6 +55,9 @@ function PhoneInput({
     if (value !== displayValue) {
       setDisplayValue(value || '')
     }
+    // Intentionally only re-sync when the external `value` prop changes;
+    // depending on `displayValue` would re-run this on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   const onChangeValue = (event: React.ChangeEvent<HTMLInputElement>) => {

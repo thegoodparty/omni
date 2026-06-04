@@ -81,7 +81,11 @@ export default function ResponsiveModal({
         `}
         theme={theme}
       >
-        {title && <H5 className="absolute top-6 left-4 lg:left-8 xl:left-16">{title}</H5>}
+        {title && (
+          <H5 className="absolute top-6 left-4 lg:left-8 xl:left-16">
+            {title}
+          </H5>
+        )}
         {!hideClose && (
           <CloseRounded
             className="cursor-pointer absolute top-6 right-4"

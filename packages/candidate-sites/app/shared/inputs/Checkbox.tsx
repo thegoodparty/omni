@@ -14,18 +14,20 @@ interface CheckboxProps extends MuiCheckboxProps {
 }
 
 const Checkbox = ({ label, name, theme, ...restProps }: CheckboxProps) => {
-  const sx = theme?.muiColor ? {
-    color: theme.muiColor,
-    '&.Mui-checked': {
-      color: theme.muiColor,
-    },
-    '& .MuiSvgIcon-root': {
-      fill: theme.muiColor,
-    },
-    '&.Mui-checked .MuiSvgIcon-root': {
-      fill: theme.muiColor,
-    },
-  } : undefined
+  const sx = theme?.muiColor
+    ? {
+        color: theme.muiColor,
+        '&.Mui-checked': {
+          color: theme.muiColor,
+        },
+        '& .MuiSvgIcon-root': {
+          fill: theme.muiColor,
+        },
+        '&.Mui-checked .MuiSvgIcon-root': {
+          fill: theme.muiColor,
+        },
+      }
+    : undefined
 
   return label ? (
     <FormControlLabel

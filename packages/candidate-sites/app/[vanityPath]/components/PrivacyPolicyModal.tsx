@@ -42,14 +42,14 @@ export default function PrivacyPolicyModal({
       theme={{
         bg: activeTheme.bg,
         text: activeTheme.text,
-        border: activeTheme.border
+        border: activeTheme.border,
       }}
     >
       <div className="mb-4">
-        <h3 className="font-semibold text-lg mb-2">{content?.main?.title || ''}</h3>
-        <p className="text-sm mb-4">
-          Last Updated: {currentDate}
-        </p>
+        <h3 className="font-semibold text-lg mb-2">
+          {content?.main?.title || ''}
+        </h3>
+        <p className="text-sm mb-4">Last Updated: {currentDate}</p>
       </div>
       <div className="space-y-4 text-sm">
         <div>

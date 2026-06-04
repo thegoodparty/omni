@@ -2,7 +2,10 @@
 import { useState, useEffect } from 'react'
 import { animateScroll as scroll, scroller } from 'react-scroll'
 import { WEBSITE_THEMES } from '../constants/websiteContent.const'
-import { WEBSITE_SECTIONS, WEBSITE_STEPS } from '../constants/websiteNavigation.const'
+import {
+  WEBSITE_SECTIONS,
+  WEBSITE_STEPS,
+} from '../constants/websiteNavigation.const'
 import { Website } from '../types/website.type'
 import WebsiteHeader from './WebsiteHeader'
 import HeroSection from './HeroSection'
@@ -38,7 +41,9 @@ export default function WebsitePage({
   privacyPolicy?: boolean
   smsTerms?: boolean
 }) {
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(privacyPolicy || false)
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(
+    privacyPolicy || false,
+  )
   const [showSmsTerms, setShowSmsTerms] = useState(smsTerms || false)
   const content = website?.content || {}
   const activeTheme =
@@ -51,7 +56,7 @@ export default function WebsitePage({
     if (!isPreview || step === null || step === undefined) return
 
     const scrollToSection = () => {
-      if ( step === WEBSITE_STEPS.CONTACT_INTRO) {
+      if (step === WEBSITE_STEPS.CONTACT_INTRO) {
         scroller.scrollTo(WEBSITE_SECTIONS.ABOUT, {
           ...scrollSettings,
         })
@@ -89,7 +94,11 @@ export default function WebsitePage({
     >
       <WebsiteViewTracker vanityPath={website.vanityPath} />
       <WebsiteHeader activeTheme={activeTheme} website={website} />
-      <HeroSection activeTheme={activeTheme} content={content} imageDimensions={imageDimensions} />
+      <HeroSection
+        activeTheme={activeTheme}
+        content={content}
+        imageDimensions={imageDimensions}
+      />
       <AboutSection activeTheme={activeTheme} content={content} />
       <ContactSection
         activeTheme={activeTheme}

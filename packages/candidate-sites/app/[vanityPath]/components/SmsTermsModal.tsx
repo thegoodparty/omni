@@ -56,8 +56,8 @@ export default function SmsTermsModal({
           <p>
             By opting in, you agree to receive SMS messages from the{' '}
             {campaignName} campaign. Messages may include campaign updates,
-            volunteer opportunities, event notifications, fundraising
-            requests, and other campaign-related communications.
+            volunteer opportunities, event notifications, fundraising requests,
+            and other campaign-related communications.
           </p>
         </div>
         <div>
@@ -70,8 +70,8 @@ export default function SmsTermsModal({
         <div>
           <h3 className="font-medium">Message and Data Rates</h3>
           <p>
-            Message and data rates may apply. Check with your mobile carrier
-            for details.
+            Message and data rates may apply. Check with your mobile carrier for
+            details.
           </p>
         </div>
         <div>
@@ -91,9 +91,7 @@ export default function SmsTermsModal({
         </div>
         <div>
           <h3 className="font-medium">Carrier Disclaimer</h3>
-          <p>
-            Carriers are not liable for delayed or undelivered messages.
-          </p>
+          <p>Carriers are not liable for delayed or undelivered messages.</p>
         </div>
         <div>
           <h3 className="font-medium">Privacy</h3>
@@ -111,9 +109,7 @@ export default function SmsTermsModal({
         </div>
         <div>
           <h3 className="font-medium">Contact</h3>
-          {content?.contact?.email && (
-            <p>Email: {content.contact.email}</p>
-          )}
+          {content?.contact?.email && <p>Email: {content.contact.email}</p>}
           {content?.contact?.phone && <p>Phone: {content.contact.phone}</p>}
           {content?.contact?.address && (
             <p>Address: {content.contact.address}</p>
