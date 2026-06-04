@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 5,
+  "version": 7,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -61,6 +61,12 @@
         "type": "string",
         "minLength": 1,
         "description": "L2 district value to match (e.g. \"25\"). Required if l2DistrictType is set."
+      },
+      "knownAgendaLocation": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "Optional hint from a prior run describing where the agenda packet was last found. Usually a URL to the city's meetings index, the streaming platform's calendar page, or a CDN parent path. May include prose navigation notes when no single URL captures it. The agent SHOULD try this as channel 0 in Step 2's discovery before falling through to channels 1-4; if the hint is stale, continue with normal discovery — do not bail."
       }
     }
   },
@@ -158,11 +164,20 @@
           "run_metadata": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["agenda_packet_url", "source_bundle_retrieved_at"],
+            "required": [
+              "agenda_packet_url",
+              "source_bundle_retrieved_at",
+              "discovered_agenda_location"
+            ],
             "properties": {
               "agenda_packet_url": {
                 "type": ["string", "null"],
                 "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
+              },
+              "discovered_agenda_location": {
+                "type": ["string", "null"],
+                "maxLength": 2000,
+                "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",
@@ -318,11 +333,20 @@
           "run_metadata": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["agenda_packet_url", "source_bundle_retrieved_at"],
+            "required": [
+              "agenda_packet_url",
+              "source_bundle_retrieved_at",
+              "discovered_agenda_location"
+            ],
             "properties": {
               "agenda_packet_url": {
                 "type": ["string", "null"],
                 "description": "Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found."
+              },
+              "discovered_agenda_location": {
+                "type": ["string", "null"],
+                "maxLength": 2000,
+                "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",

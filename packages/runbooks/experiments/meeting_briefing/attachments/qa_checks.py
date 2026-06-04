@@ -18,7 +18,7 @@ Two phases:
        - tier_reason / display consistency (budget_threshold → budget_impact non-null, etc.)
        - briefing_status / content consistency (awaiting_agenda → claims empty, etc.)
        - source_extract presence-in-source (substring check, not LLM)
-       - awaiting_agenda / no_meeting_found: all 7 discovery channels attempted (channel_<N>_ prefixes)
+       - awaiting_agenda / no_meeting_found: all 4 discovery channels attempted (channel_<N>_ prefixes)
 
 No LLM calls. No external API requirements. Runs in well under a second on a typical artifact.
 
@@ -444,12 +444,12 @@ def check_run_decisions_meaningful(artifact: dict, findings: list[Finding]) -> N
         ))
 
 
-_CHANNEL_PREFIX_RE = re.compile(r"^channel_([1-7])_")
-_REQUIRED_CHANNELS = frozenset(range(1, 8))
+_CHANNEL_PREFIX_RE = re.compile(r"^channel_([1-4])_")
+_REQUIRED_CHANNELS = frozenset(range(1, 5))
 # When `no_meeting_found` is recorded as a stale-schedule signal (the agent
 # verified the caller-supplied date and the platform showed no meeting on
 # that date), the agent emits a single decision with the
-# `no_meeting_on_target_date` reason instead of exhausting the 7-channel
+# `no_meeting_on_target_date` reason instead of exhausting the 4-channel
 # packet discovery. Packet discovery only applies when a target meeting was
 # confirmed but the packet may or may not exist yet (the `awaiting_agenda`
 # path).
@@ -457,21 +457,21 @@ _STALE_SCHEDULE_REASONS = frozenset({"no_meeting_on_target_date"})
 
 
 def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding]) -> None:
-    """awaiting_agenda requires all 7 discovery channels attempted.
+    """awaiting_agenda requires all 4 discovery channels attempted.
 
-    The packet-discovery procedure has 7 distinct channels (instruction.md). Each
+    The packet-discovery procedure has 4 distinct channels (instruction.md). Each
     attempted channel must produce a run_decisions[] entry whose `decision`
-    begins with `channel_<N>_` for N in 1-7. Channel 1's per-platform sub-attempts
+    begins with `channel_<N>_` for N in 1-4. Channel 1's per-platform sub-attempts
     are grouped under a single channel_1_* entry (in its `reason`); they do NOT
     each get their own top-level entry — otherwise a 10-platform channel-1 run
-    could falsely clear a numeric-only count gate without touching channels 2-7.
+    could falsely clear a numeric-only count gate without touching channels 2-4.
 
     This check is the teeth behind the instruction's claim that the validator
     rejects awaiting_agenda artifacts that skip channels — without it, the
     instruction's enforcement promise was vacuous.
 
     `no_meeting_found` artifacts that record `no_meeting_on_target_date`
-    (the stale-schedule signal path) are exempt from the 7-channel
+    (the stale-schedule signal path) are exempt from the 4-channel
     requirement: the agent never reached packet discovery because the
     target meeting did not exist on the platform.
     """
@@ -494,9 +494,73 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
             "run_decisions.discovery_channels_incomplete",
             "error",
             f"briefing_status='{status}' but run_metadata.run_decisions[] is missing "
-            f"channel attempts for {missing}. Each of the 7 discovery channels "
+            f"channel attempts for {missing}. Each of the 4 discovery channels "
             f"requires a run_decisions[] entry whose decision begins with "
-            f"`channel_<N>_<short-label>` (N=1-7). Saw channels: {sorted(channels_seen) or 'none'}.",
+            f"`channel_<N>_<short-label>` (N=1-4). Saw channels: {sorted(channels_seen) or 'none'}.",
+        ))
+
+
+_PLACEHOLDER_LOCATIONS = frozenset({"tbd", "unknown", "n/a", "na", "none", "?", "-"})
+# Per-meeting deep-link signals. Kept in sync with the schedule checker
+# (experiments/meeting_schedule/attachments/qa_checks.py). The briefing
+# checker additionally treats a bare `.pdf` suffix as a deep link (see
+# .endswith check below) because a `.pdf` URL recorded for an agenda hint
+# is almost always one specific meeting's packet — unlike for schedules,
+# where municipal-code PDFs are legitimate parent docs.
+_DEEP_LINK_HINTS = (
+    "metaviewer.php",
+    "meta_id=",
+    "matters/",
+    "/file/",
+    ".pdf?",
+    "legislationdetail.aspx",
+    "eventitems",
+    "meetingdetail.aspx",
+    "/event/",
+)
+
+
+def check_discovered_agenda_location(artifact: dict, findings: list[Finding]) -> None:
+    """run_metadata.discovered_agenda_location is the hint gp-api hands to the
+    next run for the same body. It's optional, but worth nudging when it looks
+    wrong: missing on a briefing_ready run, placeholder text, or a deep link
+    to one packet instead of a parent page that lists meetings.
+    """
+    status = artifact.get("briefing_status")
+    location = (artifact.get("run_metadata") or {}).get("discovered_agenda_location")
+
+    if location is None:
+        if status == "briefing_ready":
+            findings.append(Finding(
+                "discovered_agenda_location.missing",
+                "warning",
+                "briefing_status='briefing_ready' but run_metadata.discovered_agenda_location is null. "
+                "Subsequent runs for this body will start from scratch. Set it to the parent page "
+                "where future packets will likely be found (calendar, meetings index, CDN directory).",
+            ))
+        return
+
+    if not isinstance(location, str):
+        return
+
+    stripped = location.strip()
+    if stripped.lower() in _PLACEHOLDER_LOCATIONS or len(stripped) < 8:
+        findings.append(Finding(
+            "discovered_agenda_location.placeholder",
+            "warning",
+            f"run_metadata.discovered_agenda_location looks like a placeholder ('{stripped[:50]}'). "
+            f"Either provide a real URL/prose or set it to null.",
+        ))
+        return
+
+    low = stripped.lower()
+    if any(hint in low for hint in _DEEP_LINK_HINTS) or low.endswith(".pdf"):
+        findings.append(Finding(
+            "discovered_agenda_location.deep_link",
+            "warning",
+            f"run_metadata.discovered_agenda_location looks like a deep link to one packet "
+            f"('{stripped[:120]}'). Prefer the parent page that LISTS meetings (calendar, "
+            f"agendas index, CDN directory) so the next run can find a different meeting's packet.",
         ))
 
 
@@ -510,6 +574,7 @@ CHECKS = [
     check_disclosure_present,
     check_run_decisions_meaningful,
     check_awaiting_agenda_discovery_depth,
+    check_discovered_agenda_location,
 ]
 
 

@@ -47,8 +47,8 @@ The packet is **not** the published agenda summary page. The summary lists item 
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date.
-2. Verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`. If the platform shows no meeting on that date (stale schedule signal), set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > platform discovery).
+1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
+2. Verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`. If the platform shows no meeting on that date (stale schedule signal), set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery).
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
 5. Classify items into featured / queued / standard tiers.
@@ -167,6 +167,7 @@ PARAMS = json.loads(os.environ["PARAMS_JSON"])
 TARGET_MEETING_DATE = PARAMS["meetingDate"]  # required, YYYY-MM-DD
 TARGET_MEETING_TIME = PARAMS.get("meetingTime")  # optional, "HH:MM" 24-hour
 TARGET_MEETING_TIMEZONE = PARAMS.get("meetingTimezone")  # optional, IANA name
+KNOWN_AGENDA_LOCATION = PARAMS.get("knownAgendaLocation")  # optional channel-0 hint from prior run
 ```
 
 **`meetingDate` is the target.** The caller (gp-api) has already determined which meeting to brief based on the official's meeting_schedule. The agent uses this date directly — it does NOT discover the next meeting. If `meetingTime` and `meetingTimezone` are provided, treat them as source-of-truth and copy them through to the artifact's `meeting_time` and `meeting_timezone` fields; the agent does not need to re-look-up the time from the platform when these are present.
@@ -223,9 +224,17 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Before declaring `awaiting_agenda`, you MUST exhaust 7 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+**Channel 0 (when `PARAMS.knownAgendaLocation` is present) — try the hint first.** The hint is a URL or prose describing where prior runs found this body's agendas. Treat it as channel 0 in the discovery hierarchy:
 
-Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–7, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 6 channels. The deterministic validator (`/workspace/qa_checks.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 7 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting.
+- If the hint contains a URL, HEAD/GET it. If it returns `Content-Type: application/pdf` for the target date's packet, you're done.
+- If the hint URL is a platform calendar or meetings index, drill into it to find the target meeting and its packet attachments.
+- If the hint is prose, parse it for a URL and start there; follow the navigation steps it describes.
+- **Channel 0 is NOT counted toward the 4-channel exhaustion check** below. If channel 0 succeeds you can skip channels 1-4 entirely. If channel 0 fails (404, redirects to a generic landing page, platform moved, or the parent page no longer lists this body's meetings), record a `run_decisions[]` entry with `decision: "channel_0_hint_stale"` and the URL/prose that didn't pan out, then fall through to the normal channels — **do not bail on a stale hint.**
+- The hint is a starting point, not an authority. Channels 1-4 remain the mandatory floor before declaring `awaiting_agenda`.
+
+**Before declaring `awaiting_agenda`, you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic validator (`/workspace/qa_checks.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting. (Channel 0's `channel_0_*` entry, when emitted, is informational and ignored by the depth check.)
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
@@ -246,13 +255,10 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - `"<city>" agenda packet <target meeting date> site:cloudfront.net OR site:granicus.com OR site:s3.amazonaws.com OR site:civicclerk.com OR site:legistar.com OR site:boarddocs.com`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
      For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
-5. **Local news.** WebSearch `"<city>" <body> agenda <month> <year>` or `"<city>" city council meeting <date>` — local press regularly re-hosts packet PDFs, covers upcoming items, or confirms a packet exists somewhere. Cite news as supporting evidence; if news links to a PDF, fetch it.
-6. **The Council Clerk / Records Office page.** Search `"<city>" city clerk` or `"<city>" records office`. The clerk page often has a "how to obtain meeting materials" instruction or a direct link to the packet repository.
-7. **Past-meeting URL probe.** If you've found packets for recent past meetings on a particular host (city site, CDN, platform), the next meeting's packet often follows the same URL pattern with a different date or sequence number. Probe the predicted URL with a HEAD request before bailing.
 
-**Only after channels 1–7 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`, `channel_7_past_url_probe`). All 7 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator at `/workspace/qa_checks.py` enforces this — artifacts missing any channel number get rejected.
+**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator at `/workspace/qa_checks.py` enforces this — artifacts missing any channel number get rejected.
 
-**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–7 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
+**Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–4 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
 #### Agenda platform reference
 
@@ -989,6 +995,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   ```json
   {
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS — never the presigned fetch URL (null when briefing_status is awaiting_agenda or no_meeting_found)",
+    "discovered_agenda_location": "best current prose describing where future agenda packets will likely be found for this body (see guidance below)",
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",
     "run_decisions": [
@@ -997,6 +1004,13 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   }
   ```
   Append an entry to `run_decisions[]` every time you make a non-mechanical choice that shapes the resulting artifact — meeting selection, fallback to a different meeting, decision to skip a section, decision to proceed without a required source, decision to set `briefing_status` to anything other than `briefing_ready`. Mechanical actions (download a file, parse a PDF, run a query) do not need entries.
+
+  **`discovered_agenda_location` guidance.** gp-api persists this string and passes it back as `knownAgendaLocation` on the next run for the same body. Optimize it for a future agent reading it cold.
+  - **Prefer a URL to the parent page that lists meetings**, not the deep link to today's specific packet PDF. Good examples: the streaming platform's calendar (`https://{client}.granicus.com/ViewPublisher.php?view_id=N`), a Legistar `Calendar.aspx`, a CivicClerk Events index, a city site's meetings page, a deterministic CDN directory pattern that holds all packets for the year. Bad examples: a one-off `MetaViewer.php?meta_id=...` PDF link, a presigned S3 URL, a CDN URL to a single packet file.
+  - **Prose is allowed when no single URL captures it.** Multi-step paths ("Top nav → Government → City Council → Agendas, then expand the current year accordion") are useful when the parent page is buried. Lead with a URL and append the navigation prose when both add value.
+  - **When the channel-0 hint worked.** If you arrived via the hint and it's still the best lead for next time, write it back unchanged.
+  - **When the channel-0 hint was stale.** Replace it with whatever location actually worked. Do not chain "X is stale, try Y" into the prose — record the current best location only.
+  - **On `awaiting_agenda` and `no_meeting_found`.** Still emit a value when the parent page was reachable; the packet just isn't published yet (or the meeting was cancelled). Set to `null` only when no plausible future-run starting point exists. Preserving the location across these runs is a feature, not an oversight — the next run on this body should not have to rediscover the platform.
 - `items`: per Steps 3–9. Each section that supports per-section `source_ids` (constituent_sentiment per Step 16, budget_impact per Step 12) must populate the field with ids from `sources[]`; empty `[]` is permitted when no defensible citation exists, but do not fabricate.
 - `claims`: per Step 13. May be empty when `briefing_status` is `awaiting_agenda` or `no_meeting_found`.
 - `sources`: per Step 14.
@@ -1030,6 +1044,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
 - **All sentiment percentages <5%** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check.
 - **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; `pmf_runtime.http.get(url)` the page and confirm before citing it.
+- **`run_metadata.discovered_agenda_location` is the parent page, not a deep link.** If it points at one specific packet PDF or one MetaViewer link, swap it for the platform calendar, the city's meetings index, or whatever page LISTS this body's meetings. A future run can drill into the parent page; it cannot navigate up from a deep link.
 
 ## Failure modes
 

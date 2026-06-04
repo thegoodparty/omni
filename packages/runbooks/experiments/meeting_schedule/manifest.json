@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_schedule",
-  "version": 1,
+  "version": 2,
   "model": "sonnet",
   "max_turns": 200,
   "timeout_seconds": 1200,
@@ -28,6 +28,12 @@
         "minLength": 1,
         "maxLength": 200,
         "description": "Full position/office name as it appears to the candidate (e.g. 'Burnsville City Council Member', 'Mayor of Cheyenne'). Usually contains the jurisdiction verbatim; when generic (e.g. just 'City Council'), the agent must infer the city from the position + state via WebSearch."
+      },
+      "known_schedule_location": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "Optional hint from a prior run describing where the meeting schedule was last found. Usually a URL to the city's meetings page or a municipal-code section, but may include prose navigation notes. The agent SHOULD try this location first before falling back to full WebSearch discovery; if the hint is stale, the agent must continue with normal discovery — do not bail."
       }
     }
   },
@@ -49,7 +55,8 @@
           "time",
           "timezone",
           "duration_minutes",
-          "sources"
+          "sources",
+          "discovered_schedule_location"
         ],
         "properties": {
           "generated_at": {
@@ -124,6 +131,11 @@
                 }
               }
             }
+          },
+          "discovered_schedule_location": {
+            "type": ["string", "null"],
+            "maxLength": 2000,
+            "description": "Best current prose describing where the meeting schedule can be found, persisted by gp-api as a hint for future runs. Prefer a URL to the parent page that lists the schedule (e.g. the city's meetings index, the municipal-code section). Prose with multi-step navigation is allowed when no single URL captures it. Set to null only when no location is meaningfully recoverable."
           }
         }
       },
@@ -141,7 +153,8 @@
           "time",
           "timezone",
           "duration_minutes",
-          "sources"
+          "sources",
+          "discovered_schedule_location"
         ],
         "properties": {
           "generated_at": {
@@ -201,6 +214,11 @@
                 }
               }
             }
+          },
+          "discovered_schedule_location": {
+            "type": ["string", "null"],
+            "maxLength": 2000,
+            "description": "For not_found runs, the best lead on where a schedule might be locatable on a future run (e.g. the city's meetings page even though no recurrence was stated there). Null when no useful lead exists. Persisted by gp-api as a hint for future runs."
           }
         }
       }
