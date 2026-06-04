@@ -19,7 +19,6 @@ export default function HeroSection({
   const imageWidth = imageDimensions?.width || 1280
   const imageHeight = imageDimensions?.height || 640
 
-
   return (
     <section className={`py-16 ${activeTheme.secondary}`}>
       <div className="max-w-6xl mx-auto px-8 flex-col md:flex-row flex gap-16 justify-between items-stretch md:items-center">
@@ -32,14 +31,14 @@ export default function HeroSection({
             {content?.main?.title || ''}
           </h1>
           <p className="text-xl mb-8">{content?.main?.tagline || ''}</p>
-          <Link to={WEBSITE_SECTIONS.CONTACT}  smooth duration={500}>
+          <Link to={WEBSITE_SECTIONS.CONTACT} smooth duration={500}>
             <Button
               className={`inline-block`}
               color="primary"
               size="large"
               theme={{
                 accent: activeTheme.accent,
-                accentText: activeTheme.accentText
+                accentText: activeTheme.accentText,
               }}
             >
               Send a Message

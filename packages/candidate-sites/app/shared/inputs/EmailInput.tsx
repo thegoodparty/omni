@@ -8,8 +8,10 @@ import { TextFieldProps } from '@mui/material'
 // NOTE: leaving export here for now to not break existing imports
 export { isValidEmail }
 
-interface EmailInputProps
-  extends Omit<TextFieldProps, 'onChange' | 'onChangeCallback'> {
+interface EmailInputProps extends Omit<
+  TextFieldProps,
+  'onChange' | 'onChangeCallback'
+> {
   value: string
   onChangeCallback: (e: ChangeEvent<HTMLInputElement>) => void
   onBlurCallback?: (e: any) => void

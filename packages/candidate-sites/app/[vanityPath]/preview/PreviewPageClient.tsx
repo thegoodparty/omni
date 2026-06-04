@@ -5,8 +5,6 @@ import { notFound } from 'next/navigation'
 import WebsitePage from '../components/WebsitePage'
 import { Website } from '../types/website.type'
 
-
-
 export default function PreviewPageClient() {
   const [website, setWebsite] = useState<Website | null>(null)
   const [step, setStep] = useState<number | null>(null)

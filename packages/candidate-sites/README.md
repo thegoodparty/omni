@@ -34,10 +34,10 @@ There is also a preview route at `app/[vanityPath]/preview/page.tsx` used by `gp
 
 Create a `.env.local` (or set these in your deployment environment):
 
-| Variable | Description | Example |
-| --- | --- | --- |
-| `NEXT_PUBLIC_API_BASE` | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset. | `https://gp-api.goodparty.org/v1` |
-| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags. | `production` |
+| Variable                        | Description                                                                                              | Example                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `NEXT_PUBLIC_API_BASE`          | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset. | `https://gp-api.goodparty.org/v1` |
+| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags.       | `production`                      |
 
 ## Getting started
 
@@ -54,13 +54,13 @@ To exercise the **custom-domain** flow locally, point a hostname at `localhost:4
 
 ## Scripts
 
-| Script | Description |
-| --- | --- |
-| `npm run dev` | Start the Next.js dev server (Turbopack, port 4001). |
-| `npm run build` | Production build. |
-| `npm run start` | Run the production build. |
-| `npm run lint` / `lint:fix` | ESLint. |
-| `npm run format` / `format:fix` | Prettier. |
+| Script                          | Description                                          |
+| ------------------------------- | ---------------------------------------------------- |
+| `npm run dev`                   | Start the Next.js dev server (Turbopack, port 4001). |
+| `npm run build`                 | Production build.                                    |
+| `npm run start`                 | Run the production build.                            |
+| `npm run lint` / `lint:fix`     | ESLint.                                              |
+| `npm run format` / `format:fix` | Prettier.                                            |
 
 ## Project layout
 

@@ -27,7 +27,9 @@ export default function WebsiteHeader({
               priority
             />
           ) : candidate ? (
-            <span className={`text-xl font-medium border ${activeTheme.border} rounded-md px-4 py-2 truncate`}>
+            <span
+              className={`text-xl font-medium border ${activeTheme.border} rounded-md px-4 py-2 truncate`}
+            >
               {getUserFullName(candidate)}
             </span>
           ) : (
@@ -43,7 +45,12 @@ export default function WebsiteHeader({
         </div>
         <ul className="flex space-x-6 list-none">
           <li>
-            <Link to={WEBSITE_SECTIONS.ABOUT}  smooth duration={500} className="hover:opacity-80 cursor-pointer">
+            <Link
+              to={WEBSITE_SECTIONS.ABOUT}
+              smooth
+              duration={500}
+              className="hover:opacity-80 cursor-pointer"
+            >
               About
             </Link>
           </li>

@@ -29,7 +29,11 @@ export async function generateMetadata() {
   return getCandidateMetaData(website)
 }
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const { privacy, 'sms-terms': smsTerms } = await searchParams
 
   const headersList = await headers()
