@@ -1,0 +1,20 @@
+# Migration sync working area (never committed)
+.sync-cache/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+build/
+coverage/
+
+# Env (per-app .env files are intentionally untracked)
+.env
+.env.local
+*.local
+
+# Logs / OS
+*.log
+.DS_Store

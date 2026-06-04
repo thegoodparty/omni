@@ -1,0 +1,17 @@
+# Omni migration manifest.
+# Format (whitespace-separated):  <name>  <git-url>  <source-branch>  <prefix>
+#
+# - <name>          : workspace/app identifier
+# - <source-branch> : the integration branch in the SOURCE repo to sync from.
+#                     NOTE: gp-sdk and gp-admin use `master` (they have no `develop`).
+# - <prefix>        : destination path inside omni (history is rewritten under here)
+#
+# All repos are synced onto omni's current branch (develop). Lines starting with # are ignored.
+
+gp-api           https://github.com/thegoodparty/gp-api.git           develop  packages/gp-api
+gp-webapp        https://github.com/thegoodparty/gp-webapp.git        develop  packages/gp-webapp
+election-api     https://github.com/thegoodparty/election-api.git     develop  packages/election-api
+people-api       https://github.com/thegoodparty/people-api.git       develop  packages/people-api
+candidate-sites  https://github.com/thegoodparty/candidate-sites.git  develop  packages/candidate-sites
+gp-sdk           https://github.com/thegoodparty/gp-sdk.git           master   packages/gp-sdk
+gp-admin         https://github.com/thegoodparty/gp-admin.git         master   packages/gp-admin

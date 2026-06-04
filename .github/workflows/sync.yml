@@ -1,0 +1,82 @@
+name: Sync source repos
+
+# Continuously imports commits from the legacy source repos into omni under
+# apps/<name>/ with full history, until cutover. Safe to run repeatedly: each
+# run only brings in commits merged upstream since the last sync (idempotent).
+#
+# Disable without deleting: set repo variable SYNC_DISABLED=true.
+# Remove this workflow entirely at cutover.
+
+on:
+  schedule:
+    - cron: '0 * * * *' # hourly; adjust as needed
+  workflow_dispatch: {} # allow manual runs
+
+# Never let two syncs run at once (a sync is a series of merge commits + push).
+concurrency:
+  group: sync-source-repos
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: vars.SYNC_DISABLED != 'true'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      # A token that can READ the private source repos and WRITE to omni.
+      # Uses the org GitHub App (must be installed on omni + all source repos).
+      # Alternative: replace this step with a PAT in `secrets.SYNC_TOKEN` that
+      # has read on the source repos and write on omni.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout omni (develop, full history)
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate git for all github.com clones/pushes
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "omni-sync[bot]"
+          git config --global user.email "omni-sync@users.noreply.github.com"
+
+      - name: Install git-filter-repo (pinned)
+        run: |
+          pip3 install --user git-filter-repo==2.47.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run sync-all
+        run: bash scripts/sync-all.sh
+
+      - name: Push merged history to develop
+        run: |
+          if git push origin HEAD:develop; then
+            echo "Pushed sync commits (or already up to date)."
+          else
+            echo "::error::Push to develop failed. If develop is a protected branch," \
+              "allow the sync app/bot to bypass it, or point this workflow at an" \
+              "unprotected sync branch."
+            exit 1
+          fi
+
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,took
