@@ -12,8 +12,8 @@ Next.js 15 (App Router) + React 19 + MUI 7 + Tailwind 3 app that renders **publi
 npm run dev              # next dev --turbopack --port 4001
 npm run build            # next build (also runs TS type-checking)
 npm run start            # next start (serve the production build)
-npm run lint             # next lint (ESLint)
-npm run lint:fix         # next lint --fix (mutates files — stage first)
+npm run lint             # eslint . (ESLint CLI, flat config)
+npm run lint:fix         # eslint . --fix (mutates files — stage first)
 npm run format           # prettier -c .   (read-only check)
 npm run format:fix       # prettier --write . (mutates files — stage first)
 ```
