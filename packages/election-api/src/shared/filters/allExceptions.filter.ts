@@ -1,0 +1,51 @@
+import { Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common'
+import { BaseExceptionFilter } from '@nestjs/core'
+import { FastifyReply } from 'fastify'
+import { PinoLogger } from 'nestjs-pino'
+
+/**
+ * Global exception filter that ensures ALL errors — including unhandled
+ * ones like Prisma failures or null-pointer exceptions — return a
+ * descriptive message in the response body instead of a generic
+ * "Internal Server Error".
+ *
+ * This is safe because election-api is an internal service, not
+ * public-facing, so exposing error details aids debugging from
+ * downstream consumers (gp-api) that relay these messages to
+ * Slack / NewRelic.
+ */
+@Catch()
+export class AllExceptionsFilter extends BaseExceptionFilter {
+  constructor(
+    httpAdapter: ConstructorParameters<typeof BaseExceptionFilter>[0],
+    private readonly logger: PinoLogger,
+  ) {
+    super(httpAdapter)
+    this.logger.setContext(AllExceptionsFilter.name)
+  }
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp()
+    const reply = ctx.getResponse<FastifyReply>()
+
+    // NestJS HttpExceptions already have a structured response — let
+    // the default handler deal with them.
+    if (exception instanceof HttpException) {
+      return super.catch(exception, host)
+    }
+
+    // For anything else (Prisma errors, runtime exceptions, etc.),
+    // build a response that includes the real error message.
+    const message =
+      exception instanceof Error ? exception.message : String(exception)
+
+    this.logger.error({ err: exception }, `Unhandled exception: ${message}`)
+
+    const status = HttpStatus.INTERNAL_SERVER_ERROR
+    reply.status(status).send({
+      statusCode: status,
+      message,
+      error: 'Internal Server Error',
+    })
+  }
+}

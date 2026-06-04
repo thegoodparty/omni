@@ -1,0 +1,45 @@
+enum ElectionResult {
+  WON
+  LOST
+  RUNOFF
+
+  @@map("election_result")
+}
+
+model Candidacy {
+  id           String   @id @map("id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  brDatabaseId Int      @map("br_database_id")
+  slug         String   @unique // slugify firstName-lastName-normalizedPositionName
+
+  // Candidacy
+  firstName     String   @map("first_name")
+  lastName      String   @map("last_name")
+  email         String?
+  websiteUrl    String?  @map("website_url")
+  party         String? // Use index 0 of parties array
+  isIncumbent   Boolean? @map("is_incumbent")
+  gpCandidateId String?  @map("gp_candidate_id") // Canonical civics candidate ID
+
+  // Race for state, and potentially longest geoid Place on Race?
+  placeName String? @map("place_name")
+  state     String?
+
+  // Person
+  image String? // Use index 0 of images array
+  about String? // From bioText on Person - if not available, generateAbout()
+  urls  String[]
+
+  // Position (from Candidacy -> Position)
+  electionFrequency      Int[]   @map("election_frequency") // Formerly called term
+  salary                 String?
+  normalizedPositionName String? @map("normalized_position_name")
+  positionName           String? @map("position_name")
+  positionDescription    String? @map("position_description")
+
+  // Relations
+  Stances Stance[]
+  Race    Race?    @relation(fields: [raceId], references: [id])
+  raceId  String?  @map("race_id") @db.Uuid
+}

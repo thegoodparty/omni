@@ -1,0 +1,60 @@
+enum PositionLevel {
+  CITY
+  COUNTY
+  FEDERAL
+  LOCAL
+  REGIONAL
+  STATE
+  TOWNSHIP
+}
+
+model Race {
+  id                      String        @id @map("id") @db.Uuid
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+  brHashId                String?       @map("br_hash_id")
+  brDatabaseId            Int?          @map("br_database_id")
+  electionDate            DateTime      @map("election_date")
+  slug                    String        @map("slug") // This is the slug of the place combined with normalizedPositionName slugified, ex: tx/hidalgo/mission/county-sheriff
+  state                   String        @db.Char(2)
+  // Position
+  positionGeoid           String?       @map("position_geoid")
+  positionLevel           PositionLevel @map("position_level")
+  normalizedPositionName  String?       @map("normalized_position_name")
+  positionNames           String[]      @map("position_names")
+  positionDescription     String?       @map("position_description")
+  filingOfficeAddress     String?       @map("filing_office_address")
+  filingPhoneNumber       String?       @map("filing_phone_number")
+  paperworkInstructions   String?       @map("paperwork_instructions")
+  filingRequirements      String?       @map("filing_requirements")
+  isRunoff                Boolean?      @map("is_runoff")
+  isPrimary               Boolean?      @map("is_primary")
+  partisanType            String?       @map("partisan_type")
+  filingDateStart         DateTime?     @map("filing_date_start")
+  filingDateEnd           DateTime?     @map("filing_date_end")
+  employmentType          String?       @map("employment_type")
+  eligibilityRequirements String?       @map("eligibility_requirements")
+  salary                  String?       @map("salary")
+  subAreaName             String?       @map("sub_area_name")
+  subAreaValue            String?       @map("sub_area_value")
+  // Race-level civics attributes (DATA-1922)
+  numberOfSeats           Int?          @map("number_of_seats")
+  winNumber               Int?          @map("win_number") // HubSpot-archive-sourced path-to-victory number (like officeLevel below). Only present for 2023-2025 archived races; BallotReady supplies no win number, so this is null for all current/upcoming races and services fall back to a computed estimate.
+  isPartisan              Boolean?      @map("is_partisan")
+  officeType              String?       @map("office_type")
+  officialOfficeName      String?       @map("official_office_name")
+  officeLevel             String?       @map("office_level") // Civics (HubSpot-sourced) office level — distinct from BR positionLevel above
+  // PositionElection
+  frequency               Int[]         @map("frequency")
+
+  // Relations
+  Place       Place?      @relation(fields: [placeId], references: [id])
+  placeId     String?     @map("place_id") @db.Uuid
+  Position    Position?   @relation(fields: [positionId], references: [id])
+  positionId  String?     @map("position_id") @db.Uuid
+  Candidacies Candidacy[]
+
+  @@index([slug])
+  @@index([positionId])
+  @@index([brHashId])
+}
