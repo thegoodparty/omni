@@ -1,0 +1,90 @@
+import { SnackbarProvider } from '@shared/utils/Snackbar'
+import { Suspense } from 'react'
+import Footer from 'app/shared/layouts/footer/Footer'
+import JsonLdSchema from './JsonLdSchema'
+import Nav from './navigation/Nav'
+import CookiesSnackbar from './CookiesSnackbar'
+import { NavigationProvider } from '@shared/layouts/navigation/NavigationProvider'
+import { UserProvider } from '@shared/user/UserProvider'
+import { CampaignStatusProvider } from '@shared/user/CampaignStatusProvider'
+import { CampaignProvider } from '@shared/hooks/CampaignProvider'
+
+import { getReqPathname } from '@shared/utils/getReqPathname'
+import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
+import SegmentIdentify from './navigation/SegmentIdentify'
+import { P2pUxEnabledProvider } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
+import { SentryIdentifier } from '@shared/sentry'
+import AmplitudeInit from '@shared/AmplitudeInit'
+import { ImpersonatingTracker } from '@shared/user/ImpersonatingTracker'
+import { OrganizationProvider } from '@shared/organization-picker'
+import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
+import { ClerkProvider } from '@clerk/nextjs'
+import { auth } from '@clerk/nextjs/server'
+import { cookies } from 'next/headers'
+import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import { ReactQueryProvider } from '@shared/query-client'
+import { FeatureFlagsProvider } from '@shared/experiments/FeatureFlagsProvider'
+
+interface PageWrapperProps {
+  children: React.ReactNode
+}
+
+const PageWrapper = async ({
+  children,
+}: PageWrapperProps): Promise<React.JSX.Element> => {
+  const { userId } = await auth()
+  const isAuthed = !!userId
+
+  const [pathname, campaign, organizations, cookieStore] = await Promise.all([
+    getReqPathname(),
+    isAuthed ? fetchUserCampaign() : Promise.resolve(null),
+    isAuthed ? getCurrentUserOrganizations() : Promise.resolve([]),
+    cookies(),
+  ])
+  const initialOrgSlug = cookieStore.get(ORG_SLUG_COOKIE)?.value ?? null
+
+  return (
+    <ClerkProvider>
+      <ReactQueryProvider>
+        <UserProvider>
+          <FeatureFlagsProvider>
+            <AmplitudeInit />
+            <ImpersonatingTracker />
+            <OrganizationProvider
+              initialOrganizations={organizations}
+              initialSlug={initialOrgSlug}
+            >
+              <CampaignProvider campaign={campaign}>
+                <SentryIdentifier />
+                <CampaignStatusProvider>
+                  <P2pUxEnabledProvider>
+                    <NavigationProvider>
+                      <SnackbarProvider>
+                        <div className="overflow-x-clip">
+                          <JsonLdSchema />
+                          <Nav />
+                          {children}
+                          <Suspense>
+                            <Footer initPathname={pathname || ''} />
+                          </Suspense>
+                          <Suspense>
+                            <CookiesSnackbar />
+                          </Suspense>
+                          <Suspense>
+                            <SegmentIdentify />
+                          </Suspense>
+                        </div>
+                      </SnackbarProvider>
+                    </NavigationProvider>
+                  </P2pUxEnabledProvider>
+                </CampaignStatusProvider>
+              </CampaignProvider>
+            </OrganizationProvider>
+          </FeatureFlagsProvider>
+        </UserProvider>
+      </ReactQueryProvider>
+    </ClerkProvider>
+  )
+}
+
+export default PageWrapper

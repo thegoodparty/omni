@@ -1,0 +1,52 @@
+export const getCookie = (name: string): string | false => {
+  if (typeof window === 'undefined') {
+    return false
+  }
+  const value = `; ${document.cookie}`
+  const parts = value.split(`; ${name}=`)
+  if (parts.length === 2) {
+    const part = parts.pop()
+    if (part) {
+      return decodeURI(part.split(';').shift() ?? '')
+    }
+  }
+  return false
+}
+
+export const setCookie = (
+  name: string,
+  value: string,
+  days: number = 120,
+): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  let expires = ''
+  if (days) {
+    const date = new Date()
+    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
+    expires = `; expires=${date.toUTCString()}`
+  }
+  document.cookie = `${name}=${
+    encodeURI(value) || ''
+  }${expires}; path=/; SameSite=Lax`
+}
+
+export const deleteCookies = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  document.cookie.split(';').forEach((c) => {
+    document.cookie = c
+      .replace(/^ +/, '')
+      .replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`)
+  })
+}
+
+export const deleteCookie = (name: string): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  setCookie(name, '', 0)
+  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
+}

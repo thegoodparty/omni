@@ -1,0 +1,369 @@
+'use client'
+import RaceCard from './RaceCard'
+import { useState, ReactNode } from 'react'
+import { CircularProgress } from '@mui/material'
+import {
+  createCampaignWithOffice,
+  onboardingStep,
+  updateCampaign,
+} from 'app/onboarding/shared/ajaxActions'
+import H3 from '@shared/typography/H3'
+import CantFindRaceModal from './CantFindRaceModal'
+import { useRouter } from 'next/navigation'
+import { clientFetch } from 'gpApi/clientFetch'
+import { clientRequest } from 'gpApi/typed-request'
+import { apiRoutes } from 'gpApi/routes'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import Body2 from '@shared/typography/Body2'
+import Fuse, { IFuseOptions } from 'fuse.js'
+import { useQuery } from '@tanstack/react-query'
+import { Campaign } from 'helpers/types'
+import { Race } from './types'
+import { useSnackbar } from 'helpers/useSnackbar'
+
+interface BallotRacesCampaign extends Campaign {
+  currentStep?: number
+}
+
+interface SelectedOffice {
+  id?: string | number
+  election?: { id?: string | number | null; electionDay?: string }
+  brPositionId?: string
+}
+
+interface BallotRacesProps {
+  campaign?: BallotRacesCampaign
+  onSelect: (race: Race | false) => void
+  selectedOffice?: SelectedOffice | false
+  step?: number
+  updateCallback?: () => void
+  zip?: string
+  level?: string
+  adminMode?: boolean
+  fuzzyFilter?: string
+}
+
+const FUSE_OPTIONS: IFuseOptions<Race> = {
+  keys: ['position.name'],
+  threshold: 0.3,
+  ignoreLocation: true,
+  minMatchCharLength: 1,
+  shouldSort: true,
+  findAllMatches: true,
+  includeScore: true,
+  useExtendedSearch: true,
+  isCaseSensitive: false,
+}
+
+const fetchRaces = async (zipcode: string, level?: string): Promise<Race[]> => {
+  const cleanLevel =
+    level === 'Local/Township/City'
+      ? 'Local'
+      : level === 'County/Regional'
+      ? 'County'
+      : level
+
+  const payload = {
+    zipcode,
+    ...(cleanLevel
+      ? {
+          level: cleanLevel,
+        }
+      : {}),
+  }
+
+  const resp = await clientFetch<Race[]>(
+    apiRoutes.elections.racesByYear,
+    payload,
+    {
+      revalidate: 3600,
+    },
+  )
+
+  return resp.data
+}
+
+const getHighlightedText = (text: string, searchTerm: string): ReactNode => {
+  if (!searchTerm) return text
+
+  const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'))
+  return parts.map((part, index) =>
+    part.toLowerCase() === searchTerm.toLowerCase() ? (
+      <strong className="text-blue-600" key={index}>
+        {part}
+      </strong>
+    ) : (
+      part
+    ),
+  )
+}
+
+// Composite (brPositionId, electionDay) match when available; id fallback
+// for legacy UUID-format raceIds persisted before the office-picker fix.
+// partisanType is intentionally not part of the composite — the lean list
+// from /races-by-year doesn't carry it, so including it would diverge from
+// the hydrated shape and drop the radio's highlight after hydration.
+const matchesSelected = (
+  race: Race,
+  selected: Race | SelectedOffice | false,
+): boolean => {
+  if (!selected) return false
+  const selectedAsRace = selected as Race
+  const selectedBrPos =
+    selectedAsRace.brPositionId ?? selectedAsRace.position?.id
+  const selectedDay = selectedAsRace.election?.electionDay
+  if (selectedBrPos && selectedDay) {
+    const raceBrPos = race.brPositionId ?? race.position?.id
+    return (
+      raceBrPos === selectedBrPos && race.election?.electionDay === selectedDay
+    )
+  }
+  return (
+    'id' in selected && selected.id !== undefined && race.id === selected.id
+  )
+}
+
+export default function BallotRaces({
+  campaign,
+  onSelect,
+  selectedOffice,
+  step,
+  updateCallback,
+  zip,
+  level,
+  adminMode,
+  fuzzyFilter,
+}: BallotRacesProps): React.JSX.Element {
+  const query = useQuery({
+    queryKey: ['races', zip, level],
+    queryFn: async () => {
+      if (!zip) {
+        return null
+      }
+
+      const initRaces = await fetchRaces(zip, level)
+      if (!initRaces) {
+        throw new Error(`Couldn't fetch races for zip ${zip}`)
+      }
+      const sortedRaces = initRaces.sort((a, b) => {
+        const nameA = a?.position?.name || ''
+        const nameB = b?.position?.name || ''
+        return nameA.localeCompare(nameB)
+      })
+
+      const racesData = sortedRaces.map((race) => ({
+        ...race,
+        position: { ...race.position, name: race.position?.name || '' },
+      }))
+
+      const fuse = new Fuse(racesData, FUSE_OPTIONS)
+
+      return { sortedRaces, fuse }
+    },
+  })
+
+  const races = query.data?.sortedRaces || []
+
+  const filteredRaces =
+    query.data && fuzzyFilter
+      ? query.data.fuse.search(fuzzyFilter).map((result) => result.item)
+      : query.data?.sortedRaces || []
+  const [selected, setSelected] = useState<Race | SelectedOffice | false>(
+    selectedOffice || false,
+  )
+  const [showHelpModal, setShowHelpModal] = useState(false)
+  const [hydratingId, setHydratingId] = useState<string | null>(null)
+
+  const router = useRouter()
+  const { errorSnackbar } = useSnackbar()
+
+  if (!zip) {
+    return <div>No valid zip</div>
+  }
+
+  const hydrateRace = async (race: Race): Promise<Race | null> => {
+    if (!race.brPositionId || !race.election?.electionDay || !zip) {
+      errorSnackbar('Could not load this race. Please try a different one.')
+      return null
+    }
+    try {
+      const { data } = await clientRequest(
+        'GET /v1/elections/race-by-position',
+        {
+          brPositionId: race.brPositionId,
+          zip,
+          electionDate: race.election.electionDay,
+        },
+      )
+      // Pass the hydrated race through unchanged so `data.id` (the BallotReady
+      // race hash) ends up on the selected race. The card-selected check uses
+      // `matchesSelected` which compares via (brPositionId, electionDay), so
+      // dropping the previous `id: race.id` override no longer breaks the UI.
+      return data
+    } catch {
+      errorSnackbar('Could not load race details. Please try again.')
+      return null
+    }
+  }
+
+  const handleSelect = async (race: { id: string }) => {
+    const matchedRace = races.find(({ id }) => id === race.id)
+    if (!matchedRace) {
+      setSelected(false)
+      onSelect(false)
+      return
+    }
+    if (matchesSelected(matchedRace, selected)) {
+      setSelected(false)
+      onSelect(false)
+      return
+    }
+    setHydratingId(race.id)
+    const hydrated = await hydrateRace(matchedRace)
+    setHydratingId(null)
+    if (!hydrated) return
+    setSelected(hydrated)
+    onSelect(hydrated)
+  }
+
+  const handleShowModal = () => {
+    trackEvent(EVENTS.Onboarding.OfficeStep.ClickCantSeeOffice)
+    setShowHelpModal(true)
+  }
+
+  const handleCloseModal = () => {
+    setShowHelpModal(false)
+  }
+
+  const handleSaveCustomOffice = async (
+    updated: Campaign & { currentStep?: number },
+    officeName: string,
+  ) => {
+    const customPositionName = officeName || null
+
+    const baseAttr = [
+      { key: 'details.raceId', value: null },
+      { key: 'details.electionId', value: null },
+      { key: 'details.city', value: updated.details.city },
+      { key: 'details.district', value: updated.details.district },
+      {
+        key: 'details.electionDate',
+        value: updated.details.electionDate,
+      },
+      {
+        key: 'details.officeTermLength',
+        value: updated.details.officeTermLength,
+      },
+      { key: 'details.state', value: updated.details.state },
+    ]
+
+    if (step && !campaign) {
+      const currentStep = onboardingStep(undefined, step)
+      const attr = [
+        { key: 'data.currentStep', value: currentStep },
+        ...baseAttr,
+        { key: 'customPositionName', value: customPositionName },
+      ]
+      const newCampaign = await createCampaignWithOffice(attr)
+      if (newCampaign) {
+        router.push(`/onboarding/${newCampaign.slug}/${step + 1}`)
+      }
+    } else if (step && campaign) {
+      updated.currentStep = campaign.currentStep
+        ? Math.max(campaign.currentStep, step)
+        : step
+
+      const attr = [
+        { key: 'data.currentStep', value: updated.currentStep },
+        ...baseAttr,
+      ]
+      await updateCampaign(attr)
+      await clientRequest('PATCH /v1/organizations/:slug', {
+        slug: `campaign-${campaign.id}`,
+        customPositionName,
+      })
+      router.push(`/onboarding/${campaign.slug}/${step + 1}`)
+    } else {
+      if (adminMode && campaign) {
+        await updateCampaign(baseAttr, campaign.slug)
+      } else {
+        await updateCampaign(baseAttr)
+      }
+      if (campaign) {
+        await clientRequest('PATCH /v1/organizations/:slug', {
+          slug: `campaign-${campaign.id}`,
+          customPositionName,
+        })
+      }
+      if (updateCallback) {
+        updateCallback()
+      }
+    }
+  }
+
+  const racesLength = filteredRaces?.length || 0
+  const countMessage = `${racesLength} office${
+    racesLength === 1 ? '' : 's'
+  } found`
+
+  return (
+    <section className="mb-2">
+      {query.isPending ? (
+        <div className="mt-6 text-center">
+          <CircularProgress />
+          <br />
+          <br />
+          <H3>Loading Races</H3>
+        </div>
+      ) : (
+        <Body2>
+          <span className="mb-4 block">{countMessage}</span>
+          {racesLength === 0 ? (
+            <div className="bg-white rounded-lg p-6 border border-gray-200 mt-4">
+              <ol className="space-y-2">
+                <li>1. Try a different Zip Code</li>
+                <li>2. Select a different office level</li>
+                <li>3. Try another office name</li>
+                <li>4. Double check your candidacy papers</li>
+              </ol>
+            </div>
+          ) : (
+            filteredRaces.map((race, index) => (
+              <RaceCard
+                key={index}
+                race={{
+                  ...race,
+                  position: {
+                    ...race.position,
+                    name: getHighlightedText(
+                      race?.position?.name || '',
+                      fuzzyFilter || '',
+                    ),
+                  },
+                }}
+                selected={matchesSelected(race, selected)}
+                isHydrating={hydratingId === race.id}
+                selectCallback={handleSelect}
+              />
+            ))
+          )}
+          <div className="my-8 text-center">
+            <a
+              onClick={handleShowModal}
+              className="text-blue-600 hover:text-blue-700 cursor-pointer"
+            >
+              I don&apos;t see my office
+            </a>
+          </div>
+        </Body2>
+      )}
+      {showHelpModal && (
+        <CantFindRaceModal
+          campaign={campaign}
+          onClose={handleCloseModal}
+          onSaveCustomOffice={handleSaveCustomOffice}
+        />
+      )}
+    </section>
+  )
+}

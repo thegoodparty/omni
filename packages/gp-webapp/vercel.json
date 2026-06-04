@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/v1/ecanvasser/sync-all",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# e2e tests (playwright)
+/test-results/
+/playwright-report/
+/e2e-tests/node_modules/
+/e2e-tests/test-results/
+/e2e-tests/playwright-report/
+/e2e-tests/blob-report/
+/e2e-tests/playwright/.cache/
+/e2e-tests/playwright/.auth
+/e2e-tests/screenshots/
+/e2e-tests/auth.json
+/e2e-tests/admin-auth.json
+/e2e-tests/testAccount.json
+/e2e-tests/playwright-results.json
+/e2e-tests/helpers/sample.pdf
+/e2e-tests/.env
+/e2e-tests/testRunId.txt
+/e2e-tests/reported-test-cases.json
+/e2e-tests/admin-session-error.png
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env*.local
+.env.sentry-build-plugin
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+#service worker
+/public/sw.js
+/public/sw.js.map
+/public/workbox-*
+/workbox-*
+
+/storybook-static
+
+# sitemap reports
+/public/sitemaps/generation-report-*.json
+/public/sitemaps/validation-report-*.json
+/public/sitemaps/pruning-report-*.json
+invalid_urls.csv
+
+# editor config
+/.vscode/*
+!/.vscode/launch.json
+*.code-workspace
+
+# AI Tools
+/.ai/
+/.cursor
+.superpowers/
+.claude/settings.json
+.claude/settings.local.json
+.claude/cache/
+.claude/logs/
+.claude/.credentials*
+
+*repomix*
+
+.clerk
+scripts/output
+
+# Performance tooling output (scripts/perf/*.sh)
+/perf-reports/
+/profiles/
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+isolate-*.log
+isolate-*.json
+flamegraph.html
+lh-*.report.html
+lh-*.report.json
+bundle-*.html
+bundle-*.json
