@@ -1,0 +1,60 @@
+import { PurchaseType } from '@/payments/purchase.types'
+export const WebhookEventType = {
+  CheckoutSessionCompleted: 'checkout.session.completed',
+  CheckoutSessionExpired: 'checkout.session.expired',
+  CustomerSubscriptionCreated: 'customer.subscription.created',
+  CustomerSubscriptionDeleted: 'customer.subscription.deleted',
+  CustomerSubscriptionUpdated: 'customer.subscription.updated',
+  CustomerSubscriptionResumed: 'customer.subscription.resumed',
+} as const
+
+export const CheckoutSessionMode = {
+  PAYMENT: 'payment',
+  SUBSCRIPTION: 'subscription',
+} as const
+
+export enum PaymentStatus {
+  REQUIRES_PAYMENT_METHOD = 'requires_payment_method',
+  REQUIRES_CONFIRMATION = 'requires_confirmation',
+  REQUIRES_ACTION = 'requires_action',
+  PROCESSING = 'processing',
+  REQUIRES_CAPTURE = 'requires_capture',
+  CANCELED = 'canceled',
+  SUCCEEDED = 'succeeded',
+}
+
+export enum PaymentType {
+  DOMAIN_REGISTRATION = 'domain_registration',
+  OUTREACH_PURCHASE = 'outreach_purchase',
+  POLL = 'poll',
+}
+
+export interface CustomCheckoutSessionPayload {
+  type: PaymentType
+  purchaseType: PurchaseType
+  amount: number
+  productName: string
+  productDescription?: string
+  allowPromoCodes?: boolean
+  returnUrl: string
+  metadata?: Record<string, string | number | undefined>
+}
+
+export type PaymentIntentPayload<T extends PaymentType> = {
+  type: T
+  amount: number
+  description?: string
+  purchaseType: PurchaseType
+} & (T extends PaymentType.DOMAIN_REGISTRATION
+  ? {
+      domainName: string
+      domainId?: number
+    }
+  : T extends PaymentType.POLL
+    ? {
+        count: number
+        pollId: number
+      }
+    : never)
+
+export type PurchaseIntentPayloadEntry = PurchaseType | string | number

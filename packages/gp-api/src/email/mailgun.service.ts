@@ -1,0 +1,61 @@
+import { Injectable } from '@nestjs/common'
+import FormData from 'form-data'
+import Mailgun, { MailgunMessageData } from 'mailgun.js'
+import { IMailgunClient } from 'mailgun.js/Interfaces'
+import { PinoLogger } from 'nestjs-pino'
+import { requireEnv } from 'src/shared/util/env.util'
+
+const EMAIL_DOMAIN = 'mg.goodparty.org'
+const API_KEY = requireEnv('MAILGUN_API_KEY')
+
+export type EmailData = MailgunMessageData & {
+  variables?: Record<string, string | number | boolean>
+  template?: string
+}
+
+@Injectable()
+export class MailgunService {
+  private mailgun: Mailgun
+  private client: IMailgunClient
+
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(MailgunService.name)
+    this.mailgun = new Mailgun(FormData)
+    this.client = this.mailgun.client({
+      key: API_KEY,
+      username: 'api',
+    })
+  }
+
+  async sendMessage({ variables, ...emailData }: EmailData) {
+    if (variables) {
+      try {
+        emailData['h:X-Mailgun-Variables'] = JSON.stringify(variables)
+      } catch {
+        this.logger.error(
+          variables,
+          `Failed to stringify variables for email ${emailData.to}:`,
+        )
+        throw new Error(
+          `Failed to stringify variables for email: ${emailData.to}`,
+          variables,
+        )
+      }
+    }
+
+    // Add tag header based on template name
+    if (emailData.template && process.env.TRACK_MAILGUN_EMAILS === 'true') {
+      emailData['o:tag'] = emailData.template
+    }
+
+    if (process.env.MAILGUN_INTERCEPT_EMAIL) {
+      // override to email address to send to MAILGUN_INTERCEPT_EMAIL
+      this.logger.debug(
+        `Intercepting email for ${emailData.to} - sending to ${process.env.MAILGUN_INTERCEPT_EMAIL}`,
+      )
+      emailData.to = process.env.MAILGUN_INTERCEPT_EMAIL
+    }
+
+    return await this.client.messages.create(EMAIL_DOMAIN, emailData)
+  }
+}

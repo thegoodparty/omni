@@ -1,0 +1,2012 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NotFoundException } from '@nestjs/common'
+import { CampaignTask, CampaignTaskType } from '../campaignTasks.types'
+import { firstValueFrom, toArray } from 'rxjs'
+import { CampaignTasksService } from './campaignTasks.service'
+import { AiGenerationService } from './aiGeneration.service'
+import { Campaign, CampaignUpdateHistoryType, Prisma } from '@prisma/client'
+import { startOfDay } from 'date-fns'
+import { parseIsoDateString } from '@/shared/util/date.util'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { generalAwarenessTasks } from '../fixtures/defaultAwarenessTasks'
+import { defaultRecurringTasks } from '../fixtures/defaultRecurringTasks'
+import { generalDefaultTasks } from '../fixtures/defaultTasks'
+import { primaryDefaultTasks } from '../fixtures/defaultTasksForPrimary'
+
+import { SlackService } from 'src/vendors/slack/services/slack.service'
+
+vi.mock('src/shared/util/sleep.util', () => ({
+  sleep: vi.fn().mockResolvedValue(undefined),
+}))
+
+const mockTxModel = {
+  deleteMany: vi.fn(),
+  createMany: vi.fn(),
+  count: vi.fn(),
+  findFirst: vi.fn(),
+  update: vi.fn(),
+}
+
+const mockModel = {
+  findMany: vi.fn(),
+  findFirst: vi.fn(),
+  update: vi.fn(),
+  createMany: vi.fn(),
+  count: vi.fn(),
+}
+
+const mockCampaignUpdateHistoryModel = {
+  create: vi.fn(),
+  delete: vi.fn(),
+  findUniqueOrThrow: vi.fn(),
+}
+
+const mockCampaignModel = {
+  findUnique: vi.fn(),
+  findUniqueOrThrow: vi.fn(),
+  update: vi.fn(),
+}
+
+const mockExecuteRaw = vi.fn()
+const mockTransaction = vi.fn(
+  async (callback: (tx: unknown) => Promise<unknown>) => {
+    return callback({
+      campaignTask: mockTxModel,
+      campaignUpdateHistory: mockCampaignUpdateHistoryModel,
+      campaign: mockCampaignModel,
+      $executeRaw: mockExecuteRaw,
+    })
+  },
+)
+
+const mockAiGeneration: Partial<AiGenerationService> = {
+  triggerEventGeneration: vi.fn(),
+}
+
+const mockSlackService: Partial<SlackService> = {
+  message: vi.fn(),
+}
+
+const mockCampaignsService = {
+  patchCampaignDetails: vi.fn(),
+}
+
+type CampaignOverrides = Partial<
+  Omit<Campaign, 'details' | 'data' | 'aiContent'>
+> & {
+  details?: Campaign['details'] | null
+  data?: Campaign['data'] | null
+  aiContent?: Campaign['aiContent'] | null
+}
+
+const makeCampaign = (overrides: CampaignOverrides = {}): Campaign =>
+  ({
+    id: 1,
+    slug: 'test-campaign',
+    userId: 123,
+    isActive: true,
+    isDemo: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    data: {},
+    details: {},
+    aiContent: {},
+    vendorTsData: {},
+    ...overrides,
+  }) as Campaign
+
+const makeDbTask = (overrides = {}) => ({
+  id: 'task-1',
+  campaignId: 1,
+  title: 'Test Task',
+  description: 'A test task',
+  cta: 'Do it',
+  flowType: CampaignTaskType.education,
+  week: 4,
+  date: new Date('2026-06-01'),
+  link: null,
+  proRequired: false,
+  isDefaultTask: false,
+  deadline: null,
+  defaultAiTemplateId: null,
+  completed: false,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  ...overrides,
+})
+
+describe('CampaignTasksService', () => {
+  let service: CampaignTasksService
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    service = new CampaignTasksService(
+      mockAiGeneration as AiGenerationService,
+      mockSlackService as SlackService,
+      mockCampaignsService as never,
+    )
+    Object.defineProperty(service, '_prisma', {
+      get: () => ({
+        campaignTask: mockModel,
+        campaign: mockCampaignModel,
+        campaignUpdateHistory: mockCampaignUpdateHistoryModel,
+        $transaction: mockTransaction,
+      }),
+      configurable: true,
+    })
+    Object.defineProperty(service, 'logger', {
+      get: () => createMockLogger(),
+      configurable: true,
+    })
+  })
+
+  describe('listCampaignTasks', () => {
+    it('Returns tasks ordered by week desc then date asc', async () => {
+      const tasks = [makeDbTask({ week: 8 }), makeDbTask({ week: 4 })]
+      mockModel.findMany.mockResolvedValue(tasks)
+
+      const result = await service.listCampaignTasks(makeCampaign())
+
+      expect(mockModel.findMany).toHaveBeenCalledWith({
+        where: { campaignId: 1 },
+        orderBy: [
+          { week: Prisma.SortOrder.desc },
+          { date: Prisma.SortOrder.asc },
+          { id: Prisma.SortOrder.asc },
+        ],
+      })
+      expect(result).toEqual(tasks)
+    })
+  })
+
+  describe('getCampaignTaskById', () => {
+    it('returns task matching campaignId and id', async () => {
+      const task = makeDbTask()
+      mockModel.findFirst.mockResolvedValue(task)
+
+      const result = await service.getCampaignTaskById(1, 'task-1')
+
+      expect(mockModel.findFirst).toHaveBeenCalledWith({
+        where: { campaignId: 1, id: 'task-1' },
+      })
+      expect(result).toEqual(task)
+    })
+
+    it('returns null when task not found', async () => {
+      mockModel.findFirst.mockResolvedValue(null)
+
+      const result = await service.getCampaignTaskById(1, 'nonexistent')
+
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('completeTask', () => {
+    it('marks task as completed without voter contact', async () => {
+      const task = makeDbTask()
+      const updatedTask = { ...task, completed: true }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+
+      const result = await service.completeTask(makeCampaign(), 'task-1')
+
+      expect(mockExecuteRaw).not.toHaveBeenCalled()
+      expect(mockTxModel.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: { completed: true },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+
+    it('throws NotFoundException when task not found', async () => {
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(null)
+
+      await expect(
+        service.completeTask(makeCampaign(), 'missing'),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('returns task as-is when already completed', async () => {
+      const task = makeDbTask({ completed: true })
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn()
+
+      const result = await service.completeTask(makeCampaign(), 'task-1')
+
+      expect(result).toEqual(task)
+      expect(mockTxModel.update).not.toHaveBeenCalled()
+    })
+
+    it('creates update history and increments voter goals when voterContact provided', async () => {
+      const task = makeDbTask({
+        flowType: CampaignUpdateHistoryType.doorKnocking,
+      })
+      const updatedTask = {
+        ...task,
+        completed: true,
+        updateHistoryId: 42,
+      }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+      mockCampaignUpdateHistoryModel.create.mockResolvedValue({
+        id: 42,
+      })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: {
+          reportedVoterGoals: {
+            [CampaignUpdateHistoryType.doorKnocking]: 5,
+          },
+        },
+      })
+      mockCampaignModel.update.mockResolvedValue({})
+
+      const result = await service.completeTask(makeCampaign(), 'task-1', {
+        type: CampaignUpdateHistoryType.doorKnocking,
+        quantity: 10,
+      })
+
+      expect(mockExecuteRaw).toHaveBeenCalled()
+      expect(mockCampaignUpdateHistoryModel.create).toHaveBeenCalledWith({
+        data: {
+          type: CampaignUpdateHistoryType.doorKnocking,
+          quantity: 10,
+          campaignId: 1,
+          userId: 123,
+        },
+      })
+      expect(mockCampaignModel.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          data: {
+            reportedVoterGoals: {
+              [CampaignUpdateHistoryType.doorKnocking]: 15,
+            },
+          },
+        },
+      })
+      expect(mockTxModel.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: { completed: true, updateHistoryId: 42 },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+
+    it('initializes reportedVoterGoals when none exist yet', async () => {
+      const task = makeDbTask({
+        flowType: CampaignUpdateHistoryType.text,
+      })
+      const updatedTask = {
+        ...task,
+        completed: true,
+        updateHistoryId: 99,
+      }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+      mockCampaignUpdateHistoryModel.create.mockResolvedValue({
+        id: 99,
+      })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: {},
+      })
+      mockCampaignModel.update.mockResolvedValue({})
+
+      const result = await service.completeTask(makeCampaign(), 'task-1', {
+        type: CampaignUpdateHistoryType.text,
+        quantity: 5,
+      })
+
+      expect(mockCampaignModel.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          data: {
+            reportedVoterGoals: {
+              [CampaignUpdateHistoryType.text]: 5,
+            },
+          },
+        },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+
+    it('adds new type key when reportedVoterGoals exists but lacks the type', async () => {
+      const task = makeDbTask({
+        flowType: CampaignUpdateHistoryType.phoneBanking,
+      })
+      const updatedTask = {
+        ...task,
+        completed: true,
+        updateHistoryId: 77,
+      }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+      mockCampaignUpdateHistoryModel.create.mockResolvedValue({
+        id: 77,
+      })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: {
+          reportedVoterGoals: {
+            [CampaignUpdateHistoryType.doorKnocking]: 10,
+          },
+        },
+      })
+      mockCampaignModel.update.mockResolvedValue({})
+
+      const result = await service.completeTask(makeCampaign(), 'task-1', {
+        type: CampaignUpdateHistoryType.phoneBanking,
+        quantity: 3,
+      })
+
+      expect(mockCampaignModel.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          data: {
+            reportedVoterGoals: {
+              [CampaignUpdateHistoryType.doorKnocking]: 10,
+              [CampaignUpdateHistoryType.phoneBanking]: 3,
+            },
+          },
+        },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+  })
+
+  describe('unCompleteTask', () => {
+    it('marks task as uncompleted without history', async () => {
+      const task = makeDbTask({
+        completed: true,
+        updateHistoryId: null,
+      })
+      const updatedTask = { ...task, completed: false }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+
+      const result = await service.unCompleteTask(makeCampaign(), 'task-1')
+
+      expect(mockExecuteRaw).not.toHaveBeenCalled()
+      expect(mockTxModel.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: { completed: false, updateHistoryId: null },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+
+    it('throws NotFoundException when task not found', async () => {
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(null)
+
+      await expect(
+        service.unCompleteTask(makeCampaign(), 'missing'),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('returns task as-is when already uncompleted', async () => {
+      const task = makeDbTask({ completed: false })
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockTxModel.update = vi.fn()
+
+      const result = await service.unCompleteTask(makeCampaign(), 'task-1')
+
+      expect(result).toEqual(task)
+      expect(mockTxModel.update).not.toHaveBeenCalled()
+    })
+
+    it('deletes history and decrements voter goals when history exists', async () => {
+      const task = makeDbTask({
+        completed: true,
+        updateHistoryId: 42,
+      })
+      const updatedTask = {
+        ...task,
+        completed: false,
+        updateHistoryId: null,
+      }
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockCampaignUpdateHistoryModel.findUniqueOrThrow.mockResolvedValue({
+        id: 42,
+        type: CampaignUpdateHistoryType.doorKnocking,
+        quantity: 10,
+      })
+      mockTxModel.update = vi.fn().mockResolvedValue(updatedTask)
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: {
+          reportedVoterGoals: {
+            [CampaignUpdateHistoryType.doorKnocking]: 15,
+          },
+        },
+      })
+      mockCampaignModel.update.mockResolvedValue({})
+      mockCampaignUpdateHistoryModel.delete.mockResolvedValue({})
+
+      const result = await service.unCompleteTask(makeCampaign(), 'task-1')
+
+      expect(mockExecuteRaw).toHaveBeenCalled()
+      expect(mockCampaignModel.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          data: {
+            reportedVoterGoals: {
+              [CampaignUpdateHistoryType.doorKnocking]: 5,
+            },
+          },
+        },
+      })
+      expect(mockCampaignUpdateHistoryModel.delete).toHaveBeenCalledWith({
+        where: { id: 42 },
+      })
+      expect(mockTxModel.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: { completed: false, updateHistoryId: null },
+      })
+      expect(result).toEqual(updatedTask)
+    })
+
+    it('floors voter goals at 0 when decrementing', async () => {
+      const task = makeDbTask({
+        completed: true,
+        updateHistoryId: 42,
+      })
+      mockTxModel.findFirst = vi.fn().mockResolvedValue(task)
+      mockCampaignUpdateHistoryModel.findUniqueOrThrow.mockResolvedValue({
+        id: 42,
+        type: CampaignUpdateHistoryType.text,
+        quantity: 100,
+      })
+      mockTxModel.update = vi.fn().mockResolvedValue({
+        ...task,
+        completed: false,
+      })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: {
+          reportedVoterGoals: {
+            [CampaignUpdateHistoryType.text]: 5,
+          },
+        },
+      })
+      mockCampaignModel.update.mockResolvedValue({})
+      mockCampaignUpdateHistoryModel.delete.mockResolvedValue({})
+
+      await service.unCompleteTask(makeCampaign(), 'task-1')
+
+      expect(mockCampaignModel.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          data: {
+            reportedVoterGoals: {
+              [CampaignUpdateHistoryType.text]: 0,
+            },
+          },
+        },
+      })
+    })
+  })
+
+  describe('generateTasksStream', () => {
+    const campaignWithFutureElection = () =>
+      makeCampaign({
+        details: { electionDate: '2099-11-03' },
+      })
+
+    it('skips default task generation and AI trigger when any tasks exist', async () => {
+      const existingTasks = [
+        makeDbTask({ id: 'default-1', isDefaultTask: true }),
+      ]
+
+      mockModel.findMany.mockResolvedValueOnce(existingTasks)
+
+      const observable = service.generateTasksStream(
+        campaignWithFutureElection(),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
+      expect(mockTransaction).not.toHaveBeenCalled()
+      expect(mockAiGeneration.triggerEventGeneration).not.toHaveBeenCalled()
+    })
+
+    it('returns existing tasks immediately when not triggered', async () => {
+      const existingTasks = [makeDbTask({ id: 'existing-1' })]
+
+      mockModel.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(existingTasks)
+      mockTxModel.count.mockResolvedValueOnce(1)
+      vi.mocked(mockAiGeneration.triggerEventGeneration!).mockResolvedValue(
+        false,
+      )
+
+      const observable = service.generateTasksStream(
+        campaignWithFutureElection(),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
+    })
+
+    it('polls DB for plan completion and returns tasks when plan exists', async () => {
+      const savedTasks = [makeDbTask()]
+
+      mockModel.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(savedTasks)
+      mockTxModel.count.mockResolvedValueOnce(1)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+      mockModel.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1)
+      vi.mocked(mockAiGeneration.triggerEventGeneration!).mockResolvedValue(
+        true,
+      )
+
+      const observable = service.generateTasksStream(
+        campaignWithFutureElection(),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        savedTasks,
+      )
+    })
+
+    it('handles error during stream and returns existing tasks', async () => {
+      const existingTasks = [makeDbTask({ isDefaultTask: true })]
+
+      mockModel.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(existingTasks)
+      mockTxModel.count.mockResolvedValueOnce(1)
+      vi.mocked(mockAiGeneration.triggerEventGeneration!).mockRejectedValue(
+        new Error('Lambda trigger failed'),
+      )
+
+      const observable = service.generateTasksStream(
+        campaignWithFutureElection(),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
+    })
+
+    it('short-circuits with existing tasks when election is in the past', async () => {
+      const existingTasks = [makeDbTask({ id: 'existing-1' })]
+      mockModel.findMany.mockResolvedValueOnce(existingTasks)
+
+      const observable = service.generateTasksStream(
+        makeCampaign({ details: { electionDate: '2020-11-03' } }),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      expect(mockTransaction).not.toHaveBeenCalled()
+      expect(mockAiGeneration.triggerEventGeneration).not.toHaveBeenCalled()
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
+    })
+
+    it('short-circuits when no election date is set', async () => {
+      const existingTasks: unknown[] = []
+      mockModel.findMany.mockResolvedValueOnce(existingTasks)
+
+      const observable = service.generateTasksStream(
+        makeCampaign({ details: {} }),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      expect(mockTransaction).not.toHaveBeenCalled()
+      expect(mockAiGeneration.triggerEventGeneration).not.toHaveBeenCalled()
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect(completeEvent).toBeDefined()
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
+    })
+  })
+
+  describe('addTasks', () => {
+    beforeEach(() => {
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        details: { electionDate: '2026-11-03' },
+      })
+    })
+
+    it('passes event task id to createMany for idempotent inserts', async () => {
+      const tasks: CampaignTask[] = [
+        {
+          id: 'event-1-0-2026-04-10T00:00:00Z',
+          title: 'Town Hall',
+          description: 'Meet voters',
+          cta: 'Attend event',
+          flowType: CampaignTaskType.events,
+          week: 10,
+          date: '2026-08-15',
+        },
+      ]
+      mockModel.createMany.mockResolvedValue({ count: 1 })
+
+      await service.addEventTasks(1, tasks)
+
+      expect(mockModel.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            id: 'event-1-0-2026-04-10T00:00:00Z',
+            campaignId: 1,
+            title: 'Town Hall',
+          }),
+        ],
+        skipDuplicates: true,
+      })
+    })
+
+    it('includes id from task when provided', async () => {
+      const tasks: CampaignTask[] = [
+        {
+          id: 'any-custom-id-123',
+          title: 'Custom Task',
+          description: 'A task with custom id',
+          cta: 'Get started',
+          flowType: CampaignTaskType.education,
+          week: 12,
+          date: '2026-06-01',
+        },
+      ]
+      mockModel.createMany.mockResolvedValue({ count: 1 })
+
+      await service.addEventTasks(1, tasks)
+
+      expect(mockModel.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            id: 'any-custom-id-123',
+            campaignId: 1,
+            title: 'Custom Task',
+          }),
+        ],
+        skipDuplicates: true,
+      })
+    })
+
+    it('appends parade awareness tasks from AI tasks', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-01-05'))
+
+      const tasks: CampaignTask[] = [
+        {
+          id: 'event-1',
+          title: '4th of July Parade',
+          description: 'March in the parade',
+          week: 4,
+          date: '2026-07-04',
+        },
+      ]
+      mockModel.createMany.mockResolvedValue({ count: 2 })
+
+      await service.addEventTasks(1, tasks)
+
+      const createCall = mockModel.createMany.mock.calls[0][0]
+      expect(createCall.data).toHaveLength(2)
+      expect(createCall.data[1]).toEqual(
+        expect.objectContaining({
+          title: 'Contact Parade Organizers for 4th of July Parade',
+          description: 'Get signed up to march in the parade',
+          flowType: CampaignTaskType.awareness,
+        }),
+      )
+
+      vi.useRealTimers()
+    })
+
+    it('drops tasks dated after the election date', async () => {
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        details: { electionDate: '2025-04-07' },
+      })
+      const tasks: CampaignTask[] = [
+        {
+          id: 'before',
+          title: 'Before election',
+          description: 'Valid',
+          flowType: CampaignTaskType.events,
+          week: 1,
+          date: '2025-04-01',
+        },
+        {
+          id: 'on-day',
+          title: 'On election day',
+          description: 'Valid',
+          flowType: CampaignTaskType.events,
+          week: 0,
+          date: '2025-04-07',
+        },
+        {
+          id: 'after',
+          title: 'After election',
+          description: 'Should drop',
+          flowType: CampaignTaskType.events,
+          week: -30,
+          date: '2025-11-07',
+        },
+      ]
+      mockModel.createMany.mockResolvedValue({ count: 2 })
+
+      await service.addEventTasks(1, tasks)
+
+      const createCall = mockModel.createMany.mock.calls[0][0]
+      expect(createCall.data).toHaveLength(2)
+      expect(createCall.data.map((t: { id: string }) => t.id)).toEqual([
+        'before',
+        'on-day',
+      ])
+    })
+
+    it('drops all tasks when campaign has no election date', async () => {
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        details: {},
+      })
+      const tasks: CampaignTask[] = [
+        {
+          id: 'orphan',
+          title: 'No election',
+          description: 'Should drop',
+          flowType: CampaignTaskType.events,
+          week: 1,
+          date: '2025-04-01',
+        },
+      ]
+
+      await service.addEventTasks(1, tasks)
+
+      expect(mockModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('drops all tasks when electionDate is malformed', async () => {
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        details: { electionDate: 'TBD' },
+      })
+      const tasks: CampaignTask[] = [
+        {
+          id: 'orphan',
+          title: 'Malformed election',
+          description: 'Should drop',
+          flowType: CampaignTaskType.events,
+          week: 1,
+          date: '2025-04-01',
+        },
+      ]
+
+      await service.addEventTasks(1, tasks)
+
+      expect(mockModel.createMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('generateDefaultTasks', () => {
+    const TODAY = startOfDay(parseIsoDateString('2026-01-01'))
+    const campaignWithFutureElection = () =>
+      makeCampaign({
+        details: { electionDate: '2026-11-03' },
+      })
+
+    it('skips if defaults already exist', async () => {
+      mockTxModel.count.mockResolvedValueOnce(1)
+
+      await service.generateDefaultTasks(campaignWithFutureElection(), TODAY)
+
+      expect(mockTransaction).toHaveBeenCalled()
+      expect(mockTxModel.deleteMany).not.toHaveBeenCalled()
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+    })
+
+    it('creates default tasks if none exist', async () => {
+      mockTxModel.count.mockResolvedValueOnce(0)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: { name: 'Test Candidate', hubspotId: '12345' },
+        user: { firstName: 'Test', lastName: 'User' },
+        campaignTasks: [
+          {
+            flowType: CampaignTaskType.text,
+            title: 'Introduction Text',
+            date: new Date('2025-06-15'),
+          },
+        ],
+      })
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          isPro: true,
+          details: { electionDate: '2026-11-03' },
+        }),
+        TODAY,
+      )
+
+      expect(mockTransaction).toHaveBeenCalled()
+      expect(mockTxModel.createMany).toHaveBeenCalled()
+      expect(mockSlackService.message).toHaveBeenCalled()
+    })
+
+    it('does not send Slack when campaign is not Pro', async () => {
+      mockTxModel.count.mockResolvedValueOnce(0)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+
+      await service.generateDefaultTasks(campaignWithFutureElection(), TODAY)
+
+      expect(mockTxModel.createMany).toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+    })
+
+    it('sends Slack with correct outreach task details', async () => {
+      mockTxModel.count.mockResolvedValueOnce(0)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: { name: 'Test Candidate', hubspotId: '12345' },
+        user: { firstName: 'Jane', lastName: 'Doe' },
+        campaignTasks: [
+          {
+            flowType: CampaignTaskType.text,
+            title: 'Introduction Text',
+            date: new Date('2025-06-15'),
+          },
+          {
+            flowType: CampaignTaskType.robocall,
+            title: 'Persuasion Robocall',
+            date: null,
+          },
+          {
+            flowType: CampaignTaskType.education,
+            title: 'Education Task',
+            date: new Date('2025-06-20'),
+          },
+        ],
+      })
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          isPro: true,
+          details: { electionDate: '2026-11-03' },
+        }),
+        TODAY,
+      )
+
+      const messageMock = vi.mocked(mockSlackService.message!)
+      const slackCall = messageMock.mock.calls[0]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const slackBody = (slackCall[0] as any).blocks[0].text.text as string
+      expect(slackBody).toContain('Jane Doe')
+      expect(slackBody).toContain('Outreach Tasks (2)')
+      expect(slackBody).toContain('TEXT: Introduction Text')
+      expect(slackBody).toContain('ROBOCALL: Persuasion Robocall')
+      expect(slackBody).not.toContain('Education Task')
+    })
+
+    it('does not break task creation when Slack fails', async () => {
+      mockTxModel.count.mockResolvedValueOnce(0)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+      mockCampaignModel.findUniqueOrThrow.mockRejectedValue(
+        new Error('Slack lookup failed'),
+      )
+
+      await expect(
+        service.generateDefaultTasks(
+          makeCampaign({
+            isPro: true,
+            details: { electionDate: '2026-11-03' },
+          }),
+          TODAY,
+        ),
+      ).resolves.not.toThrow()
+      expect(mockTxModel.createMany).toHaveBeenCalled()
+    })
+
+    it('skips entirely when no election date is set', async () => {
+      await service.generateDefaultTasks(makeCampaign({ details: {} }))
+
+      expect(mockTransaction).not.toHaveBeenCalled()
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+    })
+
+    it('skips entirely when election date is in the past', async () => {
+      await service.generateDefaultTasks(
+        makeCampaign({ details: { electionDate: '2020-11-03' } }),
+      )
+
+      expect(mockTransaction).not.toHaveBeenCalled()
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('notifySlackOnProUpgrade', () => {
+    const candidateMock = {
+      id: 1,
+      data: { name: 'Test Candidate', hubspotId: '12345' },
+      user: { firstName: 'Jane', lastName: 'Doe' },
+      campaignTasks: [
+        {
+          flowType: CampaignTaskType.text,
+          title: 'Introduction Text',
+          date: new Date('2025-06-15'),
+        },
+      ],
+    }
+
+    it('sends slack and persists the notified-at flag when default tasks exist', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockModel.count.mockResolvedValueOnce(1)
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue(candidateMock)
+      mockCampaignsService.patchCampaignDetails.mockResolvedValue({})
+      vi.mocked(mockSlackService.message!).mockResolvedValue('ok')
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(mockSlackService.message).toHaveBeenCalledTimes(1)
+      expect(mockCampaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        1,
+        { proUpgradeSlackNotifiedAt: expect.any(Number) },
+      )
+    })
+
+    it('does nothing if proUpgradeSlackNotifiedAt is already set', async () => {
+      mockCampaignModel.findUnique = vi
+        .fn()
+        .mockResolvedValue({ details: { proUpgradeSlackNotifiedAt: 1 } })
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(mockModel.count).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+      expect(mockCampaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+    })
+
+    it('does not send Slack if no default tasks exist', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockModel.count.mockResolvedValueOnce(0)
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+      expect(mockCampaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when the campaign has no details', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue(null)
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(mockModel.count).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+    })
+
+    it('retries the slack send up to 3 times then succeeds', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockModel.count.mockResolvedValueOnce(1)
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue(candidateMock)
+      mockCampaignsService.patchCampaignDetails.mockResolvedValue({})
+
+      const messageMock = vi.mocked(mockSlackService.message!)
+      messageMock.mockReset()
+      messageMock
+        .mockRejectedValueOnce(new Error('boom1'))
+        .mockRejectedValueOnce(new Error('boom2'))
+        .mockResolvedValueOnce('ok')
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(messageMock).toHaveBeenCalledTimes(3)
+      expect(mockCampaignsService.patchCampaignDetails).toHaveBeenCalled()
+    })
+
+    it('retries when slack returns no data (swallowed failure)', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockModel.count.mockResolvedValueOnce(1)
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue(candidateMock)
+      mockCampaignsService.patchCampaignDetails.mockClear()
+
+      const messageMock = vi.mocked(mockSlackService.message!)
+      messageMock.mockReset()
+      messageMock.mockResolvedValue(undefined)
+
+      await expect(service.notifySlackOnProUpgrade(1)).resolves.not.toThrow()
+      expect(messageMock).toHaveBeenCalledTimes(3)
+      expect(mockCampaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+    })
+
+    it('swallows errors when slack fails on all 3 attempts', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockModel.count.mockResolvedValueOnce(1)
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue(candidateMock)
+      mockCampaignsService.patchCampaignDetails.mockClear()
+
+      const messageMock = vi.mocked(mockSlackService.message!)
+      messageMock.mockReset()
+      messageMock.mockRejectedValue(new Error('boom'))
+
+      await expect(service.notifySlackOnProUpgrade(1)).resolves.not.toThrow()
+      expect(messageMock).toHaveBeenCalledTimes(3)
+      expect(mockCampaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('generateDefaultTasks - task distribution', () => {
+    const TODAY = startOfDay(parseIsoDateString('2025-06-01'))
+    const FUTURE_GENERAL = '2025-11-04'
+    const FUTURE_PRIMARY = '2025-08-15'
+    const PAST_PRIMARY = '2024-03-01'
+    const PAST_GENERAL = '2024-11-04'
+
+    const CAMPAIGN_FINANCE_AWARENESS_COUNT = 1
+    const SIGNUP_AWARENESS_COUNT = 2
+    const ELECTION_DAY_AWARENESS_COUNT_PER_DATE = 1
+    const SIGNUP_WEEK_AWARENESS_COUNT =
+      CAMPAIGN_FINANCE_AWARENESS_COUNT + SIGNUP_AWARENESS_COUNT
+    const SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY =
+      SIGNUP_WEEK_AWARENESS_COUNT + ELECTION_DAY_AWARENESS_COUNT_PER_DATE
+    const SIGNUP_WEEK_AWARENESS_PLUS_TWO_ELECTION_DAYS =
+      SIGNUP_WEEK_AWARENESS_COUNT + 2 * ELECTION_DAY_AWARENESS_COUNT_PER_DATE
+
+    const setupForCreation = () => {
+      mockTxModel.count.mockResolvedValueOnce(0)
+      mockTxModel.deleteMany.mockResolvedValue({ count: 0 })
+      mockTxModel.createMany.mockResolvedValue({ count: 1 })
+      mockCampaignModel.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        data: { name: 'Test Candidate' },
+        user: { firstName: 'Test', lastName: 'User' },
+        campaignTasks: [],
+      })
+    }
+
+    const getCreatedTaskData = () => {
+      const call = mockTxModel.createMany.mock.calls[0][0] as {
+        data: {
+          id: string
+          title: string
+          description: string
+          cta: string | null
+          date: Date | null
+          week: number
+          link: string | undefined
+          proRequired: boolean
+          deadline: number | undefined
+          defaultAiTemplateId: string | undefined
+          completed: boolean
+          isDefaultTask: boolean
+          campaignId: number
+          flowType: CampaignTaskType | null
+        }[]
+      }
+      return call.data
+    }
+
+    const recurringTitles = new Set(defaultRecurringTasks.map((t) => t.title))
+
+    const splitByRecurring = (
+      tasks: ReturnType<typeof getCreatedTaskData>,
+    ) => ({
+      recurring: tasks.filter((t) => recurringTitles.has(t.title)),
+      nonRecurring: tasks.filter((t) => !recurringTitles.has(t.title)),
+    })
+
+    it('creates no tasks when details is empty', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(makeCampaign({ details: {} }), TODAY)
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('creates no tasks when details is null', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: null,
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('distributes general tasks when only general date is future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const { nonRecurring, recurring } = splitByRecurring(tasks)
+      expect(nonRecurring).toHaveLength(
+        generalDefaultTasks.length +
+          generalAwarenessTasks.length +
+          SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
+      )
+      expect(recurring).toHaveLength(169)
+      expect(tasks[0].date).toBeInstanceOf(Date)
+      expect(tasks[0].isDefaultTask).toBe(true)
+      expect(tasks[tasks.length - 1].date).toBeInstanceOf(Date)
+      expect(tasks[tasks.length - 1].isDefaultTask).toBe(true)
+    })
+
+    it('distributes primary tasks when only primary date is future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { primaryElectionDate: FUTURE_PRIMARY },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const { nonRecurring, recurring } = splitByRecurring(tasks)
+      expect(nonRecurring).toHaveLength(
+        primaryDefaultTasks.length +
+          SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
+      )
+      expect(recurring).toHaveLength(85)
+      expect(tasks[0].date).toBeInstanceOf(Date)
+      expect(tasks[0].isDefaultTask).toBe(true)
+    })
+
+    it('distributes both sets when both dates are future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: FUTURE_PRIMARY,
+            electionDate: FUTURE_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const { nonRecurring, recurring } = splitByRecurring(tasks)
+      expect(nonRecurring).toHaveLength(
+        primaryDefaultTasks.length +
+          generalDefaultTasks.length +
+          generalAwarenessTasks.length +
+          SIGNUP_WEEK_AWARENESS_PLUS_TWO_ELECTION_DAYS,
+      )
+      expect(recurring).toHaveLength(169)
+      expect(tasks[0].date).toBeInstanceOf(Date)
+      expect(tasks[0].isDefaultTask).toBe(true)
+    })
+
+    it('returns empty when both dates are in the past', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: PAST_PRIMARY,
+            electionDate: PAST_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('returns empty when only general date is in the past', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: PAST_GENERAL },
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('distributes only general when primary is past and general is future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: PAST_PRIMARY,
+            electionDate: FUTURE_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const { nonRecurring, recurring } = splitByRecurring(tasks)
+      expect(nonRecurring).toHaveLength(
+        generalDefaultTasks.length +
+          generalAwarenessTasks.length +
+          SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
+      )
+      expect(recurring).toHaveLength(169)
+    })
+
+    it('distributes only primary when general is past and primary is future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: FUTURE_PRIMARY,
+            electionDate: PAST_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const { nonRecurring, recurring } = splitByRecurring(tasks)
+      expect(nonRecurring).toHaveLength(
+        primaryDefaultTasks.length +
+          SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
+      )
+      expect(recurring).toHaveLength(85)
+    })
+
+    it('includes the campaign finance awareness task on the Saturday of the signup week', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const financeTasks = getCreatedTaskData().filter(
+        (t) =>
+          t.title === 'Add your campaign finance deadlines to your calendar',
+      )
+      expect(financeTasks).toHaveLength(1)
+      const [financeTask] = financeTasks
+      expect(financeTask.flowType).toBe(CampaignTaskType.awareness)
+      expect(financeTask.isDefaultTask).toBe(true)
+      expect(financeTask.date).toEqual(
+        startOfDay(parseIsoDateString('2025-06-07')),
+      )
+    })
+
+    it('does not create the campaign finance awareness task when no election date is set', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(makeCampaign({ details: {} }), TODAY)
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('does not create the campaign finance awareness task when both election dates are past', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: PAST_PRIMARY,
+            electionDate: PAST_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('includes the Meta and design materials awareness tasks on Wed/Thu of the week after signup', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const meta = tasks.find((t) => t.title === 'Get Meta verified')
+      const design = tasks.find((t) => t.title === 'Design materials')
+
+      expect(meta).toBeDefined()
+      expect(meta!.flowType).toBe(CampaignTaskType.awareness)
+      expect(meta!.isDefaultTask).toBe(true)
+      expect(meta!.date).toEqual(startOfDay(parseIsoDateString('2025-06-11')))
+
+      expect(design).toBeDefined()
+      expect(design!.flowType).toBe(CampaignTaskType.awareness)
+      expect(design!.isDefaultTask).toBe(true)
+      expect(design!.date).toEqual(startOfDay(parseIsoDateString('2025-06-12')))
+    })
+
+    it('does not create the Meta and design materials awareness tasks when no election date is set', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(makeCampaign({ details: {} }), TODAY)
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('omits the Meta and design materials awareness tasks when the election is less than 42 days away', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-07-12' },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      expect(tasks.find((t) => t.title === 'Get Meta verified')).toBeUndefined()
+      expect(tasks.find((t) => t.title === 'Design materials')).toBeUndefined()
+    })
+
+    it('includes the Meta and design materials awareness tasks when the election is exactly 42 days away', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-07-13' },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      expect(tasks.find((t) => t.title === 'Get Meta verified')).toBeDefined()
+      expect(tasks.find((t) => t.title === 'Design materials')).toBeDefined()
+    })
+
+    it('does not create the Meta and design materials awareness tasks when both election dates are past', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: PAST_PRIMARY,
+            electionDate: PAST_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('includes a General Election Day awareness task on the general election date', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const electionDayTasks = getCreatedTaskData().filter(
+        (t) => t.title === 'General Election Day',
+      )
+      expect(electionDayTasks).toHaveLength(1)
+      const [electionDayTask] = electionDayTasks
+      expect(electionDayTask.flowType).toBe(CampaignTaskType.awareness)
+      expect(electionDayTask.isDefaultTask).toBe(true)
+      expect(electionDayTask.week).toBe(0)
+      expect(electionDayTask.date).toEqual(
+        startOfDay(parseIsoDateString(FUTURE_GENERAL)),
+      )
+    })
+
+    it('includes a Primary Election Day awareness task on the primary election date when only primary is future', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { primaryElectionDate: FUTURE_PRIMARY },
+        }),
+        TODAY,
+      )
+
+      const electionDayTasks = getCreatedTaskData().filter(
+        (t) => t.title === 'Primary Election Day',
+      )
+      expect(electionDayTasks).toHaveLength(1)
+      expect(electionDayTasks[0].date).toEqual(
+        startOfDay(parseIsoDateString(FUTURE_PRIMARY)),
+      )
+    })
+
+    it('includes Election Day awareness tasks on both primary and general election dates', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: FUTURE_PRIMARY,
+            electionDate: FUTURE_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      const primaryDay = tasks.find((t) => t.title === 'Primary Election Day')
+      const generalDay = tasks.find((t) => t.title === 'General Election Day')
+      expect(primaryDay).toBeDefined()
+      expect(primaryDay!.date).toEqual(
+        startOfDay(parseIsoDateString(FUTURE_PRIMARY)),
+      )
+      expect(generalDay).toBeDefined()
+      expect(generalDay!.date).toEqual(
+        startOfDay(parseIsoDateString(FUTURE_GENERAL)),
+      )
+    })
+
+    it('does not create any Election Day awareness task when no election date is set', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(makeCampaign({ details: {} }), TODAY)
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('does not create any Election Day awareness task when both election dates are past', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: {
+            primaryElectionDate: PAST_PRIMARY,
+            electionDate: PAST_GENERAL,
+          },
+        }),
+        TODAY,
+      )
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+
+    it('assigns dates in chronological order', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      for (let i = 1; i < tasks.length; i++) {
+        expect(tasks[i].date!.getTime()).toBeGreaterThanOrEqual(
+          tasks[i - 1].date!.getTime(),
+        )
+      }
+    })
+
+    it('assigns decreasing weeks for tasks closer to election', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      for (let i = 1; i < tasks.length; i++) {
+        expect(tasks[i].week).toBeLessThanOrEqual(tasks[i - 1].week)
+      }
+    })
+
+    it('treats election date equal to today as future with only general default tasks', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-06-01' },
+        }),
+        TODAY,
+      )
+
+      const tasks = getCreatedTaskData()
+      expect(tasks).toHaveLength(
+        generalDefaultTasks.length +
+          CAMPAIGN_FINANCE_AWARENESS_COUNT +
+          ELECTION_DAY_AWARENESS_COUNT_PER_DATE,
+      )
+      expect(tasks[0].date).toBeInstanceOf(Date)
+      expect(tasks[0].isDefaultTask).toBe(true)
+      expect(tasks[tasks.length - 1].date).toBeInstanceOf(Date)
+    })
+
+    it('generates weekly recurring tasks on the correct day each week', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-06-15' },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      const socialPosts = recurring.filter(
+        (t) => t.title === 'Plan and Schedule 2 Social Posts for the week',
+      )
+      expect(socialPosts).toEqual([
+        {
+          campaignId: 1,
+          title: 'Plan and Schedule 2 Social Posts for the week',
+          description:
+            'Keep your campaign visible! Plan and schedule two social posts to engage supporters and reach more voters.',
+          cta: null,
+          flowType: CampaignTaskType.recurring,
+          week: 2,
+          date: startOfDay(parseIsoDateString('2025-06-06')),
+          link: undefined,
+          proRequired: false,
+          deadline: undefined,
+          defaultAiTemplateId: undefined,
+          completed: false,
+          isDefaultTask: true,
+        },
+        {
+          campaignId: 1,
+          title: 'Plan and Schedule 2 Social Posts for the week',
+          description:
+            'Keep your campaign visible! Plan and schedule two social posts to engage supporters and reach more voters.',
+          cta: null,
+          flowType: CampaignTaskType.recurring,
+          week: 1,
+          date: startOfDay(parseIsoDateString('2025-06-13')),
+          link: undefined,
+          proRequired: false,
+          deadline: undefined,
+          defaultAiTemplateId: undefined,
+          completed: false,
+          isDefaultTask: true,
+        },
+      ])
+    })
+
+    it('generates monthlyNthDay recurring tasks on correct week-of-month occurrences', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-06-22' },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      const houseParty = recurring.filter(
+        (t) => t.title === 'Organize a House Party with Supporters',
+      )
+      expect(houseParty).toEqual([
+        {
+          campaignId: 1,
+          title: 'Organize a House Party with Supporters',
+          description:
+            'Work with your supporters to organize an informational house party where you can talk to voters directly.',
+          cta: null,
+          flowType: CampaignTaskType.recurring,
+          week: 3,
+          date: startOfDay(parseIsoDateString('2025-06-04')),
+          link: undefined,
+          proRequired: false,
+          deadline: undefined,
+          defaultAiTemplateId: undefined,
+          completed: false,
+          isDefaultTask: true,
+        },
+      ])
+
+      const fundraiser = recurring.filter(
+        (t) => t.title === 'Organize a Fundraiser',
+      )
+      expect(fundraiser).toEqual([
+        {
+          campaignId: 1,
+          title: 'Organize a Fundraiser',
+          description:
+            'Work with your supporters to plan and organize a fundraiser to get the financial support you need',
+          cta: null,
+          flowType: CampaignTaskType.recurring,
+          week: 2,
+          date: startOfDay(parseIsoDateString('2025-06-10')),
+          link: undefined,
+          proRequired: false,
+          deadline: undefined,
+          defaultAiTemplateId: undefined,
+          completed: false,
+          isDefaultTask: true,
+        },
+      ])
+    })
+
+    it('generates weeksBeforeElection recurring task at the exact computed date', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      const lettersToEditor = recurring.filter(
+        (t) =>
+          t.title ===
+          'Submit 2 Letters to the Editor in support of your campaign',
+      )
+      expect(lettersToEditor).toEqual([
+        {
+          campaignId: 1,
+          title: 'Submit 2 Letters to the Editor in support of your campaign',
+          description:
+            'Have some of your supporters write some Letters to the Editor in support of your campaign to the local press.',
+          cta: null,
+          flowType: CampaignTaskType.recurring,
+          week: 4,
+          date: startOfDay(parseIsoDateString('2025-10-09')),
+          link: undefined,
+          proRequired: false,
+          deadline: undefined,
+          defaultAiTemplateId: undefined,
+          completed: false,
+          isDefaultTask: true,
+        },
+      ])
+    })
+
+    it('generates door-knocking recurring tasks with correct flowType and proRequired', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-06-15' },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      const doorKnocking = recurring.filter((t) => t.title === 'Knock on Doors')
+      expect(doorKnocking.length).toBeGreaterThan(0)
+      doorKnocking.forEach((t) => {
+        expect(t.flowType).toBe(CampaignTaskType.doorKnocking)
+        expect(t.proRequired).toBe(true)
+        expect(t.defaultAiTemplateId).toBe('wgbnDDTxrf8OrresVE1HU')
+        expect(t.isDefaultTask).toBe(true)
+      })
+    })
+
+    it('generates phone-banking recurring tasks with correct flowType and proRequired', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: '2025-06-15' },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      const phoneBanking = recurring.filter(
+        (t) => t.title === 'Make phone bank calls',
+      )
+      expect(phoneBanking.length).toBeGreaterThan(0)
+      phoneBanking.forEach((t) => {
+        expect(t.flowType).toBe(CampaignTaskType.phoneBanking)
+        expect(t.proRequired).toBe(true)
+        expect(t.defaultAiTemplateId).toBe('5N93cglp3cvq62EIwu1IOa')
+        expect(t.isDefaultTask).toBe(true)
+      })
+    })
+
+    it('generates all recurring task templates with correct total counts', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(
+        makeCampaign({
+          details: { electionDate: FUTURE_GENERAL },
+        }),
+        TODAY,
+      )
+
+      const { recurring } = splitByRecurring(getCreatedTaskData())
+      expect(recurring).toHaveLength(169)
+
+      const countByTitle = recurring.reduce<Record<string, number>>(
+        (acc, t) => {
+          acc[t.title] = (acc[t.title] || 0) + 1
+          return acc
+        },
+        {},
+      )
+
+      expect(countByTitle).toEqual({
+        'Plan and Schedule 2 Social Posts for the week': 22,
+        'Social media update': 22,
+        'Fundraising ask': 22,
+        'Email update': 22,
+        'Organize a House Party with Supporters': 5,
+        'Organize a Fundraiser': 10,
+        'Organize a Volunteer Voter Contact Event': 10,
+        'Hold a Volunteer Voter Contact Event': 11,
+        'Submit 2 Letters to the Editor in support of your campaign': 1,
+        'Knock on Doors': 22,
+        'Make phone bank calls': 22,
+      })
+
+      expect(recurring[0]).toMatchObject({
+        isDefaultTask: true,
+        campaignId: 1,
+        completed: false,
+      })
+      expect(recurring[0].date).toBeInstanceOf(Date)
+      expect(recurring[recurring.length - 1]).toMatchObject({
+        isDefaultTask: true,
+        campaignId: 1,
+        completed: false,
+      })
+      expect(recurring[recurring.length - 1].date).toBeInstanceOf(Date)
+    })
+
+    it('does not generate any tasks when no election dates exist', async () => {
+      setupForCreation()
+
+      await service.generateDefaultTasks(makeCampaign({ details: {} }), TODAY)
+
+      expect(mockTxModel.createMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('buildParadeAwarenessTasks', () => {
+    const today = startOfDay(parseIsoDateString('2026-01-05'))
+    const electionDate = '2026-11-03'
+
+    const makeAiTask = (
+      overrides: Partial<CampaignTask> = {},
+    ): CampaignTask => ({
+      id: 'ai-task-1',
+      title: 'Some Task',
+      description: 'Some description',
+      week: 4,
+      date: '2026-03-15',
+      ...overrides,
+    })
+
+    it('creates an awareness task for a parade event in the title', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-1',
+          title: '4th of July Parade',
+          date: '2026-07-04',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe(
+        'Contact Parade Organizers for 4th of July Parade',
+      )
+      expect(result[0].description).toBe('Get signed up to march in the parade')
+      expect(result[0].flowType).toBe(CampaignTaskType.awareness)
+      expect(result[0].date).toBe('2026-06-01')
+      expect(result[0].week).toBe(23)
+      expect(result[0].isDefaultTask).toBe(false)
+    })
+
+    it('detects parade in the description (case-insensitive)', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'event-1',
+          title: 'Community March Event',
+          description: 'Join the local PARADE and wave to supporters',
+          date: '2026-07-04',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe(
+        'Contact Parade Organizers for Community March Event',
+      )
+    })
+
+    it('skips parade events less than 4 weeks out', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-soon',
+          title: 'Parade Tomorrow',
+          date: '2026-01-20',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('skips tasks without a date', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-no-date',
+          title: 'Some Parade',
+          date: undefined,
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('skips non-parade tasks', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'normal-task',
+          title: 'Door Knocking',
+          description: 'Go knock on doors',
+          date: '2026-07-04',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('handles multiple parade events', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-1',
+          title: 'Memorial Day Parade',
+          date: '2026-05-25',
+        }),
+        makeAiTask({
+          id: 'parade-2',
+          title: 'Independence Day Parade',
+          date: '2026-07-04',
+        }),
+        makeAiTask({
+          id: 'normal',
+          title: 'Phone Banking',
+          date: '2026-06-01',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].id).toBe('aw-parade-parade-1')
+      expect(result[1].id).toBe('aw-parade-parade-2')
+    })
+
+    it('returns empty when no election date is provided', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-1',
+          title: '4th of July Parade',
+          date: '2026-07-04',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(tasks, undefined, today)
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('skips tasks with malformed dates', () => {
+      const tasks = [
+        makeAiTask({
+          id: 'parade-bad',
+          title: 'Bad Parade',
+          date: 'not-a-date',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        today,
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('skips when derived monday is before today', () => {
+      const laterToday = startOfDay(parseIsoDateString('2026-06-05'))
+      const tasks = [
+        makeAiTask({
+          id: 'parade-1',
+          title: '4th of July Parade',
+          date: '2026-07-04',
+        }),
+      ]
+
+      const result = service.buildParadeAwarenessTasks(
+        tasks,
+        electionDate,
+        laterToday,
+      )
+
+      expect(result).toHaveLength(0)
+    })
+  })
+})

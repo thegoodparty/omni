@@ -1,0 +1,51 @@
+import { Module } from '@nestjs/common'
+import { SqsModule } from '@ssut/nestjs-sqs'
+import { QueueConsumerService } from './queueConsumer.service'
+import { queueConfig } from '../queue.config'
+import { CampaignsAiModule } from 'src/campaigns/ai/campaignsAi.module'
+import { CampaignsModule } from 'src/campaigns/campaigns.module'
+import { ElectionsModule } from 'src/elections/elections.module'
+import { OrganizationsModule } from 'src/organizations/organizations.module'
+import { QueueProducerModule } from '../producer/queueProducer.module'
+import { AnalyticsModule } from '../../analytics/analytics.module'
+import { WebsitesModule } from '../../websites/websites.module'
+import { SlackModule } from 'src/vendors/slack/slack.module'
+import { PollsModule } from 'src/polls/polls.module'
+import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
+import { ContactsModule } from 'src/contacts/contacts.module'
+import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.module'
+import { MeetingsModule } from 'src/meetings/meetings.module'
+import { AwsModule } from 'src/vendors/aws/aws.module'
+import { AnnotationsModule } from 'src/annotations/annotations.module'
+import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
+
+@Module({
+  imports: [
+    SqsModule.register({
+      consumers: [
+        {
+          ...queueConfig,
+          pollingWaitTimeMs: 1000,
+        },
+      ],
+    }),
+    CampaignsAiModule,
+    CampaignsModule,
+    ElectionsModule,
+    OrganizationsModule,
+    QueueProducerModule,
+    AnalyticsModule,
+    WebsitesModule,
+    SlackModule,
+    ElectedOfficeModule,
+    PollsModule,
+    ContactsModule,
+    AwsModule,
+    AgentExperimentsModule,
+    MeetingsModule,
+    AnnotationsModule,
+    CampaignStrategyModule,
+  ],
+  providers: [QueueConsumerService],
+})
+export class QueueConsumerModule {}

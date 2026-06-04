@@ -1,0 +1,43 @@
+import { Controller, Get, Param, Query, UsePipes } from '@nestjs/common'
+import { CrmCampaignsService } from '../campaigns/services/crmCampaigns.service'
+import { Roles } from '../authentication/decorators/Roles.decorator'
+import { UserRole } from '@prisma/client'
+import { ZodValidationPipe } from 'nestjs-zod'
+import {
+  MassRefreshCompanySchema,
+  RefreshCompanySchema,
+} from './schemas/RefreshSync.schema'
+import { HubSpot } from './crm.types'
+import { PinoLogger } from 'nestjs-pino'
+
+@Controller('crm')
+@UsePipes(ZodValidationPipe)
+export class CrmController {
+  constructor(
+    private readonly crmCampaignsService: CrmCampaignsService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(this.constructor.name)
+  }
+
+  @Get('companies/:companyId')
+  async getCompany(@Param('companyId') companyId: string) {
+    return await this.crmCampaignsService.getCrmCompanyById(companyId)
+  }
+
+  @Get('refresh-companies')
+  @Roles(UserRole.admin) // push from all or one campaign to hubspot
+  async refreshCompanies(@Query() { campaignId }: RefreshCompanySchema) {
+    return await this.crmCampaignsService.refreshCompanies(campaignId)
+  }
+
+  @Get('mass-refresh-companies')
+  @Roles(UserRole.admin) // push from all campaigns to hubspot, but only for certain fields
+  async massRefreshCompanies(@Query() { fields }: MassRefreshCompanySchema) {
+    return await this.crmCampaignsService.massRefreshCompanies(
+      // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      fields as Array<HubSpot.OutgoingProperty>,
+    )
+  }
+}

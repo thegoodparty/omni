@@ -1,0 +1,623 @@
+---
+description: Cursor rules for GP-API TypeScript/NestJS project. Enforce type safety, Prisma patterns, exception handling, and coding standards.
+globs: ['**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx']
+alwaysApply: true
+---
+
+# Cursor Rules for GP-API
+
+## Rule 0: Type Safety
+
+NEVER use the `any` or `unknown` types in new code. Always use proper TypeScript types:
+
+- ✅ Good: `user: User`, `data: { id: string; name: string }`, `error: Error`
+- ❌ Bad: `user: any`, `data: any`, `error: any`, `value: unknown`
+
+For complex external API responses, create proper interfaces:
+
+```typescript
+interface ApiResponse {
+  data: { id: string; name: string }
+  status: 'success' | 'error'
+}
+```
+
+For catch blocks, use `Error` type or create specific error types:
+
+```typescript
+try {
+  // code
+} catch (error: Error) {
+  // handle error
+}
+```
+
+For function parameters where the type is truly unknown, use generics or unions:
+
+```typescript
+function processData<T>(data: T): T {
+  return data
+}
+// or
+function handleValue(value: string | number | boolean): void {}
+```
+
+For external API responses that need validation, use proper type guards or validation libraries:
+
+```typescript
+function isApiResponse(data: unknown): data is ApiResponse {
+  return typeof data === 'object' && data !== null && 'data' in data
+}
+```
+
+Pre-existing `any` and `unknown` types have been marked with `// eslint-disable-next-line @typescript-eslint/no-explicit-any` and `// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment` respectively for gradual migration.
+
+## Rule 1: Exception Handling
+
+External service calls (e.g., Vercel) should be wrapped in try-catch and throw BadGateway on failure; DB updates have Prisma exception handling and should not be caught; use BadRequestExceptions for client request errors.
+
+## Rule 2: Prisma Service Pattern
+
+When creating or modifying Prisma model services:
+
+1. **Use createPrismaBase pattern**: All Prisma model services MUST extend `createPrismaBase(MODELS.ModelName)`
+   - Import: `import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'`
+   - Class declaration: `export class ServiceName extends createPrismaBase(MODELS.ModelName)`
+   - Call `super()` in constructor if one exists
+2. **Access Prisma models**: Use `this.model` to access the Prisma model instead of directly injecting PrismaService
+   - ✅ Good: `this.model.create(args)`
+   - ❌ Bad: `this.prisma.modelName.create(args)`
+3. **Available methods**: The base class provides these methods automatically:
+   - `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`
+   - Access the raw client with `this.client`
+4. **Example pattern**:
+
+```typescript
+import { Injectable } from '@nestjs/common'
+import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { Prisma } from '@prisma/client'
+@Injectable()
+export class MyModelService extends createPrismaBase(MODELS.MyModel) {
+  constructor(
+    // other dependencies
+  ) {
+    super()
+  }
+  customMethod() {
+    return this.model.create({ data: {...} })
+  }
+}
+```
+
+5. **Service logic**: Keep services focused on data operations. Business logic should be in controllers.
+   - ✅ Good: `createStatusLog(id, fromStatus, toStatus)`
+   - ❌ Bad: `logStatusChangeIfNeeded(id, oldStatus, newStatus)` - the "if needed" logic belongs in controller
+
+## Rule 3: Exception Handling Pattern
+
+When choosing between different HTTP exception types:
+
+1. **Use BadRequestException (400)** for client-side errors:
+   - Invalid input data or parameters
+   - Validation failures
+   - Missing required fields
+   - Malformed requests
+   - Business logic violations caused by user input
+   - ✅ Example: `throw new BadRequestException('Domain name is required')`
+2. **Use BadGatewayException (502)** for external service failures:
+   - Third-party API failures (Vercel, AWS, Stripe, etc.)
+   - External service timeouts or connectivity issues
+   - Upstream service errors that are not user-caused
+   - Infrastructure/network problems
+   - ✅ Example: `throw new BadGatewayException('Failed to register domain with Vercel')`
+3. **Use ConflictException (409)** for resource conflicts:
+   - Duplicate entries
+   - Resource state conflicts
+   - ✅ Example: `throw new ConflictException('Domain not available')`
+4. **Use NotFoundException (404)** for missing resources:
+   - Resource doesn't exist
+   - ✅ Example: `throw new NotFoundException('Domain not found')`
+
+### Try-Catch Block Pattern
+
+- Only wrap external service calls in try-catch blocks, not database operations
+- Database operations should rely on Prisma's built-in exception handling
+- Handle external service failures separately from internal logic
+
+```typescript
+// ✅ Good
+let externalResult
+try {
+  externalResult = await this.externalService.doSomething()
+} catch (error) {
+  throw new BadGatewayException('External service failed')
+}
+// Continue with database operations outside try-catch
+await this.model.update(...)
+
+// ❌ Bad - includes DB operations in try-catch
+try {
+  const result = await this.externalService.doSomething()
+  await this.model.update(...)
+} catch (error) {
+  // This catches both external and DB errors
+}
+```
+
+## Rule 4: Code Style
+
+Default to writing no comments. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse a future reader, don't write it.
+
+Do not explain WHAT the code does — well-named identifiers do that. Do not reference the current task, fix, or callers ("used by X", "added for the Y flow") — those belong in the PR description and rot as the codebase evolves.
+
+## Rule 5: Strict Implementation Scope
+
+CRITICAL REQUIREMENT:
+
+- Only create or implement EXACTLY what the user explicitly requests
+- Do NOT add any additional files, features, or functionality beyond the specific request
+
+PROHIBITED:
+
+- Creating controllers when only asked for a module
+- Creating services when only asked for a module
+- Creating DTOs, guards, or any other files not explicitly requested
+- Adding imports or dependencies not explicitly requested
+- Implementing CRUD operations or any logic not explicitly requested
+- Creating directory structures beyond what's needed for the requested files
+- Making assumptions about what the user "might want"
+
+REQUIRED BEHAVIOR:
+
+- If asked to create a module, create ONLY the module file
+- If asked to create a service, create ONLY the service file
+- Wait for explicit instructions before adding any additional functionality
+- Ask for clarification if the scope is unclear rather than assuming
+- When modifying existing code, preserve the existing code structure and patterns — do NOT refactor, reorganize, or "improve" surrounding code that is not directly related to the requested change
+- If existing code uses inline awaits in a return statement, keep that pattern — do NOT restructure it into Promise.all, destructured variables, or any other form
+- Only touch the lines necessary to fulfill the request
+
+## Rule 6: Use Available Libraries
+
+CRITICAL REQUIREMENT:
+
+- Always attempt to use libraries that are listed in the `package.json` for relevant functionality
+- Avoid implementing custom solutions when a library can provide the needed functionality
+
+IMPLEMENTATION:
+
+- Check the `package.json` for available libraries before implementing new functionality
+- Use the library's documentation for the version `package-lock.json` specifies to integrate it effectively into the codebase
+
+## Rule 7: NestJS Services Directory Structure
+
+CRITICAL REQUIREMENT:
+
+- Every `*.service.ts` file MUST reside in a `services/` subdirectory within its module folder
+- This rule applies consistently across ALL modules in ANY NestJS application
+
+EXPECTED STRUCTURE:
+
+```
+src/module-name/
+  module-name.module.ts
+  module-name.controller.ts
+  services/
+    module-name.service.ts
+    other-service.service.ts
+```
+
+PROHIBITED:
+
+- Placing service files directly in module root
+- Creating service files outside a `services/` folder
+- Having multiple `services/` folders per module
+- Any exceptions or deviations from this pattern
+
+## Rule 8: Use http-constants-ts for MIME Types
+
+CRITICAL REQUIREMENT:
+
+- Always use the `http-constants-ts` library for MIME type constants
+- Avoid using string literals for MIME types in the codebase
+
+IMPLEMENTATION:
+
+- Import the necessary MIME type constants from `http-constants-ts`
+- Replace any existing string literals representing MIME types with the corresponding constants from the library
+
+## Rule 9: Consume Provided Documentation Links
+
+CRITICAL REQUIREMENT:
+
+- Always read and utilize documentation links provided by the user
+- Ensure that the information from the links is accurately reflected in the code changes or responses
+
+IMPLEMENTATION:
+
+- Thoroughly review the content of any documentation links provided by the user
+- Apply the information from the documentation to the task at hand, ensuring accuracy and relevance
+
+## Rule 11: No Redundant Application Prompts
+
+- If the user has explicitly instructed you to make a change, DO NOT ask for confirmation or permission to apply it
+- IMMEDIATELY proceed to apply the change as instructed
+- Only ask for clarification if the instruction is ambiguous or incomplete
+
+RATIONALE:
+
+- Respects user intent and time
+- Prevents unnecessary interruptions and frustration
+
+## Rule 12: Ternary Expression Preference
+
+When assigning a value or returning from a function based on a condition:
+
+- **ALWAYS** use a ternary expression instead of an if-then-else statement when the result is a single value (assignment or return)
+- **AVOID** using if-then-else statements for simple value selection or return
+
+EXAMPLES:
+
+**PREFER:**
+
+```javascript
+const result = condition ? valueIfTrue : valueIfFalse
+
+return isValid ? successValue : errorValue
+```
+
+**AVOID:**
+
+```javascript
+let result
+if (condition) {
+  result = valueIfTrue
+} else {
+  result = valueIfFalse
+}
+
+if (isValid) {
+  return successValue
+} else {
+  return errorValue
+}
+```
+
+EXCEPTIONS:
+
+- When the condition or values are very complex
+- When you need to perform multiple operations in each branch
+- When you need to handle more than two cases (use switch or if-else-if)
+
+## Rule 13: No Redundant Variables for Direct Returns
+
+- When writing or refactoring code, do NOT create a variable just to immediately return its value
+- If a function/method call (async or sync) is the final result, return it directly
+- Do NOT use the `await` keyword if you are simply returning the result of an async function call (i.e., use `return someAsyncFunction()` instead of `return await someAsyncFunction()`)
+- Only assign to a variable if you need to use the value for additional logic before returning
+
+EXAMPLES:
+
+PREFER:
+
+```typescript
+return someAsyncFunction()
+```
+
+AVOID:
+
+```typescript
+const result = await someAsyncFunction()
+return result
+```
+
+## Rule 20: Remove Code Completely
+
+When removing or replacing code:
+
+MUST DO:
+
+- Delete code completely when it's no longer needed
+- Remove all associated code that becomes unused as a result
+- Never leave commented-out blocks of old code
+- Check for and remove any imports that are no longer used
+
+VERIFICATION STEPS:
+
+1. Confirm the code is truly obsolete before removing
+2. Use search tools to find any other code that might depend on it
+3. Ensure tests still pass after complete removal
+4. Remove any associated imports, comments, or dependencies
+5. Verify the codebase is cleaner and more maintainable after the removal
+
+## Rule 21: Follow SOLID Principles
+
+When designing and implementing code:
+
+SOLID PRINCIPLES:
+
+- Single Responsibility: Each class/module should have only one reason to change
+- Open/Closed: Classes/modules should be open for extension but closed for modification
+- Liskov Substitution: Derived classes must be substitutable for their base classes
+- Interface Segregation: Make fine-grained interfaces specific to clients
+- Dependency Inversion: Depend on abstractions, not concretions
+
+IMPLEMENTATION GUIDELINES:
+
+1. Analyze each class/function to ensure it has a single, well-defined purpose
+2. Design for extension through inheritance, interfaces, or composition
+3. Maintain consistent behavior when extending or implementing base classes
+4. Create specific, focused interfaces rather than large, general-purpose ones
+5. Inject dependencies rather than creating them within classes
+
+## Rule 23: Import/Export Verification
+
+When modifying, deleting, or adding code that involves imports or exports:
+
+MUST DO:
+
+- Before removing any file, check for all imports of that file across the codebase
+- Before removing any exported function, class, or variable, check for all imports of that specific export
+- After renaming a file, update all imports that reference it
+- When adding an import, verify that the imported path and exported items actually exist
+- After changing an export, verify all files that import it still work correctly
+
+VERIFICATION STEPS:
+
+1. Use grep or codebase search to find all imports of the file you're modifying
+2. Check each import to ensure it's still valid after your changes
+3. For any import that's no longer valid, either update it or remove it
+4. Pay special attention to utilities that might be widely used across the codebase
+5. If adding a new import, double-check that the file and export exist
+
+## Rule 24: Ensure HTTP methods decorated with @HttpCode(HttpStatus.NO_CONTENT) don't return response data
+
+globs: ["**/*.controller.ts", "**/*.ts"]
+alwaysApply: true
+
+## HTTP 204 No Content Response Rule
+
+#### Rule: No Response Data for HTTP 204
+
+Methods decorated with `@HttpCode(HttpStatus.NO_CONTENT)` MUST NOT return any data.
+
+REQUIRED BEHAVIOR:
+
+- Use `await` instead of `return` for service calls in methods with `@HttpCode(HttpStatus.NO_CONTENT)`
+- HTTP 204 responses indicate successful processing with no content body
+- The method should execute the operation but not return any response data
+
+EXAMPLES:
+
+**CORRECT:**
+
+```typescript
+@Delete('resource/:id')
+@HttpCode(HttpStatus.NO_CONTENT)
+async deleteResource(@Param('id') id: string) {
+  await this.service.delete(id)
+}
+```
+
+**INCORRECT:**
+
+```typescript
+@Delete('resource/:id')
+@HttpCode(HttpStatus.NO_CONTENT)
+async deleteResource(@Param('id') id: string) {
+  return this.service.delete(id) // ❌ Returns data with 204 status
+}
+```
+
+VERIFICATION:
+
+- Check all controller methods with `@HttpCode(HttpStatus.NO_CONTENT)`
+- Ensure they use `await` for service calls instead of `return`
+- Maintain HTTP specification compliance where 204 means "no content"
+
+## Rule 25: Avoid JSON column patterns
+
+**Default: Avoid JSON columns** - Use strongly-typed relational columns instead.
+
+**Why avoid JSON columns?**
+
+- **Type safety**: JSON columns bypass TypeScript's type system, leading to runtime errors
+- **Query performance**: Databases can't efficiently index or query nested JSON fields
+- **Data integrity**: No foreign key constraints or referential integrity
+- **Refactoring difficulty**: Changes require manual data migrations instead of automatic schema updates
+- **Maintenance burden**: Developers must maintain separate `.jsonTypes.d.ts` files that can drift from reality
+
+### When NOT to use JSON columns:
+
+1. **Data has known structure**: If you know the fields ahead of time, use proper columns
+   - ❌ Bad: `metadata Json` containing `{ title, description, author }`
+   - ✅ Good: Individual columns `title String`, `description String?`, `author String?`
+
+2. **Sub-fields need to be queried**: If you'll filter or search by nested fields within the JSON
+   - ❌ Bad: `settings Json` that you query with `settings.path.to.value`
+   - ✅ Good: Separate `Setting` model with proper relations
+
+3. **Data needs validation**: If the structure requires business rules
+   - ❌ Bad: `config Json` with unvalidated structure
+   - ✅ Good: DTO classes with class-validator decorators on typed fields
+
+4. **Relationships exist**: If the data relates to other models
+   - ❌ Bad: `tags Json` storing array of tag data
+   - ✅ Good: Proper many-to-many relation with `Tag` model
+
+### When JSON columns ARE acceptable:
+
+- **Truly dynamic/unpredictable data**: User-generated key-value pairs where keys are unknown
+- **Sparse optional data**: Many optional fields that are rarely populated (>20 optional fields)
+
+### Additional rules:
+
+- **NEVER create `.jsonTypes.d.ts` files**: If you're creating types for JSON columns, they should be proper columns instead
+- **Document why**: Add a comment explaining why JSON is necessary: `// Using Json for truly dynamic user-defined fields`
+- **Consider alternatives first**: Relations, separate tables, JSONB with partial indexes (PostgreSQL), or refactoring the feature
+
+### Example - Bad:
+
+```typescript
+model BlogArticle {
+id String @id
+meta Json // ❌ Contains title, description, tags, author
+}
+```
+
+Example - Good:
+
+````typescript
+model BlogArticle {
+  id          String   @id
+  title       String
+  description String?
+  author      String?
+  tags        Tag[]
+}
+```
+
+Before adding a JSON column, ask: "Can I model this with proper columns and relations?" If yes, use proper columns.
+
+## Rule 26: Use Library-Provided Enums and Constants Over Magic Strings
+
+CRITICAL REQUIREMENT:
+
+- Before using ANY string literal or numeric literal as a function argument, object property value, or configuration value, ALWAYS check whether the library provides an enum, constant, or type for that value
+- This applies to ALL libraries: Prisma, NestJS, http-constants-ts, Zod, and any other dependency
+
+REQUIRED WORKFLOW:
+
+1. Identify the library that owns the function/method/property you are calling
+2. Inspect the library's type definitions for enums, constants, or literal union types
+3. Use the library's provided constant instead of a magic string
+
+EXAMPLES:
+
+**Prisma:**
+
+```typescript
+import { Prisma } from '@prisma/client'
+
+// ❌ Bad: magic string
+{ mode: 'insensitive' }
+
+// ✅ Good: Prisma enum
+{ mode: Prisma.QueryMode.insensitive }
+
+// ❌ Bad: magic string for sort direction
+{ orderBy: { createdAt: 'desc' } }
+
+// ✅ Good: Prisma enum
+{ orderBy: { createdAt: Prisma.SortOrder.desc } }
+```
+
+**NestJS:**
+
+```typescript
+import { HttpStatus } from '@nestjs/common'
+
+// ❌ Bad: magic number
+expect(response.status).toBe(200)
+
+// ✅ Good: NestJS enum
+expect(response.status).toBe(HttpStatus.OK)
+```
+
+**http-constants-ts:**
+
+```typescript
+import { MediaType } from 'http-constants-ts'
+
+// ❌ Bad: magic string
+const contentType = 'application/json'
+
+// ✅ Good: library constant
+const contentType = MediaType.APPLICATION_JSON
+```
+
+ENFORCEMENT:
+
+- This rule applies to ALL code: controllers, services, schemas, tests, utilities
+- Review every string/number literal to determine if a library constant exists
+- When in doubt, inspect the library's type definitions before using a literal value
+
+## General NestJS Patterns
+
+- Follow established patterns in the codebase
+- Use proper decorators and validation
+- Keep controllers focused on HTTP concerns and business logic
+- Keep services focused on data operations
+
+## Rule 27: Lint and Format Gate Before Committing
+
+CRITICAL REQUIREMENT:
+
+- ALWAYS run `npm run lint-format` (or the project's equivalent lint/format command) before committing changes
+- If the command exits with a non-zero exit code, DO NOT commit
+- If the failure is in a file you modified, fix it immediately
+- If the failure is in a file you did NOT modify, STOP and raise it as an issue to the user before proceeding
+- NEVER dismiss, ignore, or rationalize away a non-zero exit code from a lint/format check
+
+REQUIRED BEHAVIOR:
+
+1. Run the lint/format command after all code changes are complete
+2. Verify the exit code is 0
+3. If exit code is non-zero, read the error output and determine which files are affected
+4. If the errors are in files you changed: fix them and re-run
+5. If the errors are in files you did NOT change: report them to the user and wait for instructions
+6. Only proceed with committing when the lint/format command exits cleanly
+
+STRICTLY PROHIBITED:
+
+- Committing when lint/format has a non-zero exit code
+- Dismissing pre-existing lint errors as "not my problem"
+- Silently ignoring warnings that are configured as errors in the project's lint config
+- Proceeding without running lint/format at all
+
+## Rule 28: Prefer date-fns Over Native Date Manipulation
+
+CRITICAL REQUIREMENT:
+
+- Always use `date-fns` for date creation, comparison, arithmetic, formatting, and parsing
+- Never use raw JavaScript `Date` methods or manual arithmetic for date operations
+
+REQUIRED BEHAVIOR:
+
+- Use `date-fns` functions for all date operations:
+  - **Parsing**: `parseISO`, `parse` — not `new Date(string)` or `Date.parse()`
+  - **Formatting**: `format`, `formatISO` — not `toISOString()`, `toLocaleDateString()`, or template literals with getters
+  - **Arithmetic**: `addDays`, `addWeeks`, `addMonths`, `subDays` — not `setDate(getDate() + n)` or manual millisecond math
+  - **Comparison**: `isBefore`, `isAfter`, `isEqual`, `compareAsc` — not `>`, `<`, or `getTime()` comparisons
+  - **Differences**: `differenceInDays`, `differenceInWeeks`, `differenceInCalendarDays` — not manual subtraction and division
+  - **Start/end of period**: `startOfDay`, `startOfWeek`, `endOfMonth` — not `setHours(0,0,0,0)`
+
+EXAMPLES:
+
+**PREFER:**
+
+```typescript
+import { addDays, isBefore, differenceInCalendarDays, startOfDay, format } from 'date-fns'
+
+const today = startOfDay(new Date())
+const deadline = addDays(today, 30)
+const isOverdue = isBefore(deadline, today)
+const daysLeft = differenceInCalendarDays(deadline, today)
+const formatted = format(deadline, 'yyyy-MM-dd')
+```
+
+**AVOID:**
+
+```typescript
+const today = new Date()
+today.setHours(0, 0, 0, 0)
+const deadline = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+const isOverdue = deadline < today
+const daysLeft = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+const formatted = deadline.toISOString().split('T')[0]
+```
+
+EXCEPTIONS:
+
+- `new Date()` is acceptable for getting the current timestamp when immediately passed to a `date-fns` function
+- `Date` type annotations are always fine — this rule governs operations, not types

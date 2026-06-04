@@ -1,0 +1,53 @@
+import { Campaign, User, UserRole } from '@prisma/client'
+
+export const createMockUser = (overrides?: Partial<User>): User =>
+  ({
+    id: 7,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    firstName: 'Test',
+    lastName: 'User',
+    name: 'Test User',
+    avatar: null,
+    password: null,
+    hasPassword: false,
+    email: 'test@example.com',
+    phone: '5555555555',
+    zip: '12345',
+    metaData: null,
+    clerkId: null,
+    passwordResetToken: null,
+    roles: [UserRole.candidate],
+    ...overrides,
+  }) as User
+
+export const createMockCampaign = (
+  overrides?: Partial<Campaign>,
+): Campaign => ({
+  id: 1,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  slug: 'test-campaign',
+  organizationSlug: 'campaign-1',
+  userId: 7,
+  isActive: true,
+  isVerified: false,
+  isPro: false,
+  isDemo: false,
+  didWin: null,
+  primaryResult: null,
+  dateVerified: null,
+  tier: null,
+  data: {},
+  details: {},
+  formattedAddress: null,
+  placeId: null,
+  campaignEmail: null,
+  aiContent: {},
+  vendorTsData: {},
+  canDownloadFederal: false,
+  completedTaskIds: [],
+  hasFreeTextsOffer: false,
+  freeTextsOfferRedeemedAt: null,
+  ...overrides,
+})

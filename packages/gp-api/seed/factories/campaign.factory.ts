@@ -1,0 +1,87 @@
+import { faker } from '@faker-js/faker'
+import { Campaign, CampaignTier } from '@prisma/client'
+import { GenerationStatus } from '../../src/campaigns/ai/content/aiContent.types'
+import { CampaignLaunchStatus, OnboardingStep } from '@goodparty_org/contracts'
+import { LEVELS } from '../../src/shared/constants/governmentLevels'
+import { STATE_CODES } from '../../src/shared/constants/states'
+import { generateFactory } from './generate'
+
+export const campaignFactory = generateFactory<Campaign>(() => {
+  const electionDate = faker.date.between({
+    from: faker.date.past(),
+    to: faker.date.future(),
+  })
+  const campaign = {
+    createdAt: new Date(),
+    updatedAt: faker.date.anytime(),
+    organizationSlug: `campaign-${faker.string.nanoid(8)}`,
+    slug: faker.lorem.words(5),
+    isActive: faker.datatype.boolean(0.5),
+    isVerified: faker.datatype.boolean(0.5),
+    isPro: faker.datatype.boolean(0.5),
+    isDemo: faker.datatype.boolean(0.1),
+    didWin: faker.datatype.boolean(0.5),
+    primaryResult: faker.helpers.arrayElement(['won', 'lost', null]),
+    dateVerified: null,
+    tier: faker.helpers.arrayElement(Object.values(CampaignTier)),
+    formattedAddress: null,
+    placeId: null,
+    campaignEmail: null,
+    data: {
+      hubSpotUpdates: {
+        election_results: faker.lorem.word(),
+        verified_candidates: faker.helpers.arrayElement(['Yes', 'No']),
+        office_type: faker.lorem.word(),
+      },
+      currentStep: OnboardingStep.complete,
+      launchStatus: CampaignLaunchStatus.launched,
+    },
+    details: {
+      state: faker.helpers.arrayElement(STATE_CODES),
+      zip: faker.location.zipCode(),
+      ballotLevel: faker.helpers.arrayElement(LEVELS),
+      electionDate: electionDate.toISOString().split('T')[0],
+      primaryElectionDate: faker.date
+        .past({ refDate: electionDate })
+        .toISOString()
+        .split('T')[0],
+      geoLocation: {},
+      party: faker.lorem.word(),
+      raceId: faker.string.nanoid(),
+      pledged: faker.datatype.boolean(0.8),
+      knowRun: faker.helpers.maybe(() => 'yes', { probability: 0.6 }),
+      runForOffice: faker.helpers.maybe(
+        () => faker.helpers.arrayElement(['yes', 'no']),
+        { probability: 0.6 },
+      ),
+    },
+    aiContent: {
+      launchSocialMediaCopy: {
+        name: 'Launch Social Media Copy',
+        content:
+          '<p>📢 Exciting News! 📢 I am thrilled to announce my candidacy for the US Senate as an Independent candidate!</p>',
+        updatedAt: faker.date.past().valueOf(),
+        inputValues: {},
+      },
+    },
+    vendorTsData: {},
+    canDownloadFederal: faker.datatype.boolean(0.3),
+    completedTaskIds: [],
+    hasFreeTextsOffer: faker.datatype.boolean(0.2),
+    freeTextsOfferRedeemedAt: null,
+  }
+
+  // NOTE: putting this in the object literal above gives a TS error on the generationStatus key
+  // see campaign.jsonTypes.ts for aiContent type definition
+  campaign.aiContent['generationStatus'] = {
+    launchSocialMediaCopy: {
+      prompt:
+        "I'm going to provide you with background information and then ask you a question....",
+      status: GenerationStatus.completed,
+      createdAt: faker.date.past().valueOf(),
+      existingChat: undefined,
+    },
+  }
+
+  return campaign as Omit<Campaign, 'id' | 'userId'>
+})

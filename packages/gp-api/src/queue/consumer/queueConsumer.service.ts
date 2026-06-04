@@ -1,0 +1,1255 @@
+import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
+import { Message } from '@aws-sdk/client-sqs'
+import {
+  BadGatewayException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common'
+import {
+  Poll,
+  PollIndividualMessageSender,
+  Prisma,
+  TcrComplianceStatus,
+} from '@prisma/client'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
+import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
+import { isAxiosError } from 'axios'
+import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
+import { groupBy } from 'es-toolkit'
+import { formatInTimeZone } from 'date-fns-tz'
+import parseCsv from 'neat-csv'
+import { serializeError } from 'serialize-error'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
+import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
+import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
+import { PersonOutput } from 'src/contacts/schemas/person.schema'
+import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
+import { ContactsService } from 'src/contacts/services/contacts.service'
+import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
+import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
+import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
+import { PollIssuesService } from 'src/polls/services/pollIssues.service'
+import { PollsService } from 'src/polls/services/polls.service'
+import {
+  POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
+  sendTevynAPIPollMessage,
+} from 'src/polls/utils/polls.utils'
+import { OrganizationsService } from 'src/organizations/services/organizations.service'
+import { UsersService } from 'src/users/services/users.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { isNestJsHttpException } from '../../shared/util/http.util'
+import { normalizePhoneNumber } from '../../shared/util/strings.util'
+import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
+import { PeerlyCvVerificationStatus } from '../../vendors/peerly/peerly.types'
+import { EVENTS } from '../../vendors/segment/segment.types'
+import { DomainsService } from '../../websites/services/domains.service'
+import {
+  AgenticComplianceKickoffMessageSchema,
+  CampaignPlanCompleteMessage,
+  CampaignPlanCompleteMessageSchema,
+  AgentExperimentResultSchema,
+  DomainEmailForwardingMessage,
+  WeeklyTasksDigestMessageSchema,
+  OcrAttachmentMessageSchema,
+  PollAnalysisCompleteEvent,
+  PollAnalysisCompleteEventSchema,
+  PollCreationEvent,
+  PollCreationEventSchema,
+  PollExpansionEvent,
+  PollExpansionEventSchema,
+  PollClusterAnalysisJsonSchema,
+  QueueMessage,
+  QueueType,
+  SqsConsumerErrorEventName,
+  TcrComplianceStatusCheckMessage,
+} from '../queue.types'
+import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
+import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { v5 as uuidv5 } from 'uuid'
+import { PinoLogger } from 'nestjs-pino'
+import { OrgDistrict } from '@/organizations/organizations.types'
+
+import type { AgentExperimentResultData } from '../queue.types'
+
+import { ExperimentRunStatus } from '@prisma/client'
+import { isJsonObject } from '@/shared/util/objects.util'
+
+type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
+
+const buildIssueProperties = (
+  issue: PollAnalysisIssue | undefined,
+  index: number,
+): Record<string, string | number | null> => {
+  if (!issue) {
+    return {
+      [`issue${index}Description`]: null,
+      [`issue${index}Quote1`]: null,
+      [`issue${index}Quote2`]: null,
+      [`issue${index}Quote3`]: null,
+      [`issue${index}MentionCount`]: null,
+    }
+  }
+  return {
+    [`issue${index}Description`]: issue.summary,
+    [`issue${index}Quote1`]: issue.quotes[0]?.quote ?? '',
+    [`issue${index}Quote2`]: issue.quotes[1]?.quote ?? '',
+    [`issue${index}Quote3`]: issue.quotes[2]?.quote ?? '',
+    [`issue${index}MentionCount`]: issue.responseCount,
+  }
+}
+
+@Injectable()
+export class QueueConsumerService {
+  constructor(
+    private readonly aiContentService: AiContentService,
+    private readonly slackService: SlackService,
+    private readonly analytics: AnalyticsService,
+    private readonly campaignsService: CampaignsService,
+    private readonly aiGenerationService: AiGenerationService,
+    private readonly campaignTasksService: CampaignTasksService,
+    private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly domainsService: DomainsService,
+    private readonly pollsService: PollsService,
+    private readonly pollIssuesService: PollIssuesService,
+    private readonly pollIndividualMessage: PollIndividualMessageService,
+    private readonly electedOfficeService: ElectedOfficeService,
+    private readonly contactsService: ContactsService,
+    private readonly s3Service: S3Service,
+    private readonly usersService: UsersService,
+    private readonly organizationsService: OrganizationsService,
+    private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
+    private readonly experimentRunsService: ExperimentRunsService,
+    private readonly meetingBriefings: MeetingBriefingsService,
+    private readonly campaignStrategy: CampaignStrategyService,
+    private readonly annotationAttachments: AnnotationAttachmentService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(QueueConsumerService.name)
+  }
+
+  private logConsumerError = (
+    eventName: SqsConsumerErrorEventName,
+    error: Error,
+    message: Message | Message[] | undefined,
+  ) => {
+    this.logger.error(
+      { error: serializeError(error), message },
+      `SQS consumer ${eventName}`,
+    )
+  }
+
+  @SqsConsumerEventHandler(
+    process.env.SQS_QUEUE || '',
+    SqsConsumerErrorEventName.ERROR,
+  )
+  onError(error: Error, message: Message | Message[] | undefined) {
+    this.logConsumerError(SqsConsumerErrorEventName.ERROR, error, message)
+  }
+
+  @SqsConsumerEventHandler(
+    process.env.SQS_QUEUE || '',
+    SqsConsumerErrorEventName.PROCESSING_ERROR,
+  )
+  onProcessingError(error: Error, message: Message) {
+    this.logConsumerError(
+      SqsConsumerErrorEventName.PROCESSING_ERROR,
+      error,
+      message,
+    )
+  }
+
+  @SqsConsumerEventHandler(
+    process.env.SQS_QUEUE || '',
+    SqsConsumerErrorEventName.TIMEOUT_ERROR,
+  )
+  onTimeoutError(error: Error, message: Message) {
+    this.logConsumerError(
+      SqsConsumerErrorEventName.TIMEOUT_ERROR,
+      error,
+      message,
+    )
+  }
+
+  @SqsMessageHandler(process.env.SQS_QUEUE || '', false)
+  async handleMessage(message: Message) {
+    const shouldRequeue = await this.handleMessageAndMaybeRequeue(message)
+
+    return shouldRequeue
+      ? // Return a rejected promise if requeue is needed without throwing an error
+        Promise.reject('Requeuing message without stopping the process')
+      : true // Return true to delete the message from the queue
+  }
+
+  // Function to process message and decide if requeue is necessary
+  async handleMessageAndMaybeRequeue(message: Message): Promise<boolean> {
+    try {
+      this.logger.debug(message, 'Processing queue message: ')
+      const success = await this.processMessage(message)
+      return !success // Invert: true (success) becomes false (don't requeue)
+    } catch (error) {
+      this.logger.error({
+        message,
+        error: serializeError(error),
+        msg: 'Message processing failed, will requeue',
+      })
+      return true // Indicate that we should requeue
+    }
+  }
+
+  private legacyShouldRequeueError(error: Error): boolean {
+    // Don't retry Prisma errors for missing records - these are permanent failures
+    if (error instanceof PrismaClientKnownRequestError) {
+      // P2025: Record not found
+      if (error.code === 'P2025') {
+        return false
+      }
+      // P2002: Unique constraint violation
+      if (error.code === 'P2002') {
+        return false
+      }
+    }
+
+    // Don't retry validation errors or other client errors
+    if (
+      error.message.includes('validation') ||
+      error.message.includes('Invalid')
+    ) {
+      return false
+    }
+
+    // Retry network errors, timeouts, and other temporary failures
+    return true
+  }
+
+  private withLegacyErrorSwallowing = async (
+    message: Message,
+    fn: () => Promise<boolean>,
+  ) => {
+    try {
+      return await fn()
+    } catch (error) {
+      const shouldRequeue =
+        error instanceof Error && this.legacyShouldRequeueError(error)
+      if (shouldRequeue) {
+        return false // Requeue the message
+      }
+
+      this.logger.error(
+        { error },
+        `Message processing failed with non-retryable error, discarding message: ${JSON.stringify(message)}`,
+      )
+
+      // Send error notification to Slack for non-retryable errors
+      try {
+        await this.slackService.errorMessage({
+          message: 'Queue message discarded due to non-retryable error',
+          error: {
+            error,
+            message,
+          },
+        })
+      } catch (slackError) {
+        this.logger.error({ slackError }, 'Failed to send Slack notification:')
+      }
+
+      return true // Don't requeue, delete the message
+    }
+  }
+
+  // TODO: Each message type should be assigned it's own SQS queue allowing each
+  //  module/service to listen to and handle it's own messages.  Or, in the very
+  //  least, at _least_ delineate and abstract the message handling based on the
+  //  MessageGroup for each message. However, that would be less desirable due
+  //  to the requirement to still have a single queue consumer/poller.
+  //
+  //  This also limits us to using features that are only available for FIFO
+  //  queues, complicating implementations. i.e. Long-polling semiphores are
+  //  complicated since FIFO queues do not support the delaySeconds option field.
+  //
+  //  Furthermore, the message types here are not type-safe and could be
+  //  misinterpreted by other modules/services.
+  //
+  //  https://goodparty.atlassian.net/browse/WEB-4518
+  async processMessage(message: Message): Promise<boolean> {
+    if (!message || !message.Body) {
+      return true // Delete invalid messages from queue
+    }
+
+    // JSON.parse returns unknown — no way to infer parsed shape at compile time
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const queueMessage = JSON.parse(message.Body) as QueueMessage
+    this.logger.info(`processing queue message type ${queueMessage.type}`)
+
+    switch (queueMessage.type) {
+      case QueueType.GENERATE_AI_CONTENT:
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          this.logger.info('received generateAiContent message')
+          const { data: generateAiContentMessage } = queueMessage
+
+          try {
+            await this.aiContentService.handleGenerateAiContent(
+              generateAiContentMessage,
+            )
+
+            try {
+              const { userId } = await this.campaignsService.findUniqueOrThrow({
+                where: { slug: generateAiContentMessage.slug },
+              })
+
+              this.analytics.track(userId, EVENTS.AiContent.ContentGenerated, {
+                slug: generateAiContentMessage.slug,
+                key: generateAiContentMessage.key,
+                regenerate: generateAiContentMessage.regenerate,
+              })
+            } catch (analyticsError) {
+              this.logger.error(
+                { analyticsError },
+                'Failed to track analytics for AI content:',
+              )
+            }
+          } catch (error) {
+            this.logger.error(
+              { error },
+              `Error processing AI content generation for slug: ${generateAiContentMessage.slug}`,
+            )
+            throw error
+          }
+          return true
+        })
+      case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
+        this.logger.info('received tcrComplianceStatusCheck message')
+        return await this.withLegacyErrorSwallowing(message, () =>
+          this.handleTcrComplianceCheckMessage(queueMessage.data),
+        )
+      case QueueType.DOMAIN_EMAIL_FORWARDING:
+        this.logger.info('received domainEmailForwarding message')
+        return await this.withLegacyErrorSwallowing(message, () =>
+          this.handleDomainEmailForwardingMessage(queueMessage.data),
+        )
+      case QueueType.POLL_ANALYSIS_COMPLETE:
+        this.logger.info('received pollAnalysisComplete message')
+        const pollAnalysisCompleteEvent =
+          PollAnalysisCompleteEventSchema.parse(queueMessage)
+        return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+      case QueueType.POLL_CREATION:
+        this.logger.info('received pollCreation message')
+        const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)
+        return await this.handlePollCreation(
+          pollCreationEvent,
+          message.MessageId!,
+        )
+      case QueueType.POLL_EXPANSION:
+        this.logger.info('received pollExpansion message')
+        const pollExpansionEvent = PollExpansionEventSchema.parse(queueMessage)
+        return await this.handlePollExpansion(
+          pollExpansionEvent,
+          message.MessageId!,
+        )
+      case QueueType.CAMPAIGN_PLAN_COMPLETE:
+        this.logger.info(
+          { data: queueMessage.data, messageId: message.MessageId },
+          'received campaignPlanComplete message',
+        )
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.handleCampaignPlanComplete(campaignPlanData)
+          return true
+        })
+      case QueueType.WEEKLY_TASKS_DIGEST:
+        this.logger.info('received weeklyTasksDigest message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const digestData = WeeklyTasksDigestMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
+            digestData,
+          )
+          return true
+        })
+      case QueueType.AGENT_EXPERIMENT_RESULT:
+        return await this.handleAgentExperimentResult(
+          AgentExperimentResultSchema.parse(queueMessage.data),
+        )
+      case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
+        this.logger.info('received agenticComplianceKickoff message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.tcrComplianceService.handleAgenticKickoff(kickoff)
+          return true
+        })
+      case QueueType.OCR_ATTACHMENT:
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const { attachmentId } = OcrAttachmentMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.annotationAttachments.runOcr(attachmentId)
+          return true
+        })
+      default:
+        this.logger.warn(
+          { messageId: message.MessageId, body: message.Body },
+          'unknown queue message type',
+        )
+        return true
+    }
+  }
+
+  private async getCvTokenStatus(
+    peerlyIdentityId: string,
+  ): Promise<PeerlyCvVerificationStatus | null> {
+    let cvTokenStatus: PeerlyCvVerificationStatus | null = null
+    try {
+      cvTokenStatus =
+        (await this.tcrComplianceService.getCvTokenStatus(peerlyIdentityId)) ||
+        null
+    } catch (e) {
+      // TODO: We have to do all this error handling because of how Peerly is
+      //  throwing `BadGatewayException` instead of just throwing the
+      //  `AxiosError` that caused the problem in the first place. We should revisit
+      //  this when we have more time: https://goodparty.clickup.com/t/86ac8y227
+      if (
+        isNestJsHttpException(e) &&
+        e instanceof BadGatewayException &&
+        isAxiosError(e.cause)
+      ) {
+        const requestError = e.cause
+        const status = requestError.response?.status
+        this.logger.warn(
+          { peerlyIdentityId, status, response: e.getResponse() },
+          `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
+        )
+        if (status && status === 404) {
+          this.logger.debug(
+            `Received 404 NOT FOUND. CV token has not been requested yet for identity ID ${peerlyIdentityId}`,
+          )
+        } else {
+          // Something else went wrong
+          this.logger.error(
+            { peerlyIdentityId, status, response: e.getResponse() },
+            `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
+          )
+          throw e.cause
+        }
+      } else {
+        // Something else went wrong. Just throw the error.
+        throw e
+      }
+    }
+    return cvTokenStatus
+  }
+
+  // TODO: ALL of the below functions should be moved to their respective
+  //  services. This is a queue consumer class. There should be no business
+  //  logic in the queue consumer class. This GREATLY complicates development.
+  private async handleTcrComplianceCheckMessage({
+    tcrCompliance,
+  }: TcrComplianceStatusCheckMessage) {
+    const { peerlyIdentityId } = tcrCompliance
+    if (!peerlyIdentityId) {
+      this.logger.error(
+        { tcrCompliance },
+        'No peerlyIdentityId found on TcrCompliance provided, skipping:',
+      )
+      return true // remove message from the queue
+    }
+
+    const { campaign } = await this.tcrComplianceService.findFirstOrThrow({
+      include: {
+        campaign: true,
+      },
+      where: { peerlyIdentityId },
+    })
+    const { userId } = campaign
+
+    const cvTokenStatus = await this.getCvTokenStatus(peerlyIdentityId)
+
+    cvTokenStatus &&
+      (await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignVerifyTokenStatusUpdate,
+        {
+          cvTokenStatus,
+        },
+      ))
+
+    const registrationStatus =
+      await this.tcrComplianceService.checkTcrRegistrationStatus(
+        peerlyIdentityId,
+      )
+
+    if (!registrationStatus) {
+      this.logger.debug(
+        { tcrCompliance },
+        'TCR Registration is not active at this time:',
+      )
+      return true // delete from the queue
+    }
+
+    this.logger.debug(
+      `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
+    )
+
+    await this.tcrComplianceService.model.update({
+      where: { peerlyIdentityId },
+      data: {
+        status: TcrComplianceStatus.approved,
+      },
+    })
+
+    try {
+      await this.analytics.track(userId, EVENTS.Outreach.ComplianceCompleted)
+      await this.analytics.identify(userId, {
+        '10DLC_compliant': true,
+      })
+    } catch (analyticsError) {
+      this.logger.error(
+        { analyticsError },
+        `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
+      )
+    }
+
+    return true
+  }
+
+  private async handleDomainEmailForwardingMessage({
+    domainId,
+  }: DomainEmailForwardingMessage): Promise<boolean> {
+    if (!this.domainsService.shouldEnableDomainPurchase()) {
+      const message = `Domain purchasing is disabled - skipping backfill for domainId: ${domainId}`
+      this.logger.debug(message)
+      throw new Error(message, { cause: { domainId } })
+    }
+    const domain = await this.domainsService.model.findUniqueOrThrow({
+      where: { id: domainId },
+    })
+
+    let forwardEmailDomain: ForwardEmailDomainResponse | null = null
+    try {
+      forwardEmailDomain =
+        await this.domainsService.setupDomainEmailForwarding(domain)
+      this.logger.debug(`Email forwarding set up for domain *@${domain.name}`)
+    } catch {
+      const message = `Error setting up email forwarding for domain *@${domain.name}`
+      this.logger.error(message)
+      throw new Error(message, { cause: { domainId } })
+    }
+
+    forwardEmailDomain &&
+      (await this.domainsService.model.update({
+        where: {
+          id: domainId,
+        },
+        data: { emailForwardingDomainId: forwardEmailDomain.id },
+      }))
+
+    return true
+  }
+
+  private async handlePollAnalysisComplete(
+    event: PollAnalysisCompleteEvent,
+  ): Promise<boolean> {
+    const { pollId, totalResponses, responsesLocation, issues } = event.data
+    this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
+    const data = await this.getPollAndOrganization(pollId)
+    if (!data) {
+      this.logger.info('Poll not found, ignoring event')
+      return true
+    }
+    const { poll, office, organization } = data
+    const { electedOfficeId } = poll
+
+    if (!electedOfficeId) {
+      throw new InternalServerErrorException(
+        `Error: pollId ${pollId} has no elected office`,
+      )
+    }
+
+    // We want to allow completing scheduled polls for testing purposes. In E2E tests
+    // we create polls and want to simulate completing them quickly.
+    if (
+      ![APIPollStatus.SCHEDULED, APIPollStatus.IN_PROGRESS].includes(
+        derivePollStatus(poll),
+      )
+    ) {
+      this.logger.info(
+        {
+          poll,
+        },
+        'Poll is not in expected state, ignoring event',
+      )
+      return true
+    }
+
+    const constituency = await this.contactsService.findContacts(
+      { segment: 'all', resultsPerPage: 5, page: 1 },
+      organization,
+    )
+
+    let highConfidence = false
+    if (constituency.pagination.totalResults) {
+      // High confidence is EITHER:
+      //  - 75 total responses
+      //  - responses from >=10%
+      // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
+      highConfidence =
+        totalResponses > 75 ||
+        totalResponses / constituency.pagination.totalResults >= 0.1
+    }
+
+    await this.pollIssuesService.model.deleteMany({
+      where: { pollId },
+    })
+    this.logger.info('Successfully deleted existing poll issues')
+
+    const issuesToWrite = issues.map((issue) => ({
+      id: `${pollId}-${issue.rank}`,
+      pollId,
+      title: issue.theme,
+      summary: issue.summary,
+      details: issue.analysis,
+      mentionCount: issue.responseCount,
+      representativeComments: issue.quotes.map((quote) => ({
+        quote: quote.quote,
+      })),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }))
+    await this.pollIssuesService.client.pollIssue.createMany({
+      data: issuesToWrite,
+    })
+    this.logger.info('Successfully created new poll issues')
+    const bucket = process.env.SERVE_ANALYSIS_BUCKET_NAME
+    if (!bucket) {
+      throw new Error('Please set SERVE_ANALYSIS_BUCKET_NAME in your .env')
+    }
+    const responsesFileContent = await this.s3Service.getFile(
+      bucket,
+      responsesLocation,
+    )
+    if (!responsesFileContent) {
+      throw new InternalServerErrorException(
+        `Unable to fetch responses from S3 for pollId: ${pollId}`,
+      )
+    }
+    const rows = PollClusterAnalysisJsonSchema.parse(
+      JSON.parse(responsesFileContent),
+    )
+    // One response can span multiple rows / elements in the array (one per atomic message)
+    // and there may be duplicate rows
+    const groups = groupBy(
+      rows,
+      (r) => `${r.phoneNumber}\n${r.receivedAt ?? ''}`,
+    )
+
+    const phoneNumbers = Array.from(
+      new Set(rows.map((r) => normalizePhoneNumber(r.phoneNumber))),
+    )
+    const phoneToPersonIdMap = await this.findMappedPersonIdsForCellPhones({
+      electedOfficeId,
+      pollId,
+      phoneNumbers,
+    })
+
+    // Some response phones won't appear in this poll's outreach map — most
+    // often because the original recipient forwarded the SMS and somebody
+    // else replied. Try to resolve those phones in the org's district via
+    // the People DB so we can still attribute the response to a real
+    // constituent. Anything still unresolved after this is skipped (logged)
+    // rather than thrown, to avoid poison-pilling the entire poll's
+    // analysis on a single unattributable reply.
+    const unmappedPhones = phoneNumbers.filter(
+      (p) => !phoneToPersonIdMap.has(p),
+    )
+    if (unmappedPhones.length > 0) {
+      this.logger.info(
+        { pollId, unmappedPhoneCount: unmappedPhones.length },
+        "Some response phones weren't in this poll's outreach; trying People DB fallback",
+      )
+      const lookups = await Promise.all(
+        unmappedPhones.map(async (normalized) => {
+          const digitsOnly = normalized.replace(/^\+1/, '')
+          try {
+            const person = await this.contactsService.findPersonByPhone(
+              digitsOnly,
+              organization,
+            )
+            return { phone: normalized, personId: person?.id ?? null }
+          } catch (err) {
+            this.logger.warn(
+              { err: serializeError(err), phone: normalized, pollId },
+              'People DB lookup failed for unmapped poll phone',
+            )
+            return { phone: normalized, personId: null }
+          }
+        }),
+      )
+      for (const { phone, personId } of lookups) {
+        if (personId) phoneToPersonIdMap.set(phone, personId)
+      }
+    }
+
+    const scalarData: Prisma.PollIndividualMessageCreateManyInput[] = []
+    const joinValues: Prisma.Sql[] = []
+
+    for (const [, groupRows] of Object.entries(groups)) {
+      const first = groupRows[0]
+      const { phoneNumber, originalMessage, receivedAt } = first
+      const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
+      const hasClusterId = groupRows.some(
+        (r) => r.clusterId !== '' && r.clusterId != null,
+      )
+
+      // Discard responses that have no cluster assignment, unless they are opt-outs
+      if (!hasClusterId && !isOptOut) continue
+
+      const normalizedPhone = normalizePhoneNumber(phoneNumber)
+      const personId = phoneToPersonIdMap.get(normalizedPhone)
+      if (!personId) {
+        // Throwing here would bubble back to SQS and cause infinite
+        // redelivery (see queue/CLAUDE.md), blocking *all* other valid
+        // responses for this poll from being persisted. A single
+        // unattributable reply is the lesser evil — drop the row, keep a
+        // record in the logs, and let the rest of the analysis through.
+        this.logger.warn(
+          { pollId, phoneNumber: normalizedPhone, isOptOut },
+          'Skipping poll response: phone not in outreach and not found in People DB',
+        )
+        continue
+      }
+
+      const uuid = uuidv5(
+        `${pollId}-${personId}-${receivedAt}`,
+        POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
+      )
+      const sentAt = receivedAt ? new Date(receivedAt) : new Date()
+
+      scalarData.push({
+        id: uuid,
+        personId,
+        personCellPhone: normalizedPhone,
+        sentAt,
+        isOptOut,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        content: originalMessage,
+        electedOfficeId,
+        pollId,
+      })
+
+      // Only link to poll issues that exist in the event data (i.e. the top 3 clusters).
+      // Multiple responses can also have the same cluster
+      // Responses with a clusterId outside the top 3 still get saved above, just without a link.
+      const linkedIssues = issuesToWrite.filter((issue) =>
+        groupRows.some((row) => row.theme === issue.title),
+      )
+      for (const issue of linkedIssues) {
+        joinValues.push(Prisma.sql`(${uuid}, ${issue.id})`)
+      }
+    }
+
+    // Idempotency: delete constituent responses we're about to replace (same deterministic ids).
+    // Does not touch ELECTED_OFFICIAL messages (outreach); join rows removed by FK CASCADE.
+    const idsToReplace = scalarData.map((d) => d.id)
+    const prisma = this.pollIndividualMessage.client
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.pollIndividualMessage.deleteMany({
+          where: {
+            id: { in: idsToReplace },
+            pollId,
+            sender: PollIndividualMessageSender.CONSTITUENT,
+          },
+        })
+        await tx.pollIndividualMessage.createMany({ data: scalarData })
+        if (joinValues.length > 0) {
+          await tx.$executeRaw`
+          INSERT INTO "_PollIndividualMessageToPollIssue" ("A", "B")
+          VALUES ${Prisma.join(joinValues, ', ')}
+        `
+        }
+      },
+      { timeout: 20000 },
+    )
+
+    this.logger.info(
+      `Created individual messages for poll ${pollId} (linked issues: ${joinValues.length})`,
+    )
+
+    await this.pollsService.markPollComplete({
+      pollId,
+      totalResponses,
+      confidence: highConfidence ? 'HIGH' : 'LOW',
+    })
+
+    const pollCount = await this.pollsService.model.count({
+      where: {
+        electedOfficeId,
+        isCompleted: true,
+      },
+    })
+
+    let district: OrgDistrict | null = null
+    try {
+      district = await this.organizationsService.getDistrictForOrgSlug(
+        organization.slug,
+      )
+    } catch (e) {
+      this.logger.warn(
+        { e },
+        'Failed to fetch district for analytics, defaulting to null',
+      )
+    }
+
+    await Promise.all([
+      this.analytics.identify(office.userId, { pollcount: pollCount }),
+      this.analytics.track(
+        office.userId,
+        EVENTS.Polls.ResultsSynthesisCompleted,
+        {
+          pollId,
+          path: `/dashboard/polls/${pollId}`,
+          constituencyName: district?.l2Name,
+          'issue 1': issues?.at(0)?.theme || null,
+          'issue 2': issues?.at(1)?.theme || null,
+          'issue 3': issues?.at(2)?.theme || null,
+          ...buildIssueProperties(issues?.at(0), 1),
+          ...buildIssueProperties(issues?.at(1), 2),
+          ...buildIssueProperties(issues?.at(2), 3),
+          pollsSent: poll.targetAudienceSize,
+          pollResponses: totalResponses,
+          pollResponseRate:
+            totalResponses > 0
+              ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
+              : '0%',
+        },
+      ),
+    ])
+    return true
+  }
+
+  private async handlePollCreation(
+    event: PollCreationEvent,
+    messageId: string,
+  ) {
+    return this.triggerPollExecution({
+      pollId: event.data.pollId,
+      messageId,
+      sampleParams: async (poll) => {
+        return { size: poll.targetAudienceSize }
+      },
+      isExpansion: false,
+    })
+  }
+
+  private async handlePollExpansion(
+    event: PollExpansionEvent,
+    messageId: string,
+  ) {
+    return this.triggerPollExecution({
+      pollId: event.data.pollId,
+      messageId,
+      sampleParams: async (poll) => {
+        const alreadySent =
+          await this.pollsService.client.pollIndividualMessage.findMany({
+            where: {
+              pollId: poll.id,
+              sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
+            },
+            select: { personId: true },
+          })
+
+        return {
+          size: poll.targetAudienceSize - alreadySent.length,
+          excludeIds: alreadySent.map((p) => p.personId),
+        }
+      },
+      isExpansion: true,
+    })
+  }
+
+  // Reads the agent artifact to decide terminal vs resumable status. The result
+  // message only says success/failed; data_quality/next_action live in the S3
+  // artifact. Falls back to COMPLETED on any read/parse failure so a transient
+  // S3 miss never strands a run.
+  private async resolveSuccessPatch(data: AgentExperimentResultData): Promise<{
+    status: ExperimentRunStatus
+    stage: string | null
+    dataQuality: string | null
+    resumeScheduledFor: Date | null
+  }> {
+    const base = {
+      status: ExperimentRunStatus.COMPLETED,
+      stage: null as string | null,
+      dataQuality: null as string | null,
+      resumeScheduledFor: null as Date | null,
+    }
+    if (!data.artifactBucket || !data.artifactKey) return base
+    let artifact: Record<string, unknown>
+    try {
+      const raw = await this.s3Service.getFile(
+        data.artifactBucket,
+        data.artifactKey,
+      )
+      if (!raw) return base
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      artifact = JSON.parse(raw) as Record<string, unknown>
+    } catch (error) {
+      this.logger.warn(
+        { error, runId: data.runId },
+        'could not read artifact; defaulting to COMPLETED',
+      )
+      return base
+    }
+
+    const stage = typeof artifact.stage === 'string' ? artifact.stage : null
+    const dq = artifact.data_quality
+    const overall =
+      isJsonObject(dq) && typeof dq.overall === 'string' ? dq.overall : null
+    const nextAction = artifact.next_action
+    const scheduledForRaw =
+      isJsonObject(nextAction) &&
+      typeof nextAction.scheduled_for === 'string' &&
+      nextAction.scheduled_for !== ''
+        ? nextAction.scheduled_for
+        : null
+    const parsedScheduledFor = scheduledForRaw
+      ? parseISO(scheduledForRaw)
+      : null
+    const scheduledFor =
+      parsedScheduledFor && isValid(parsedScheduledFor)
+        ? parsedScheduledFor
+        : null
+
+    if (overall === 'partial') {
+      return {
+        status: ExperimentRunStatus.AWAITING_RESUME,
+        stage,
+        dataQuality: overall,
+        resumeScheduledFor: scheduledFor ?? addMinutes(new Date(), 5),
+      }
+    }
+    if (overall === 'failed' || stage === 'failed') {
+      return {
+        ...base,
+        status: ExperimentRunStatus.FAILED,
+        stage,
+        dataQuality: overall,
+      }
+    }
+    return { ...base, stage, dataQuality: overall }
+  }
+
+  private async handleAgentExperimentResult(data: AgentExperimentResultData) {
+    const run = await this.experimentRunsService.findUnique({
+      where: { runId: data.runId },
+    })
+
+    if (!run) {
+      this.logger.error({ data }, 'Experiment run not found')
+      return true
+    }
+
+    if (run.status !== ExperimentRunStatus.RUNNING) {
+      this.logger.info(
+        { runId: data.runId },
+        'Experiment run already completed, skipping',
+      )
+      return true
+    }
+
+    const successPatch =
+      data.status === 'success' ? await this.resolveSuccessPatch(data) : null
+
+    const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
+      { where: { runId: data.runId } },
+      async (currentRun) => {
+        if (currentRun.status !== ExperimentRunStatus.RUNNING) {
+          this.logger.info(
+            { runId: data.runId },
+            'Experiment run already completed, skipping',
+          )
+          throw new Error('Experiment run already completed')
+        }
+        return {
+          status: successPatch
+            ? successPatch.status
+            : ExperimentRunStatus.FAILED,
+          stage: successPatch?.stage ?? null,
+          dataQuality: successPatch?.dataQuality ?? null,
+          resumeScheduledFor: successPatch?.resumeScheduledFor ?? null,
+          artifactKey: data.artifactKey ?? null,
+          artifactBucket: data.artifactBucket ?? null,
+          durationSeconds: data.durationSeconds ?? null,
+          costUsd: data.costUsd ?? null,
+          error: data.error?.slice(0, 1000) ?? null,
+        }
+      },
+    )
+
+    this.logger.info(
+      { updatedRun, data },
+      'Updated experiment run from queue event',
+    )
+
+    if (updatedRun.status === ExperimentRunStatus.COMPLETED) {
+      await this.meetingBriefings
+        .onExperimentRunCompleted(updatedRun)
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, runId: updatedRun.runId },
+            'onExperimentRunCompleted failed after run update',
+          ),
+        )
+    }
+
+    // Let a persistence failure propagate instead of swallowing it, so the
+    // failure surfaces (requeue + DLQ visibility) rather than silently acking
+    // a COMPLETED run that never got its section persisted. This is for
+    // visibility, not retry: onExperimentRunCompleted already calls markFailed
+    // before it rethrows, so on redelivery the status guard above (!= RUNNING)
+    // drops the message. That same guard bounds the requeue, so the raw throw
+    // can't infinite-redrive. The user-facing 'failed' state comes from
+    // markFailed (or, if markFailed itself faults, the isStuck grace-window
+    // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
+    // non-campaign-strategy runs, so this only throws on a real persist failure.
+    await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
+
+    return true
+  }
+
+  private async triggerPollExecution(params: {
+    pollId: string
+    messageId: string
+    sampleParams: (poll: Poll) => Promise<SampleContacts> | SampleContacts
+    isExpansion: boolean
+  }): Promise<boolean> {
+    const data = await this.getPollAndOrganization(params.pollId)
+    if (!data) {
+      this.logger.info(`${params.pollId} Poll not found, ignoring event`)
+      return true
+    }
+    const { poll, office, organization } = data
+
+    const user = await this.usersService.findUnique({
+      where: { id: office.userId },
+    })
+    this.logger.info(`${params.pollId} Fetched sample and user`)
+
+    if (!user) {
+      this.logger.info(`${params.pollId} User not found, ignoring event`)
+      return true
+    }
+
+    const bucket = process.env.TEVYN_POLL_CSVS_BUCKET
+    if (!bucket) {
+      throw new Error(
+        `${params.pollId} TEVYN_POLL_CSVS_BUCKET environment variable is required`,
+      )
+    }
+    // It's important that this filename be deterministic based on the particular poll "run".
+    // That way, in the event of a failure and retry, we can safely re-use a previously generated CSV.
+    // We use the estimated completion date here because it gets set when the poll expanded, and then
+    // does not change.
+    const fileName = `${poll.id}-${poll.estimatedCompletionDate.toISOString()}.csv`
+    const key = this.s3Service.buildKey(undefined, fileName)
+
+    // 1. Get or create the CSV file of a random sample of contacts.
+    // We do get-or-create here so that the logic remains retry-safe in the event of a failure.
+    let csv = await this.s3Service.getFile(bucket, key)
+
+    if (!csv) {
+      this.logger.info(
+        `${params.pollId} No existing CSV found, generating new one`,
+      )
+      const sampleParams = await params.sampleParams(poll)
+      this.logger.info(
+        { sampleParams },
+        `${poll.id} Sampling contacts with params: `,
+      )
+      const sample = await this.contactsService.sampleContacts(
+        sampleParams,
+        organization,
+      )
+      if (sample.length === 0) {
+        throw new Error(`No contacts returned in sample for poll ${poll.id}`)
+      }
+      this.logger.info(
+        `${params.pollId} Generated sample of ${sample.length} contacts`,
+      )
+      csv = buildCsvFromContacts(sample)
+      await this.s3Service.uploadFile(bucket, csv, key, {
+        contentType: 'text/csv',
+      })
+    }
+
+    const people = await parseCsv<{ id: string; cellPhone: string }>(csv)
+
+    // 2. Create individual poll messages
+    // IDs are deterministic (`pollId-personId`) so re-processing the same CSV
+    // is safe: skipDuplicates silently ignores rows that already exist.
+    const now = new Date()
+    const messages: Prisma.PollIndividualMessageCreateManyInput[] = people.map(
+      (person) => ({
+        id: `${poll.id}-${person.id}`,
+        pollId: poll.id,
+        personId: person.id!,
+        sentAt: now,
+        personCellPhone: normalizePhoneNumber(person.cellPhone),
+        electedOfficeId: poll.electedOfficeId,
+      }),
+    )
+    await this.pollsService.client.pollIndividualMessage.createMany({
+      data: messages,
+      skipDuplicates: true,
+    })
+
+    this.logger.info(`${params.pollId} Created individual poll messages`)
+
+    // 3. Send CSV file to Slack for Tevyn
+    await sendTevynAPIPollMessage(this.slackService.client, {
+      message: poll.messageContent,
+      pollId: poll.id,
+      scheduledDate: isBefore(poll.scheduledDate, new Date())
+        ? 'Now'
+        : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
+          ' ET',
+      csv: {
+        fileContent: Buffer.from(csv),
+        filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
+      },
+      imageUrl: poll.imageUrl || undefined,
+      userInfo: {
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        email: user.email,
+        phone: user.phone || undefined,
+      },
+      isExpansion: params.isExpansion,
+    })
+    this.logger.info(`${params.pollId} Slack message sent`)
+
+    return true
+  }
+
+  private async getPollAndOrganization(pollId: string) {
+    const poll = await this.pollsService.findUnique({
+      where: { id: pollId },
+    })
+    if (!poll) {
+      this.logger.info('Poll not found, ignoring event')
+      return
+    }
+
+    if (!poll.electedOfficeId) {
+      this.logger.info('Poll has no elected office, ignoring event')
+      return
+    }
+
+    const office =
+      await this.electedOfficeService.client.electedOffice.findUnique({
+        where: { id: poll.electedOfficeId },
+        include: { organization: true },
+      })
+
+    if (!office) {
+      this.logger.info('Elected office not found, ignoring event')
+      return
+    }
+
+    const organization = office.organization
+    if (!organization) {
+      this.logger.info('Elected office has no organization, ignoring event')
+      return
+    }
+
+    return { poll, office, organization }
+  }
+
+  async findMappedPersonIdsForCellPhones(params: {
+    electedOfficeId: string
+    pollId: string
+    phoneNumbers: string[]
+  }) {
+    const { electedOfficeId, pollId, phoneNumbers } = params
+    const cellPhonesToPeopleIds: Map<string, string> = new Map()
+    const messages = await this.pollIndividualMessage.findMany({
+      where: {
+        electedOfficeId,
+        pollId,
+        personCellPhone: { in: phoneNumbers },
+        sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
+      },
+    })
+    for (const message of messages) {
+      const { personCellPhone, personId } = message
+      if (!personCellPhone) {
+        throw new InternalServerErrorException(
+          'Encountered unexpected message without a cellphone',
+        )
+      }
+      cellPhonesToPeopleIds.set(normalizePhoneNumber(personCellPhone), personId)
+    }
+    return cellPhonesToPeopleIds
+  }
+
+  private async handleCampaignPlanComplete(
+    data: CampaignPlanCompleteMessage,
+  ): Promise<boolean> {
+    if (data.status === 'error') {
+      this.logger.warn(
+        { campaignId: data.campaignId, error: data.error },
+        'campaign plan generation failed',
+      )
+      return true
+    }
+
+    try {
+      const { campaignId: resultCampaignId, tasks } =
+        await this.aiGenerationService.parseCompletionResult(data)
+      await this.campaignTasksService.addEventTasks(resultCampaignId, tasks)
+      this.logger.info(
+        { campaignId: resultCampaignId, taskCount: tasks.length },
+        'campaign plan tasks saved',
+      )
+      return true
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      this.logger.error(
+        { campaignId: data.campaignId, error: errorMsg },
+        'failed to process campaign plan completion',
+      )
+      throw err
+    }
+  }
+}
+
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  const mustQuote = /[",\n]/.test(str)
+  const escaped = str.replace(/"/g, '""')
+  return mustQuote ? `"${escaped}"` : escaped
+}
+
+const buildCsvFromContacts = (people: PersonOutput[]) => {
+  const headers: (keyof PersonOutput)[] = [
+    'id',
+    'firstName',
+    'lastName',
+    'cellPhone',
+  ]
+  const lines = [headers.join(',')]
+  for (const person of people) {
+    const row = headers.map((key) => csvEscape(person?.[key] ?? ''))
+    lines.push(row.join(','))
+  }
+  return lines.join('\n')
+}

@@ -1,0 +1,600 @@
+import { User, UserRole } from '@prisma/client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { UsersController } from './users.controller'
+import { UsersService } from './services/users.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { FileUpload } from 'src/files/files.types'
+import { AuthenticationService } from '../authentication/authentication.service'
+import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { UserOwnerOrAdminGuard } from './guards/UserOwnerOrAdmin.guard'
+import { type UpdatePasswordInput } from '@goodparty_org/contracts'
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+
+const userId = 1
+
+const mockUser: User = {
+  id: userId,
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+  firstName: 'John',
+  lastName: 'Doe',
+  name: 'John Doe',
+  avatar: null,
+  password: null,
+  hasPassword: false,
+  email: 'john@example.com',
+  phone: '5555555555',
+  zip: '12345',
+  roles: [UserRole.candidate],
+  metaData: null,
+  passwordResetToken: null,
+  clerkId: null,
+}
+
+function getGuards(methodName: keyof UsersController) {
+  return (
+    Reflect.getMetadata('__guards__', UsersController.prototype[methodName]) ??
+    []
+  )
+}
+
+describe('UsersController', () => {
+  let controller: UsersController
+  let usersService: UsersService
+  let s3Service: S3Service
+  let authService: AuthenticationService
+
+  beforeEach(() => {
+    const usersServiceMock: Partial<UsersService> = {
+      listUsers: vi.fn(),
+      updateUser: vi.fn(),
+      findUser: vi.fn(),
+      deleteUser: vi.fn(),
+      patchUserMetaData: vi.fn(),
+      updatePassword: vi.fn(),
+    }
+    usersService = usersServiceMock as UsersService
+
+    const s3ServiceMock: Partial<S3Service> = {
+      buildKey: vi.fn(
+        (folder?: string, fileName?: string) => `${folder}/${fileName}`,
+      ),
+      uploadFile: vi.fn(),
+      getSignedUrlForUpload: vi.fn(),
+    }
+    s3Service = s3ServiceMock as S3Service
+
+    const authServiceMock: Partial<AuthenticationService> = {
+      validatePassword: vi.fn(),
+    }
+    authService = authServiceMock as AuthenticationService
+
+    controller = new UsersController(
+      usersService,
+      s3Service,
+      authService,
+      createMockLogger(),
+    )
+  })
+
+  describe('guards', () => {
+    it('protects list with M2MOnly guard', () => {
+      const guards = getGuards('list')
+      expect(guards).toContain(M2MOnly)
+    })
+
+    it('protects updateUser with M2MOnly guard', () => {
+      const guards = getGuards('updateUser')
+      expect(guards).toContain(M2MOnly)
+    })
+
+    it('protects findOne with UserOwnerOrAdminGuard', () => {
+      const guards = getGuards('findOne')
+      expect(guards).toContain(UserOwnerOrAdminGuard)
+    })
+
+    it('protects delete with UserOwnerOrAdminGuard', () => {
+      const guards = getGuards('delete')
+      expect(guards).toContain(UserOwnerOrAdminGuard)
+    })
+
+    it('protects updatePassword with UserOwnerOrAdminGuard', () => {
+      const guards = getGuards('updatePassword')
+      expect(guards).toContain(UserOwnerOrAdminGuard)
+    })
+
+    it('does not protect findMe with M2MOnly guard', () => {
+      const guards = getGuards('findMe')
+      expect(guards).not.toContain(M2MOnly)
+    })
+
+    it('does not protect updateMe with M2MOnly guard', () => {
+      const guards = getGuards('updateMe')
+      expect(guards).not.toContain(M2MOnly)
+    })
+  })
+
+  describe('list', () => {
+    it('returns paginated users parsed through ReadUserOutputSchema', async () => {
+      const mockUsers = [
+        mockUser,
+        { ...mockUser, id: 2, email: 'jane@example.com', firstName: 'Jane' },
+      ]
+      const mockMeta = { total: 2, offset: 0, limit: 10 }
+
+      vi.spyOn(usersService, 'listUsers').mockResolvedValue({
+        data: mockUsers,
+        meta: mockMeta,
+      })
+
+      const query = { offset: 0, limit: 10 }
+      const result = await controller.list(query)
+
+      expect(usersService.listUsers).toHaveBeenCalledWith(query)
+      expect(result.meta).toEqual(mockMeta)
+      expect(result.data).toHaveLength(2)
+      result.data.forEach((user) => {
+        expect(user).toHaveProperty('id')
+        expect(user).toHaveProperty('email')
+      })
+    })
+
+    it('returns raw user data from the service', async () => {
+      const userWithPassword = { ...mockUser, password: 'secret123' }
+
+      vi.spyOn(usersService, 'listUsers').mockResolvedValue({
+        data: [userWithPassword],
+        meta: { total: 1, offset: 0, limit: 10 },
+      })
+
+      const result = await controller.list({ offset: 0, limit: 10 })
+
+      expect(result.data[0]).toHaveProperty('id', userId)
+    })
+
+    it('passes query parameters to the service', async () => {
+      vi.spyOn(usersService, 'listUsers').mockResolvedValue({
+        data: [],
+        meta: { total: 0, offset: 0, limit: 5 },
+      })
+
+      const query = {
+        offset: 10,
+        limit: 5,
+        firstName: 'John',
+        email: 'john@',
+      }
+      await controller.list(query)
+
+      expect(usersService.listUsers).toHaveBeenCalledWith(query)
+    })
+
+    it('forwards the isPro filter to the service', async () => {
+      vi.spyOn(usersService, 'listUsers').mockResolvedValue({
+        data: [],
+        meta: { total: 0, offset: 0, limit: 10 },
+      })
+
+      await controller.list({ offset: 0, limit: 10, isPro: true })
+      expect(usersService.listUsers).toHaveBeenCalledWith(
+        expect.objectContaining({ isPro: true }),
+      )
+
+      await controller.list({ offset: 0, limit: 10, isPro: false })
+      expect(usersService.listUsers).toHaveBeenCalledWith(
+        expect.objectContaining({ isPro: false }),
+      )
+    })
+
+    it('returns empty data array when no users match', async () => {
+      vi.spyOn(usersService, 'listUsers').mockResolvedValue({
+        data: [],
+        meta: { total: 0, offset: 0, limit: 10 },
+      })
+
+      const result = await controller.list({ offset: 0, limit: 10 })
+
+      expect(result.data).toEqual([])
+      expect(result.meta.total).toBe(0)
+    })
+  })
+
+  describe('updateUser', () => {
+    it('updates and returns the user parsed through ReadUserOutputSchema', async () => {
+      const updatedUser = { ...mockUser, firstName: 'Updated' }
+
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(updatedUser)
+
+      const body = { firstName: 'Updated' }
+      const result = await controller.updateUser({ id: userId }, body)
+
+      expect(usersService.updateUser).toHaveBeenCalledWith({ id: userId }, body)
+      expect(result).toHaveProperty('firstName', 'Updated')
+    })
+
+    it('passes the id to the service', async () => {
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(mockUser)
+
+      await controller.updateUser({ id: 42 }, { lastName: 'Smith' })
+
+      expect(usersService.updateUser).toHaveBeenCalledWith(
+        { id: 42 },
+        { lastName: 'Smith' },
+      )
+    })
+
+    it('passes roles to the service when provided', async () => {
+      const updatedUser = {
+        ...mockUser,
+        roles: [UserRole.admin, UserRole.sales],
+      }
+
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(updatedUser)
+
+      const body = { roles: [UserRole.admin, UserRole.sales] }
+      const result = await controller.updateUser({ id: userId }, body)
+
+      expect(usersService.updateUser).toHaveBeenCalledWith({ id: userId }, body)
+      expect(result).toHaveProperty('roles', [UserRole.admin, UserRole.sales])
+    })
+
+    it('returns raw data from the service', async () => {
+      const userWithPassword = {
+        ...mockUser,
+        password: 'hashed_secret',
+        hasPassword: true,
+      }
+
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(userWithPassword)
+
+      const result = await controller.updateUser(
+        { id: userId },
+        { firstName: 'Test' },
+      )
+
+      expect(result).toHaveProperty('hasPassword', true)
+    })
+  })
+
+  describe('findOne', () => {
+    it('returns the requesting user without a DB call when requesting own data', async () => {
+      const result = await controller.findOne({ id: userId }, mockUser)
+
+      expect(usersService.findUser).not.toHaveBeenCalled()
+      expect(result).toHaveProperty('id', userId)
+    })
+
+    it('fetches from DB when requesting a different user', async () => {
+      const otherUser = { ...mockUser, id: 2, email: 'other@example.com' }
+      vi.spyOn(usersService, 'findUser').mockResolvedValue(otherUser)
+
+      const result = await controller.findOne({ id: 2 }, mockUser)
+
+      expect(usersService.findUser).toHaveBeenCalledWith({ id: 2 })
+      expect(result).toHaveProperty('id', 2)
+    })
+
+    it('throws NotFoundException when user is not found in DB', async () => {
+      vi.spyOn(usersService, 'findUser').mockResolvedValue(null)
+
+      await expect(controller.findOne({ id: 999 }, mockUser)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+
+    it('returns raw data from the service for DB-fetched user', async () => {
+      const userWithPassword = {
+        ...mockUser,
+        id: 2,
+        email: 'other@example.com',
+        password: 'secret',
+      }
+      vi.spyOn(usersService, 'findUser').mockResolvedValue(userWithPassword)
+
+      const result = await controller.findOne({ id: 2 }, mockUser)
+
+      expect(result).toHaveProperty('id', 2)
+    })
+  })
+
+  describe('findMe', () => {
+    it('returns the current user fetched from DB', async () => {
+      vi.spyOn(usersService, 'findUser').mockResolvedValue(mockUser)
+
+      const result = await controller.findMe(mockUser)
+
+      expect(usersService.findUser).toHaveBeenCalledWith({ id: userId })
+      expect(result).toHaveProperty('id', userId)
+    })
+
+    it('returns null when user is not found in DB', async () => {
+      vi.spyOn(usersService, 'findUser').mockResolvedValue(null)
+
+      const result = await controller.findMe(mockUser)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('updateMe', () => {
+    it('updates and returns the user with password stripped', async () => {
+      const updatedUser = {
+        ...mockUser,
+        firstName: 'Updated',
+        password: 'hashed_secret',
+      }
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(updatedUser)
+
+      const body = { firstName: 'Updated' }
+      const result = await controller.updateMe(mockUser, body)
+
+      expect(usersService.updateUser).toHaveBeenCalledWith({ id: userId }, body)
+      expect(result).toHaveProperty('firstName', 'Updated')
+    })
+
+    it('passes empty object when body is falsy', async () => {
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue(mockUser)
+
+      // @ts-expect-error testing defensive null coalescing in controller
+      await controller.updateMe(mockUser, undefined)
+
+      expect(usersService.updateUser).toHaveBeenCalledWith({ id: userId }, {})
+    })
+  })
+
+  describe('getMetadata', () => {
+    it('returns the user metaData directly', () => {
+      const userWithMeta: User = {
+        ...mockUser,
+        metaData: { customerId: 'cus_123', lastVisited: 1700000000 },
+      }
+
+      const result = controller.getMetadata(userWithMeta)
+
+      expect(result).toEqual({ customerId: 'cus_123', lastVisited: 1700000000 })
+    })
+
+    it('returns null when metaData is null', () => {
+      const result = controller.getMetadata(mockUser)
+
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('updateMetadata', () => {
+    it('patches user metadata with the provided meta', () => {
+      const meta = { textNotifications: true }
+      controller.updateMetadata(mockUser, { meta })
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(userId, meta)
+    })
+  })
+
+  describe('uploadImage', () => {
+    it('uploads the file and updates the user avatar', async () => {
+      const file: FileUpload = {
+        data: Buffer.from('image'),
+        filename: 'avatar.png',
+        mimetype: 'image/png',
+        encoding: '7bit',
+        fieldname: 'file',
+      }
+      vi.spyOn(s3Service, 'uploadFile').mockResolvedValue(
+        'https://cdn.example.com/avatar.png',
+      )
+      vi.spyOn(usersService, 'updateUser').mockResolvedValue({
+        ...mockUser,
+        avatar: 'https://cdn.example.com/avatar.png',
+      })
+
+      const result = await controller.uploadImage(mockUser, file)
+
+      expect(s3Service.buildKey).toHaveBeenCalledWith(
+        `uploads/${mockUser.id}`,
+        file.filename,
+      )
+      expect(s3Service.uploadFile).toHaveBeenCalledWith(
+        expect.any(String),
+        file.data,
+        expect.stringContaining('uploads/'),
+        expect.objectContaining({
+          contentType: file.mimetype,
+          cacheControl: expect.stringContaining('max-age='),
+        }),
+      )
+      expect(usersService.updateUser).toHaveBeenCalledWith(
+        { id: userId },
+        { avatar: 'https://cdn.example.com/avatar.png' },
+      )
+      expect(result).toHaveProperty(
+        'avatar',
+        'https://cdn.example.com/avatar.png',
+      )
+    })
+
+    it('throws BadRequestException when no file is provided', async () => {
+      await expect(controller.uploadImage(mockUser, undefined)).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+  })
+
+  describe('delete', () => {
+    it('deletes the user by id and passes requesting user id', async () => {
+      vi.spyOn(usersService, 'deleteUser').mockResolvedValue(undefined)
+
+      await controller.delete({ id: userId }, mockUser)
+
+      expect(usersService.deleteUser).toHaveBeenCalledWith(userId, mockUser.id)
+    })
+
+    it('silently handles Prisma P2025 (record not found) error', async () => {
+      const prismaError = new PrismaClientKnownRequestError(
+        'Record to delete does not exist.',
+        { code: 'P2025', clientVersion: '5.0.0' },
+      )
+      vi.spyOn(usersService, 'deleteUser').mockRejectedValue(prismaError)
+
+      await expect(
+        controller.delete({ id: 999 }, mockUser),
+      ).resolves.toBeUndefined()
+    })
+
+    it('rethrows non-P2025 Prisma errors', async () => {
+      const prismaError = new PrismaClientKnownRequestError(
+        'Foreign key constraint failed.',
+        { code: 'P2003', clientVersion: '5.0.0' },
+      )
+      vi.spyOn(usersService, 'deleteUser').mockRejectedValue(prismaError)
+
+      await expect(controller.delete({ id: userId }, mockUser)).rejects.toThrow(
+        PrismaClientKnownRequestError,
+      )
+    })
+
+    it('rethrows non-Prisma errors', async () => {
+      vi.spyOn(usersService, 'deleteUser').mockRejectedValue(
+        new Error('DB connection lost'),
+      )
+
+      await expect(controller.delete({ id: userId }, mockUser)).rejects.toThrow(
+        'DB connection lost',
+      )
+    })
+  })
+
+  describe('generateSignedUploadUrl', () => {
+    it('returns the signed upload URL scoped to the user', async () => {
+      vi.spyOn(s3Service, 'getSignedUrlForUpload').mockResolvedValue(
+        'https://s3.example.com/signed-url',
+      )
+
+      const args = {
+        bucket: 'uploads',
+        fileName: 'doc.pdf',
+        fileType: 'application/pdf' as const,
+      }
+      const result = await controller.generateSignedUploadUrl(mockUser, args)
+
+      expect(s3Service.buildKey).toHaveBeenCalledWith(
+        `${args.bucket}/${mockUser.id}`,
+        args.fileName,
+      )
+      expect(s3Service.getSignedUrlForUpload).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining(`uploads/${mockUser.id}/`),
+        { contentType: args.fileType },
+      )
+      expect(result).toEqual({
+        signedUploadUrl: 'https://s3.example.com/signed-url',
+      })
+    })
+
+    it('throws UnauthorizedException when user is null (M2M bypass)', async () => {
+      const args = {
+        bucket: 'uploads',
+        fileName: 'doc.pdf',
+        fileType: 'application/pdf' as const,
+      }
+
+      await expect(
+        controller.generateSignedUploadUrl(null as never, args),
+      ).rejects.toThrow(UnauthorizedException)
+    })
+  })
+
+  describe('updatePassword', () => {
+    it('updates password when user has no existing password', async () => {
+      vi.spyOn(usersService, 'updatePassword').mockResolvedValue(mockUser)
+
+      await controller.updatePassword(
+        { newPassword: 'NewPass123' } as UpdatePasswordInput,
+        mockUser,
+      )
+
+      expect(authService.validatePassword).not.toHaveBeenCalled()
+      expect(usersService.updatePassword).toHaveBeenCalledWith(
+        userId,
+        'NewPass123',
+      )
+    })
+
+    it('validates against empty string when user has no existing password but oldPassword is provided', async () => {
+      vi.spyOn(authService, 'validatePassword').mockResolvedValue(true)
+      vi.spyOn(usersService, 'updatePassword').mockResolvedValue(mockUser)
+
+      await controller.updatePassword(
+        { newPassword: 'NewPass123', oldPassword: 'SomePass1' },
+        mockUser,
+      )
+
+      expect(authService.validatePassword).toHaveBeenCalledWith('SomePass1', '')
+      expect(usersService.updatePassword).toHaveBeenCalledWith(
+        userId,
+        'NewPass123',
+      )
+    })
+
+    it('throws BadRequestException when user has password but oldPassword is not provided', async () => {
+      const userWithPassword = {
+        ...mockUser,
+        hasPassword: true,
+        password: 'hashed',
+      }
+
+      await expect(
+        controller.updatePassword(
+          { newPassword: 'NewPass123' } as UpdatePasswordInput,
+          userWithPassword,
+        ),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('validates old password and updates when correct', async () => {
+      const userWithPassword = {
+        ...mockUser,
+        hasPassword: true,
+        password: 'hashed_old',
+      }
+      vi.spyOn(authService, 'validatePassword').mockResolvedValue(true)
+      vi.spyOn(usersService, 'updatePassword').mockResolvedValue(mockUser)
+
+      await controller.updatePassword(
+        { newPassword: 'NewPass123', oldPassword: 'OldPass123' },
+        userWithPassword,
+      )
+
+      expect(authService.validatePassword).toHaveBeenCalledWith(
+        'OldPass123',
+        'hashed_old',
+      )
+      expect(usersService.updatePassword).toHaveBeenCalledWith(
+        userId,
+        'NewPass123',
+      )
+    })
+
+    it('throws UnauthorizedException when old password is incorrect', async () => {
+      const userWithPassword = {
+        ...mockUser,
+        hasPassword: true,
+        password: 'hashed_old',
+      }
+      vi.spyOn(authService, 'validatePassword').mockResolvedValue(false)
+
+      await expect(
+        controller.updatePassword(
+          { newPassword: 'NewPass123', oldPassword: 'WrongPass1' },
+          userWithPassword,
+        ),
+      ).rejects.toThrow(UnauthorizedException)
+
+      expect(usersService.updatePassword).not.toHaveBeenCalled()
+    })
+  })
+})

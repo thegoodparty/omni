@@ -1,0 +1,244 @@
+[
+  {
+    "details": {
+      "zip": "49286",
+      "city": "Tecumseh",
+      "tier": 4,
+      "level": "city",
+      "party": "Libertarian",
+      "state": "MI",
+      "county": "Lenawee County",
+      "campaignCommittee": "Paper Street Paper Co.",
+      "raceId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjM4Mjk1",
+      "knowRun": "yes",
+      "pledged": false,
+      "electionId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvRWxlY3Rpb24vNTk4OQ==",
+      "hasPrimary": true,
+      "ballotLevel": "CITY",
+      "geoLocation": {},
+      "electionDate": "2026-11-03",
+      "partisanType": "nonpartisan",
+      "runForOffice": "no",
+      "filingPeriodsEnd": "2026-07-16",
+      "officeTermLength": 2,
+      "filingPeriodsStart": "2026-01-02",
+      "priorElectionDates": [
+        "2018-11-06",
+        "2020-11-03",
+        "2022-11-08",
+        "2024-11-05",
+        "2022-08-02",
+        "2024-08-06"
+      ],
+      "primaryElectionDate": "2024-08-02"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Governor"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "TX",
+      "zip": "73301",
+      "ballotLevel": "State",
+      "electionDate": "2027-01-01",
+      "primaryElectionDate": "2026-07-01",
+      "geoLocation": {},
+      "party": "Communist",
+      "level": "State"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Senator"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "NY",
+      "zip": "10001",
+      "ballotLevel": "City",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Libertarian",
+      "level": "City"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "City Council"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "FL",
+      "zip": "33101",
+      "ballotLevel": "City",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Communist",
+      "level": "City"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Mayor"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "OH",
+      "zip": "44101",
+      "ballotLevel": "County",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Libertarian",
+      "level": "County"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Sheriff"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "IL",
+      "zip": "60601",
+      "ballotLevel": "State",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Communist",
+      "level": "State"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Governor"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "PA",
+      "zip": "19101",
+      "ballotLevel": "County",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Libertarian",
+      "level": "County"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Commissioner"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "AZ",
+      "zip": "85001",
+      "ballotLevel": "State",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Communist",
+      "level": "State"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Attorney General"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "MI",
+      "zip": "48201",
+      "ballotLevel": "County",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Libertarian",
+      "level": "County"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "Treasurer"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  },
+  {
+    "details": {
+      "state": "GA",
+      "zip": "30301",
+      "ballotLevel": "City",
+      "electionDate": "2026-05-01",
+      "primaryElectionDate": "2025-11-01",
+      "geoLocation": {},
+      "party": "Communist",
+      "level": "City"
+    },
+    "data": {
+      "hubSpotUpdates": {
+        "election_results": "Won General",
+        "verified_candidates": "Yes",
+        "office_type": "City Council"
+      }
+    },
+    "didWin": true,
+    "isDemo": false,
+    "isActive": true
+  }
+]
