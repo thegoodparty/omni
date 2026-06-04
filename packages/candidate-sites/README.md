@@ -26,7 +26,7 @@ There is also a preview route at `app/[vanityPath]/preview/page.tsx` used by `gp
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22.x (pinned via `.nvmrc` / `engines.node`; run `nvm use`)
 - npm (a `package-lock.json` is committed)
 - A running `gp-api` instance to fetch website data from
 
