@@ -104,9 +104,9 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    > - **`merge-anyway`** — flaky test or known-good; merge it in the third pass despite the red
    > - **`abort`** — stop the release prep; nothing gets merged
 
-   Record each repo's outcome (`green` / `merge-anyway` / `failed`). On `abort`, stop here and skip the rest of the run — the third pass (step 8–9), Phase 3, and Phase 4 all assume merges happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 18 final report and note there that the develop→qa PRs are already open (CI may still be running) and can be merged manually or by re-running the command.
+   Record each repo's outcome (`green` / `merge-anyway` / `failed`). On `abort`, stop here and skip the rest of the run — the third pass (step 8–9), Phase 3, and Phase 4 all assume merges happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 18 final report, which records the left-open develop→qa PRs (split by whether their checks already settled before the abort) so they can be merged manually or by re-running the command.
 
-8. **Third pass — merge each repo whose checks passed (or that you chose `merge-anyway` for), with a merge commit:**
+8. **Third pass — merge each repo whose checks passed (or that you chose `merge-anyway` for), with a merge commit.** If Phase 2 was aborted in step 7, skip this entire pass — the abort guarantee is that nothing gets merged, and this is the merge step. Otherwise:
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
@@ -262,7 +262,9 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     - Repos merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - Repos skipped (empty diff between qa and develop)
     - Repos whose develop→qa checks failed and were not merged — with the open develop→qa PR URL so the user can resolve and re-run (these have no qa→master PR yet)
-    - If Phase 2 was aborted: the develop→qa PRs that were left open (CI may still be running), with URLs — nothing was merged, so re-run or merge manually to continue
+    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Split the left-open develop→qa PRs into two groups so the operator knows what's actually pending:
+      - PRs already watched and recorded `green` (or `merge-anyway`) before the abort: list with URLs and note "checks already settled — safe to merge manually or re-run from step 8"
+      - PRs never reached in the second pass (no outcome recorded): list with URLs and note "CI may still be running — watch before merging"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
