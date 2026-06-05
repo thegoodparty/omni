@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3500",
-    "dev:link": "next dev -p 3500 --webpack",
+    "dev": "next dev -p 3500 --turbopack",
+    "dev:link": "next dev -p 3500",
     "build": "next build",
     "start": "next start -p 3500",
     "lint": "eslint .",
@@ -33,7 +33,7 @@
     "date-fns": "^4.1.0",
     "isomorphic-dompurify": "^2.22.0",
     "libphonenumber-js": "^1.12.36",
-    "next": "^16.0.10",
+    "next": "^15.5.19",
     "next-navigation-guard": "^0.2.0",
     "postcss": "^8.4.49",
     "radix-ui": "^1.4.3",
@@ -47,7 +47,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.2",
-    "@next/eslint-plugin-next": "^16.1.0",
+    "@next/eslint-plugin-next": "^15.5.19",
     "@playwright/test": "^1.57.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -59,7 +59,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "dotenv": "^17.2.3",
     "eslint": "^9.17.0",
-    "eslint-config-next": "^16.0.10",
+    "eslint-config-next": "^15.5.19",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-react": "^7.37.5",
@@ -70,11 +70,6 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.0",
     "vitest": "^4.0.18"
-  },
-  "overrides": {
-    "next-navigation-guard": {
-      "next": "^16.0.0"
-    }
   },
   "packageManager": "npm@10.9.2",
   "engines": {
