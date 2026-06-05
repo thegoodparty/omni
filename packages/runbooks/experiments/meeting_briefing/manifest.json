@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 7,
+  "version": 8,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -67,6 +67,19 @@
         "minLength": 1,
         "maxLength": 2000,
         "description": "Optional hint from a prior run describing where the agenda packet was last found. Usually a URL to the city's meetings index, the streaming platform's calendar page, or a CDN parent path. May include prose navigation notes when no single URL captures it. The agent SHOULD try this as channel 0 in Step 2's discovery before falling through to channels 1-4; if the hint is stale, continue with normal discovery — do not bail."
+      },
+      "agendaPdfPath": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "description": "Optional local filesystem path to a pre-staged agenda packet PDF (e.g. /workspace/input/agenda.pdf). When set, the agent treats this file as the primary source and skips platform discovery. Used when the runner pre-fetches a user-supplied packet before invoking the agent."
+      },
+      "agendaPacketUrl": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^https?://",
+        "description": "Optional permanent URL to the agenda packet. When set, the agent downloads it via pmf_runtime.pdf.download() instead of running channel-1-4 discovery. Used when a user supplies their own agenda packet from the briefings UI (gp-api uploads to S3 and passes a presigned GET URL here). agendaPdfPath takes precedence over agendaPacketUrl."
       }
     }
   },
