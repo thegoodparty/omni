@@ -70,16 +70,16 @@
       },
       "agendaPdfPath": {
         "type": "string",
-        "minLength": 1,
+        "pattern": "^/workspace/input/[A-Za-z0-9._-]+\\.pdf$",
         "maxLength": 1024,
-        "description": "Optional local filesystem path to a pre-staged agenda packet PDF (e.g. /workspace/input/agenda.pdf). When set, the agent treats this file as the primary source and skips platform discovery. Used when the runner pre-fetches a user-supplied packet before invoking the agent."
+        "description": "Optional local filesystem path to a pre-staged agenda packet PDF. Must be under /workspace/input/ and end in .pdf — the pattern blocks path traversal (../, absolute paths outside /workspace, embedded NULs). When set, the agent treats this file as the primary source and skips platform discovery. Used when the runner pre-fetches a user-supplied packet before invoking the agent."
       },
       "agendaPacketUrl": {
         "type": "string",
         "minLength": 1,
         "maxLength": 2048,
         "pattern": "^https?://",
-        "description": "Optional permanent URL to the agenda packet. When set, the agent downloads it via pmf_runtime.pdf.download() instead of running channel-1-4 discovery. Used when a user supplies their own agenda packet from the briefings UI (gp-api uploads to S3 and passes a presigned GET URL here). agendaPdfPath takes precedence over agendaPacketUrl."
+        "description": "Optional URL to the agenda packet. agent uses this to download via pmf_runtime.pdf.download() and skip channel-1-4 discovery. Two callers today: (1) the user-agenda-upload flow on the briefings UI, where the URL is the user's pasted public URL; (2) the user-agenda upload flow with an S3 file, where gp-api currently passes a presigned GET (note: presigned URLs can outlive their signer's credentials and become invalid on gp-api redeploy — track via PARAMS+runner pre-fetch is the planned long-term replacement). The agent should NOT cite a presigned URL as the permanent source in run_metadata.agenda_packet_url or sources[]; record it as fetch-only for the agenda_provided_by_user flow. agendaPdfPath takes precedence over agendaPacketUrl."
       }
     }
   },
