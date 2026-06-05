@@ -15,7 +15,6 @@
       "clerk_user_id",
       "election_date",
       "trigger",
-      "candidate_first_name",
       "candidate_last_name"
     ],
     "properties": {
@@ -32,21 +31,17 @@
       "election_date": {
         "type": "string",
         "format": "date",
-        "description": "YYYY-MM-DD. Drives the {mm}/{month_abbreviation}/{yyyy} placeholders in the domain pattern catalog (instruction.md)."
+        "description": "YYYY-MM-DD. Drives the {month_abbreviation}/{yyyy} placeholders in the domain pattern catalog (instruction.md)."
       },
       "trigger": {
         "type": "string",
         "enum": ["initial", "recovery_resume"],
         "description": "Why this run was dispatched. `initial` = first dispatch after Pro purchase. `recovery_resume` = re-dispatch by the recovery loop (ENG-7554) after a wait condition cleared; the agent reads `resume_from_stage` as a skip-list hint but still trusts gp-api durable state as the source of truth."
       },
-      "candidate_first_name": {
-        "type": "string",
-        "description": "Candidate first name. Used for the `{first_initial}` placeholder in the domain pattern catalog. Empty string skips the two patterns that depend on first_initial (per instruction.md: 'When unset or empty string, skip the two patterns that need it')."
-      },
       "candidate_last_name": {
         "type": "string",
         "minLength": 1,
-        "description": "Candidate last name. Used for `{last_name}` and `{last_initial}` placeholders in the domain pattern catalog."
+        "description": "Candidate last name. Used for the `{last_name}` placeholder in the domain pattern catalog."
       },
       "domain_budget_cap_usd": {
         "type": "integer",

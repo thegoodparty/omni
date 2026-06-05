@@ -10,7 +10,7 @@ Your params arrive in the `PARAMS_JSON` env var. Read them once at the top of St
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring Step 0 below. Update each item as you go.
-3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_first_name`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), `resume_from_stage` (may be unset), and `run_id`. **Precedence**: prefer the `RUN_ID` env var; use the `run_id` params field only when `RUN_ID` is unset. The platform's recovery loop correlates runs by the env-var value, so the artifact's `run_id` must always be the value the agent actually used. If both are present and disagree, log the divergence in `errors[]` and use `RUN_ID`.
+3. Read `PARAMS_JSON` once. Capture `campaign_id`, `clerk_user_id`, `election_date`, `trigger`, `candidate_last_name`, `domain_budget_cap_usd` (default 10), `resume_from_stage` (may be unset), and `run_id`. **Precedence**: prefer the `RUN_ID` env var; use the `run_id` params field only when `RUN_ID` is unset. The platform's recovery loop correlates runs by the env-var value, so the artifact's `run_id` must always be the value the agent actually used. If both are present and disagree, log the divergence in `errors[]` and use `RUN_ID`.
 4. Read the durable compliance state from gp-api **before doing anything else** (Step 1). Skip any step whose stage is already complete. This is the resume / idempotency primitive — the same agent invocation must be safe to run twice.
 5. Write the final artifact to `/workspace/output/compliance_setup.json` and nowhere else.
 6. Run `python3 /workspace/validate_output.py` before declaring success.
@@ -79,10 +79,7 @@ Then maintain a TodoWrite list with these 7 items, **numbered 1:1 with the prose
 Search the registrar for an available domain matching any of these patterns. Ordering is **randomized per run** (see "Selection must cover the full catalog" below) — there is no fixed pattern or TLD priority. The placeholders are derived from the candidate's data:
 
 - `{last_name}` — `candidate_last_name`, lowercased, stripped of non-`[a-z]` characters
-- `{first_initial}` — first character of the candidate's first name (lowercase). When unset **or empty string**, skip the two patterns that need it.
-- `{last_initial}` — first character of `candidate_last_name` (lowercase)
 - `{month_abbreviation}` — three-letter lowercase month of `election_date` (`jan`, `feb`, …, `dec`)
-- `{mm}` — two-digit month of `election_date` (`01`-`12`)
 - `{yyyy}` — four-digit year of `election_date`
 
 Pattern set (TLDs: any of `run`, `bio`, `fyi`, `win`, `digital`, `site`):
@@ -92,8 +89,6 @@ vote-(4|for)-{last_name}-{month_abbreviation}-{yyyy}.(run|bio|fyi|win|digital|si
 vote(4|for){last_name}{month_abbreviation}{yyyy}.(run|bio|fyi|win|digital|site)
 vote-{last_name}-{month_abbreviation}-{yyyy}.(run|bio|fyi|win|digital|site)
 vote{last_name}{month_abbreviation}{yyyy}.(run|bio|fyi|win|digital|site)
-vote-{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
-vote{first_initial}{last_initial}-{mm}{yyyy}.(run|bio|fyi|win|digital|site)
 ```
 
 **TLD allowlist is strict.** Only `run`, `bio`, `fyi`, `win`, `digital`, `site` are valid. Any other suffix (for example `.org`, `.com`, `.net`) is out of spec and must never be purchased. If the search tool ever returns a candidate whose TLD is outside this allowlist, do **not** purchase it — append blocker `{ step: "domain_search", code: "unapproved_tld_returned", detail: <the returned domain>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
@@ -151,7 +146,7 @@ Call the gp-api MCP tool **that searches the registrar for an available domain m
 - The full pattern catalog from above (the candidate's `candidate_last_name`, `election_date`, etc., substituted).
 - For the **first** call, `price_cap_usd = min(10, domain_budget_cap_usd)` — the cheap-first cap. When `domain_budget_cap_usd >= 10` this is `10`; when params explicitly restricts further (e.g. `7`), it is `7`.
 
-**Pre-call guard — validate the request before sending it.** Before invoking the search tool, confirm the request you are about to send (a) includes **all** approved patterns applicable to this candidate (all six, or the four that don't need `{first_initial}` when first name is empty), (b) includes **all six** approved TLDs (`run`, `bio`, `fyi`, `win`, `digital`, `site`), and (c) presents them in **randomized order** for this run. If you cannot satisfy all three — for example the tool surface only accepts a subset, or forces a fixed ordering with early exit — do **not** call it with a narrowed catalog. Append blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
+**Pre-call guard — validate the request before sending it.** Before invoking the search tool, confirm the request you are about to send (a) includes **all four** approved patterns, (b) includes **all six** approved TLDs (`run`, `bio`, `fyi`, `win`, `digital`, `site`), and (c) presents them in **randomized order** for this run. If you cannot satisfy all three — for example the tool surface only accepts a subset, or forces a fixed ordering with early exit — do **not** call it with a narrowed catalog. Append blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
 
 Set `stage` to `domain_search_started` while the call is in flight.
 
