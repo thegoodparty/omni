@@ -106,9 +106,9 @@ jobs:
             DEPLOY_ARGS=(--prod)
           fi
 
-          vercel pull --cwd "$WORKSPACE" --environment="$PULL_ENV" --yes --token "$VERCEL_TOKEN"
-          vercel build --cwd "$WORKSPACE" "${BUILD_ARGS[@]}" --token "$VERCEL_TOKEN"
-          DEPLOY_URL="$(vercel deploy --prebuilt --cwd "$WORKSPACE" "${DEPLOY_ARGS[@]}" --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
+          vercel pull --environment="$PULL_ENV" --yes --token "$VERCEL_TOKEN"
+          vercel build "${BUILD_ARGS[@]}" --token "$VERCEL_TOKEN"
+          DEPLOY_URL="$(vercel deploy --prebuilt "${DEPLOY_ARGS[@]}" --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
           case "$DEPLOY_URL" in
             http*) ;;
             *) DEPLOY_URL="https://${DEPLOY_URL}" ;;

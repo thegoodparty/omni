@@ -24,10 +24,10 @@ export class VoterFileDownloadAccessService implements OnModuleInit {
 
     const canDownload = Boolean(
       (ballotLevel && ballotLevel !== 'FEDERAL' && ballotLevel !== 'STATE') ||
-        (ballotLevel &&
-          (ballotLevel === 'FEDERAL' || ballotLevel === 'STATE') &&
-          campaign.canDownloadFederal) ||
-        hasElectionData,
+      (ballotLevel &&
+        (ballotLevel === 'FEDERAL' || ballotLevel === 'STATE') &&
+        campaign.canDownloadFederal) ||
+      hasElectionData,
     )
 
     if (!canDownload) {

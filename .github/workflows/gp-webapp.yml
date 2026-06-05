@@ -86,9 +86,9 @@ jobs:
         id: deploy
         shell: bash
         run: |
-          vercel pull --cwd "$WORKSPACE" --environment=preview --yes --token "$VERCEL_TOKEN"
-          vercel build --cwd "$WORKSPACE" --token "$VERCEL_TOKEN"
-          DEPLOY_URL="$(vercel deploy --prebuilt --cwd "$WORKSPACE" --target=preview --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
+          vercel pull --environment=preview --yes --token "$VERCEL_TOKEN"
+          vercel build --token "$VERCEL_TOKEN"
+          DEPLOY_URL="$(vercel deploy --prebuilt --target=preview --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
           case "$DEPLOY_URL" in
             http*) ;;
             *) DEPLOY_URL="https://${DEPLOY_URL}" ;;

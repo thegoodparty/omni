@@ -127,9 +127,9 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
   private shouldRenewToken(): boolean {
     return Boolean(
       !this.token ||
-        !this.tokenExpiry ||
-        this.tokenExpiry - Math.floor(Date.now() / 1000) <=
-          this.tokenRenewalThreshold,
+      !this.tokenExpiry ||
+      this.tokenExpiry - Math.floor(Date.now() / 1000) <=
+        this.tokenRenewalThreshold,
     )
   }
 
