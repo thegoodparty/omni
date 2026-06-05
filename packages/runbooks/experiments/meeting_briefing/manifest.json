@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 8,
+  "version": 9,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -68,18 +68,12 @@
         "maxLength": 2000,
         "description": "Optional hint from a prior run describing where the agenda packet was last found. Usually a URL to the city's meetings index, the streaming platform's calendar page, or a CDN parent path. May include prose navigation notes when no single URL captures it. The agent SHOULD try this as channel 0 in Step 2's discovery before falling through to channels 1-4; if the hint is stale, continue with normal discovery — do not bail."
       },
-      "agendaPdfPath": {
-        "type": "string",
-        "pattern": "^/workspace/input/[A-Za-z0-9._-]+\\.pdf$",
-        "maxLength": 1024,
-        "description": "Optional local filesystem path to a pre-staged agenda packet PDF. Must be under /workspace/input/ and end in .pdf — the pattern blocks path traversal (../, absolute paths outside /workspace, embedded NULs). When set, the agent treats this file as the primary source and skips platform discovery. Used when the runner pre-fetches a user-supplied packet before invoking the agent."
-      },
       "agendaPacketUrl": {
         "type": "string",
         "minLength": 1,
         "maxLength": 2048,
         "pattern": "^https?://",
-        "description": "Optional URL to the agenda packet. agent uses this to download via pmf_runtime.pdf.download() and skip channel-1-4 discovery. Two callers today: (1) the user-agenda-upload flow on the briefings UI, where the URL is the user's pasted public URL; (2) the user-agenda upload flow with an S3 file, where gp-api currently passes a presigned GET (note: presigned URLs can outlive their signer's credentials and become invalid on gp-api redeploy — track via PARAMS+runner pre-fetch is the planned long-term replacement). The agent should NOT cite a presigned URL as the permanent source in run_metadata.agenda_packet_url or sources[]; record it as fetch-only for the agenda_provided_by_user flow. agendaPdfPath takes precedence over agendaPacketUrl."
+        "description": "Optional URL to the agenda packet the user pasted in the briefings UI. The agent fetches via pmf_runtime.pdf.download() and skips channel-1-4 discovery. This is always the user's own permanent URL — never a presigned S3 URL. Cite the URL verbatim as the permanent source in run_metadata.agenda_packet_url and sources[]. When the user uploaded a file instead of pasting a URL, this field is absent and the file is pre-staged at /workspace/input/agenda.pdf (the runner fetches it via the broker before the agent boots); the pre-staged file takes precedence over agentic discovery just like agendaPacketUrl does."
       }
     }
   },
