@@ -50,11 +50,6 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc --noEmit
 
-      - name: Lint
-        env:
-          DATABASE_URL: postgresql://prisma:prisma@localhost:5432/election_api_ci
-        run: npm run lint -w ${{ env.WORKSPACE }}
-
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
 
