@@ -457,29 +457,35 @@ describe('CampaignForm', () => {
   })
 
   describe('validation', () => {
-    it('shows error for invalid admin email', async () => {
+    it('keeps Save disabled for invalid admin email', async () => {
       renderForm()
       const user = userEvent.setup()
 
       const emailInput = screen.getByDisplayValue('admin@example.com')
       await user.clear(emailInput)
       await user.type(emailInput, 'not-an-email')
+      await user.tab()
 
       await waitFor(() => {
-        expect(screen.getByText('Invalid email address')).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeDisabled()
       })
     })
 
-    it('shows error for invalid website URL', async () => {
+    it('keeps Save disabled for invalid website URL', async () => {
       renderForm()
       const user = userEvent.setup()
 
       const websiteInput = screen.getByDisplayValue('https://example.com')
       await user.clear(websiteInput)
       await user.type(websiteInput, 'not-a-url')
+      await user.tab()
 
       await waitFor(() => {
-        expect(screen.getByText('Invalid URL')).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeDisabled()
       })
     })
 
