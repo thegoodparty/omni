@@ -92,6 +92,12 @@ export type {
 export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
 
 export type {
+  BriefingAdminDateRange,
+  BriefingAdminListQuery,
+  BriefingAdminRow,
+} from './types/briefing'
+
+export type {
   Organization,
   OrgDistrict,
   OrgPosition,

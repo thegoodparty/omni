@@ -113,6 +113,16 @@ const runDetail = await client.adminAgentRuns.get('run-uuid')
 
 const retriedRun = await client.adminAgentRuns.retry('run-uuid')
 
+// Admin briefings (admin / M2M)
+const briefings = await client.admin.briefings.list({
+  q: 'mayor',
+  dateRange: 'last 30 days',
+  offset: 0,
+  limit: 20,
+})
+
+const briefing = await client.admin.briefings.get('briefing-uuid')
+
 client.destroy()
 ```
 
