@@ -62,7 +62,10 @@ jobs:
   vercel-preview:
     name: Vercel preview/develop deploy
     needs: ci
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'develop')
+    if: >-
+      vars.ENABLE_OMNI_VERCEL_DEPLOYS == 'true'
+      && github.event_name == 'push'
+      && github.ref_name == 'develop'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.deploy.outputs.url }}
