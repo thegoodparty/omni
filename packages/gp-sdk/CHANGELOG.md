@@ -1,5 +1,11 @@
 # @goodparty_org/sdk
 
+## 2.4.0
+
+### Minor Changes
+
+- [#69](https://github.com/thegoodparty/gp-sdk/pull/69) [`2e8938c`](https://github.com/thegoodparty/gp-sdk/commit/2e8938cd089a84c92a7064bfa9cd91767c97c7b7) Thanks [@swain](https://github.com/swain)! - Add `client.admin.briefings` admin sub-resource with `list(params)` and `get(id)` for meeting briefings, plus `BriefingAdminRow`, `BriefingAdminListQuery`, and `BriefingAdminDateRange` types.
+
 ## 2.3.0
 
 ### Minor Changes
