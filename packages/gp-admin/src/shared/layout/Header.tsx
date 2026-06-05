@@ -39,7 +39,7 @@ export function Header() {
             <SignedIn>
               <OrganizationSwitcher
                 hidePersonal={true}
-                afterSelectOrganizationUrl="/dashboard"
+                afterSelectOrganizationUrl="/dashboard/users"
                 appearance={{
                   baseTheme: clerkTheme,
                   elements: {

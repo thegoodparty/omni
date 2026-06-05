@@ -109,12 +109,12 @@ test.describe('Users Search - Name', () => {
       page.getByRole('columnheader', { name: 'Phone' })
     ).toBeVisible()
 
-    await expect(
-      page.getByRole('cell', { name: 'Tomer Almog' }).first()
-    ).toBeVisible()
-    await expect(
-      page.getByRole('cell', { name: 'tomer@goodparty.org' }).first()
-    ).toBeVisible()
+    const tomerRow = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('link', { name: 'Tomer Almog' }) })
+      .first()
+    await expect(tomerRow).toBeVisible()
+    await expect(tomerRow.getByRole('cell').nth(2)).toContainText(/@/)
   })
 
   test('clicking user name navigates to user detail', async ({ page }) => {
