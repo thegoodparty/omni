@@ -1,7 +1,7 @@
-<!-- v1 — 2026-05-26 -->
+<!-- v2 — 2026-06-05 -->
 # /release-prep
 
-Open a `develop → qa` PR per configured repo, wait for checks, merge it, then open a `qa → master` PR — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
+Open every configured repo's `develop → qa` PR up front so their checks run concurrently, then watch and merge each, then open a `qa → master` PR per repo — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 > **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
@@ -50,11 +50,13 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
    If the file doesn't exist, warn the user that unmapped authors will appear as raw GitHub logins in the message, then continue.
 
-### Phase 2: develop → qa per repo
+### Phase 2: develop → qa (open all PRs first, watch in parallel, then merge)
 
-4. **For each repo**, run steps 5–9 sequentially (not in parallel — easier to react to failures).
+4. **Open every repo's `develop → qa` PR before watching any checks.** The slow part of this phase is CI, and a PR's checks start the moment it's created. So the order is: **first pass** opens every repo's PR (steps 5–6, looped over all repos), **second pass** watches each PR's checks (step 7), **third pass** merges the green ones (steps 8–9). Watching the PRs one after another in the second pass does **not** serialize the wait — because all the PRs were opened in the first pass, their checks have been running concurrently the whole time; by the time the first repo's `--watch` returns, the others' checks are already well underway. This is the point of the rewrite: don't block on gp-webapp's checks before opening gp-api's PR.
 
-5. **Fetch and check the diff:**
+   Keep a per-repo record as you go: PR number, whether the repo had changes, and (after the second pass) its check outcome. Steps 5–6 below are non-blocking, so loop them over all repos before touching step 7.
+
+5. **First pass — for each repo, fetch and check the diff:**
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
@@ -62,9 +64,9 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    git log origin/qa..origin/develop --oneline --no-merges
    ```
 
-   If output is empty, print `<repo>: no changes between qa and develop — skipping` and move on to the next repo.
+   If output is empty, print `<repo>: no changes between qa and develop — skipping`, record the repo as skipped, and don't open a PR for it.
 
-6. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
+6. **First pass (cont.) — create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
@@ -85,35 +87,35 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    rm -f "$BODY_FILE"
    ```
 
-   Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks.
+   Capture the PR number from `gh`'s output, then **move straight to the next repo — do not wait for checks here.** `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks. By the end of this pass every repo with changes has an open PR and CI running concurrently.
 
-7. **Wait for checks to settle:**
+7. **Second pass — for each repo with an open PR, wait for its checks to settle:**
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr checks <pr_number> --watch
    ```
 
-   This blocks until all checks reach a terminal state. If any check is in `FAIL` / `CANCEL` / `TIMEOUT`, pause and present three options:
+   This blocks until that repo's checks reach a terminal state, but the checks themselves were already running from the first pass, so the watches overlap in wall-clock time — you're collecting results in order, not adding up each repo's CI time. If any check is in `FAIL` / `CANCEL` / `TIMEOUT`, pause and present three options:
 
    > `<repo>` PR #<n>: <which> check(s) failed.
    >
    > - **`retry`** — re-trigger CI (re-run failed jobs from the GitHub UI, or push a no-op) and re-watch
-   > - **`merge-anyway`** — flaky test or known-good; merge despite the red
-   > - **`abort`** — stop the whole release prep; nothing else gets merged
+   > - **`merge-anyway`** — flaky test or known-good; merge it in the third pass despite the red
+   > - **`abort`** — stop the release prep; nothing gets merged
 
-   On `abort`, exit and print which repos were already processed in step 17's final report.
+   Record each repo's outcome (`green` / `merge-anyway` / `failed`). On `abort`, stop here and skip the third pass entirely: nothing was merged, but note in step 17's final report that the develop→qa PRs are already open (CI may still be running) and can be merged manually or by re-running the command.
 
-8. **Merge the develop → qa PR with a merge commit:**
+8. **Third pass — merge each repo whose checks passed (or that you chose `merge-anyway` for), with a merge commit:**
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
    gh pr merge <pr_number> --merge
    ```
 
-   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes.
+   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes. Skip any repo whose outcome was `failed` (not chosen for merge-anyway); report it in step 17.
 
-9. **Re-fetch** so local `qa` is current:
+9. **Re-fetch** each merged repo so local `qa` is current:
 
    ```bash
    cd "$RELEASE_REPOS_DIR/<repo>"
@@ -122,7 +124,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
 ### Phase 3: qa → master per repo (pending release)
 
-10. **For each repo that had changes in Phase 2**, open the `qa → master` PR — but **do not merge it**. This is the pending production release. First check for an existing open one (same rerunnability concern as step 6):
+10. **For each repo merged in Phase 2** (skip any that failed checks and weren't merge-anyway'd, and skip everything if Phase 2 was aborted), open the `qa → master` PR — but **do not merge it**. This is the pending production release. First check for an existing open one (same rerunnability concern as step 6):
 
     ```bash
     cd "$RELEASE_REPOS_DIR/<repo>"
@@ -256,6 +258,8 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 18. **Final report:**
     - Repos processed (develop→qa merged, qa→master PR opened) with the open `qa → master` PR URL for each
     - Repos skipped (empty diff between qa and develop)
+    - Repos whose develop→qa checks failed and were not merged — with the open develop→qa PR URL so the user can resolve and re-run (these have no qa→master PR yet)
+    - If Phase 2 was aborted: the develop→qa PRs that were left open (CI may still be running), with URLs — nothing was merged, so re-run or merge manually to continue
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
@@ -265,7 +269,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
 - **Do not commit on the user's behalf.** All merges run through `gh pr merge` (acts on the remote PR). Never `git commit` locally.
 - **`--merge`, not `--squash`.** The merge style is load-bearing — `/release` parses the `qa..master` diff to find included ENG-XXXX tags. Squashing would collapse them into the parent PR's commit body, making the lookup more fragile.
-- **Per-repo, not in parallel.** Failures (check failures, PR open conflicts) are easier to react to one repo at a time.
+- **Open all PRs first, then watch.** Phase 2 opens every repo's develop→qa PR up front (first pass) so CI runs concurrently, then watches (second pass) and merges (third pass). Don't watch one repo's checks before opening the next repo's PR — that throws away the parallelism. Failures are still reacted to one repo at a time during the second pass.
 - **Skip silent on empty diff.** If `git log qa..develop` is empty for a repo, that's normal — note it in the final report and move on.
 - **Don't merge the qa → master PR.** This command only opens it. The actual release merge is done by `/release` once the team has confirmed.
 - **`gh` cwd detection.** When `cd`'d into a repo, `gh` resolves owner/repo from the git remote. Don't pass `--repo` unless you're operating cross-repo from the runbooks directory.
