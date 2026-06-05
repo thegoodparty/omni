@@ -38,6 +38,10 @@
         "enum": ["initial", "recovery_resume"],
         "description": "Why this run was dispatched. `initial` = first dispatch after Pro purchase. `recovery_resume` = re-dispatch by the recovery loop (ENG-7554) after a wait condition cleared; the agent reads `resume_from_stage` as a skip-list hint but still trusts gp-api durable state as the source of truth."
       },
+      "candidate_first_name": {
+        "type": "string",
+        "description": "Candidate first name. No longer used by the domain pattern catalog (the initials-based patterns were removed); accepted but unused, since the dispatcher still includes it in the params payload."
+      },
       "candidate_last_name": {
         "type": "string",
         "minLength": 1,
