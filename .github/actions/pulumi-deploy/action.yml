@@ -1,0 +1,35 @@
+name: Pulumi deploy
+description: >-
+  Install Pulumi and run an app-provided deploy command. AWS credentials and
+  workspace dependencies must already be configured by the caller.
+
+inputs:
+  command:
+    description: Shell command that performs the Pulumi deploy.
+    required: true
+  working-directory:
+    description: Directory to run the deploy command in.
+    required: true
+  pulumi-version:
+    description: Pulumi CLI version constraint.
+    required: false
+    default: '^3'
+
+outputs:
+  service_url:
+    description: Optional service URL emitted by the deploy command.
+    value: ${{ steps.deploy.outputs.service_url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Pulumi
+      uses: pulumi/actions@v6
+      with:
+        pulumi-version: ${{ inputs.pulumi-version }}
+
+    - name: Run Pulumi deploy
+      id: deploy
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.command }}

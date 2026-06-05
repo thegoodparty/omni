@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { animateScroll as scroll, scroller } from 'react-scroll'
 import { WEBSITE_THEMES } from '../constants/websiteContent.const'
 import {
@@ -41,10 +41,6 @@ export default function WebsitePage({
   privacyPolicy?: boolean
   smsTerms?: boolean
 }) {
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(
-    privacyPolicy || false,
-  )
-  const [showSmsTerms, setShowSmsTerms] = useState(smsTerms || false)
   const content = website?.content || {}
   const activeTheme =
     WEBSITE_THEMES[content?.theme as keyof typeof WEBSITE_THEMES] ||
@@ -75,14 +71,6 @@ export default function WebsitePage({
     return () => clearTimeout(timer)
   }, [step, isPreview])
 
-  useEffect(() => {
-    setShowPrivacyPolicy(privacyPolicy || false)
-  }, [privacyPolicy])
-
-  useEffect(() => {
-    setShowSmsTerms(smsTerms || false)
-  }, [smsTerms])
-
   return (
     <div
       className={`${activeTheme.bg} ${activeTheme.text} ${
@@ -110,12 +98,12 @@ export default function WebsitePage({
         committee={content.about?.committee || candidateName}
       />
       <PrivacyPolicyModal
-        open={showPrivacyPolicy}
+        open={privacyPolicy || false}
         content={content}
         activeTheme={activeTheme}
       />
       <SmsTermsModal
-        open={showSmsTerms}
+        open={smsTerms || false}
         content={content}
         activeTheme={activeTheme}
       />

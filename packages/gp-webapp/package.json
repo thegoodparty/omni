@@ -5,8 +5,7 @@
   "author": "Tomer Almog",
   "license": "MIT",
   "scripts": {
-    "ai-rules:update": "git submodule update --remote ai-rules",
-    "postinstall": "git submodule update --init",
+    "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
     "build": "next build",
     "build-local": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=http://localhost:3000 next build",
     "generate-agent-job-types": "tsx scripts/generate-agent-job-types.ts",
@@ -112,14 +111,14 @@
     "qrcode": "^1.5.4",
     "query-string": "^9.1.0",
     "quill": "^2.0.3",
-    "react": "^19.1.2",
+    "react": "19.1.4",
     "react-canvas-confetti": "^1.4.0",
     "react-chartjs-2": "^5.3.0",
     "react-color": "^2.19.3",
     "react-copy-to-clipboard-ts": "^1.1.0",
     "react-csv": "^2.2.2",
     "react-day-picker": "^9.11.1",
-    "react-dom": "^19.1.2",
+    "react-dom": "19.1.4",
     "react-drag-reorder": "^1.2.0",
     "react-google-autocomplete": "^2.7.5",
     "react-hook-form": "^7.56.4",
@@ -152,7 +151,8 @@
     "uuidv7": "^1.1.0",
     "validator": "^13.15.22",
     "vaul": "^1.1.2",
-    "zod": "^4.1.13"
+    "zod": "4.0.17",
+    "@clerk/react": "^6.7.3"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.948.0",

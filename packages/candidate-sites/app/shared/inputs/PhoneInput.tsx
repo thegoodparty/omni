@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { AsYouType } from 'libphonenumber-js'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
@@ -48,24 +48,14 @@ function PhoneInput({
   InputLabelProps,
   ...restProps
 }: PhoneInputProps) {
-  const [displayValue, setDisplayValue] = useState(value || '')
   const [validPhone, setValidPhone] = useState(true)
-
-  useEffect(() => {
-    if (value !== displayValue) {
-      setDisplayValue(value || '')
-    }
-    // Intentionally only re-sync when the external `value` prop changes;
-    // depending on `displayValue` would re-run this on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
+  const displayValue = value || ''
 
   const onChangeValue = (event: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = event.target.value
     const asYouType = new AsYouType('US')
     const formatted = asYouType.input(inputValue)
 
-    setDisplayValue(formatted)
     setValidPhone(isValidPhone(inputValue))
     onChangeCallback(formatted)
   }

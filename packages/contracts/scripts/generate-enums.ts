@@ -7,7 +7,7 @@ import { join } from 'path'
 // of `prisma generate` (and of where the client is emitted), so it works
 // before the client exists and after the client moves to a custom output dir.
 const schemaPath =
-  process.env.PRISMA_SCHEMA_PATH ?? join(__dirname, '..', '..', 'prisma', 'schema')
+  process.env.PRISMA_SCHEMA_PATH ?? join(__dirname, '..', '..', 'gp-api', 'prisma', 'schema')
 
 const outputDir = join(__dirname, '..', 'src', 'generated')
 const enumsOutputPath = join(outputDir, 'enums.ts')

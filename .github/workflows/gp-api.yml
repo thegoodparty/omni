@@ -1,0 +1,145 @@
+name: gp-api
+
+on:
+  pull_request:
+    paths:
+      - 'packages/gp-api/**'
+      - 'packages/contracts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/gp-api.yml'
+      - '.github/actions/**'
+  push:
+    branches: [develop, qa, master]
+    paths:
+      - 'packages/gp-api/**'
+      - 'packages/contracts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/gp-api.yml'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: us-west-2
+  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
+  IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ github.sha }}
+  WORKSPACE: packages/gp-api
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    services:
+      shadow-db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prisma
+          POSTGRES_PASSWORD: prisma
+          POSTGRES_DB: shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U prisma"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Lint
+        run: npm run lint -w ${{ env.WORKSPACE }}
+
+      - name: Typecheck
+        run: npm run types -w ${{ env.WORKSPACE }}
+
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }} -- --coverage
+
+      - name: Check Prisma migrations
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          npx prisma migrate diff \
+            --from-migrations ./prisma/schema/migrations \
+            --to-schema-datamodel ./prisma/schema \
+            --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
+            --exit-code
+
+  deploy-develop:
+    name: Deploy develop
+    needs: validate
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gp-api-deploy-develop
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build application
+        run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          # C-7 will make this Dockerfile fully monorepo-root aware.
+          context: packages/gp-api
+          file: packages/gp-api/deploy/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_URI }}
+          cache-from: type=gha,scope=gp-api
+          cache-to: type=gha,mode=max,scope=gp-api
+
+      - name: Deploy (Pulumi)
+        id: pulumi
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: ${{ env.WORKSPACE }}
+          command: |
+            npm run infra deploy dev
+            cd deploy
+            SERVICE_URL=$(pulumi stack output serviceUrl 2>/dev/null || echo "")
+            echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Add deploy summary
+        if: steps.pulumi.outputs.service_url != ''
+        run: echo "gp-api dev deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"

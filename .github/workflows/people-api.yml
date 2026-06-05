@@ -1,0 +1,98 @@
+name: people-api
+
+on:
+  pull_request:
+    paths:
+      - 'packages/people-api/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/people-api.yml'
+      - '.github/actions/**'
+  push:
+    branches: [develop, qa, master]
+    paths:
+      - 'packages/people-api/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/people-api.yml'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: people-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: us-west-2
+  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
+  IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/people-api:${{ github.sha }}
+  WORKSPACE: packages/people-api
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: people-api
+          workspace: ${{ env.WORKSPACE }}
+          prisma-generate-script: generate:prisma:people-api
+
+      - name: Lint
+        run: npm run lint -w ${{ env.WORKSPACE }}
+
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }}
+
+  deploy-develop:
+    name: Deploy develop
+    needs: validate
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: people-api-deploy-develop
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: people-api
+          workspace: ${{ env.WORKSPACE }}
+          prisma-generate-script: generate:prisma:people-api
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build application
+        run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Build and push Docker image
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          docker build -t "${IMAGE_URI}" -f deploy/Dockerfile .
+          docker push "${IMAGE_URI}"
+
+      - name: Deploy (Pulumi)
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: ${{ env.WORKSPACE }}/deploy
+          command: ./deploy.sh dev
+        env:
+          ASTRO_ASSUME_ROLE_EXTERNAL_ID: ${{ vars.ASTRO_ASSUME_ROLE_EXTERNAL_ID_DEV }}

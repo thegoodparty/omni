@@ -1,0 +1,101 @@
+name: candidate-sites
+
+on:
+  pull_request:
+    paths:
+      - 'packages/candidate-sites/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/candidate-sites.yml'
+      - '.github/actions/**'
+  push:
+    branches: [develop, qa, master]
+    paths:
+      - 'packages/candidate-sites/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/candidate-sites.yml'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  WORKSPACE: packages/candidate-sites
+
+jobs:
+  ci:
+    name: Lint / Format / Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: candidate-sites
+
+      - name: Lint
+        run: npm run lint -w ${{ env.WORKSPACE }}
+
+      - name: Format check
+        run: npm run format -w ${{ env.WORKSPACE }}
+
+      - name: Build smoke
+        run: npm run build -w ${{ env.WORKSPACE }}
+
+  vercel-preview:
+    name: Vercel preview/develop deploy
+    needs: ci
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'develop')
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_CANDIDATE_SITES }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: candidate-sites
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Build and deploy with Vercel CLI
+        id: deploy
+        shell: bash
+        run: |
+          vercel pull --cwd "$WORKSPACE" --environment=preview --yes --token "$VERCEL_TOKEN"
+          vercel build --cwd "$WORKSPACE" --token "$VERCEL_TOKEN"
+          DEPLOY_URL="$(vercel deploy --prebuilt --cwd "$WORKSPACE" --target=preview --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
+          case "$DEPLOY_URL" in
+            http*) ;;
+            *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
+          esac
+          echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
+          echo "candidate-sites preview URL: ${DEPLOY_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment preview URL
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.url }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `candidate-sites Vercel preview: ${url}`
+            });
