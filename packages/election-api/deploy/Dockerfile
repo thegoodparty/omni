@@ -38,20 +38,20 @@ WORKDIR /app
 ARG CACHEBUST
 
 # Install dependencies
-COPY package.json package-lock.json tsconfig.json tsconfig.build.json ./
+COPY package.json package-lock.json ./
+COPY packages/election-api/package.json ./packages/election-api/package.json
+RUN npm cache clean --force && \
+    npm ci --build-from-source --ignore-scripts --workspace election-api
 
 # Copy application source files, prisma files, and seed data
-COPY src/ ./src
-COPY prisma/ ./prisma
-
-# Clear npm cache and install dependencies with --ignore-scripts
-RUN npm cache clean --force && \
-    npm install --build-from-source --ignore-scripts
+COPY packages/election-api ./packages/election-api
 
 # Set the docker build args into environment variables on runner.
 ARG STAGE
 ARG DATABASE_URL
 ENV DATABASE_URL=$DATABASE_URL
+
+WORKDIR /app/packages/election-api
 
 # Generate Prisma client
 RUN npm run generate
@@ -70,25 +70,28 @@ WORKDIR /app
 
 # Copy package files for production dependencies
 COPY package.json package-lock.json ./
+COPY packages/election-api/package.json ./packages/election-api/package.json
 # Install only production dependencies with --ignore-scripts
-RUN npm ci --only=production --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts --workspace election-api
+
+WORKDIR /app/packages/election-api
 
 # Copy only necessary files to the runtime image
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY module-alias.js ./
+COPY --from=builder /app/packages/election-api/dist ./dist
+COPY --from=builder /app/packages/election-api/prisma ./prisma
+COPY --from=builder /app/packages/election-api/module-alias.js ./
 # The Prisma client is generated to a custom output dir (src/generated/prisma)
 # which holds the client JS, its bundled runtime, and the query-engine binary.
 # `nest build` only transpiles .ts, so it is not emitted into dist; copy it to
 # the path the compiled code resolves at runtime (dist/src/generated/prisma).
-COPY --from=builder /app/src/generated/prisma ./dist/src/generated/prisma
+COPY --from=builder /app/packages/election-api/src/generated/prisma ./dist/src/generated/prisma
 
 # Copy the entrypoint script and ensure it's executable
-COPY deploy/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --from=builder /app/packages/election-api/deploy/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 # Set the NODE_ENV to production
 ENV NODE_ENV=production
 
 # Use the entrypoint script as the container's entrypoint
-ENTRYPOINT [ "/app/entrypoint.sh" ]
+ENTRYPOINT [ "./entrypoint.sh" ]

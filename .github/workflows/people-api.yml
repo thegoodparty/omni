@@ -84,9 +84,8 @@ jobs:
         run: npm run build -w ${{ env.WORKSPACE }}
 
       - name: Build and push Docker image
-        working-directory: ${{ env.WORKSPACE }}
         run: |
-          docker build -t "${IMAGE_URI}" -f deploy/Dockerfile .
+          docker build -t "${IMAGE_URI}" -f packages/people-api/deploy/Dockerfile .
           docker push "${IMAGE_URI}"
 
       - name: Deploy (Pulumi)

@@ -119,8 +119,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # C-7 will make this Dockerfile fully monorepo-root aware.
-          context: packages/gp-api
+          context: .
           file: packages/gp-api/deploy/Dockerfile
           push: true
           tags: ${{ env.IMAGE_URI }}
