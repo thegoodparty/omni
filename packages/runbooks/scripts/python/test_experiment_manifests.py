@@ -278,10 +278,10 @@ def test_compliance_setup_validates_representative_dispatch_params():
 
 
 def test_compliance_setup_accepts_empty_first_name():
-    """instruction.md:82 documents the empty-string path for candidate_first_name
-    ('When unset or empty string, skip the two patterns that need it'). If the
-    schema rejects empty string at dispatch validation, the documented
-    skip-behavior is unreachable."""
+    """candidate_first_name is accepted-but-unused: the initials-based domain
+    patterns that consumed it were removed, but the dispatcher still includes the
+    field in the params payload. The schema must tolerate it (including empty
+    string) so dispatch validation does not reject a real SQS event."""
     manifest = _compliance_setup_manifest()
     params = {
         "campaign_id": 12345,
