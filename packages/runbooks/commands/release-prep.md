@@ -104,7 +104,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    > - **`merge-anyway`** — flaky test or known-good; merge it in the third pass despite the red
    > - **`abort`** — stop the release prep; nothing gets merged
 
-   Record each repo's outcome (`green` / `merge-anyway` / `failed`). On `abort`, stop here and skip the third pass entirely: nothing was merged, but note in step 17's final report that the develop→qa PRs are already open (CI may still be running) and can be merged manually or by re-running the command.
+   Record each repo's outcome (`green` / `merge-anyway` / `failed`). On `abort`, stop here and skip the rest of the run — the third pass (step 8–9), Phase 3, and Phase 4 all assume merges happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 18 final report and note there that the develop→qa PRs are already open (CI may still be running) and can be merged manually or by re-running the command.
 
 8. **Third pass — merge each repo whose checks passed (or that you chose `merge-anyway` for), with a merge commit:**
 
@@ -113,7 +113,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    gh pr merge <pr_number> --merge
    ```
 
-   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes. Skip any repo whose outcome was `failed` (not chosen for merge-anyway); report it in step 17.
+   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes. Skip any repo whose outcome was `failed` (not chosen for merge-anyway); report it in step 18.
 
 9. **Re-fetch** each merged repo so local `qa` is current:
 
@@ -149,7 +149,9 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
 ### Phase 4: Build the #devs-only message
 
-11. **Per repo**, list the commits being released — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
+> **Skip this entire phase if Phase 2 was aborted.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle. Go to the step 18 final report instead.
+
+11. **Per repo merged in Phase 2**, list the commits being released — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
     ```bash
     cd "$RELEASE_REPOS_DIR/<repo>"
@@ -256,7 +258,8 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     ```
 
 18. **Final report:**
-    - Repos processed (develop→qa merged, qa→master PR opened) with the open `qa → master` PR URL for each
+    - Repos merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL for each
+    - Repos merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - Repos skipped (empty diff between qa and develop)
     - Repos whose develop→qa checks failed and were not merged — with the open develop→qa PR URL so the user can resolve and re-run (these have no qa→master PR yet)
     - If Phase 2 was aborted: the develop→qa PRs that were left open (CI may still be running), with URLs — nothing was merged, so re-run or merge manually to continue
