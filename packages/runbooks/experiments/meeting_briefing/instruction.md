@@ -20,6 +20,8 @@ Two conditions abort the run with a placeholder artifact instead of a full brief
 
 Either condition: emit the single-placeholder `items[]` shape (see Step 3), `claims: []`, write the artifact, validate, exit. Do not do web research or Databricks queries in either case — the artifact's job is to tell the UI "check back later," not to fabricate a briefing.
 
+**Exception when the user supplied an agenda.** Both abort conditions above presume the agent is discovering the agenda from a platform. When a user-supplied agenda is present — either pre-staged at `/workspace/input/agenda.pdf` (upload path) or pasted in `PARAMS.agendaPacketUrl` (URL-paste path) — skip the "no meeting on platform" check entirely. The user has told us the meeting exists by providing materials for it; trust the user-supplied source even if the streaming platform doesn't list a meeting for `PARAMS.meetingDate`. The agenda packet itself IS the proof of meeting existence, and ad-hoc / smaller-jurisdiction meetings often don't appear on third-party platforms. Proceed to the full briefing with `briefing_status: "agenda_provided_by_user"`. The packet-availability gate still applies — if the user-supplied packet itself has no substantive items, still route to `awaiting_agenda` per Step 3 Gate B.
+
 ## WHAT COUNTS AS THE AGENDA PACKET (read this before Step 2)
 
 The briefing's source of truth is the **agenda packet** — the substantive briefing documents the elected official receives ahead of the meeting. It contains staff reports, ordinance text, resolutions, fiscal impact memos, exhibits, bid tabulations, engineer recommendations, and similar decision-relevant material. Total length is typically 30–100+ pages of PDF content.
@@ -45,10 +47,12 @@ The packet is **not** the published agenda summary page. The summary lists item 
 
 **Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`. If neither is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
 
+**Exception for the upload path.** When the packet was pre-staged at `/workspace/input/agenda.pdf` (`briefing_status: "agenda_provided_by_user"`), `run_metadata.agenda_packet_url` is `null` because there is no permanent URL. That is the correct value and does NOT trigger the verification rule above — the pre-staged file itself is the grounded source, and you have chunked its contents into `raw_context[]`. Do not flip to `awaiting_agenda` just because the URL is null in this case.
+
 ## TODO CHECKLIST
 
 1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
-2. Verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`. If the platform shows no meeting on that date (stale schedule signal), set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery).
+2. Resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery). If the user supplied an agenda (path or URL), use it and skip platform verification entirely. Otherwise, verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`; if the platform shows no meeting on that date (stale schedule signal) and the user did NOT supply an agenda, set `briefing_status: "no_meeting_found"` and exit early.
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
 5. Classify items into featured / queued / standard tiers.
