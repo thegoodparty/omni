@@ -118,6 +118,14 @@ export function BreadcrumbNav({
       }
     }
 
+    // If every middle item fit within the ellipsis budget, the measurements are
+    // inconsistent (rounding drift). Fall back to uncollapsed rather than render
+    // a collapsed trail with no ellipsis, which would silently clip items.
+    if (count >= middleEls.length) {
+      setVisibleMiddleCount(null)
+      return
+    }
+
     setVisibleMiddleCount(count)
   }, [collapsible, items])
 
