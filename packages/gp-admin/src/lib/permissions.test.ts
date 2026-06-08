@@ -24,6 +24,7 @@ describe('PERMISSIONS', () => {
       IMPERSONATE_USERS: 'org:admin_portal:impersonate_users',
       READ_AGENT_RUNS: 'org:admin_portal:read_agent_runs',
       WRITE_AGENT_RUNS: 'org:admin_portal:write_agent_runs',
+      REVIEW_BRIEFINGS: 'org:admin_portal:review_briefings',
     })
   })
 })
