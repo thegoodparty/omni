@@ -55,6 +55,9 @@ jobs:
 
       - name: Run Pulumi preview and build comment
         id: preview
+        env:
+          PULUMI_NODEJS_TRANSPILE_ONLY: 'true'
+          TS_NODE_TRANSPILE_ONLY: 'true'
         run: |
           declare -A STAGES=([dev]=develop [qa]=qa [prod]=master)
           HAS_CHANGES=false

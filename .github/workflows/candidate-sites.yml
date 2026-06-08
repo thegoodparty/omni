@@ -54,9 +54,9 @@ jobs:
     name: Vercel deploy
     needs: ci
     if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push'
-          && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name))
+      vars.ENABLE_OMNI_VERCEL_DEPLOYS == 'true'
+      && github.event_name == 'push'
+      && github.ref_name == 'develop'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
