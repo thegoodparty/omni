@@ -43,7 +43,7 @@
     "schema": "prisma/schema"
   },
   "engines": {
-    "node": "22.12.0",
+    "node": "22",
     "npm": ">=10.9.0"
   },
   "dependencies": {
