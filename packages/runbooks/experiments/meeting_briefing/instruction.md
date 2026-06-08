@@ -20,6 +20,8 @@ Two conditions abort the run with a placeholder artifact instead of a full brief
 
 Either condition: emit the single-placeholder `items[]` shape (see Step 3), `claims: []`, write the artifact, validate, exit. Do not do web research or Databricks queries in either case — the artifact's job is to tell the UI "check back later," not to fabricate a briefing.
 
+**Exception when the user supplied an agenda.** Both abort conditions above presume the agent is discovering the agenda from a platform. When a user-supplied agenda is present — either pre-staged at `/workspace/input/agenda.pdf` (upload path) or pasted in `PARAMS.agendaPacketUrl` (URL-paste path) — skip the "no meeting on platform" check entirely. The user has told us the meeting exists by providing materials for it; trust the user-supplied source even if the streaming platform doesn't list a meeting for `PARAMS.meetingDate`. The agenda packet itself IS the proof of meeting existence, and ad-hoc / smaller-jurisdiction meetings often don't appear on third-party platforms. Proceed to the full briefing with `briefing_status: "agenda_provided_by_user"`. The packet-availability gate still applies — if the user-supplied packet itself has no substantive items, still route to `awaiting_agenda` per Step 3 Gate B.
+
 ## WHAT COUNTS AS THE AGENDA PACKET (read this before Step 2)
 
 The briefing's source of truth is the **agenda packet** — the substantive briefing documents the elected official receives ahead of the meeting. It contains staff reports, ordinance text, resolutions, fiscal impact memos, exhibits, bid tabulations, engineer recommendations, and similar decision-relevant material. Total length is typically 30–100+ pages of PDF content.
@@ -45,10 +47,12 @@ The packet is **not** the published agenda summary page. The summary lists item 
 
 **Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`. If neither is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
 
+**Exception for the upload path.** When the packet was pre-staged at `/workspace/input/agenda.pdf` (`briefing_status: "agenda_provided_by_user"`), `run_metadata.agenda_packet_url` is `null` because there is no permanent URL. That is the correct value and does NOT trigger the verification rule above — the pre-staged file itself is the grounded source, and you have chunked its contents into `raw_context[]`. Do not flip to `awaiting_agenda` just because the URL is null in this case.
+
 ## TODO CHECKLIST
 
 1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
-2. Verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`. If the platform shows no meeting on that date (stale schedule signal), set `briefing_status: "no_meeting_found"` and exit early. Then resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery).
+2. Resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery). If the user supplied an agenda (path or URL), use it and skip platform verification entirely. Otherwise, verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`; if the platform shows no meeting on that date (stale schedule signal) and the user did NOT supply an agenda, set `briefing_status: "no_meeting_found"` and exit early.
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
 5. Classify items into featured / queued / standard tiers.
@@ -216,9 +220,9 @@ Record what you verified (platform URL, meeting ID/event ID if available, observ
 
 When you use a past packet as enrichment: cite it as its own `sources[]` entry with `source_type: "agenda_packet"` and a `name` that identifies the past meeting (e.g. `"Cheyenne City Council Agenda Packet — April 28, 2026 (Item 12 1st reading)"`). The chunk can attribute to the current item by `item_id`. Past-packet chunks count toward `raw_context` coverage; they do NOT count as the target meeting's packet for the Gate A check in Step 3.
 
-**Agenda input precedence:** `agendaPdfPath` > `agendaPacketUrl` > agent-discovered next meeting on the platform.
+**Agenda input precedence:** pre-staged `/workspace/input/agenda.pdf` (upload path) > `agendaPacketUrl` from PARAMS (URL-paste path) > agent-discovered next meeting on the platform.
 
-When the agent uses a user-supplied agenda (either path or URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. The "no future meeting" precondition still applies — if the user-supplied agenda is for a past meeting, set `no_meeting_found`.
+When the agent uses a user-supplied agenda (either pre-staged file or pasted URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. The "no future meeting" precondition still applies — if the user-supplied agenda is for a past meeting, set `no_meeting_found`.
 
 If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/agenda.pdf`, **that file is the primary source — do not re-fetch from the platform.** The platforms below are for the case where the bundled packet references a document not included, or where legislative history for a referenced item is useful context. In that case, go directly to the platform — do not start with a generic web search.
 
@@ -290,7 +294,7 @@ This step has two gates. Either gate failing routes to `briefing_status: "awaiti
 
 **Gate A — packet availability.** Confirm Step 2 actually produced packet content, not just summary HTML. Inspect what was downloaded:
 
-- If `agendaPdfPath` or `agendaPacketUrl` provided packet content — pass.
+- If a pre-staged `/workspace/input/agenda.pdf` or `agendaPacketUrl` provided packet content — pass.
 - If platform discovery yielded a compiled PDF (`Content-Type: application/pdf`) — pass.
 - If platform discovery yielded at least one per-item attachment PDF for at least one substantive item — pass for that item; non-attached items are forced to `tier: "standard"` regardless of their substance (insufficient material for featured/queued treatment).
 - If platform discovery yielded **zero** PDF attachments across the whole meeting — fail Gate A, the packet is not yet published, route to `awaiting_agenda` below.
@@ -816,7 +820,7 @@ The bundled agenda PDF is not a single document — it contains many sub-documen
 - `name: "LJA Engineering Bid Tabulation (pp. 78–85)"`, `section_heading: "Engineer Recommendation"`
 - `name: "Ordinance 26-D — final text (pp. 127–132)"`, `section_heading: "Ordinance"`
 
-The `url` for each remains `agendaPacketUrl` from PARAMS (the permanent agenda PDF link). The descriptive `name` is what distinguishes them in the bibliography and what QA reads when verifying which sub-document supports which claim.
+The `url` for each remains `agendaPacketUrl` from PARAMS when present (the permanent agenda PDF link); when the packet was pre-staged at `/workspace/input/agenda.pdf` (upload path) there is no permanent URL, so set `url: null` for each sub-document. The descriptive `name` is what distinguishes them in the bibliography and what QA reads when verifying which sub-document supports which claim.
 
 #### `retrieved_text_or_snapshot` requirements
 
@@ -831,7 +835,9 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 #### URL rules
 
 - Use the permanent, stable URL for every source — not a presigned S3 URL, not a redirect.
-- For the agenda packet: use the value of `agendaPacketUrl` from PARAMS as the permanent URL. Never use the presigned fetch URL — it expires within hours.
+- For the agenda packet:
+  - If `agendaPacketUrl` is set in PARAMS (URL-paste path), use it verbatim as the permanent URL — it is the user's own pasted URL and is stable.
+  - If the packet was pre-staged at `/workspace/input/agenda.pdf` (upload path), there is no permanent URL — set `run_metadata.agenda_packet_url` to `null` and cite the agenda packet sources[] entry with `url: null`. Record the decision in `run_metadata.run_decisions[]` (e.g. `decision: "agenda_packet_user_uploaded_no_url"`).
 - For Haystaq data: set `url` to `null`. There is no public URL for modeled constituent data.
 
 #### Allowed sources
@@ -853,7 +859,7 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 | `briefing_ready`          | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing.                                                                                                                                    |
 | `awaiting_agenda`         | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
 | `no_meeting_found`        | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state.                                                                                                                           |
-| `agenda_provided_by_user` | The agent used a user-supplied agenda (via `agendaPdfPath` or `agendaPacketUrl` input override) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                                           |
+| `agenda_provided_by_user` | The agent used a user-supplied agenda (either pre-staged at `/workspace/input/agenda.pdf` or pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                  |
 | `error`                   | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail.                                                                                                                               |
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
@@ -994,7 +1000,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `run_metadata`:
   ```json
   {
-    "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS — never the presigned fetch URL (null when briefing_status is awaiting_agenda or no_meeting_found)",
+    "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
     "discovered_agenda_location": "best current prose describing where future agenda packets will likely be found for this body (see guidance below)",
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",

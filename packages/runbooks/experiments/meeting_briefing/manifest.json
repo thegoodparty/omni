@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 7,
+  "version": 9,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -67,6 +67,13 @@
         "minLength": 1,
         "maxLength": 2000,
         "description": "Optional hint from a prior run describing where the agenda packet was last found. Usually a URL to the city's meetings index, the streaming platform's calendar page, or a CDN parent path. May include prose navigation notes when no single URL captures it. The agent SHOULD try this as channel 0 in Step 2's discovery before falling through to channels 1-4; if the hint is stale, continue with normal discovery — do not bail."
+      },
+      "agendaPacketUrl": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^https?://",
+        "description": "Optional URL to the agenda packet the user pasted in the briefings UI. The agent fetches via pmf_runtime.pdf.download() and skips channel-1-4 discovery. This is always the user's own permanent URL — never a presigned S3 URL. Cite the URL verbatim as the permanent source in run_metadata.agenda_packet_url and sources[]. When the user uploaded a file instead of pasting a URL, this field is absent and the file is pre-staged at /workspace/input/agenda.pdf (the runner fetches it via the broker before the agent boots); the pre-staged file takes precedence over agentic discovery just like agendaPacketUrl does."
       }
     }
   },
