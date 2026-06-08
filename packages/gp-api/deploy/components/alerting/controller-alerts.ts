@@ -18,7 +18,7 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
     const routeBase = `{service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | request_endpoint = "${route.endpoint}"`
     const slug = route.endpoint.replace(/[/:]/g, '-').replace(' ', '-')
 
-    return {
+    const alert: Alert = {
       slug: `${slug}-error-count`,
       name: `[${controller}] ${route.endpoint} - Errors detected`,
       type: 'log' as const,
@@ -33,6 +33,8 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       notify: slackGroupName as SlackGroup,
       disabled: !slackGroupName,
-    } satisfies Alert
+    }
+
+    return alert
   })
 }
