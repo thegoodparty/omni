@@ -9,119 +9,78 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '../components/ui/breadcrumb'
+import { BreadcrumbNav } from '../components/ui/breadcrumb-nav'
 
-const meta: Meta<typeof Breadcrumb> = {
+const meta: Meta<typeof BreadcrumbNav> = {
   title: 'Components/Breadcrumb',
-  component: Breadcrumb,
+  component: BreadcrumbNav,
   tags: ['autodocs'],
+  argTypes: {
+    items: { table: { disable: true } },
+  },
 }
 
 export default meta
 
-type Story = StoryObj<typeof Breadcrumb>
-
 type PlaygroundArgs = {
-  depth: number
-  withEllipsis: boolean
+  crumbCount: number
+  collapsible: boolean
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
-    depth: 3,
-    withEllipsis: false,
+    crumbCount: 5,
+    collapsible: true,
   },
   argTypes: {
-    depth: {
-      control: { type: 'number', min: 2, max: 8, step: 1 },
-      description:
-        'Number of crumbs to render, including Home and the current page.',
+    crumbCount: {
+      control: { type: 'number', min: 1, max: 8, step: 1 },
+      description: 'Total number of crumbs including the current page.',
     },
-    withEllipsis: {
+    collapsible: {
       control: 'boolean',
       description:
-        'Collapse middle crumbs into an ellipsis (only meaningful when depth > 3).',
+        'When true, middle items collapse to an ellipsis whenever the trail overflows its container — on any screen size. Resize the canvas to see it in action.',
     },
   },
-  render: ({ depth, withEllipsis }) => {
-    const names = [
-      'Home',
-      'Library',
-      'Category',
-      'Subcategory',
-      'Section',
-      'Topic',
-      'Article',
-      'Detail',
+  render: ({ crumbCount, collapsible }) => {
+    const parentLabels = [
+      'Dashboard',
+      'Campaign Manager',
+      'Voter Outreach Programs',
+      'District 4 Door Knocking Initiative',
+      'Volunteer Coordination',
+      'Weekly Schedule',
+      'Sunday Canvassing',
     ]
-    const crumbs = names.slice(0, Math.max(2, Math.min(depth, names.length)))
-    const last = crumbs.length - 1
-    const collapseMiddle = withEllipsis && crumbs.length > 3
-    return (
-      <Breadcrumb>
-        <BreadcrumbList>
-          {crumbs.map((name, i) => {
-            if (collapseMiddle && i > 0 && i < last) {
-              if (i === 1) {
-                return (
-                  <Fragment key="ellipsis">
-                    <BreadcrumbItem>
-                      <BreadcrumbEllipsis />
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator />
-                  </Fragment>
-                )
-              }
-              return null
-            }
-            return (
-              <Fragment key={name}>
-                <BreadcrumbItem>
-                  {i === last ? (
-                    <BreadcrumbPage>{name}</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink href="#">{name}</BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-                {i !== last ? <BreadcrumbSeparator /> : null}
-              </Fragment>
-            )
-          })}
-        </BreadcrumbList>
-      </Breadcrumb>
-    )
+    const clampedCount = Math.max(1, Math.min(crumbCount, parentLabels.length + 1))
+    const parents = parentLabels.slice(0, clampedCount - 1)
+    const items = [
+      ...parents.map((label) => ({ label, href: '#' })),
+      { label: 'Q2 Voter Contact Summary' },
+    ]
+    return <BreadcrumbNav items={items} collapsible={collapsible} />
   },
 }
 
-export const Default: Story = {
+export const Default: StoryObj<typeof BreadcrumbNav> = {
   render: () => (
-    <Breadcrumb>
-      <BreadcrumbList>
-        <BreadcrumbItem>
-          <BreadcrumbLink href="#">Home</BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbLink href="#">Library</BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbPage>Data</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
+    <BreadcrumbNav
+      items={[
+        { label: 'Dashboard', href: '#' },
+        { label: 'Polls', href: '#' },
+        { label: 'Q2 Voter Survey' },
+      ]}
+    />
   ),
 }
 
-export const WithEllipsis: Story = {
+export const WithEllipsis: StoryObj<typeof Breadcrumb> = {
   render: () => (
     <Breadcrumb>
       <BreadcrumbList>
         <BreadcrumbItem>
-          <BreadcrumbLink href="#">Home</BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbLink href="#">Category</BreadcrumbLink>
+          <BreadcrumbLink href="#">Dashboard</BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
@@ -129,11 +88,11 @@ export const WithEllipsis: Story = {
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
-          <BreadcrumbLink href="#">Subcategory</BreadcrumbLink>
+          <BreadcrumbLink href="#">Polls</BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
-          <BreadcrumbPage>Item</BreadcrumbPage>
+          <BreadcrumbPage>Q2 Voter Survey</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>

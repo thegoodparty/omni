@@ -2,7 +2,7 @@
 
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import Paper from '@shared/utils/Paper'
-import Crumbs from '../../../../shared/Crumbs'
+import { BreadcrumbNav } from '@styleguide'
 import Title from './Title'
 import ConfidenceAlert from 'app/dashboard/polls/shared/ConfidenceAlert'
 import DetailsSection from './DetailsSection'
@@ -37,7 +37,7 @@ export default function PollIssueDetailPage({
   return (
     <DashboardLayout pathname={pathname} showAlert={false}>
       <Paper className="min-h-full">
-        <Crumbs breadcrumbsLinks={breadcrumbsLinks} />
+        <BreadcrumbNav items={breadcrumbsLinks} />
         <Title />
         <ConfidenceAlert />
         <DetailsSection />
