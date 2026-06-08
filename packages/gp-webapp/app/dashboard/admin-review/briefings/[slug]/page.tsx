@@ -5,9 +5,9 @@ import {
   BRIEFING_EXECUTIVE_SUMMARY_DOM_ID,
   briefingItemDomId,
 } from '@shared/briefings/routes'
-import ExecutiveSummaryCard from '../components/detail/ExecutiveSummaryCard'
-import AgendaItemCard from '../components/detail/AgendaItemCard'
-import TrackBriefingViewed from '../components/TrackBriefingViewed'
+import ExecutiveSummaryCard from '../../../briefings/components/detail/ExecutiveSummaryCard'
+import AgendaItemCard from '../../../briefings/components/detail/AgendaItemCard'
+import TrackBriefingViewed from '../../../briefings/components/TrackBriefingViewed'
 
 type PageProps = {
   params: Promise<{ slug: string }>
@@ -19,26 +19,19 @@ export async function generateMetadata({ params }: PageProps) {
   const briefing = result && isFullBriefing(result) ? result : null
   return pageMetaData({
     title: briefing
-      ? `${briefing.title} | GoodParty.org`
-      : 'Briefing | GoodParty.org',
+      ? `${briefing.title} (review) | GoodParty.org`
+      : 'Briefing review | GoodParty.org',
     description: briefing?.executive_summary.lead_in ?? 'Meeting briefing',
-    slug: `/dashboard/briefings/${slug}`,
+    slug: `/dashboard/admin-review/briefings/${slug}`,
   })
 }
 
 export const dynamic = 'force-dynamic'
 
-export const DISCLOSURE =
-  'This briefing was generated with AI assistance and may contain errors.'
-
 /**
- * Briefing detail page.
- *
- * Renders the Executive Summary followed by every agenda item inline.
- * Featured items show the full card (talking points, recent news, budget,
- * sentiment, feedback); non-featured items render in the lightweight
- * "What to expect" variant. The sidebar TOC and mobile jump-to-section
- * sheet scroll within this page via hash anchors — no sub-routes.
+ * Admin-review briefing detail page. Reuses the candidate-facing page body
+ * verbatim — the cards are mode-agnostic and read whatever AnnotationsCtx
+ * the layout provides (ReviewAnnotationsScope in this tree).
  */
 export default async function Page({
   params,
@@ -72,13 +65,6 @@ export default async function Page({
           />
         )
       })}
-
-      <p className="text-xs text-muted-foreground">
-        Briefings are AI-generated and still in beta, so double-check anything
-        you&apos;ll act on against the sources. Your feedback shapes how we can
-        improve our product moving forward, and we enjoy hearing from all our
-        users.
-      </p>
     </>
   )
 }
