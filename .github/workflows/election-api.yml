@@ -27,7 +27,6 @@ concurrency:
 
 env:
   AWS_REGION: us-west-2
-  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
   IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ github.sha }}
   WORKSPACE: packages/election-api
 
@@ -84,9 +83,9 @@ jobs:
           esac
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
