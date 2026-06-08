@@ -1,7 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   BreadcrumbItem,
   BreadcrumbLink,
@@ -168,7 +174,11 @@ export function BreadcrumbNav({
         ref={measureRef}
         aria-hidden="true"
         className="text-muted-foreground pointer-events-none invisible absolute flex items-center gap-2 text-sm"
-        style={{ flexWrap: 'nowrap', whiteSpace: 'nowrap', width: 'max-content' }}
+        style={{
+          flexWrap: 'nowrap',
+          whiteSpace: 'nowrap',
+          width: 'max-content',
+        }}
       >
         {items.map((item, index) => (
           <React.Fragment key={`m-${index}`}>
@@ -207,7 +217,9 @@ export function BreadcrumbNav({
             {visibleMiddle.map((item, i) => (
               <React.Fragment key={`v-${i}`}>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem>{renderCrumbContent(item, false)}</BreadcrumbItem>
+                <BreadcrumbItem>
+                  {renderCrumbContent(item, false)}
+                </BreadcrumbItem>
               </React.Fragment>
             ))}
 

@@ -52,7 +52,10 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       'Weekly Schedule',
       'Sunday Canvassing',
     ]
-    const clampedCount = Math.max(1, Math.min(crumbCount, parentLabels.length + 1))
+    const clampedCount = Math.max(
+      1,
+      Math.min(crumbCount, parentLabels.length + 1),
+    )
     const parents = parentLabels.slice(0, clampedCount - 1)
     const items = [
       ...parents.map((label) => ({ label, href: '#' })),
