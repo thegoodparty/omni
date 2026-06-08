@@ -1,0 +1,90 @@
+name: Vercel deploy
+description: >-
+  Build and deploy a Vercel project imperatively with the Vercel CLI (no git
+  integration). For env deploys (develop/qa) it deploys to the preview target
+  with branch-scoped env vars and aliases the result to a stable domain; for
+  prod it deploys to production. Caller must install workspace deps (and build
+  any prerequisites like the SDK) before invoking this action.
+
+inputs:
+  vercel-token:
+    description: Vercel access token.
+    required: true
+  vercel-org-id:
+    description: Vercel org/team id (sets VERCEL_ORG_ID).
+    required: true
+  vercel-project-id:
+    description: Vercel project id (sets VERCEL_PROJECT_ID).
+    required: true
+  target:
+    description: 'Deploy target: "preview" or "production".'
+    required: true
+  git-branch:
+    description: >-
+      Git branch to pull env vars for (preview target only). Vercel resolves
+      branch-scoped preview env vars when this is set. Leave empty for generic
+      PR previews and for the production target.
+    required: false
+    default: ""
+  alias-domain:
+    description: >-
+      Stable domain to alias the deployment to (preview target only, e.g.
+      dev.goodparty.org). Leave empty to keep only the generated preview URL.
+    required: false
+    default: ""
+
+outputs:
+  url:
+    description: The resulting deployment URL.
+    value: ${{ steps.deploy.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Vercel CLI
+      shell: bash
+      run: npm install --global vercel@latest
+
+    - name: Build and deploy with Vercel CLI
+      id: deploy
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+        TARGET: ${{ inputs.target }}
+        GIT_BRANCH: ${{ inputs.git-branch }}
+        ALIAS_DOMAIN: ${{ inputs.alias-domain }}
+      run: |
+        set -euo pipefail
+
+        PULL_ARGS=(--yes --token "$VERCEL_TOKEN")
+        BUILD_ARGS=(--token "$VERCEL_TOKEN")
+        DEPLOY_ARGS=(--prebuilt --token "$VERCEL_TOKEN")
+
+        if [ "$TARGET" = "production" ]; then
+          PULL_ARGS+=(--environment=production)
+          BUILD_ARGS+=(--prod)
+          DEPLOY_ARGS+=(--prod)
+        else
+          PULL_ARGS+=(--environment=preview)
+          if [ -n "$GIT_BRANCH" ]; then
+            PULL_ARGS+=(--git-branch="$GIT_BRANCH")
+          fi
+        fi
+
+        vercel pull "${PULL_ARGS[@]}"
+        vercel build "${BUILD_ARGS[@]}"
+        DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
+        case "$DEPLOY_URL" in
+          http*) ;;
+          *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
+        esac
+
+        if [ -n "$ALIAS_DOMAIN" ]; then
+          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --token "$VERCEL_TOKEN"
+          echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
+        echo "Deployment URL: ${DEPLOY_URL}" >> "$GITHUB_STEP_SUMMARY"

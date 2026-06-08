@@ -3,23 +3,23 @@ name: gp-admin
 on:
   pull_request:
     paths:
-      - 'packages/gp-admin/**'
-      - 'packages/gp-sdk/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-admin.yml'
-      - '.github/actions/**'
+      - "packages/gp-admin/**"
+      - "packages/gp-sdk/**"
+      - "packages/contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-admin.yml"
+      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
     paths:
-      - 'packages/gp-admin/**'
-      - 'packages/gp-sdk/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-admin.yml'
-      - '.github/actions/**'
+      - "packages/gp-admin/**"
+      - "packages/gp-sdk/**"
+      - "packages/contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-admin.yml"
+      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-admin
-          build-contracts: 'true'
+          build-contracts: "true"
 
       - name: Build SDK
         run: npm run build -w packages/gp-sdk
@@ -62,20 +62,18 @@ jobs:
           path: packages/gp-admin/coverage/
           retention-days: 30
 
-  vercel-deploy:
+  # gp-admin is a single deployment that targets dev/qa/prod at runtime via
+  # Clerk org switch, so it has no per-branch env vars or domains: PRs get a
+  # preview, master deploys to production. No develop/qa env deploys.
+  deploy:
     name: Vercel deploy
     needs: ci
     if: >-
-      vars.ENABLE_OMNI_VERCEL_DEPLOYS == 'true'
-      && github.event_name == 'push'
-      && github.ref_name == 'master'
+      github.event_name == 'pull_request'
+      || (github.event_name == 'push' && github.ref_name == 'master')
     runs-on: ubuntu-latest
     outputs:
-      url: ${{ steps.deploy.outputs.url }}
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GP_ADMIN }}
+      url: ${{ steps.vercel.outputs.url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -84,44 +82,26 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-admin
-          build-contracts: 'true'
+          build-contracts: "true"
 
       - name: Build SDK
         run: npm run build -w packages/gp-sdk
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
-
-      - name: Build and deploy with Vercel CLI
-        id: deploy
-        shell: bash
-        run: |
-          PULL_ENV=preview
-          BUILD_ARGS=()
-          DEPLOY_ARGS=(--target=preview)
-
-          if [ "$GITHUB_REF_NAME" = "master" ]; then
-            PULL_ENV=production
-            BUILD_ARGS=(--prod)
-            DEPLOY_ARGS=(--prod)
-          fi
-
-          vercel pull --environment="$PULL_ENV" --yes --token "$VERCEL_TOKEN"
-          vercel build "${BUILD_ARGS[@]}" --token "$VERCEL_TOKEN"
-          DEPLOY_URL="$(vercel deploy --prebuilt "${DEPLOY_ARGS[@]}" --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
-          case "$DEPLOY_URL" in
-            http*) ;;
-            *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
-          esac
-          echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
-          echo "gp-admin Vercel URL: ${DEPLOY_URL}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy to Vercel
+        id: vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_ADMIN }}
+          target: ${{ github.ref_name == 'master' && 'production' || 'preview' }}
 
       - name: Comment preview URL
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |
-            const url = '${{ steps.deploy.outputs.url }}';
+            const url = '${{ steps.vercel.outputs.url }}';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

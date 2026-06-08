@@ -3,19 +3,19 @@ name: gp-webapp
 on:
   pull_request:
     paths:
-      - 'packages/gp-webapp/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-webapp.yml'
-      - '.github/actions/**'
+      - "packages/gp-webapp/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-webapp.yml"
+      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
     paths:
-      - 'packages/gp-webapp/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-webapp.yml'
-      - '.github/actions/**'
+      - "packages/gp-webapp/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-webapp.yml"
+      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -59,20 +59,16 @@ jobs:
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
 
-  vercel-preview:
-    name: Vercel preview/develop deploy
+  deploy:
+    name: Vercel deploy
     needs: ci
     if: >-
-      vars.ENABLE_OMNI_VERCEL_DEPLOYS == 'true'
-      && github.event_name == 'push'
-      && github.ref_name == 'develop'
+      github.event_name == 'pull_request'
+      || (github.event_name == 'push'
+          && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name))
     runs-on: ubuntu-latest
     outputs:
-      url: ${{ steps.deploy.outputs.url }}
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
+      url: ${{ steps.vercel.outputs.url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -82,29 +78,47 @@ jobs:
         with:
           app: gp-webapp
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
-
-      - name: Build and deploy with Vercel CLI
-        id: deploy
+      # develop -> dev.goodparty.org, qa -> qa.goodparty.org (preview target +
+      # branch-scoped env vars, then aliased); master -> production; PRs get a
+      # generic preview with no alias.
+      - name: Resolve deploy target
+        id: ctx
         shell: bash
         run: |
-          vercel pull --environment=preview --yes --token "$VERCEL_TOKEN"
-          vercel build --token "$VERCEL_TOKEN"
-          DEPLOY_URL="$(vercel deploy --prebuilt --target=preview --token "$VERCEL_TOKEN" | awk 'NF { line=$0 } END { print line }')"
-          case "$DEPLOY_URL" in
-            http*) ;;
-            *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
-          esac
-          echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
-          echo "gp-webapp preview URL: ${DEPLOY_URL}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "target=preview" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.ref_name }}" in
+              develop)
+                echo "target=preview" >> "$GITHUB_OUTPUT"
+                echo "branch=develop" >> "$GITHUB_OUTPUT"
+                echo "alias=dev.goodparty.org" >> "$GITHUB_OUTPUT" ;;
+              qa)
+                echo "target=preview" >> "$GITHUB_OUTPUT"
+                echo "branch=qa" >> "$GITHUB_OUTPUT"
+                echo "alias=qa.goodparty.org" >> "$GITHUB_OUTPUT" ;;
+              master)
+                echo "target=production" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Deploy to Vercel
+        id: vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
+          target: ${{ steps.ctx.outputs.target }}
+          git-branch: ${{ steps.ctx.outputs.branch }}
+          alias-domain: ${{ steps.ctx.outputs.alias }}
 
       - name: Comment preview URL
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |
-            const url = '${{ steps.deploy.outputs.url }}';
+            const url = '${{ steps.vercel.outputs.url }}';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

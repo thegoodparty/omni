@@ -3,21 +3,21 @@ name: gp-api
 on:
   pull_request:
     paths:
-      - 'packages/gp-api/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-api.yml'
-      - '.github/actions/**'
+      - "packages/gp-api/**"
+      - "packages/contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-api.yml"
+      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
     paths:
-      - 'packages/gp-api/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-api.yml'
-      - '.github/actions/**'
+      - "packages/gp-api/**"
+      - "packages/contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gp-api.yml"
+      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -61,9 +61,9 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
+          build-contracts: "true"
           prisma-generate-script: generate:prisma:gp-api
-          route-types: 'true'
+          route-types: "true"
 
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
@@ -83,13 +83,15 @@ jobs:
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
 
-  deploy-develop:
-    name: Deploy develop
+  deploy:
+    name: Deploy
     needs: validate
-    if: github.event_name == 'push' && github.ref_name == 'develop'
+    if: >-
+      github.event_name == 'push'
+      && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name)
     runs-on: ubuntu-latest
     concurrency:
-      group: gp-api-deploy-develop
+      group: gp-api-deploy-${{ github.ref_name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
@@ -100,9 +102,18 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
+          build-contracts: "true"
           prisma-generate-script: generate:prisma:gp-api
-          route-types: 'true'
+          route-types: "true"
+
+      - name: Determine deployment context
+        id: ctx
+        run: |
+          case "${{ github.ref_name }}" in
+            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
+            qa) echo "environment=qa" >> "$GITHUB_OUTPUT" ;;
+            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Configure AWS Credentials
         uses: ./.github/actions/configure-aws
@@ -132,7 +143,7 @@ jobs:
         with:
           working-directory: ${{ env.WORKSPACE }}
           command: |
-            npm run infra deploy dev
+            npm run infra deploy ${{ steps.ctx.outputs.environment }}
             cd deploy
             SERVICE_URL=$(pulumi stack output serviceUrl 2>/dev/null || echo "")
             echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
@@ -141,4 +152,104 @@ jobs:
 
       - name: Add deploy summary
         if: steps.pulumi.outputs.service_url != ''
-        run: echo "gp-api dev deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "gp-api ${{ steps.ctx.outputs.environment }} deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
+
+  preview:
+    name: Deploy PR preview
+    needs: validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gp-api-deploy-pr-${{ github.event.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: "true"
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: "true"
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build application
+        run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: packages/gp-api/deploy/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_URI }}
+          cache-from: type=gha,scope=gp-api
+          cache-to: type=gha,mode=max,scope=gp-api
+
+      - name: Deploy preview stack (Pulumi)
+        id: pulumi
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: ${{ env.WORKSPACE }}
+          command: |
+            npm run infra deploy preview
+            cd deploy
+            SERVICE_URL=$(pulumi stack output serviceUrl 2>/dev/null || echo "")
+            echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_PR_NUMBER: ${{ github.event.number }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
+          CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
+
+      - name: Comment preview URL
+        if: steps.pulumi.outputs.service_url != ''
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const url = '${{ steps.pulumi.outputs.service_url }}';
+            const body = [
+              '## gp-api preview environment',
+              '',
+              `| Resource | URL |`,
+              `|----------|-----|`,
+              `| **API** | ${url} |`,
+              `| **Health check** | ${url}/v1/health |`,
+              '',
+              '> Destroyed automatically when this PR is closed.',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) =>
+              c.body && c.body.includes('gp-api preview environment'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
