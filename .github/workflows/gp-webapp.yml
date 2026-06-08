@@ -30,7 +30,7 @@ env:
 
 jobs:
   ci:
-    name: Lint / Typecheck / Test
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
