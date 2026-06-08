@@ -1,4 +1,3 @@
-import { Fragment } from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import {
   Breadcrumb,
