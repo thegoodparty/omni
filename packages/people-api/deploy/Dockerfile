@@ -77,10 +77,9 @@ WORKDIR /app/packages/people-api
 # Copy only necessary files to the runtime image
 COPY --from=builder /app/packages/people-api/dist ./dist
 # Prisma client now generates to a per-package output dir (src/generated/prisma)
-# instead of node_modules/.prisma. tsc does not emit these prebuilt JS files or
-# the query-engine binary, so copy them to where the compiled dist code resolves
-# them: dist/src/people/.../*.js require('../../generated/prisma') -> dist/src/generated/prisma.
-COPY --from=builder /app/packages/people-api/src/generated/prisma ./dist/src/generated/prisma
+# instead of node_modules/.prisma. Copy it to where the flat compiled dist code
+# resolves it, including the query-engine binary generated for the runtime image.
+COPY --from=builder /app/packages/people-api/src/generated/prisma ./dist/generated/prisma
 COPY --from=builder /app/packages/people-api/prisma ./prisma
 COPY --from=builder /app/packages/people-api/module-alias.js ./
 
