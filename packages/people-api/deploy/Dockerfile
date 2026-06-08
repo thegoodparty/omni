@@ -35,23 +35,21 @@ ENV PUPPETEER_EXECUTABLE_PATH=/dev/null
 WORKDIR /app
 
 # Install dependencies
-COPY package.json package-lock.json tsconfig.json tsconfig.build.json nest-cli.json ./
-# nest-cli.json (above) is required so `nest build` uses the swc builder (flat
-# dist/ layout). Without it the build silently falls back to tsc (dist/src/) and
-# the entrypoint's dist/main.js path no longer resolves.
-
-# Copy application source files, prisma files, and seed data
-COPY src/ ./src
-COPY prisma/ ./prisma
-
-# Clear npm cache and install dependencies with --ignore-scripts
+COPY package.json package-lock.json ./
+COPY packages/people-api/package.json ./packages/people-api/package.json
 RUN npm cache clean --force && \
-    npm install --build-from-source --ignore-scripts
+    npm ci --build-from-source --ignore-scripts --workspace people-api
+
+# Copy application source files, including nest-cli.json. The Nest CLI config is
+# required so `nest build` uses the swc builder and keeps the flat dist/ layout.
+COPY packages/people-api ./packages/people-api
 
 # Set the docker build args into environment variables on runner.
 ARG STAGE
 ARG DATABASE_URL
 ENV DATABASE_URL=$DATABASE_URL
+
+WORKDIR /app/packages/people-api
 
 # Generate Prisma client
 RUN npm run generate
@@ -70,23 +68,26 @@ WORKDIR /app
 
 # Copy package files for production dependencies
 COPY package.json package-lock.json ./
+COPY packages/people-api/package.json ./packages/people-api/package.json
 # Install only production dependencies with --ignore-scripts
-RUN npm ci --only=production --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts --workspace people-api
+
+WORKDIR /app/packages/people-api
 
 # Copy only necessary files to the runtime image
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/packages/people-api/dist ./dist
 # Prisma client now generates to a per-package output dir (src/generated/prisma)
-# instead of node_modules/.prisma. Copy it to where the compiled dist code
+# instead of node_modules/.prisma. Copy it to where the flat compiled dist code
 # resolves it, including the query-engine binary generated for the runtime image.
-COPY --from=builder /app/src/generated/prisma ./dist/generated/prisma
-COPY --from=builder /app/prisma ./prisma
-COPY module-alias.js ./
+COPY --from=builder /app/packages/people-api/src/generated/prisma ./dist/generated/prisma
+COPY --from=builder /app/packages/people-api/prisma ./prisma
+COPY --from=builder /app/packages/people-api/module-alias.js ./
 
 # Copy the entrypoint script and ensure it's executable
-COPY deploy/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --from=builder /app/packages/people-api/deploy/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 # Set the NODE_ENV to production
 ENV NODE_ENV=production
 # Use the entrypoint script as the container's entrypoint
-ENTRYPOINT [ "/app/entrypoint.sh" ]
+ENTRYPOINT [ "./entrypoint.sh" ]

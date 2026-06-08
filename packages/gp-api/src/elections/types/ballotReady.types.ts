@@ -32,16 +32,10 @@ export interface RaceNode {
   city?: string | null
 }
 
-export interface RacesByZipcodeElection
-  extends Pick<
-    Election,
-    | 'id'
-    | 'electionDay'
-    | 'name'
-    | 'originalElectionDate'
-    | 'state'
-    | 'timezone'
-  > {
+export interface RacesByZipcodeElection extends Pick<
+  Election,
+  'id' | 'electionDay' | 'name' | 'originalElectionDate' | 'state' | 'timezone'
+> {
   primaryElectionDate?: string
   primaryElectionId?: string
 }

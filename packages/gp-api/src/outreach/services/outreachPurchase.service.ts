@@ -7,9 +7,7 @@ import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
-export class OutreachPurchaseHandlerService
-  implements PurchaseHandler<OutreachPurchaseMetadata>
-{
+export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachPurchaseMetadata> {
   constructor(
     private readonly campaignsService: CampaignsService,
     private readonly logger: PinoLogger,

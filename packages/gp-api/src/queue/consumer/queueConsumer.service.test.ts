@@ -1386,9 +1386,8 @@ describe('QueueConsumerService - message type routing', () => {
 
   it('discards campaignPlanComplete with permanent Prisma error instead of requeuing', async () => {
     const campaignTasksService = module.get(CampaignTasksService)
-    const { PrismaClientKnownRequestError } = await import(
-      '@prisma/client/runtime/library'
-    )
+    const { PrismaClientKnownRequestError } =
+      await import('@prisma/client/runtime/library')
     vi.spyOn(campaignTasksService, 'addEventTasks').mockRejectedValue(
       new PrismaClientKnownRequestError('Record not found', {
         code: 'P2025',

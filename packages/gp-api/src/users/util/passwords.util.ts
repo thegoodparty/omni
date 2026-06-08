@@ -21,8 +21,8 @@ const isValidPassword = (
 ) =>
   Boolean(
     /[a-zA-Z]/.test(password) &&
-      !/\d/.test(password) &&
-      password.length >= minLength,
+    !/\d/.test(password) &&
+    password.length >= minLength,
   )
 
 export const generateRandomPassword = (

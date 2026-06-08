@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next'
 import { withSentryConfig } from '@sentry/nextjs'
+import path from 'node:path'
 
 const withPWA = require('next-pwa')({
   dest: 'public',
@@ -7,6 +8,7 @@ const withPWA = require('next-pwa')({
 }) as (config: NextConfig) => NextConfig
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: path.join(__dirname, '../..'),
   reactStrictMode: true,
   images: {
     domains: [

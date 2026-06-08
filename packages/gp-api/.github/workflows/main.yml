@@ -444,7 +444,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -523,7 +523,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi

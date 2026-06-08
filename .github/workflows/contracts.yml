@@ -1,0 +1,50 @@
+name: contracts
+
+on:
+  pull_request:
+    paths:
+      - 'packages/contracts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/contracts.yml'
+      - '.github/actions/**'
+  push:
+    branches: [develop, qa, master]
+    paths:
+      - 'packages/contracts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/contracts.yml'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  WORKSPACE: packages/contracts
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: contracts
+
+      - name: Build contracts
+        run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Publish note
+        if: github.event_name == 'push' && github.ref_name == 'master'
+        run: |
+          echo "Contracts publish is intentionally not enabled in omni yet." >> "$GITHUB_STEP_SUMMARY"
+          echo "Resolve publish ownership and npm token naming before enabling it." >> "$GITHUB_STEP_SUMMARY"

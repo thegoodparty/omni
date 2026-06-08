@@ -41,16 +41,10 @@ export default function ResponsiveModal({
   const isDesktop = useMediaQuery('(min-width: 1024px)')
 
   useEffect(() => {
-    if (isDesktop && !fullSize) {
-      setShowContent(open)
-    } else {
-      // on mobile sizes, this timeout allows for the modal CSS transition
-      const timer = setTimeout(
-        () => setShowContent(open),
-        open ? 0 : SLIDE_DURATION,
-      )
-      return () => clearTimeout(timer)
-    }
+    // On mobile sizes, this timeout allows for the modal CSS transition.
+    const delay = isDesktop && !fullSize ? 0 : open ? 0 : SLIDE_DURATION
+    const timer = setTimeout(() => setShowContent(open), delay)
+    return () => clearTimeout(timer)
   }, [open, isDesktop, fullSize])
 
   const handleClose = (e?: any, reason?: string) => {

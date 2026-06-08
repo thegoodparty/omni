@@ -15,6 +15,34 @@
     "sync": "bash scripts/sync-all.sh",
     "sync:repo": "bash scripts/sync-repo.sh",
     "migrate:pr": "bash scripts/migrate-pr.sh",
-    "dev": "bash scripts/dev.sh"
+    "generate:prisma": "npm run generate:prisma:gp-api && npm run generate:prisma:election-api && npm run generate:prisma:people-api",
+    "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema",
+    "generate:prisma:election-api": "npx prisma generate --schema=packages/election-api/prisma/schema",
+    "generate:prisma:people-api": "npx prisma generate --schema=packages/people-api/prisma/schema",
+    "dev": "bash scripts/dev.sh",
+    "ai-rules:update": "git submodule update --remote ai-rules",
+    "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'"
+  },
+  "packageManager": "npm@10.9.2",
+  "overrides": {
+    "typescript": "5.9.3",
+    "react": "19.1.4",
+    "react-dom": "19.1.4",
+    "@types/react": "19.2.16",
+    "@types/react-dom": "19.2.3",
+    "csstype": "3.2.3",
+    "@opentelemetry/exporter-logs-otlp-http": "0.218.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.218.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
+    "@opentelemetry/instrumentation-http": "0.218.0",
+    "@opentelemetry/instrumentation-nestjs-core": "0.64.0",
+    "@opentelemetry/instrumentation-pino": "0.64.0",
+    "@opentelemetry/instrumentation-runtime-node": "0.31.0",
+    "@opentelemetry/resources": "2.7.1",
+    "@opentelemetry/sdk-logs": "0.218.0",
+    "@opentelemetry/sdk-metrics": "2.7.1",
+    "@opentelemetry/sdk-node": "0.218.0",
+    "@opentelemetry/sdk-trace-base": "2.7.1",
+    "@opentelemetry/semantic-conventions": "1.41.1"
   }
 }
