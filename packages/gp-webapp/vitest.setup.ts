@@ -20,10 +20,11 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 }
 
 if (typeof window !== 'undefined' && !window.ResizeObserver) {
+  const noop = (): void => undefined
   window.ResizeObserver = class ResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe = noop
+    unobserve = noop
+    disconnect = noop
   }
 }
 
