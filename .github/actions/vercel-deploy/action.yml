@@ -91,12 +91,12 @@ runs:
         esac
 
         if [ -n "$ALIAS_DOMAIN" ]; then
-          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --token "$VERCEL_TOKEN"
+          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
           echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
         if [ -n "$PR_ALIAS" ]; then
-          vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --token "$VERCEL_TOKEN"
+          vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
           echo "PR alias: https://${PR_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
         fi
 

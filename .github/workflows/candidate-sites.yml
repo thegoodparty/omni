@@ -51,7 +51,7 @@ jobs:
         run: npm run build -w ${{ env.WORKSPACE }}
 
   deploy:
-    name: Vercel deploy
+    name: Deploy
     needs: ci
     if: >-
       github.event_name == 'pull_request'

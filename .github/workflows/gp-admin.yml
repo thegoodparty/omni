@@ -66,7 +66,7 @@ jobs:
   # Clerk org switch, so it has no per-branch env vars or domains: PRs get a
   # preview, master deploys to production. No develop/qa env deploys.
   deploy:
-    name: Vercel deploy
+    name: Deploy
     needs: ci
     if: >-
       github.event_name == 'pull_request'
