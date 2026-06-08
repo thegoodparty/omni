@@ -80,8 +80,12 @@ jobs:
         id: ctx
         run: |
           case "${{ github.ref_name }}" in
-            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
-            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
+            develop)
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              echo "astro_external_id=${{ vars.ASTRO_ASSUME_ROLE_EXTERNAL_ID_DEV }}" >> "$GITHUB_OUTPUT" ;;
+            master)
+              echo "environment=prod" >> "$GITHUB_OUTPUT"
+              echo "astro_external_id=${{ vars.ASTRO_ASSUME_ROLE_EXTERNAL_ID_PROD }}" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Configure AWS Credentials
@@ -107,4 +111,4 @@ jobs:
           working-directory: ${{ env.WORKSPACE }}/deploy
           command: ./deploy.sh ${{ steps.ctx.outputs.environment }}
         env:
-          ASTRO_ASSUME_ROLE_EXTERNAL_ID: ${{ steps.ctx.outputs.environment == 'prod' && vars.ASTRO_ASSUME_ROLE_EXTERNAL_ID_PROD || vars.ASTRO_ASSUME_ROLE_EXTERNAL_ID_DEV }}
+          ASTRO_ASSUME_ROLE_EXTERNAL_ID: ${{ steps.ctx.outputs.astro_external_id }}

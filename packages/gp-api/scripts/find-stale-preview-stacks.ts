@@ -35,9 +35,13 @@ const getOpenPrNumbers = async () => {
     throw new Error('GITHUB_TOKEN environment variable is required')
   }
 
+  // Preview stacks are tagged with the PR number of the repo the workflow runs
+  // in (omni). GITHUB_REPOSITORY is set by Actions to owner/repo.
+  const repo = process.env.GITHUB_REPOSITORY ?? 'thegoodparty/omni'
+
   const response = await fetch(
     // For now, just fetch the first page. We're a long way from having >100 open PRs
-    'https://api.github.com/repos/thegoodparty/gp-api/pulls?state=open&per_page=100',
+    `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
     {
       headers: {
         Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
