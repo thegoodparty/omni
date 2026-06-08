@@ -58,6 +58,11 @@ runs:
       run: |
         set -euo pipefail
 
+        CWD_ARGS=()
+        if [ -n "${WORKSPACE:-}" ]; then
+          CWD_ARGS=(--cwd "$WORKSPACE")
+        fi
+
         PULL_ARGS=(--yes --token "$VERCEL_TOKEN")
         BUILD_ARGS=(--token "$VERCEL_TOKEN")
         DEPLOY_ARGS=(--prebuilt --token "$VERCEL_TOKEN")
@@ -73,9 +78,9 @@ runs:
           fi
         fi
 
-        vercel pull "${PULL_ARGS[@]}"
-        vercel build "${BUILD_ARGS[@]}"
-        DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
+        vercel pull "${CWD_ARGS[@]}" "${PULL_ARGS[@]}"
+        vercel build "${CWD_ARGS[@]}" "${BUILD_ARGS[@]}"
+        DEPLOY_URL="$(vercel deploy "${CWD_ARGS[@]}" "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
         case "$DEPLOY_URL" in
           http*) ;;
           *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
