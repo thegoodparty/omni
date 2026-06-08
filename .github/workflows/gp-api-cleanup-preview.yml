@@ -29,7 +29,10 @@ jobs:
           app: gp-api
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
 
       - name: Install Pulumi CLI
         uses: pulumi/actions@v6
@@ -65,7 +68,10 @@ jobs:
           app: gp-api
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
 
       - name: Install Pulumi CLI
         uses: pulumi/actions@v6
