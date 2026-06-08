@@ -32,6 +32,14 @@ inputs:
       dev.goodparty.org). Leave empty to keep only the generated preview URL.
     required: false
     default: ""
+  pr-alias:
+    description: >-
+      Deterministic *.vercel.app subdomain to alias a PR preview deployment to
+      (e.g. gp-ui-pr-123-good-party.vercel.app). Must end in the team scope
+      slug. Leave empty for non-PR deploys. This is independent of alias-domain
+      so a single deploy can carry both a stable env domain and a PR alias.
+    required: false
+    default: ""
 
 outputs:
   url:
@@ -55,6 +63,7 @@ runs:
         TARGET: ${{ inputs.target }}
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
+        PR_ALIAS: ${{ inputs.pr-alias }}
       run: |
         set -euo pipefail
 
@@ -84,6 +93,11 @@ runs:
         if [ -n "$ALIAS_DOMAIN" ]; then
           vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --token "$VERCEL_TOKEN"
           echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        if [ -n "$PR_ALIAS" ]; then
+          vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --token "$VERCEL_TOKEN"
+          echo "PR alias: https://${PR_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
         echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
