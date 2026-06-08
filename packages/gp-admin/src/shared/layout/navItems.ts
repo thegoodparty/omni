@@ -4,6 +4,7 @@ import {
   HiUserGroup,
   HiGlobeAlt,
   HiLightningBolt,
+  HiClipboardList,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -39,6 +40,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/agent-runs',
     icon: HiLightningBolt,
     permission: PERMISSIONS.READ_AGENT_RUNS,
+  },
+  {
+    title: 'Briefings',
+    href: '/dashboard/briefings',
+    icon: HiClipboardList,
+    permission: PERMISSIONS.REVIEW_BRIEFINGS,
   },
   {
     title: 'Settings',
