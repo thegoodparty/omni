@@ -101,6 +101,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_CANDIDATE_SITES }}
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
+          workspace: ${{ env.WORKSPACE }}
 
       - name: Comment preview URL
         if: github.event_name == 'pull_request'

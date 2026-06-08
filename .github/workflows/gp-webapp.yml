@@ -112,6 +112,7 @@ jobs:
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
           alias-domain: ${{ steps.ctx.outputs.alias }}
+          workspace: ${{ env.WORKSPACE }}
 
       - name: Comment preview URL
         if: github.event_name == 'pull_request'

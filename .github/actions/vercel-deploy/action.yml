@@ -32,6 +32,10 @@ inputs:
       dev.goodparty.org). Leave empty to keep only the generated preview URL.
     required: false
     default: ""
+  workspace:
+    description: Relative path to the package directory (e.g. packages/gp-webapp).
+    required: false
+    default: ""
 
 outputs:
   url:
@@ -55,6 +59,7 @@ runs:
         TARGET: ${{ inputs.target }}
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
+        WORKSPACE: ${{ inputs.workspace }}
       run: |
         set -euo pipefail
 
