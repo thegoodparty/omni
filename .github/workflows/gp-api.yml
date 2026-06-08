@@ -30,7 +30,6 @@ concurrency:
 
 env:
   AWS_REGION: us-west-2
-  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
   IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ github.sha }}
   WORKSPACE: packages/gp-api
 
@@ -116,9 +115,9 @@ jobs:
           esac
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -126,6 +125,9 @@ jobs:
 
       - name: Build application
         run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -176,9 +178,9 @@ jobs:
           route-types: "true"
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -186,6 +188,9 @@ jobs:
 
       - name: Build application
         run: npm run build -w ${{ env.WORKSPACE }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -215,41 +220,6 @@ jobs:
           CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
           CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
 
-      - name: Comment preview URL
+      - name: Add preview summary
         if: steps.pulumi.outputs.service_url != ''
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const url = '${{ steps.pulumi.outputs.service_url }}';
-            const body = [
-              '## gp-api preview environment',
-              '',
-              `| Resource | URL |`,
-              `|----------|-----|`,
-              `| **API** | ${url} |`,
-              `| **Health check** | ${url}/v1/health |`,
-              '',
-              '> Destroyed automatically within ~3h of this PR closing.',
-            ].join('\n');
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find((c) =>
-              c.body && c.body.includes('gp-api preview environment'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+        run: echo "gp-api preview deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"

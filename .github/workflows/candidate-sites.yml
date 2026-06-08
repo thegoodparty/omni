@@ -30,7 +30,7 @@ env:
 
 jobs:
   ci:
-    name: Lint / Format / Build
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -51,7 +51,7 @@ jobs:
         run: npm run build -w ${{ env.WORKSPACE }}
 
   deploy:
-    name: Vercel deploy
+    name: Deploy
     needs: ci
     if: >-
       github.event_name == 'pull_request'
@@ -101,16 +101,4 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_CANDIDATE_SITES }}
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
-
-      - name: Comment preview URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const url = '${{ steps.vercel.outputs.url }}';
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `candidate-sites Vercel preview: ${url}`
-            });
+          pr-alias: ${{ github.event_name == 'pull_request' && format('candidate-sites-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}

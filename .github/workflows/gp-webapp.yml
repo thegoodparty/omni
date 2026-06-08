@@ -30,7 +30,7 @@ env:
 
 jobs:
   ci:
-    name: Lint / Typecheck / Test
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -60,7 +60,7 @@ jobs:
         run: npm run test -w ${{ env.WORKSPACE }}
 
   deploy:
-    name: Vercel deploy
+    name: Deploy
     needs: ci
     if: >-
       github.event_name == 'pull_request'
@@ -112,16 +112,4 @@ jobs:
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
           alias-domain: ${{ steps.ctx.outputs.alias }}
-
-      - name: Comment preview URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const url = '${{ steps.vercel.outputs.url }}';
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `gp-webapp Vercel preview: ${url}`
-            });
+          pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
