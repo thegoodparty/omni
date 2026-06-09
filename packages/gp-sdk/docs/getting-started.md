@@ -49,18 +49,21 @@ There are two reliable patterns. Pick one — don't mix.
 ### Option A — `npm link` (fast, occasionally flaky)
 
 In this repo:
+
 ```bash
 npm run build      # or `npm run dev` in a separate terminal for live rebuilds
 npm link
 ```
 
 In the consumer (e.g. `gp-admin`):
+
 ```bash
 npm link @goodparty_org/sdk
 # (leave `@goodparty_org/sdk` in package.json untouched — link overrides it)
 ```
 
 When done:
+
 ```bash
 # in the consumer
 npm unlink @goodparty_org/sdk && npm install
@@ -73,6 +76,7 @@ The classic gotcha: if the consumer uses peerDeps that overlap with `gp-sdk`'s d
 ### Option B — `file:` protocol (robust, slower iteration)
 
 In the consumer's `package.json`:
+
 ```json
 {
   "dependencies": {
@@ -80,6 +84,7 @@ In the consumer's `package.json`:
   }
 }
 ```
+
 Then `npm install` in the consumer. After every change in `gp-sdk`, run `npm run build` here and `npm install` (or `npm i @goodparty_org/sdk` to refresh) in the consumer. Slower than `link`, but bundling matches what consumers will actually install from npm.
 
 ## Verify (the same things CI runs)
@@ -103,23 +108,15 @@ npm run lint-format     # both
 
 There's no test command and no test framework configured. Don't add a `test` script unless you're also adding tests + wiring them into CI.
 
-## Releasing
+## Internal Workspace Package
 
-This repo uses [changesets](https://github.com/changesets/changesets). **Never** bump `package.json` `version` by hand.
+In `omni`, this package is not published from this workspace. Consumers depend on
+`@goodparty_org/sdk` through npm workspaces, so SDK and consumer changes should
+land together when the public API changes.
 
-1. Create a changeset describing your change:
-   ```bash
-   npx changeset add
-   ```
-   Pick `patch` / `minor` / `major` and write a one-paragraph summary. This adds a markdown file under `.changeset/`. Commit it with the rest of your PR.
-
-2. Open the PR to `master`. CI runs `typecheck → lint → format:check → build`.
-
-3. **After your PR merges**, the `Publish` workflow (`.github/workflows/publish.yml`) runs:
-   - If pending changesets exist, it opens (or updates) a release PR titled `chore: release @goodparty_org/sdk` that bumps versions and updates `CHANGELOG.md`. The workflow auto-approves and auto-merges this PR.
-   - When that release PR merges, the next `publish` run executes `npx changeset publish` to publish to npm and creates a `v<version>` GitHub release with auto-generated notes.
-
-You don't have to babysit this — the only manual step is `npx changeset add` in your PR.
+Before opening a PR that changes exported SDK types or behavior, build the
+contracts package first, then run the SDK validate commands from the monorepo
+root.
 
 ## Talking to the API locally
 
@@ -130,13 +127,13 @@ import { GoodPartyClient } from '@goodparty_org/sdk'
 
 const client = await GoodPartyClient.create({
   m2mSecret: process.env.GP_MACHINE_SECRET!,
-  gpApiRootUrl: 'http://localhost:4000/v1',  // or the qa / prod URL
+  gpApiRootUrl: 'http://localhost:4000/v1', // or the qa / prod URL
 })
 
 const user = await client.users.get(1)
 console.log(user)
 
-client.destroy()  // important — stops the token renewal timer
+client.destroy() // important — stops the token renewal timer
 ```
 
 Forgetting `client.destroy()` will keep the process alive after your script finishes.
@@ -148,7 +145,6 @@ Forgetting `client.destroy()` will keep the process alive after your script fini
 - **`SdkError: 0 — Unknown error`** → almost always a network problem (DNS, no internet, unreachable `gpApiRootUrl`) — `ofetch` couldn't reach the server. Real HTTP errors come back with a real status.
 - **`npm link` works locally but fails in another consumer** → see "Linking into a consumer" above. Switch to Option B (`file:`) when in doubt.
 - **CI red on `format:check`** → run `npm run format` locally and recommit. Prettier disagreements are the most common CI failure on this repo.
-- **Changeset PR didn't open after merge** → no changeset markdown was committed. Create one with `npx changeset add` and open a follow-up PR; the release workflow will pick it up next time.
 
 ## Where to go next
 

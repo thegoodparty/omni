@@ -39,7 +39,6 @@ npm run build -w packages/gp-sdk          # tsup (CJS + ESM + d.ts)
 | ------------------------------------------------- | ------------------------------------- |
 | Adding a resource / endpoint                      | `docs/architecture.md` § Module shape |
 | First-time setup, linking locally into a consumer | `docs/getting-started.md`             |
-| Cutting a release                                 | `docs/getting-started.md` § Releasing |
 | AI rule-by-rule code review                       | `ai-rules/` (git submodule)           |
 
 ## Code style
@@ -55,7 +54,7 @@ npm run build -w packages/gp-sdk          # tsup (CJS + ESM + d.ts)
 
 - **`use-library-features.mdc`** — Don't reimplement what `ofetch` (or any dep) already does. Query strings, JSON serialization, base URL, headers — use the library option.
 - **`use-library-types.mdc`** — Import the library's exported type instead of writing a bespoke one. Use `Pick`/`Omit`/indexed access when you need a subset.
-- **`update-readme.mdc`** — Public-API changes **must** update `README.md` in the same change. The README is the published-package face; if it lies, consumers get burned.
+- **`update-readme.mdc`** — Public-API changes **must** update `README.md` in the same change. The README is the package's consumer-facing contract; if it lies, consumers get burned.
 
 ## Module shape
 
@@ -95,28 +94,16 @@ No test framework is configured and no `npm test` script exists. Don't add one u
 
 `GoodPartyClient.create({ m2mSecret, gpApiRootUrl })` builds a `ClerkService` (in `src/vendor/clerk/clerk.service.ts`) that exchanges the M2M secret for a short-lived token via `@clerk/backend`. The token is cached, auto-renewed on a timer, and injected as `Authorization: Bearer …` by `HttpClient`. **Consumers must call `client.destroy()`** to stop the renewal timer — otherwise the process won't exit cleanly. Document this on every public entry point you add.
 
-## Releasing
-
-Versioning is **changesets-driven**. Don't bump `package.json` manually:
-
-1. Run `npx changeset add` and describe the change → commits a markdown file under `.changeset/`.
-2. Open a PR to `master`. CI runs `typecheck / lint / format:check / build`.
-3. After merge, the `Publish` workflow opens (or updates) a "Release" PR that bumps versions + updates `CHANGELOG.md`. That PR is auto-approved and auto-merged. The follow-up merge runs `changeset publish` to npm and creates a `v<version>` GitHub release.
-
-Config: `.changeset/config.json` (`baseBranch: master`, `access: public`, GitHub-style changelogs).
-
 ## Never
 
-- Never bump `version` in `package.json` by hand — changesets owns versioning.
 - Never expose `ClerkService` (or any of `src/vendor/`) through `src/index.ts`. It's an internal implementation detail; the public surface is `GoodPartyClient` + types.
 - Never write a custom HTTP / query-string / JSON layer on top of `ofetch` — use the library option (per `.cursor/rules/use-library-features.mdc`).
 - Never duplicate types that exist in `@goodparty_org/contracts`. Import from contracts, or `Pick`/`Omit` from a contract type. Adding a fresh local type for a contract that exists is a mistake.
-- Never edit a published `CHANGELOG.md` entry — that's the historical release record. Future entries come from new changesets.
-- Never break a public export without a `major` changeset and a README update.
+- Never break a public export without updating the consumers in the same PR and documenting the new contract.
 
 ## Environment
 
-- **Node `24.13.0`** (`.nvmrc`; CI uses Node 24). `.nvmrc` is the source of truth.
-- **npm**, single workspace.
+- **Node 22**. The monorepo root `package.json` is the source of truth.
+- **npm workspaces** from the monorepo root.
 - No env vars at build time. Consumers pass `m2mSecret` and `gpApiRootUrl` at runtime via `GoodPartyClient.create({ … })`.
 - The `postinstall` hook only fires inside this repo (it's gated on `.gitmodules` existing) and pulls `ai-rules/`. It is intentionally a no-op when the package is installed as a dependency from npm — consumers don't get our submodule, and their installs don't shell out to `git`. If `ai-rules/` is empty in a fresh clone, run `git submodule update --init --recursive` manually.
