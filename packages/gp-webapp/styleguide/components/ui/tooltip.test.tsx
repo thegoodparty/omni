@@ -67,6 +67,30 @@ describe('Tooltip', () => {
     )
   })
 
+  it('keyboard: focus opens, Enter toggles closed and open again', async () => {
+    const user = userEvent.setup()
+    render(
+      <Tooltip openOnClick>
+        <TooltipTrigger>Campaign plan</TooltipTrigger>
+        <TooltipContent>Plan details</TooltipContent>
+      </Tooltip>,
+    )
+
+    // Radix opens on keyboard focus by itself.
+    await user.tab()
+    await screen.findAllByText('Plan details')
+
+    // Enter fires a click with no preceding pointerdown — the toggle branch.
+    await user.keyboard('{Enter}')
+    await waitFor(() =>
+      expect(screen.queryByText('Plan details')).not.toBeInTheDocument(),
+    )
+
+    await user.keyboard('{Enter}')
+    const contents = await screen.findAllByText('Plan details')
+    expect(contents.length).toBeGreaterThan(0)
+  })
+
   it('closes an open tooltip when a sibling trigger is tapped', async () => {
     const user = userEvent.setup()
     render(
