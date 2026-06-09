@@ -17,23 +17,25 @@ interface WebsiteSunsetModalControllerProps {
 export function WebsiteSunsetModalController({
   eligible,
 }: WebsiteSunsetModalControllerProps): React.JSX.Element | null {
-  const [user, setUser] = useUser()
+  const [user, setUser, isUserLoading] = useUser()
   const [open, setOpen] = useState(false)
   const dismissed = Boolean(user?.metaData?.websiteSunsetModalDismissed)
 
   useEffect(() => {
-    if (eligible && !dismissed) {
+    if (!isUserLoading && eligible && !dismissed) {
       setOpen(true)
     }
-  }, [eligible, dismissed])
+  }, [isUserLoading, eligible, dismissed])
 
   const persistDismissal = async (): Promise<void> => {
     try {
       const response = await clientFetch<User>(apiRoutes.user.updateMeta, {
         meta: { websiteSunsetModalDismissed: true },
       })
+      // Refetch the enriched user (GET /users/me) rather than caching this
+      // endpoint's bare Prisma row, which lacks Clerk fields and relations.
       if (response.data?.id) {
-        setUser(response.data)
+        setUser()
       }
     } catch (error) {
       console.error('Failed to persist website sunset dismissal', error)

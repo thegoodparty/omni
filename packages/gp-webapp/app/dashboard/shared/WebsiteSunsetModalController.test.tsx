@@ -55,6 +55,14 @@ describe('WebsiteSunsetModalController', () => {
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
   })
 
+  it('does not open while the user is still loading', () => {
+    mockUserValue = [null, mockSetUser, true]
+
+    render(<WebsiteSunsetModalController eligible />)
+
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
   it('persists dismissal to the candidate metadata when closed', async () => {
     mockClientFetch.mockResolvedValue({
       ok: true,
@@ -74,6 +82,8 @@ describe('WebsiteSunsetModalController', () => {
         meta: { websiteSunsetModalDismissed: true },
       })
     })
-    expect(mockSetUser).toHaveBeenCalledWith({ id: 1 })
+    // Called with no argument so UserProvider refetches the enriched user
+    // instead of caching this endpoint's bare row.
+    expect(mockSetUser).toHaveBeenCalledWith()
   })
 })
