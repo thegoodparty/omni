@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, ProBadge } from '@styleguide'
 import { CheckIcon, XMarkIcon } from '@styleguide/components/ui/icons'
-import H1 from '@shared/typography/H1'
 import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
@@ -24,7 +23,8 @@ const COMPARISON_ROWS: ComparisonRow[] = [
   { label: 'Up to 5,000 free texts', free: false },
 ]
 
-const ROW_GRID = 'grid grid-cols-[1fr_64px_64px] items-center'
+const ROW_GRID =
+  'grid grid-cols-[1fr_64px_64px] md:grid-cols-[1fr_100px_100px] items-center'
 
 const ValuePropStep = (): React.JSX.Element => {
   const router = useRouter()
@@ -46,41 +46,43 @@ const ValuePropStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H1 className="text-center mb-2">76% of candidates who use Pro win</H1>
-      <Body2 className="text-center text-secondary mb-8">
+      <h1 className="text-center text-[32px] leading-[44px] font-semibold mb-1.5">
+        76% of candidates who use Pro win
+      </h1>
+      <Body2 className="text-center text-base-muted-foreground mb-6">
         Get $300 of value for $10/mo.
       </Body2>
 
-      <div className="mb-10">
-        <div className={`${ROW_GRID} mb-2`}>
+      <div className="mb-9">
+        <div className={`${ROW_GRID} py-2`}>
           <span />
-          <span className="text-center text-secondary">Free</span>
+          <span className="text-center">Free</span>
           <span className="flex justify-center">
-            <ProBadge />
+            <ProBadge size="large" />
           </span>
         </div>
 
         {COMPARISON_ROWS.map(({ label, free }) => (
           <div
             key={label}
-            className={`${ROW_GRID} border-t border-gray-200 py-3`}
+            className={`${ROW_GRID} border-b last:border-b-0 border-base-border py-3`}
           >
-            <span className="font-medium">{label}</span>
+            <span className="underline decoration-dotted">{label}</span>
             <span className="flex justify-center">
               {free ? (
-                <CheckIcon className="h-5 w-5 text-primary" />
+                <CheckIcon className="h-4 w-4 text-blue-400" />
               ) : (
-                <XMarkIcon className="h-5 w-5 text-destructive" />
+                <XMarkIcon className="h-4 w-4 text-destructive" />
               )}
             </span>
             <span className="flex justify-center">
-              <CheckIcon className="h-5 w-5 text-primary" />
+              <CheckIcon className="h-4 w-4 text-blue-400" />
             </span>
           </div>
         ))}
       </div>
 
-      <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-2">
         <Button
           size="large"
           className="w-full sm:w-auto"
@@ -88,7 +90,7 @@ const ValuePropStep = (): React.JSX.Element => {
         >
           Get Pro for $10/mo
         </Button>
-        <Button variant="ghost" size="large" onClick={handleMaybeLater}>
+        <Button variant="ghost" onClick={handleMaybeLater}>
           Maybe later
         </Button>
       </div>
