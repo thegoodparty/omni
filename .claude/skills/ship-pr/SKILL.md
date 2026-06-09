@@ -14,24 +14,22 @@ Repo conventions this skill enforces (from the root `CLAUDE.md`): PR bodies expl
 **why**, not what; **no** "test plan" section; **no** `Co-Authored-By: Claude` and
 no "Created by Claude" footers. **PRs always target `develop`.**
 
-## Pre-flight checks (what "verify" means here)
+## Pre-flight checks (how to verify)
 
 Purpose: don't open a PR — or push a loop fix — that will obviously fail the
-package's CI and waste a delegate round. This is a local mirror of the package's
-CI `Validate` job, **not one universal command**.
+package's CI and waste a delegate round.
 
-There is no uniform `verify` script: only `gp-api` defines `npm run verify`. For
-any other package, run whichever quality scripts it actually defines (check its
-`package.json` and its `.github/workflows/<pkg>.yml` Validate job) — typically
-some subset of `lint`, a type-check (`types` or `typecheck`), and `test`. Run what
-exists, skip what doesn't (e.g. candidate-sites has no `test`; election-api and
-people-api have no type-check script). The goal is to catch what CI would catch.
+**How to verify is documented in each package's `CLAUDE.md`** (its "Verify"
+section). Find the package(s) the diff touches
+(`git diff --name-only origin/develop...HEAD`), open the relevant
+`packages/<dir>/CLAUDE.md`, and run the verification steps it lists. There is no
+single universal command — gp-api has `npm run verify`; others document their own
+lint / type-check / test / build steps.
 
-Always address a workspace by its **path**, not its folder name:
-`npm run <script> -w packages/<dir>`. npm's `-w` matches a package `name` or a
-path, and several names differ from their folder (`gp-webapp` → `good-party`,
-`gp-sdk` → `@goodparty_org/sdk`, `contracts` → `@goodparty_org/contracts`), so the
-bare folder name fails to resolve.
+Address workspaces by **path**: `npm run <script> -w packages/<dir>`. npm's `-w`
+matches a name or a path, and some package names differ from their folder (the
+scoped libs `@goodparty_org/sdk`, `@goodparty_org/contracts`), so the path form
+always resolves.
 
 ## Phase 1 — open the PR (fully auto)
 
