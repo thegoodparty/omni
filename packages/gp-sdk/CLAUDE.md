@@ -23,9 +23,10 @@ npm run lint-format      # lint:fix + format
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-sdk.yml`) before opening a PR. From the repo root:
+Reproduce the CI **Validate** job (`.github/workflows/gp-sdk.yml`) before opening a PR. CI builds the in-tree contracts first because the SDK imports them. From the repo root:
 
 ```bash
+npm run build -w packages/contracts       # build contracts the SDK imports
 npm run typecheck -w packages/gp-sdk      # tsc --noEmit
 npm run lint -w packages/gp-sdk           # eslint --quiet (read-only)
 npm run format:check -w packages/gp-sdk   # prettier --check
