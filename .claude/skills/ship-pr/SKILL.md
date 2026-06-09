@@ -6,25 +6,41 @@ description: Open a PR following GoodParty conventions and drive the delegate-re
 # Ship a PR and converge with delegate
 
 Two phases in one run: open the PR (Phase 1), then drive `delegate-reviewer[bot]`
-to `Approved.` (Phase 2). Fully autonomous — only stop to surface a verify failure
-you must rule on, or a finding you've verified is wrong or too high-blast-radius to
-auto-apply.
+to `Approved.` (Phase 2). Fully autonomous — only stop to surface a pre-flight
+failure you must rule on, or a finding you've verified is wrong or too
+high-blast-radius to auto-apply.
 
 Repo conventions this skill enforces (from the root `CLAUDE.md`): PR bodies explain
 **why**, not what; **no** "test plan" section; **no** `Co-Authored-By: Claude` and
-no "Created by Claude" footers; base branch is `develop`.
+no "Created by Claude" footers. **PRs always target `develop`.**
+
+## Pre-flight checks (what "verify" means here)
+
+Purpose: don't open a PR — or push a loop fix — that will obviously fail the
+package's CI and waste a delegate round. This is a local mirror of the package's
+CI `Validate` job, **not one universal command**.
+
+There is no uniform `verify` script: only `gp-api` defines `npm run verify`. For
+any other package, run whichever quality scripts it actually defines (check its
+`package.json` and its `.github/workflows/<pkg>.yml` Validate job) — typically
+some subset of `lint`, a type-check (`types` or `typecheck`), and `test`. Run what
+exists, skip what doesn't (e.g. candidate-sites has no `test`; election-api and
+people-api have no type-check script). The goal is to catch what CI would catch.
+
+Always address a workspace by its **path**, not its folder name:
+`npm run <script> -w packages/<dir>`. npm's `-w` matches a package `name` or a
+path, and several names differ from their folder (`gp-webapp` → `good-party`,
+`gp-sdk` → `@goodparty_org/sdk`, `contracts` → `@goodparty_org/contracts`), so the
+bare folder name fails to resolve.
 
 ## Phase 1 — open the PR (fully auto)
 
-1. **Branch off a protected branch if needed.** If the current branch is `develop`,
-   `qa`, or `master`, create a feature branch first (`git checkout -b <name>`). Pick
-   a short, descriptive kebab-case name from the change. Never commit to a protected
-   branch.
+1. **Branch first if needed.** If you're on `develop`, create a feature branch
+   (`git checkout -b <name>`, short kebab-case from the change) before committing.
+   Never commit directly to `develop`.
 
-2. **Run the verify gate for the touched package(s).** Find which `packages/<app>`
-   the diff touches (`git diff --name-only origin/develop...HEAD`) and run that
-   package's gate — `npm run verify -w <app>` where it exists, else its
-   lint + typecheck + test steps (see `docs/testing.md`).
+2. **Run pre-flight checks on the touched package(s)** (see "Pre-flight checks"
+   above). Find them with `git diff --name-only origin/develop...HEAD`.
    - **Pass** → continue.
    - **Fail** → STOP. Show exactly what failed, then ask the user: fix it now, or
      open anyway (escape hatch for pre-existing or unrelated failures). Do not
@@ -69,9 +85,10 @@ Loop:
      payload; **deleting** code or behavior; or anything **outside the diff's
      scope**.
 
-4. **Apply, then loop or stop.** Commit any verified-valid fixes (respect repo
-   style; no AI footers) and push — always do this so agreed fixes aren't lost.
-   Then decide by what's left:
+4. **Apply, then loop or stop.** Make the verified-valid fixes (respect repo style;
+   no AI footers). Before pushing, re-run pre-flight on the affected package(s) —
+   never push failing lint/types/test. Commit and push (always push the fixes
+   you've made, so agreed work isn't lost). Then decide by what's left:
    - **Nothing escalated this round** → comment `delegate review` and loop back to
      step 1.
    - **Anything escalated this round** → do _not_ re-trigger or loop. Stop and hand
@@ -86,7 +103,7 @@ Loop:
 - Delegate `Approved.` → success.
 - 3 rounds reached → summary handback.
 - ~10 min poll with no new review → timeout handback.
-- A verify failure (Phase 1) or an escalated finding → wait for the user.
+- A pre-flight failure (either phase) or an escalated finding → wait for the user.
 
 ## Notes
 
