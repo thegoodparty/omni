@@ -120,6 +120,10 @@ export default function UploadAgendaModal({
 
   const openFilePicker = () => fileInputRef.current?.click()
 
+  // Backend briefing events emit meetingDate as a UTC-midnight epoch ms;
+  // Segment enforces one type per property name across events.
+  const meetingDateMs = new Date(`${meetingDate}T00:00:00Z`).getTime()
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (file) return submitAgendaFile(meetingDate, file)
@@ -128,7 +132,7 @@ export default function UploadAgendaModal({
     },
     onSuccess: () => {
       trackEvent(EVENTS.BriefingAssistant.AgendaSubmitted, {
-        meetingDate,
+        meetingDate: meetingDateMs,
         source: file ? 'upload' : 'url',
         ...(file ? { fileSizeBytes: file.size } : {}),
       })
@@ -138,7 +142,7 @@ export default function UploadAgendaModal({
     onError: (err) => {
       if (err instanceof AgendaFileTooLargeError) {
         trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
-          meetingDate,
+          meetingDate: meetingDateMs,
           source: 'upload',
           reason: 'file_too_large',
         })
@@ -147,7 +151,7 @@ export default function UploadAgendaModal({
       }
       if (err instanceof AgendaFileWrongTypeError) {
         trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
-          meetingDate,
+          meetingDate: meetingDateMs,
           source: 'upload',
           reason: 'wrong_file_type',
         })
@@ -155,7 +159,7 @@ export default function UploadAgendaModal({
         return
       }
       trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
-        meetingDate,
+        meetingDate: meetingDateMs,
         source: file ? 'upload' : 'url',
         reason: 'request_failed',
       })
