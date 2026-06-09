@@ -170,7 +170,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-      statuses: read
+      actions: read
     env:
       BASE_URL: ${{ needs.deploy.outputs.url }}
     steps:
@@ -195,30 +195,41 @@ jobs:
       # gp-api stack (or, on develop, gp-api-dev). Wait until that deploy of THIS
       # commit is done before testing. gp-api's validate+build+ECS path is much
       # slower than the webapp deploy, so a blind timer off the (fast) webapp
-      # deploy can't cover it. Instead wait on gp-api's `full-stack/gp-api` commit
-      # status (terminal signal, fail fast on failure), then confirm the edge is
-      # serving this commit via /v1/version. Liveness alone is not enough on
-      # branch builds, where dev is always up on the prior commit.
+      # deploy can't cover it. Instead wait on gp-api's existing Deploy job
+      # finishing for this commit (terminal signal, fail fast), then confirm the
+      # edge is serving it via /v1/version. Liveness alone is not enough on branch
+      # builds, where dev is always up on the prior commit.
+      #
+      # The gp-api run is keyed to the source commit (PR head, or the pushed
+      # commit) — distinct from github.sha, which on a PR is the merge commit.
+      # gp-api tags its image with github.sha, so /v1/version reports that.
       - name: Wait for gp-api deploy
         if: needs.changes.outputs.gp_api == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_SHA: ${{ github.sha }}
+          JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
         run: |
-          echo "Waiting for gp-api deploy status on $EXPECTED_SHA"
+          echo "Waiting for gp-api '$JOB_NAME' job on $RUN_SHA"
           for i in $(seq 1 150); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_SHA/statuses" \
-              --jq '[.[] | select(.context=="full-stack/gp-api")] | first | .state // "pending"')
-            echo "  attempt $i/150: gp-api deploy status=$state"
-            case "$state" in
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA" \
+              --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
+            conclusion=""
+            if [ -n "$run_id" ]; then
+              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
+                --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+            fi
+            echo "  attempt $i/150: gp-api '$JOB_NAME' conclusion=${conclusion:-<running>}"
+            case "$conclusion" in
               success) break ;;
-              failure|error)
-                echo "::error::gp-api deploy failed for $EXPECTED_SHA"
+              failure|cancelled|timed_out|skipped)
+                echo "::error::gp-api '$JOB_NAME' did not succeed ($conclusion)"
                 exit 1 ;;
             esac
             if [ "$i" = 150 ]; then
-              echo "::error::timed out waiting for gp-api deploy status on $EXPECTED_SHA"
+              echo "::error::timed out waiting for gp-api '$JOB_NAME' on $RUN_SHA"
               exit 1
             fi
             sleep 10

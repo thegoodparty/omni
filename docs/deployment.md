@@ -36,12 +36,14 @@ PR. The gp-webapp workflow is path-triggered on gp-api/contracts too, and a
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
   `https://pr-<N>.preview.goodparty.org`. Webapp-only PRs keep the dev default.
-- Coordinating the two independent workflows: gp-api's deploy/preview jobs post a
-  `full-stack/gp-api` commit status on the SHA when done (pulumi waits for ECS
-  steady state, so success means the new tasks are serving). The e2e job waits on
-  that status (proceeds on success, fails fast on failure) rather than a blind
-  timer, since gp-api's validate+build+ECS path is much slower than the webapp
-  deploy. A blind timer off the fast webapp deploy can't reliably cover it.
+- Coordinating the two independent workflows: the e2e job polls gp-api's existing
+  Deploy job (via the Actions API, scoped to the gp-api run for this commit) and
+  waits for it to finish, proceeding on success and failing fast otherwise. This
+  beats a blind timer, since gp-api's validate+build+ECS path is much slower than
+  the webapp deploy. pulumi waits for ECS steady state, so a successful Deploy job
+  means the new tasks are serving. The gp-api run is keyed to the source commit
+  (PR head, or the pushed commit), which on a PR differs from `github.sha` (the
+  merge commit) that the image is tagged with.
 - gp-api also exposes its deployed commit at `GET /v1/version` (`{ commit }`), set
   from the `GIT_SHA` build arg. After the status clears, the e2e confirms the edge
   is serving the expected `github.sha` via that endpoint (liveness alone is not
