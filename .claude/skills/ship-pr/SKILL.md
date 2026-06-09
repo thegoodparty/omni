@@ -52,7 +52,7 @@ Loop:
    `delegate review` to re-trigger, then poll.
    Poll `gh api repos/thegoodparty/omni/pulls/<n>/reviews` every ~30–60s for a
    `delegate-reviewer[bot]` review whose `submitted_at` is newer than your last
-   trigger (or PR open). Budget **~15 min per review**; if nothing lands, stop and
+   trigger (or PR open). Budget **~10 min per review**; if nothing lands, stop and
    report.
 
 2. **Verdict.**
@@ -72,14 +72,14 @@ Loop:
 4. **Apply, push, re-trigger.** Commit the valid fixes (respect repo style; no AI
    footers), push, comment `delegate review`, loop back to step 1.
 
-5. **Round cap.** Stop after **5 rounds** even if not approved. Hand back a summary:
+5. **Round cap.** Stop after **3 rounds** even if not approved. Hand back a summary:
    resolved, still-outstanding, and escalated findings.
 
 ## Stop conditions (always report, never loop past these)
 
 - Delegate `Approved.` → success.
-- 5 rounds reached → summary handback.
-- ~15 min poll with no new review → timeout handback.
+- 3 rounds reached → summary handback.
+- ~10 min poll with no new review → timeout handback.
 - A verify failure (Phase 1) or an escalated finding → wait for the user.
 
 ## Notes
