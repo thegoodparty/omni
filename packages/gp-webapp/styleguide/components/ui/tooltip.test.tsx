@@ -67,6 +67,32 @@ describe('Tooltip', () => {
     )
   })
 
+  it('closes an open tooltip when a sibling trigger is tapped', async () => {
+    const user = userEvent.setup()
+    render(
+      <div>
+        <Tooltip openOnClick>
+          <TooltipTrigger>Label A</TooltipTrigger>
+          <TooltipContent>Content A</TooltipContent>
+        </Tooltip>
+        <Tooltip openOnClick>
+          <TooltipTrigger>Label B</TooltipTrigger>
+          <TooltipContent>Content B</TooltipContent>
+        </Tooltip>
+      </div>,
+    )
+
+    await tap(user, screen.getByText('Label A'))
+    await screen.findAllByText('Content A')
+
+    // The tap on B is a pointerdown outside A's dismissable layer, so Radix
+    // closes A — click-opened tooltips never stack.
+    await tap(user, screen.getByText('Label B'))
+    await screen.findAllByText('Content B')
+
+    expect(screen.queryByText('Content A')).not.toBeInTheDocument()
+  })
+
   it('does not open on tap without openOnClick', async () => {
     const user = userEvent.setup()
     render(
