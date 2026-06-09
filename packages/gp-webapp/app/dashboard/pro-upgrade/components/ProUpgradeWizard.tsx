@@ -25,6 +25,10 @@ import {
 // pro-upgrade3 = off fallback and is intentionally left untouched.
 const PRO_SIGN_UP_PATH = '/dashboard/pro-sign-up'
 
+// The Figma card is 640px wide with 48px/32px padding; the wrapper's md:p-16
+// default leaves only 512px of content and wraps the step headlines.
+const CARD_PADDING = 'md:px-12 md:py-8'
+
 interface ProUpgradeWizardContextValue {
   // null on the wizard index (before redirect) or on any non-step path.
   currentStep: ProUpgradeStep | null
@@ -108,7 +112,7 @@ const ProUpgradeWizard = ({
   // Hold the experience with a spinner only while the flag is resolving.
   if (!ready) {
     return (
-      <FocusedExperienceWrapper>
+      <FocusedExperienceWrapper className={CARD_PADDING}>
         <LoadingAnimation />
       </FocusedExperienceWrapper>
     )
@@ -141,7 +145,7 @@ const ProUpgradeWizard = ({
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <FocusedExperienceWrapper>
+      <FocusedExperienceWrapper className={CARD_PADDING}>
         {(canGoBack || showProgress) && (
           <div className="mb-6 flex items-center gap-3">
             {canGoBack && (

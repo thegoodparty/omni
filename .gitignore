@@ -15,6 +15,9 @@ coverage/
 .env.local
 *.local
 
+# Local agent context (personal, not shared)
+CLAUDE.local.md
+
 # Logs / OS
 *.log
 .DS_Store

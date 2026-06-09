@@ -5,6 +5,7 @@ import { User, Website, TcrCompliance, Campaign } from 'helpers/types'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import TextingComplianceFeatureFlag from 'app/dashboard/profile/texting-compliance-agentic/components/TextingComplianceFeatureFlag'
 import { WebsiteSunsetBanner } from 'app/dashboard/shared/WebsiteSunsetBanner'
+import { isWebsiteSunsetEligible } from 'app/dashboard/shared/websiteSunset'
 
 interface ProfilePageProps {
   user: User
@@ -28,7 +29,9 @@ export default function ProfilePage({
     <DashboardLayout pathname="/dashboard/profile">
       <div className="bg-indigo-100 min-h-[calc(100vh-60px)]">
         <div className="max-w-screen-md mx-auto px-4 py-4 xl:p-0 xl:pt-4">
-          <WebsiteSunsetBanner hasWebsite={!!website} />
+          <WebsiteSunsetBanner
+            eligible={isWebsiteSunsetEligible(website ?? null)}
+          />
           <ContactInfoSection user={user} />
           {!!campaign && <AccountSettingsSection />}
           {!!campaign && isPro && (

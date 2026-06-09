@@ -8,6 +8,10 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
+// Imported after useTestService: analytics.service sits on a circular import
+// chain (analytics -> users -> campaigns -> analytics) and must not be the
+// first app-graph module evaluated, or Nest sees an undefined DI token.
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
 const service = useTestService()
@@ -152,7 +156,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     expect(res.status).toBe(200)
     // Only the schedule fires on creation. The briefing is chained later
     // in onExperimentRunCompleted once the schedule lands and the
-    // imminence gate confirms a meeting inside the 5-day window.
+    // imminence gate confirms a meeting inside the 3-day window.
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
     expect(dispatchSpy).toHaveBeenCalledWith({
       type: 'meeting_schedule',
@@ -255,7 +259,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     vi.unstubAllEnvs()
   })
 
-  it('chains a briefing dispatch when schedule completion shows a meeting inside the 5-day window', async () => {
+  it('chains a briefing dispatch when schedule completion shows a meeting inside the 3-day window', async () => {
     const orgSlug = `eo-chain-imminent-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-imminent' })
     const eo = await service.prisma.electedOffice.create({
@@ -294,9 +298,9 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     )
   })
 
-  it('does not chain a briefing when schedule completion shows no meeting inside the 5-day window', async () => {
+  it('does not chain a briefing when schedule completion shows no meeting inside the 3-day window', async () => {
     // Pin the clock to mid-year so Jan 1 (the next YEARLY occurrence) is
-    // far outside the 5-day window. Without this, runs between roughly
+    // far outside the 3-day window. Without this, runs between roughly
     // Dec 27 and Jan 1 would see Jan 1 INSIDE the window and the test
     // would flake.
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -605,6 +609,100 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     expect(row).toBeNull()
   })
 
+  it('tracks Briefing Assistant - Agenda Not Created with daysUntilMeeting on a placeholder briefing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-06-05T12:00:00Z'))
+    try {
+      const orgSlug = `eo-track-awaiting-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: service.user.id },
+      })
+      const eo = await service.prisma.electedOffice.create({
+        data: { organizationSlug: orgSlug, userId: service.user.id },
+      })
+      const briefingRun = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'meeting_briefing',
+          status: ExperimentRunStatus.COMPLETED,
+          artifactBucket: 'briefing-bucket',
+          artifactKey: 'briefing-track.json',
+          params: { elected_office_id: eo.id, meetingDate: '2026-06-08' },
+        },
+      })
+      mockS3({
+        'briefing-track.json': JSON.stringify({
+          briefing_status: 'awaiting_agenda',
+          meeting_date: '2026-06-08',
+          meeting_name: 'City Council',
+        }),
+      })
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' })
+
+      await service.app
+        .get(MeetingBriefingsService)
+        .onExperimentRunCompleted(briefingRun)
+
+      expect(trackSpy).toHaveBeenCalledWith(
+        service.user.id,
+        'Briefing Assistant - Agenda Not Created',
+        {
+          electedOfficeId: eo.id,
+          experimentRunId: briefingRun.runId,
+          briefingStatus: 'awaiting_agenda',
+          meetingDate: new Date('2026-06-08').getTime(),
+          daysUntilMeeting: 3,
+        },
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('tracks Briefing Assistant - Agenda Not Created without date fields when no target date is known', async () => {
+    const orgSlug = `eo-track-no-meeting-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-track-no-meeting.json',
+        params: { elected_office_id: eo.id },
+      },
+    })
+    mockS3({
+      'briefing-track-no-meeting.json': JSON.stringify({
+        briefing_status: 'no_meeting_found',
+      }),
+    })
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(briefingRun)
+
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Briefing Assistant - Agenda Not Created',
+      {
+        electedOfficeId: eo.id,
+        experimentRunId: briefingRun.runId,
+        briefingStatus: 'no_meeting_found',
+      },
+    )
+  })
+
   it('does not write a MeetingBriefing row when briefing_status is error', async () => {
     const orgSlug = `eo-error-${Date.now()}`
     await service.prisma.organization.create({
@@ -879,9 +977,9 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
-  it('skips an EO when the next meeting is outside the 5-day window', async () => {
+  it('skips an EO when the next meeting is outside the 3-day window', async () => {
     // Pin clock to mid-year so Jan 1 (the next YEARLY occurrence) is far
-    // outside any 5-day window. Without pinning, runs near new year would
+    // outside any 3-day window. Without pinning, runs near new year would
     // see Jan 1 inside the window and flake.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))

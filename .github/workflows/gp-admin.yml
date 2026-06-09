@@ -67,7 +67,6 @@ jobs:
   # preview, master deploys to production. No develop/qa env deploys.
   deploy:
     name: Deploy
-    needs: ci
     if: >-
       github.event_name == 'pull_request'
       || (github.event_name == 'push' && github.ref_name == 'master')

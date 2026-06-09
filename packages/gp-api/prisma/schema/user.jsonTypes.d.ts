@@ -14,6 +14,7 @@ declare global {
       hubspotId?: string
       profile_updated_count?: number
       textNotifications?: boolean
+      websiteSunsetModalDismissed?: boolean
     } | null
   }
 }

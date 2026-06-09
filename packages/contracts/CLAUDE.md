@@ -15,22 +15,22 @@ Shared Zod schemas and TypeScript types consumed by `gp-api`, `@goodparty_org/sd
 | `src/shared/`               | Cross-domain primitives (pagination, enums, util types)                       |
 | `src/generated/`            | Output of `scripts/generate-enums.ts` (Prisma → Zod enum mirrors)             |
 | `scripts/generate-enums.ts` | Generates Zod enums from Prisma enums to keep them in sync                    |
-| `CHANGELOG.md`              | Human-edited changelog (manually maintained per release)                      |
-| `dist/`                     | Build output, committed only via npm publish workflow                         |
+| `CHANGELOG.md`              | Historical changelog from the pre-monorepo package                            |
+| `dist/`                     | Local build output                                                            |
 
 ## Patterns
 
 - **Build pipeline is two stages**: `npm run generate-enums` → `tsup`. Both run via `npm run build`. `scripts/build-contracts.ts` at the repo root short-circuits when the source is older than `dist/index.js`.
 - **Prisma enums are the source of truth for enum values** — never hand-write a Zod enum that mirrors a Prisma one; let `generate-enums.ts` do it. Add the Prisma enum first, then regenerate.
 - **Adding a public schema**: create the Zod schema in `src/<feature>/`, export from `src/<feature>/index.ts`, then re-export from `src/index.ts`. If it isn't reachable from the root index, it doesn't ship.
-- **Versioning is manual.** Bump `package.json` version + write a `CHANGELOG.md` entry in the same PR that changes the public surface.
+- **Consumer updates are part of the contract change.** Because consumers use the workspace package directly, update affected apps in the same PR instead of relying on a version bump.
 - The contracts build runs automatically on `npm run start:dev`, `npm run build`, and `npm test` — you generally don't run `cd contracts && npm run build` by hand.
 
 ## Gotchas
 
 - **Never bypass `@goodparty_org/contracts` for cross-service shapes** (root `CLAUDE.md`, "Never" list). Don't redeclare a schema in `gp-api/src/` if it's already in contracts.
 - **Don't use `.passthrough()` on input schemas** (Rule from root `CLAUDE.md`). Use `.strict()` or the default behaviour.
-- The published `dist/` should never be edited by hand — it's regenerated on every build.
+- `dist/` should never be edited by hand — it's regenerated on every build.
 - `gp-sdk`, `gp-admin`, and `gp-api` consume this in-tree via the `"*"` workspace dependency (node_modules symlink), not over the npm registry. A breaking change is live the moment it's built — coordinate the producer and every consumer in the **same PR** rather than relying on a version bump.
 
 ## Verify
