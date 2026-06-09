@@ -129,6 +129,34 @@ export const Multiple: Story = {
   ),
 }
 
+export const OpenOnClick: Story = {
+  render: () => (
+    <Tooltip openOnClick disableHoverableContent>
+      <TooltipTrigger className="cursor-pointer underline decoration-dotted">
+        Campaign plan
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        showArrow={false}
+        className="flex w-80 items-start gap-4 rounded-xl bg-white p-4 text-components-card-foreground shadow-md"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-bright-yellow-200">
+          <StarIcon className="h-6 w-6" />
+        </span>
+        <span className="flex flex-col gap-2">
+          <span className="text-xl font-semibold leading-7">Campaign plan</span>
+          <span className="text-base font-normal leading-6">
+            Opens on hover, keyboard focus, and click/tap. `showArrow=false`
+            plus a `sideOffset` keeps a gap between the trigger and the card.
+          </span>
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  ),
+}
+
 export const WithCustomContent: Story = {
   render: () => (
     <TooltipProvider>

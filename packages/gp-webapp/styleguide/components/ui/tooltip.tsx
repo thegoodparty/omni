@@ -16,28 +16,83 @@ function TooltipProvider({
   )
 }
 
+// Set (not null) only when the nearest Tooltip has openOnClick, so
+// TooltipTrigger can opt into click-to-open without a prop of its own.
+const TooltipOpenOnClickContext = React.createContext<(() => void) | null>(null)
+
 function Tooltip({
+  openOnClick = false,
+  children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Root> & {
+  /**
+   * Also open the tooltip when the trigger is clicked/tapped (Radix only
+   * opens on hover and keyboard focus, and a tap on touch devices would
+   * otherwise never show the tooltip). Manages open state internally — don't
+   * combine with `open`/`onOpenChange`.
+   */
+  openOnClick?: boolean
+}) {
+  const [open, setOpen] = React.useState(false)
+  if (!openOnClick) {
+    return (
+      <TooltipProvider>
+        <TooltipPrimitive.Root data-slot="tooltip" {...props}>
+          {children}
+        </TooltipPrimitive.Root>
+      </TooltipProvider>
+    )
+  }
   return (
     <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+      <TooltipPrimitive.Root
+        data-slot="tooltip"
+        open={open}
+        onOpenChange={setOpen}
+        {...props}
+      >
+        <TooltipOpenOnClickContext.Provider value={() => setOpen(true)}>
+          {children}
+        </TooltipOpenOnClickContext.Provider>
+      </TooltipPrimitive.Root>
     </TooltipProvider>
   )
 }
 
 function TooltipTrigger({
+  onClick,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  const openOnClick = React.useContext(TooltipOpenOnClickContext)
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onClick={
+        openOnClick
+          ? (event) => {
+              onClick?.(event)
+              // Radix's own click handler closes the tooltip; preventDefault
+              // stops it so a click/tap always lands on "open".
+              event.preventDefault()
+              openOnClick()
+            }
+          : onClick
+      }
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({
   className,
   sideOffset = 0,
+  showArrow = true,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Content> & {
+  /** Hide the arrow, e.g. for card-style tooltips offset from the trigger. */
+  showArrow?: boolean
+}) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -50,7 +105,9 @@ function TooltipContent({
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+        {showArrow && (
+          <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+        )}
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )
