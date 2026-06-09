@@ -786,6 +786,8 @@ export default function OnboardingFlow({
 
   const persistPledgeAndComplete = async (): Promise<boolean> => {
     const effectiveCampaignId = liveCampaign?.id ?? campaign?.id
+    // Pre-flight click signal — fires before updateCampaign/launchCampaign, so
+    // it can fire even if the pledge ultimately fails. Not a completion signal.
     trackEvent(EVENTS.OnboardingV2.PledgeSubmitClicked, {
       campaignId: effectiveCampaignId,
     })
@@ -906,6 +908,8 @@ export default function OnboardingFlow({
     ) {
       setIsSavingOffice(true)
       try {
+        // campaignId is undefined for new users — the campaign is created
+        // inside persist*Office below. Intentional: this is a click signal.
         trackEvent(EVENTS.OnboardingV2.OfficeNextClicked, {
           campaignId: liveCampaign?.id ?? campaign?.id,
         })
@@ -948,6 +952,8 @@ export default function OnboardingFlow({
     ) {
       setIsSavingOffice(true)
       try {
+        // campaignId is undefined for new users — the campaign is created
+        // inside persist*Office below. Intentional: this is a click signal.
         trackEvent(EVENTS.OnboardingV2.OfficeNextClicked, {
           campaignId: liveCampaign?.id ?? campaign?.id,
         })
