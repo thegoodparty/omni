@@ -14,7 +14,7 @@ All workspaces (apps and shared libs) live under `packages/`.
 | Path                       | What                                           | Port |
 | -------------------------- | ---------------------------------------------- | ---- |
 | `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)          | 3000 |
-| `packages/gp-webapp`       | Next.js candidate/marketing app                | 4000 |
+| `packages/gp-webapp`       | Next.js product app (candidates & officials)   | 4000 |
 | `packages/election-api`    | NestJS microservice — election data            | 3001 |
 | `packages/people-api`      | NestJS microservice — voter data               | 3002 |
 | `packages/gp-admin`        | Next.js internal admin console                 | 3500 |
