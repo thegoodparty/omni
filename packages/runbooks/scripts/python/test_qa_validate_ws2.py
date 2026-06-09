@@ -10,10 +10,14 @@ Foundation
   a spec-supplied pattern, returns [] on empty.
 
 Check 1 — numeric_review_flag (detection only)
-- extract_literals normalizes money/percentage/vote_count/date/legal/name.
-- a high-weight claim that states a high-stakes figure is flagged for judge numeric
-  review; the deterministic layer never matches values or blocks on numbers (blocking
-  comes only from the judge verdict on high-weight claims).
+- detection is high-recall: any high-weight claim that contains a digit is flagged for
+  judge numeric review, INCLUDING figures the precise extractors miss ("$.05", a bare
+  table value) and numeric claims misclassified into a non-numeric type; "name" claims
+  with no figure are not flagged.
+- the flagged claim's stated figures are listed verbatim in the judge prompt (phase 1
+  AND phase 2), so the judge confirms specific values rather than re-finding numbers.
+- the deterministic layer never matches values or blocks on numbers (blocking comes
+  only from the judge verdict on high-weight claims).
 
 Check 2 — source_hierarchy_policy
 - a claim citing a disallowed source_type for its claim_type is flagged (block
@@ -129,25 +133,19 @@ def test_extract_inline_citations_empty():
 @pytest.mark.parametrize(
     "kind,text,expected",
     [
-        ("money", "approved $5,000,000 for the project", ["5000000"]),
-        ("money", "a $1.8 million grant", ["1800000"]),
-        # Fractional millions must normalize to the same key as the comma form,
-        # despite float-multiplication residue (1.1 * 1e6 != 1100000 exactly).
-        ("money", "a $1.1 million grant", ["1100000"]),
-        # Regression: uncomma'd amounts must match too. Previously the regex
-        # required comma grouping, so "$5000000" matched only "$500".
-        ("money", "a $5000000 grant", ["5000000"]),
+        # extract_literals returns the surface strings the judge matches against source
+        # text — this is what the numeric-review prompt uses to list a claim's figures.
+        ("money", "approved $5,000,000 for the project", ["$5,000,000"]),
         ("percentage", "rose by 12.5%", ["12.5%"]),
         ("vote_count", "passed 4-1 last night", ["4-1"]),
         ("date", "due by 2026-06-01 sharp", ["2026-06-01"]),
-        ("legal_citation", "per Ordinance 2024-17", ["ordinance 2024-17"]),
-        # named_person_or_role is blockable, so its extraction is high-stakes.
-        ("name", "Mayor Michael Brown will vote", ["mayor michael brown"]),
-        # Document-structural digit pairs must not be extracted as vote tallies.
+        ("legal_citation", "per Ordinance 2024-17", ["Ordinance 2024-17"]),
+        # Document-structural digit pairs must not be extracted as vote tallies, or a
+        # bogus "4-1" would be listed for the judge to verify.
         ("vote_count", "see page 4-1 for details", []),
     ],
 )
-def test_extract_literals_kinds(kind, text, expected):
+def test_extract_literals_surface_forms(kind, text, expected):
     assert qa_validate.extract_literals(text, kind) == expected
 
 
@@ -172,25 +170,40 @@ def _structured_artifact(claim_text: str, snapshot: str, claim_type="budget_numb
 
 
 @pytest.mark.parametrize(
-    "claim_type,weight,text,blockable_override,expected",
+    "claim_type,weight,text,expected",
     [
-        # high-weight claim stating a high-stakes figure → flagged for review
-        ("budget_number", "high", "approved a $5,000,000 bond", None, {"money": ["5000000"]}),
-        # high-weight claim with no high-stakes literal → not flagged
-        ("budget_number", "high", "approved the bond", None, {}),
-        # neither blockable nor high-weight → not flagged even though it has a number
-        ("budget_number", "low", "roughly $5,000,000 was noted", False, {}),
-        # high-weight via claim_weight alone (type made non-blockable) → still flagged
-        ("budget_number", "high", "approved a $5,000,000 bond", False, {"money": ["5000000"]}),
+        # high-weight claim stating a figure → flagged, with the raw value listed
+        ("budget_number", "high", "approved a $5,000,000 bond", {"money": ["$5,000,000"]}),
+        # high-weight claim with no digit → not flagged
+        ("budget_number", "high", "approved the bond", {}),
+        # not high-weight (non-blockable type, low weight) → not flagged even with a figure
+        ("background_context", "low", "roughly $5,000,000 was noted", {}),
+        # RECALL: figures the precise extractors miss must still flag AND be listed (via
+        # the broad fallback extractor) so the judge verifies the specific value. These
+        # are the cases that motivated the branch and that the old detector dropped.
+        ("budget_number", "high", "the fee is $.05 per page", {"number": ["$.05"]}),
+        ("budget_number", "high", "the table amount is 186,115.00", {"number": ["186,115.00"]}),
+        # finding 2: a numeric claim MISCLASSIFIED into a non-numeric, non-blockable type
+        # is still flagged when high-weight — detection does not trust claim_type.
+        ("background_context", "high", "approved a $5,000,000 bond", {"money": ["$5,000,000"]}),
+        # finding 3: a name claim with no figure is NOT flagged (name is excluded from
+        # the numeric flag; proper-noun review is a separate follow-up).
+        ("named_person_or_role", "high", "Mayor Michael Brown will vote", {}),
     ],
 )
-def test_flag_numeric_review(spec_no_layer1, claim_type, weight, text, blockable_override, expected):
-    spec = copy.deepcopy(spec_no_layer1)
-    if blockable_override is not None:
-        spec["claim_types"][claim_type]["blockable"] = blockable_override
-    blockable = qa_validate.blockable_types(spec)
+def test_flag_numeric_review(spec_no_layer1, claim_type, weight, text, expected):
+    blockable = qa_validate.blockable_types(spec_no_layer1)
     claim = {"claim_type": claim_type, "claim_weight": weight, "claim_text": text}
-    assert qa_validate.flag_numeric_review(claim, spec, blockable) == expected
+    assert qa_validate.flag_numeric_review(claim, blockable) == expected
+
+
+def test_numeric_instruction_generic_fallback_lists_values_without_kind(spec_no_layer1):
+    # The generic ("number") fallback still lists the figure but omits the "(detected: …)"
+    # kind label — the branch the money-classified phase1/phase2 tests never exercise.
+    instr = qa_validate._numeric_review_instruction({"number": ["$.05"]})
+    assert "NUMERIC REVIEW REQUIRED" in instr
+    assert "$.05" in instr
+    assert "(detected:" not in instr
 
 
 def _blocking_ids(res) -> set:
@@ -216,7 +229,24 @@ def test_numeric_mismatch_adds_no_deterministic_block(spec_no_layer1):
     assert chk.route == "diagnostic"
     assert chk.status == "pass"  # diagnostic must not masquerade as a fail
     assert chk.details["flagged_count"] == 1
+    # the diagnostic surfaces the actual figure an operator would read
+    assert chk.details["flagged"][0]["values"] == ["$5,000,000"]
     assert _find(mismatch, "high_stakes_structured_match") is None
+
+
+def test_numeric_review_flag_diagnostic_emitted_without_structured_validators(spec_no_layer1):
+    # The flag no longer reads structured_validators, so the bundle diagnostic must still
+    # appear when a spec omits that config — otherwise the prompt could get the numeric
+    # instruction while the audit record silently drops it.
+    spec = copy.deepcopy(spec_no_layer1)
+    spec.pop("structured_validators", None)
+    res = qa_validate.run_deterministic(
+        _structured_artifact("Approved a $5,000,000 bond.", "Agenda: approved a $5,000,000 bond."),
+        spec,
+    )
+    chk = _find(res, "numeric_review_flag")
+    assert chk is not None and chk.route == "diagnostic"
+    assert chk.details["flagged"][0]["values"] == ["$5,000,000"]
 
 
 class _StubJudge:
@@ -246,9 +276,11 @@ def test_phase1_appends_numeric_instruction_for_flagged_claim(spec_no_layer1):
     ok_cats = qa_validate.ok_categories(spec_no_layer1)
     judge = _StubJudge()
     qa_validate.phase1_triage(
-        _numeric_claim("Approved a $5,000,000 bond."), judge, ok_cats, spec_no_layer1, blockable
+        _numeric_claim("Approved a $5,000,000 bond."), judge, ok_cats, blockable
     )
     assert "NUMERIC REVIEW REQUIRED" in judge.prompts[0]
+    # the actual figure is listed so the judge confirms it rather than re-finding it
+    assert "$5,000,000" in judge.prompts[0]
 
 
 def test_phase1_omits_numeric_instruction_for_non_numeric_claim(spec_no_layer1):
@@ -256,7 +288,7 @@ def test_phase1_omits_numeric_instruction_for_non_numeric_claim(spec_no_layer1):
     ok_cats = qa_validate.ok_categories(spec_no_layer1)
     judge = _StubJudge()
     qa_validate.phase1_triage(
-        _numeric_claim("The committee approved the bond."), judge, ok_cats, spec_no_layer1, blockable
+        _numeric_claim("The committee approved the bond."), judge, ok_cats, blockable
     )
     assert "NUMERIC REVIEW REQUIRED" not in judge.prompts[0]
 
@@ -272,13 +304,71 @@ def test_flagged_claim_blocks_only_via_judge_verdict(spec_no_layer1):
     ok_cats = qa_validate.ok_categories(spec_no_layer1)
     judge = _StubJudge(category="Incorrect")  # not-OK
 
-    p1 = qa_validate.phase1_triage(claims, judge, ok_cats, spec_no_layer1, blockable)
+    p1 = qa_validate.phase1_triage(claims, judge, ok_cats, blockable)
     traces = [qa_validate.ClaimTrace(claim=claims[0])]
     traces[0].phase1 = p1[0]
     qa_validate.phase2_escalate(traces, sources, judge, blockable, ok_cats, {"sources": sources})
     # pin that the block came from phase 2 escalating, not an accidental fall-through
     assert traces[0].phase2 is not None and not traces[0].phase2.is_ok
     assert qa_validate.compute_release_verdict([], traces) == "block"
+
+
+def test_phase2_appends_numeric_instruction_for_flagged_claim(spec_no_layer1):
+    # Phase 2 is where the block decision is made, so the explicit figure list must reach
+    # the escalation judge too — not only phase 1.
+    claims = _numeric_claim("Approved a $5,000,000 bond.")
+    sources = [{"id": "s1", "source_type": "agenda_packet",
+                "retrieved_text_or_snapshot": "approved a $2,000,000 bond"}]
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    ok_cats = qa_validate.ok_categories(spec_no_layer1)
+    judge = _StubJudge(category="Incorrect")  # not-OK → escalation runs and records its prompt
+    traces = [qa_validate.ClaimTrace(claim=claims[0])]
+    traces[0].phase1 = qa_validate.Phase1Result(
+        claim_id="c1", accuracy_category="Incorrect", reasoning="stub", is_ok=False
+    )
+    qa_validate.phase2_escalate(traces, sources, judge, blockable, ok_cats, {"sources": sources})
+    assert "NUMERIC REVIEW REQUIRED" in judge.prompts[0]
+    assert "$5,000,000" in judge.prompts[0]
+
+
+# ── Fail-open guard: high-weight claims unadjudicated ─────────────────────────
+# The numeric flag steers a judge instead of blocking deterministically, so the
+# verdict now depends on the judge running. This general guard (not numeric-only)
+# blocks rather than silently passing high-weight claims when a judge was expected
+# but did not run.
+
+def _weighted_trace(claim_type: str, weight: str, phase1_is_ok):
+    """A ClaimTrace; phase1_is_ok=None means the claim was never adjudicated."""
+    claim = {"claim_id": f"{claim_type}_{weight}", "claim_type": claim_type, "claim_weight": weight}
+    t = qa_validate.ClaimTrace(claim=claim)
+    if phase1_is_ok is not None:
+        t.phase1 = qa_validate.Phase1Result(
+            claim_id=claim["claim_id"], accuracy_category="Accurate", reasoning="x", is_ok=phase1_is_ok
+        )
+    return t
+
+
+def test_unadjudicated_guard_blocks_when_judge_expected_but_absent(spec_no_layer1):
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    traces = [_weighted_trace("budget_number", "high", None)]
+    chk = qa_validate.check_high_weight_unadjudicated(traces, blockable, llm_expected=True)
+    assert chk is not None and chk.route == "block" and chk.status == "fail"
+    assert chk.details["unadjudicated_count"] == 1
+
+
+def test_unadjudicated_guard_silent_when_llm_not_expected(spec_no_layer1):
+    # --no-llm or no judge configured → unreviewed is intentional, do not block.
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    traces = [_weighted_trace("budget_number", "high", None)]
+    assert qa_validate.check_high_weight_unadjudicated(traces, blockable, llm_expected=False) is None
+
+
+def test_unadjudicated_guard_silent_when_high_weight_claims_reviewed(spec_no_layer1):
+    # High-weight claim adjudicated; a low-weight unadjudicated claim is not the guard's concern.
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    traces = [_weighted_trace("budget_number", "high", True),
+              _weighted_trace("background_context", "low", None)]
+    assert qa_validate.check_high_weight_unadjudicated(traces, blockable, llm_expected=True) is None
 
 
 # ── Check 2: source-hierarchy policy ──────────────────────────────────────────
