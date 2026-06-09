@@ -23,9 +23,10 @@ npm run test:e2e         # playwright test (needs Clerk test-user env vars — s
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-admin.yml`) before opening a PR. CI builds the SDK first because gp-admin consumes it. From the repo root:
+Reproduce the CI **Validate** job (`.github/workflows/gp-admin.yml`) before opening a PR. CI builds the in-tree contracts and SDK first because gp-admin consumes the SDK and the SDK consumes contracts. From the repo root:
 
 ```bash
+npm run build -w packages/contracts        # build contracts the SDK imports
 npm run build -w packages/gp-sdk           # build the in-tree SDK gp-admin imports
 npm run lint -w packages/gp-admin          # eslint .
 npm run test:coverage -w packages/gp-admin # vitest run --coverage
