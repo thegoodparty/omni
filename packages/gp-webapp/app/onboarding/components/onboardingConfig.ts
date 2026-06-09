@@ -101,8 +101,9 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   },
   {
     id: 'pledge',
-    title: 'Almost there...',
-    description: 'Take our pledge to get your campaign plan.',
+    title: 'Take our pledge to get your campaign plan',
+    description:
+      'We only work with candidates who are independent of both major parties, and the corrupting influence of big money.',
   },
 ]
 

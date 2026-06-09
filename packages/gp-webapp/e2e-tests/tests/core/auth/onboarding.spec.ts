@@ -145,7 +145,7 @@ async function completeOutreachPlanStep(page: Page): Promise<void> {
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Step: Pledge')
   await expect(
-    page.getByRole('heading', { level: 1, name: /almost there/i }),
+    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })
