@@ -3,12 +3,42 @@ import React from 'react'
 import '../app/globals.css'
 
 const preview: Preview = {
+  globalTypes: {
+    colorScheme: {
+      description: 'Color scheme',
+      toolbar: {
+        title: 'Color scheme',
+        items: [
+          { value: 'light', title: 'Light', icon: 'sun' },
+          { value: 'dark', title: 'Dark', icon: 'moon' },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
+  globals: {
+    colorScheme: 'light',
+  },
   decorators: [
-    // Wrap all stories in a data-slot container so styleguide-scope.css
-    // overrides apply (including --color-* Tailwind tokens)
-    (Story) => React.createElement('div', { 'data-slot': 'storybook' }, React.createElement(Story)),
+    (Story, context) => {
+      const isDark = context.globals['colorScheme'] === 'dark'
+      return React.createElement(
+        'div',
+        {
+          'data-slot': 'storybook',
+          className: isDark ? 'dark' : undefined,
+          style: {
+            padding: '1.5rem',
+            backgroundColor: 'var(--color-background)',
+          },
+        },
+        React.createElement(Story),
+      )
+    },
   ],
   parameters: {
+    backgrounds: { disable: true },
+    layout: 'fullscreen',
     options: {
       storySort: {
         order: [

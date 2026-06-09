@@ -19,6 +19,15 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
+if (typeof window !== 'undefined' && !window.ResizeObserver) {
+  const noop = (): void => undefined
+  window.ResizeObserver = class ResizeObserver {
+    observe = noop
+    unobserve = noop
+    disconnect = noop
+  }
+}
+
 if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   const noop = (): void => undefined
   Element.prototype.setPointerCapture = noop
