@@ -34,7 +34,7 @@ export function WebsiteSunsetModalController({
       })
       // Refetch the enriched user (GET /users/me) rather than caching this
       // endpoint's bare Prisma row, which lacks Clerk fields and relations.
-      if (response.data?.id) {
+      if (response.ok) {
         setUser()
       }
     } catch (error) {
