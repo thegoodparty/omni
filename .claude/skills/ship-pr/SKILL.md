@@ -69,8 +69,14 @@ Loop:
      payload; **deleting** code or behavior; or anything **outside the diff's
      scope**.
 
-4. **Apply, push, re-trigger.** Commit the valid fixes (respect repo style; no AI
-   footers), push, comment `delegate review`, loop back to step 1.
+4. **Apply, then loop or stop.** Commit any verified-valid fixes (respect repo
+   style; no AI footers) and push — always do this so agreed fixes aren't lost.
+   Then decide by what's left:
+   - **Nothing escalated this round** → comment `delegate review` and loop back to
+     step 1.
+   - **Anything escalated this round** → do _not_ re-trigger or loop. Stop and hand
+     back the escalated findings (alongside the fixes you just pushed) for the
+     user's call. Escalation always wins over looping.
 
 5. **Round cap.** Stop after **3 rounds** even if not approved. Hand back a summary:
    resolved, still-outstanding, and escalated findings.
