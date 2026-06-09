@@ -61,7 +61,6 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: ci
     if: >-
       github.event_name == 'pull_request'
       || (github.event_name == 'push'
@@ -113,3 +112,55 @@ jobs:
           git-branch: ${{ steps.ctx.outputs.branch }}
           alias-domain: ${{ steps.ctx.outputs.alias }}
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
+
+  # Imperatively run the Playwright suite against the PR preview right after it
+  # deploys. Depends on deploy (not on Validate) so e2e starts as soon as the
+  # preview URL exists. One polls test exercises the analyze pipeline and needs
+  # AWS (OIDC) + Slack; the rest only need Clerk test keys.
+  e2e:
+    name: E2E
+    needs: deploy
+    if: github.event_name == 'pull_request' && needs.deploy.outputs.url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BASE_URL: ${{ needs.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+
+      - name: Install Playwright browsers
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: npx playwright test tests/ --reporter=list
+        env:
+          TEST_RUN_NAME: "E2E Tests - PR Preview"
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORKSPACE }}/e2e-tests/playwright-report
+            ${{ env.WORKSPACE }}/e2e-tests/test-results
+          retention-days: 30
