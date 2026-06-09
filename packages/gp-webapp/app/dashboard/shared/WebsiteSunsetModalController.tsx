@@ -27,13 +27,26 @@ export function WebsiteSunsetModalController({
     }
   }, [isUserLoading, eligible, dismissed])
 
+  const dismiss = (): void => {
+    // Optimistically flip the flag on the cached (enriched) user so a failed
+    // PUT can't reopen the modal on client navigation. Spreading the existing
+    // user preserves Clerk fields/relations; the PUT below makes it durable.
+    if (user) {
+      setUser({
+        ...user,
+        metaData: { ...user.metaData, websiteSunsetModalDismissed: true },
+      })
+    }
+    void persistDismissal()
+  }
+
   const persistDismissal = async (): Promise<void> => {
     try {
       const response = await clientFetch<User>(apiRoutes.user.updateMeta, {
         meta: { websiteSunsetModalDismissed: true },
       })
-      // Refetch the enriched user (GET /users/me) rather than caching this
-      // endpoint's bare Prisma row, which lacks Clerk fields and relations.
+      // On success refetch GET /users/me so the cache holds the server's
+      // enriched record rather than the optimistic patch.
       if (response.ok) {
         setUser()
       }
@@ -45,7 +58,7 @@ export function WebsiteSunsetModalController({
   const handleOpenChange = (next: boolean): void => {
     setOpen(next)
     if (!next && !dismissed) {
-      void persistDismissal()
+      dismiss()
     }
   }
 

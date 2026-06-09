@@ -82,8 +82,40 @@ describe('WebsiteSunsetModalController', () => {
         meta: { websiteSunsetModalDismissed: true },
       })
     })
-    // Called with no argument so UserProvider refetches the enriched user
-    // instead of caching this endpoint's bare row.
-    expect(mockSetUser).toHaveBeenCalledWith()
+    // Optimistically flips the flag on the enriched cached user...
+    expect(mockSetUser).toHaveBeenCalledWith({
+      id: 1,
+      metaData: { websiteSunsetModalDismissed: true },
+    })
+    // ...then refetches GET /users/me (no argument) once the PUT succeeds.
+    await waitFor(() => {
+      expect(mockSetUser).toHaveBeenCalledWith()
+    })
+  })
+
+  it('keeps the dismissal in cache when the persist call fails', async () => {
+    mockClientFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      data: null,
+    })
+
+    render(<WebsiteSunsetModalController eligible />)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Transfer website' }),
+    )
+
+    await waitFor(() => {
+      expect(mockClientFetch).toHaveBeenCalled()
+    })
+    // Optimistic update still flips the flag, so a failed PUT can't reopen it.
+    expect(mockSetUser).toHaveBeenCalledWith({
+      id: 1,
+      metaData: { websiteSunsetModalDismissed: true },
+    })
+    // No enriched refetch on failure.
+    expect(mockSetUser).not.toHaveBeenCalledWith()
   })
 })
