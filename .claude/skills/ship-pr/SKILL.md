@@ -66,13 +66,19 @@ Re-reviews are prefixed `_X resolved since last review, Y new._`.
 
 Loop:
 
-1. **Get the next review.** On a freshly opened PR, delegate auto-reviews — just
-   poll, no trigger comment. After pushing fixes, post an issue comment
-   `delegate review` to re-trigger, then poll.
-   Poll `gh api repos/thegoodparty/omni/pulls/<n>/reviews` every ~30–60s for a
-   `delegate-reviewer[bot]` review whose `submitted_at` is newer than your last
-   trigger (or PR open). Budget **~10 min per review**; if nothing lands, stop and
-   report.
+1. **Get the review for the current HEAD.** Anchor on the commit, not a timestamp,
+   so this is correct even on a fresh resume against an existing PR. Fetch the
+   latest `delegate-reviewer[bot]` review (`gh api
+repos/thegoodparty/omni/pulls/<n>/reviews`) and compare its `commit_id` to the
+   PR's HEAD SHA:
+   - **A review already exists at HEAD** (its `commit_id` == HEAD) → use it; go to
+     step 2. Do **not** re-trigger (that wastes a capped round and corrupts
+     delegate's resolved-count).
+   - **HEAD has no review yet** → get one: a just-opened PR auto-reviews (just
+     wait); if you just pushed fixes to an existing PR, post an issue comment
+     `delegate review` to trigger.
+   - Then poll every ~30–60s for a review whose `commit_id` == HEAD. Budget
+     **~10 min**; if none lands, stop and report.
 
 2. **Verdict.**
    - `APPROVED` (`Approved.`) → **done**. Report and exit.
