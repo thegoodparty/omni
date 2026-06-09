@@ -1,4 +1,5 @@
 import React from 'react'
+import { cn } from '@styleguide/lib/utils'
 
 interface FocusedExperienceWrapperProps {
   className?: string
@@ -15,7 +16,10 @@ export const FocusedExperienceWrapper = ({
     <div className="min-h-[calc(100vh-60px)] py-20 w-full">
       <div className="max-w-screen-sm mx-auto">
         <div
-          className={`p-6 md:p-16 rounded-2xl border border-indigo-200 bg-white ${className}`}
+          className={cn(
+            'p-6 md:p-16 rounded-2xl border border-indigo-200 bg-white',
+            className,
+          )}
           {...restProps}
         >
           {children}
