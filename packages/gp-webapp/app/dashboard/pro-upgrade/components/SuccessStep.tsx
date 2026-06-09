@@ -3,7 +3,6 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, ProBadge } from '@styleguide'
-import H1 from '@shared/typography/H1'
 import Body2 from '@shared/typography/Body2'
 import Confetti from 'app/dashboard/questions/components/Confetti'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -38,8 +37,10 @@ const SuccessStep = (): React.JSX.Element => {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <H1>Welcome to Pro!</H1>
-          <Body2 className="text-secondary">
+          <h1 className="text-[32px] leading-[44px] font-semibold">
+            Welcome to Pro!
+          </h1>
+          <Body2 className="text-base-muted-foreground">
             You can now access voter data, build lists and schedule robocalls!
             Your PIN will be sent to your email, phone or address within 7
             business days.
