@@ -91,7 +91,7 @@
     "rescue_threshold": 0.70
   },
 
-  "_structured_validators_comment": "WS2 P0. Per-claim-type opt-in deterministic extraction + exact match for high-stakes literals. For each declared claim_type, the spine extracts every token of the named kind from claim_text and requires each to appear, normalized, in the retrieved_text_or_snapshot of at least one cited source. kind is one of: money, date, name, vote_count, legal_citation, percentage. rounding_tolerance (money/percentage only) permits a numeric delta; absent or 0 means exact. These are extraction rules, not calibrated thresholds — the only numeric (rounding_tolerance) is 0 (exact) here because no rounding behavior was prompt-derivable; any non-zero tolerance must come from a committed fixture, never invented. Violations on high-weight/blockable claim types block; others annotate.",
+  "_structured_validators_comment": "WS2 P0, superseded by the numeric-review pivot. Per-claim-type kind metadata for high-stakes literals. RETAINED for operator reference and possible future exact-match use; qa_validate.py no longer reads this block to drive detection. numeric_review_flag is detection-only and is emitted for every high-weight claim regardless of this config (see the numeric_review_flag deterministic_check), and a wrong figure now blocks only via the judge verdict, never deterministically. kind is one of: money, date, name, vote_count, legal_citation, percentage. rounding_tolerance (money/percentage only) is reserved for future exact-match logic; currently unused.",
   "structured_validators": {
     "budget_number":    { "kind": "money",          "rounding_tolerance": 0 },
     "date_or_deadline": { "kind": "date" },
@@ -168,10 +168,10 @@
       "severity": "high"
     },
     {
-      "check_id": "high_stakes_structured_match",
-      "description": "WS2 P0. Per-claim-type (structured_validators) deterministic extraction + exact match for high-stakes literals (money, dates, names, vote counts, legal citations, percentages). Every literal of the declared kind in claim_text must appear, normalized, in a cited source snapshot. High-weight/blockable claim-type failures block; others annotate.",
-      "route_if_fail": "block",
-      "severity": "high"
+      "check_id": "numeric_review_flag",
+      "description": "Detection only. Flags every high-weight claim (blockable claim_type, or claim_weight high) that states a high-stakes literal of its declared structured_validators kind (money, date, name, vote_count, legal_citation, percentage) so the triage judge is required to verify the figure against the cited extracts. Never matches values and never blocks or annotates (route diagnostic); blocking on numbers comes only from the judge verdict on high-weight claims. (Routing is driven by code, not by reading this field; this value is descriptive.)",
+      "route_if_fail": "diagnostic",
+      "severity": "info"
     },
     {
       "check_id": "source_hierarchy_policy",

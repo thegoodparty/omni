@@ -428,15 +428,12 @@ def extract_inline_citations(text: str, pattern: Optional[str] = None) -> list[d
     return out
 
 
-# ── High-stakes literal extractors (WS2 structured validators) ────────────────
+# ── High-stakes literal extractors ────────────────────────────────────────────
 #
-# Each extractor pulls every literal of one kind out of a piece of text and
-# returns them as NORMALIZED comparison keys. The spine's structured-validator
-# check requires every literal extracted from a claim_text to be present (by
-# normalized key) in at least one cited source snapshot. These are extraction
-# rules, not calibrated thresholds — the only numeric knob (money/percentage
-# rounding tolerance) defaults to exact and any non-zero value must come from a
-# committed fixture, never invented here.
+# Each extractor pulls every literal of one kind out of a piece of text. They
+# LABEL the figures in a flagged claim for the numeric-review prompt (see
+# flag_numeric_review / extract_literals); they no longer gate anything, so they
+# return raw surface strings and need no normalization or rounding tolerance.
 
 _MONEY_RE = re.compile(
     r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:million|billion|thousand|m|bn|k)?",
@@ -476,84 +473,116 @@ _DATE_RE = re.compile(
 _NAME_RE = re.compile(r"\b(?:[A-Z][a-z]+(?:\.|)\s?){2,}")
 
 
-def _norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip().lower()
-
-
-def _norm_money(tok: str) -> str:
-    """Normalize a money literal to a canonical numeric magnitude string.
-
-    '$1,800,000' and '$1.8 million' both normalize to '1800000'. This lets the
-    exact-match compare across surface forms while still catching a $1.8M vs $2M
-    swap (different magnitudes → different keys).
-    """
-    t = tok.lower().replace("$", "").replace(",", "").strip()
-    mult = 1
-    for word, m in (("billion", 1_000_000_000), ("bn", 1_000_000_000),
-                    ("million", 1_000_000), ("m", 1_000_000),
-                    ("thousand", 1_000), ("k", 1_000)):
-        if t.endswith(word):
-            mult = m
-            t = t[: -len(word)].strip()
-            break
-    try:
-        val = float(t) * mult
-    except ValueError:
-        return _norm_text(tok)
-    # Round to cents before the integer check: float multiplication of fractional
-    # millions (e.g. 1.1 * 1_000_000 → 1100000.0000000002) can leave a tiny residue
-    # that makes val != int(val), so "$1.1M" would mismatch "$1,100,000".
-    val = round(val, 2)
-    # Integer-valued magnitudes render without a trailing .0
-    return str(int(val)) if val == int(val) else str(val)
-
-
-def _norm_percent(tok: str) -> str:
-    t = re.sub(r"(?i)\s*(?:%|percent)\s*$", "", tok).strip()
-    try:
-        val = float(t)
-    except ValueError:
-        return _norm_text(tok)
-    return f"{val:g}%"
-
-
-def _norm_vote(tok: str) -> str:
-    nums = re.findall(r"\d+", tok)
-    return "-".join(nums)
-
-
-# kind → (compiled regex, normalizer). Used by the structured-validator check
-# and by tests. Adding a kind is purely additive here.
-STRUCTURED_EXTRACTORS: dict[str, tuple] = {
-    "money": (_MONEY_RE, _norm_money),
-    "percentage": (_PERCENT_RE, _norm_percent),
-    "vote_count": (_VOTE_RE, _norm_vote),
-    "legal_citation": (_LEGAL_RE, _norm_text),
-    "date": (_DATE_RE, _norm_text),
-    "name": (_NAME_RE, _norm_text),
+# kind → compiled regex. The numeric-review labeler (extract_literals) reads this;
+# `name` is retained as the anchor for the planned proper-noun review follow-up.
+# Adding a kind is purely additive here.
+STRUCTURED_EXTRACTORS: dict[str, re.Pattern] = {
+    "money": _MONEY_RE,
+    "percentage": _PERCENT_RE,
+    "vote_count": _VOTE_RE,
+    "legal_citation": _LEGAL_RE,
+    "date": _DATE_RE,
+    "name": _NAME_RE,
 }
 
 
 def extract_literals(text: str, kind: str) -> list[str]:
-    """Extract every literal of `kind` from text, returned as normalized keys.
+    """Extract every literal of `kind` from `text` as raw surface strings.
 
-    Unknown kind → empty list (the caller treats an unconfigured kind as
-    "nothing to check", not an error).
+    Returns the original matched text (e.g. "$5,000,000"), which is what the
+    numeric-review prompt hands the judge to verify against the source. Unknown
+    kind → empty list (the caller treats an unconfigured kind as "nothing to
+    check", not an error).
     """
-    spec = STRUCTURED_EXTRACTORS.get(kind)
-    if not spec or not text:
+    rx = STRUCTURED_EXTRACTORS.get(kind)
+    if not rx or not text:
         return []
-    rx, norm = spec
     seen: list[str] = []
     for m in rx.finditer(text):
         # Reject document-structural references ("page 4-1", "Table 2-1") that
-        # would otherwise satisfy a vote_count claim with a non-vote digit pair.
+        # would otherwise be surfaced as a vote tally.
         if kind == "vote_count" and _VOTE_STRUCT_PREFIX_RE.search(text[: m.start()]):
             continue
-        key = norm(m.group(0))
-        if key and key not in seen:
-            seen.append(key)
+        tok = m.group(0).strip()
+        if tok and tok not in seen:
+            seen.append(tok)
     return seen
+
+
+# Detection fires on generic numeric presence: any digit-bearing token in a
+# high-weight claim. Recall is what matters now that the flag steers a judge
+# instead of gating release — a missed flag is a number the judge was never told
+# to verify, while a false flag only adds a (harmless) instruction. So detection
+# must NOT depend on the precise kind extractors (which have known gaps: "$.05",
+# a bare table value "186,115.00") or on a correct claim_type.
+_DIGIT_RE = re.compile(r"\d")
+
+# Kinds the numeric-review prompt covers. "name" is deliberately excluded — names
+# are not numeric and the instruction text is numeric-only. Proper-noun review is
+# tracked as a separate follow-up (a sibling literal-review flag), not folded here.
+_NUMERIC_KINDS = ("money", "percentage", "vote_count", "legal_citation", "date")
+
+# Sentinel kind for a flagged claim whose figures none of the precise extractors
+# could classify (e.g. "$.05", "186,115.00"). The claim is still flagged AND its
+# raw numeric tokens are listed (via _bare_numbers) so the judge confirms specific
+# values rather than re-finding them.
+_GENERIC_NUMERIC_KIND = "number"
+
+# Deliberately broad: grabs any digit-bearing token (optional leading $ or decimal,
+# embedded commas, trailing %), so figures the precise kind extractors miss are still
+# surfaced verbatim. Used only as the fallback labeler — false positives (a year, an
+# item number) are acceptable because this only steers the judge prompt.
+_BARE_NUMBER_RE = re.compile(r"\$?\.?\d[\d,]*(?:\.\d+)?%?")
+
+
+def _bare_numbers(text: str) -> list[str]:
+    """Raw digit-bearing tokens, de-duplicated in order of appearance."""
+    seen: list[str] = []
+    for m in _BARE_NUMBER_RE.finditer(text):
+        tok = m.group(0).strip()
+        if tok and tok not in seen:
+            seen.append(tok)
+    return seen
+
+
+def flag_numeric_review(claim: dict, blockable: set[str]) -> dict[str, list[str]]:
+    """Detect whether a claim needs numeric review by the judge, and label its figures.
+
+    Detection only — no matching against the source. A claim is flagged when it is
+    high-weight (its claim_type is blockable, or claim_weight is "high") AND its text
+    contains any digit. Detection is intentionally high-recall and does not trust the
+    claim_type: a numeric claim misclassified into a non-numeric type is still flagged.
+
+    Labeling is best-effort and never gates the flag: the precise kind extractors run
+    only to enrich the prompt with the actual stated figures (raw surface forms). When
+    no extractor classifies the figures, the claim is still flagged under the generic
+    "number" kind with an empty value list.
+
+    Returns {kind: [raw literals]} for a flagged claim, or {} otherwise. The result
+    steers the judge prompt only; it is never written to the artifact.
+    """
+    ctype = claim.get("claim_type", "")
+    high_weight = ctype in blockable or claim.get("claim_weight") == "high"
+    if not high_weight:
+        return {}
+    text = claim.get("claim_text", "")
+    if not _DIGIT_RE.search(text):
+        return {}
+    labels: dict[str, list[str]] = {}
+    for kind in _NUMERIC_KINDS:
+        raw = extract_literals(text, kind)
+        if raw:
+            labels[kind] = raw
+    # Always add the broad-extractor figures the precise kinds missed, so a claim that
+    # mixes formats (e.g. "$5,000,000" AND "$.05") never drops the gap figure from the
+    # judge's list. Exact-set membership, NOT substring: a bare "1,000" must not be
+    # swallowed by a labeled "$1,000,000". Recall over precision — a sub-token of a
+    # multi-part value (e.g. "4"/"1" from a "4-1" vote) may be listed too; harmless.
+    labeled = {v for vs in labels.values() for v in vs}
+    gaps = [n for n in _bare_numbers(text) if n not in labeled]
+    if gaps:
+        labels[_GENERIC_NUMERIC_KIND] = gaps
+    return labels or {_GENERIC_NUMERIC_KIND: []}
 
 
 def _format_safe(template: str, data: dict) -> str:
@@ -1176,94 +1205,35 @@ def run_deterministic(
             details=substring_details,
         ))
 
-    # 7b. high_stakes_structured_match (WS2 P0) — per-claim-type opt-in
-    #     extraction + exact match for high-stakes literals. For each claim whose
-    #     claim_type is declared in spec.structured_validators, extract every
-    #     literal of the declared kind from claim_text and require each to appear
-    #     (normalized) in a cited source snapshot. High-weight/blockable failures
-    #     block; others annotate.
-    structured_cfg = spec.get("structured_validators") or {}
-    if structured_cfg:
-        sv_high_fail: list[str] = []
-        sv_other_fail: list[str] = []
-        sv_trace: list[dict] = []
-        for claim in claims:
-            ctype = claim.get("claim_type", "")
-            rule = structured_cfg.get(ctype)
-            if not rule:
-                continue
-            kind = rule.get("kind", "")
-            literals = extract_literals(claim.get("claim_text", ""), kind)
-            if not literals:
-                continue
-            cited_haystack_text = " ".join(
-                _norm_text(source_map.get(sid, {}).get("retrieved_text_or_snapshot") or "")
-                for sid in (claim.get("source_ids") or [])
-            )
-            # Compare normalized keys: money/percent compare canonical magnitude,
-            # the rest compare normalized substring presence in the haystack.
-            missing: list[str] = []
-            # Source name tokens (lowercased words), used for the name kind so a
-            # reordered or comma-separated rendering ("Michael Brown, Mayor" vs
-            # "Mayor Michael Brown") is not a false fail — see the name branch.
-            haystack_words = (
-                set(re.findall(r"[a-z0-9]+", cited_haystack_text)) if kind == "name" else set()
-            )
-            for lit in literals:
-                if kind in ("money", "percentage", "vote_count"):
-                    present = lit in extract_literals(cited_haystack_text, kind)
-                elif kind == "name":
-                    # A contiguous-substring test yields false fails when the
-                    # source reorders the name or separates title from name.
-                    # Require instead that every token of the claim's name run
-                    # appears as a word somewhere in the cited source.
-                    present = all(tok in haystack_words for tok in re.findall(r"[a-z0-9]+", lit))
-                else:
-                    present = lit in cited_haystack_text
-                if not present:
-                    missing.append(lit)
-            cid = claim.get("claim_id", "<no-id>")
-            sv_trace.append({
-                "claim_id": cid, "claim_type": ctype, "kind": kind,
-                "literals": literals, "missing": missing,
+    # 7b. numeric_review_flag — detection only. Flag every high-weight claim that
+    #     states a figure so the triage judge is REQUIRED to verify it against the cited
+    #     extracts. This deterministic step never matches values and never blocks or
+    #     annotates: a regex cannot tell a rate basis from a budget figure or read a
+    #     "(in $1,000s)" table header. Blocking on numbers comes only from the judge
+    #     verdict on high-weight claims (see phase1/phase2 and compute_release_verdict).
+    #     Emitted unconditionally: detection no longer depends on structured_validators,
+    #     so gating this diagnostic on that config would let the bundle omit the record
+    #     even when phase 1/2 prompts received the numeric instruction.
+    flagged: list[dict] = []
+    for claim in claims:
+        kinds = flag_numeric_review(claim, blockable)
+        if kinds:
+            flagged.append({
+                "claim_id": claim.get("claim_id", "<no-id>"),
+                "kinds": sorted(kinds.keys()),
+                "values": sorted({v for vs in kinds.values() for v in vs}),
             })
-            if missing:
-                entry = f"{cid}({kind}): missing {missing[:3]}"
-                if _is_high_weight(claim):
-                    sv_high_fail.append(entry)
-                else:
-                    sv_other_fail.append(entry)
-        sv_details = {
-            "claim_types_checked": list(structured_cfg.keys()),
-            "claims_with_literals": len(sv_trace),
-            "per_claim": sv_trace,
-        }
-        if sv_high_fail:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="fail", severity="high",
-                message=f"{len(sv_high_fail)} high-weight claim(s) with high-stakes literals not found in cited source",
-                route="block",
-                offending="; ".join(sv_high_fail[:5]),
-                details=sv_details,
-            ))
-        elif sv_other_fail:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="warning", severity="medium",
-                message=f"{len(sv_other_fail)} non-high-weight claim(s) with high-stakes literals not found in cited source",
-                route="annotate",
-                offending="; ".join(sv_other_fail[:5]),
-                details=sv_details,
-            ))
-        else:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="pass", severity="info",
-                message=f"All extracted high-stakes literals found in cited sources ({len(sv_trace)} claim(s) checked)",
-                route="pass",
-                details=sv_details,
-            ))
+    results.append(DeterministicCheck(
+        check_id="numeric_review_flag",
+        status="pass", severity="info",
+        message=f"{len(flagged)} high-weight claim(s) flagged for judge numeric review",
+        route="diagnostic",
+        offending="; ".join(f"{f['claim_id']}({','.join(f['kinds'])})" for f in flagged[:5]),
+        details={
+            "flagged_count": len(flagged),
+            "flagged": flagged,
+        },
+    ))
 
     # 7c. source_hierarchy_policy (WS2 P0) — spec-declared claim_type → allowed
     #     source_types. A claim citing a source whose source_type is not allowed
@@ -2118,6 +2088,32 @@ When you classify as anything other than Accurate, Directionally Consistent, Ext
 If your verdict is Accurate, Directionally Consistent, Extrapolating, or Modeled, leave `proposed_correction` as null."""
 
 
+_NUMERIC_REVIEW_INSTRUCTION = (
+    "NUMERIC REVIEW REQUIRED. This high-weight claim states one or more figures{detail}. "
+    "{values}"
+    "Verify each stated amount, vote tally, citation number, percentage, and date against "
+    "the source extract(s) above. If any stated figure is not supported by the "
+    "extract(s), mark the claim not-OK using the appropriate not-in-source or incorrect "
+    "category. Account for equivalent renderings (\"$1.8M\" = \"$1,800,000\", "
+    "\"Ordinance No. 12\" = \"Ordinance 12\") and unit headers (a value under "
+    "\"in $1,000s\" is stated in thousands)."
+)
+
+
+def _numeric_review_instruction(flagged: dict) -> str:
+    """Render the numeric-review instruction for a flagged claim.
+
+    `flagged` is the {kind: [raw values]} map from flag_numeric_review(). The figures
+    are listed verbatim so the judge confirms specific values rather than re-finding
+    every number itself; the kind list is omitted for the generic ("number") fallback.
+    """
+    kinds = sorted(k for k in flagged if k != _GENERIC_NUMERIC_KIND)
+    values = sorted({v for vs in flagged.values() for v in vs})
+    detail = f" (detected: {', '.join(kinds)})" if kinds else ""
+    values_line = f"Confirm each of these stated figures: {'; '.join(values)}. " if values else ""
+    return _NUMERIC_REVIEW_INSTRUCTION.format(detail=detail, values=values_line)
+
+
 def _format_phase1_user_prompt(claim: dict) -> str:
     """Build Phase 1 context: ALL source_extracts as a labeled list.
 
@@ -2455,12 +2451,20 @@ def make_judge(name: str, judges_config: list[dict]) -> Optional[Judge]:
 
 # ── Phase 1 — triage (Anthropic, all claims) ─────────────────────────────────
 
-def phase1_triage(claims: list[dict], judge: Judge, ok_cats: set[str]) -> list[Phase1Result]:
+def phase1_triage(
+    claims: list[dict],
+    judge: Judge,
+    ok_cats: set[str],
+    blockable: set[str],
+) -> list[Phase1Result]:
     results: list[Phase1Result] = []
     for i, claim in enumerate(claims):
         cid = claim.get("claim_id", f"claim_{i}")
         try:
             user_context = _format_phase1_user_prompt(claim)
+            numeric_flag = flag_numeric_review(claim, blockable)
+            if numeric_flag:
+                user_context += "\n\n" + _numeric_review_instruction(numeric_flag)
             out = judge.adjudicate(claim, system_prompt=_TRIAGE_SYSTEM, source_passage=user_context)
             results.append(Phase1Result(
                 claim_id=cid,
@@ -2504,6 +2508,11 @@ def phase2_escalate(
             continue
 
         user_context = _format_phase2_user_prompt(claim, sources, artifact)
+        # Phase 2 makes the block decision, so the explicit figure list belongs here
+        # too — not just in phase 1. Same detection and instruction as phase 1.
+        numeric_flag = flag_numeric_review(claim, blockable)
+        if numeric_flag:
+            user_context += "\n\n" + _numeric_review_instruction(numeric_flag)
 
         try:
             out = judge.adjudicate(
@@ -2527,6 +2536,57 @@ def phase2_escalate(
                 is_ok=False,
                 proposed_correction=None,
             )
+
+
+# ── Fail-open guard ───────────────────────────────────────────────────────────
+
+def check_high_weight_unadjudicated(
+    traces: list[ClaimTrace], blockable: set[str], *, llm_expected: bool, p2_expected: bool = False
+) -> Optional[DeterministicCheck]:
+    """Guard against silent fail-open when judge review was expected but did not run.
+
+    A high-weight/blockable claim that the verdict depends on can slip through unreviewed
+    at two points:
+      - Phase 1 never ran (`llm_expected` but `phase1 is None`) — falls through to 'ok'.
+      - Phase 1 flagged it not-OK and Phase 2 never ran (`p2_expected` but `phase2 is
+        None`) — the block decision lives in Phase 2, so it silently downgrades to 'warn'.
+    Both happen on judge unavailability (missing API key, provider outage). This is a
+    general guard, not numeric-specific: every blockable type (budget, vote, legal, date,
+    name, …) shares the hole the numeric flag merely exposed.
+
+    Silent when review was not expected (--no-llm or no judge configured). Returns a
+    blocking check when such claims exist, else None. Its route='block' flips
+    release_verdict to 'block' unconditionally (like any block check); the non-zero exit
+    is gated by --enforce-verdict, matching the spine's report-don't-enforce mode.
+    """
+    if not llm_expected:
+        return None
+
+    def _is_high_weight(t: ClaimTrace) -> bool:
+        c = t.claim
+        return c.get("claim_type") in blockable or c.get("claim_weight") == "high"
+
+    unadjudicated: list[str] = []
+    for t in traces:
+        if not _is_high_weight(t):
+            continue
+        # Phase 1 never produced a verdict for this claim.
+        if t.phase1 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
+        # Phase 1 said not-OK and Phase 2 (where the block decision is made) didn't run.
+        elif p2_expected and not t.phase1.is_ok and t.phase2 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
+    if not unadjudicated:
+        return None
+    return DeterministicCheck(
+        check_id="high_weight_claims_unadjudicated",
+        status="fail", severity="high",
+        message=f"{len(unadjudicated)} high-weight claim(s) had no LLM review "
+                f"(a judge was expected but did not run); release cannot be verified",
+        route="block",
+        offending="; ".join(unadjudicated[:5]),
+        details={"unadjudicated_count": len(unadjudicated), "claim_ids": unadjudicated},
+    )
 
 
 # ── Routing ───────────────────────────────────────────────────────────────────
@@ -2774,10 +2834,13 @@ def main() -> None:
             judges_used["phase1"] = {
                 "name": p1_judge.name, "provider": p1_judge.provider, "model": p1_judge.model,
             }
-            p1_results = phase1_triage(claims, p1_judge, ok_cats)
-            p1_map = {r.claim_id: r for r in p1_results}
-            for trace in traces:
-                trace.phase1 = p1_map.get(trace.claim.get("claim_id", ""))
+            p1_results = phase1_triage(claims, p1_judge, ok_cats, blockable)
+            # Attach positionally: phase1_triage returns exactly one result per claim in
+            # order, so this is robust to a missing or duplicate claim_id. A claim_id-keyed
+            # map would mis-attach (claim_id absent → phase1 falls to None), which the
+            # unadjudicated guard would then read as "never reviewed" and false-block.
+            for trace, result in zip(traces, p1_results):
+                trace.phase1 = result
             not_ok = sum(1 for r in p1_results if not r.is_ok)
             print(f"  Phase 1 done: {not_ok}/{len(p1_results)} claims not-OK")
     else:
@@ -2826,6 +2889,16 @@ def main() -> None:
             trace.final_route = "ok"
 
     # 5. Route + release_verdict
+    # Fail-open guard: if a judge was expected (not --no-llm, judge configured) but a
+    # high-weight claim went unadjudicated — Phase 1 never ran, or Phase 1 flagged it
+    # not-OK and Phase 2 never ran — block rather than silently pass it.
+    llm_expected = (not args.no_llm) and bool(p1_name)
+    p2_expected = (not args.no_llm) and bool(p2_name)
+    unadjudicated_guard = check_high_weight_unadjudicated(
+        traces, blockable, llm_expected=llm_expected, p2_expected=p2_expected
+    )
+    if unadjudicated_guard is not None:
+        det_checks.append(unadjudicated_guard)
     status, reason = route(det_checks, traces, blockable)
     release_verdict = compute_release_verdict(det_checks, traces)
 
