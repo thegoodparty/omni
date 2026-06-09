@@ -8,6 +8,8 @@ const withPWA = require('next-pwa')({
 }) as (config: NextConfig) => NextConfig
 
 const nextConfig: NextConfig = {
+  // ESLint already runs in the Validate CI job; don't re-run it during builds.
+  eslint: { ignoreDuringBuilds: true },
   outputFileTracingRoot: path.join(__dirname, '../..'),
   reactStrictMode: true,
   images: {
