@@ -35,9 +35,13 @@ import { useStrategicLandscape } from '../hooks/useStrategicLandscape'
 
 interface SuccessPageProps {
   initialUser: User | null
+  showConfetti?: boolean
 }
 
-const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
+const SuccessPage = ({
+  initialUser,
+  showConfetti = true,
+}: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [clientUser] = useUser()
@@ -403,9 +407,11 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
 
   return (
     <div className="relative min-h-screen w-full bg-base-surface pb-28 text-foreground">
-      <div className="pointer-events-none fixed inset-0 z-40">
-        <ConfettiCanvas play />
-      </div>
+      {showConfetti && (
+        <div className="pointer-events-none fixed inset-0 z-40">
+          <ConfettiCanvas play />
+        </div>
+      )}
 
       <main className="mx-auto w-full max-w-4xl px-4 pt-4 pb-12 sm:px-8 sm:pt-16 sm:pb-20">
         <HeroCard
