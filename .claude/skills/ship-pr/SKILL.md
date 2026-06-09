@@ -44,30 +44,41 @@ always resolves.
      open anyway (escape hatch for pre-existing or unrelated failures). Do not
      silently proceed.
 
-3. **Open or attach.**
-   - If the branch already has an open PR (`gh pr view --json number,url`), skip
-     creation and go straight to Phase 2 against it.
+3. **Open or attach.** Either way, pre-flight (step 2) must have passed first —
+   on a resume against an existing PR, run it before entering Phase 2.
+   - If the branch already has an open PR (`gh pr view --json number,url`), don't
+     recreate it; go straight to Phase 2 against it.
    - Otherwise push the branch and `gh pr create --base develop`. Write a
      **why-focused** body (the motivation and the tradeoff, not a file-by-file
      recap). Omit any test-plan section and any AI-authorship footer.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 
-Delegate is `delegate-reviewer[bot]`. It submits a GitHub **review**: `APPROVED`
-with body `Approved.`, or `COMMENTED` with `**N blocker(s).** Reply
-\`delegate review\` after fixing.`Findings carry stable`<!-- delegate-finding-id: <uuid> -->`markers; in-diff findings are inline review
-comments, out-of-diff findings live in the review body. Subsequent reviews are
-prefixed`_X resolved since last review, Y new._`.
+Delegate is `delegate-reviewer[bot]`. It submits a GitHub **review**:
+
+- `APPROVED` — body is `Approved.`
+- `COMMENTED` — body starts with `**N blocker(s).**` and asks you to reply
+  `delegate review` after fixing.
+
+Findings carry stable `<!-- delegate-finding-id: <uuid> -->` markers: in-diff
+findings are inline review comments, out-of-diff findings live in the review body.
+Re-reviews are prefixed `_X resolved since last review, Y new._`.
 
 Loop:
 
-1. **Get the next review.** On a freshly opened PR, delegate auto-reviews — just
-   poll, no trigger comment. After pushing fixes, post an issue comment
-   `delegate review` to re-trigger, then poll.
-   Poll `gh api repos/thegoodparty/omni/pulls/<n>/reviews` every ~30–60s for a
-   `delegate-reviewer[bot]` review whose `submitted_at` is newer than your last
-   trigger (or PR open). Budget **~10 min per review**; if nothing lands, stop and
-   report.
+1. **Get the review for the current HEAD.** Anchor on the commit, not a timestamp,
+   so this is correct even on a fresh resume against an existing PR. Fetch the
+   latest `delegate-reviewer[bot]` review (`gh api
+repos/thegoodparty/omni/pulls/<n>/reviews`) and compare its `commit_id` to the
+   PR's HEAD SHA:
+   - **A review already exists at HEAD** (its `commit_id` == HEAD) → use it; go to
+     step 2. Do **not** re-trigger (that wastes a capped round and corrupts
+     delegate's resolved-count).
+   - **HEAD has no review yet** → get one: a just-opened PR auto-reviews (just
+     wait); if you just pushed fixes to an existing PR, post an issue comment
+     `delegate review` to trigger.
+   - Then poll every ~30–60s for a review whose `commit_id` == HEAD. Budget
+     **~10 min**; if none lands, stop and report.
 
 2. **Verdict.**
    - `APPROVED` (`Approved.`) → **done**. Report and exit.

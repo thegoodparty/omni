@@ -14,7 +14,7 @@ All workspaces (apps and shared libs) live under `packages/`.
 | Path                       | What                                           | Port |
 | -------------------------- | ---------------------------------------------- | ---- |
 | `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)          | 3000 |
-| `packages/gp-webapp`       | Next.js candidate/marketing app (`good-party`) | 4000 |
+| `packages/gp-webapp`       | Next.js product app (candidates & officials)   | 4000 |
 | `packages/election-api`    | NestJS microservice — election data            | 3001 |
 | `packages/people-api`      | NestJS microservice — voter data               | 3002 |
 | `packages/gp-admin`        | Next.js internal admin console                 | 3500 |
@@ -37,7 +37,7 @@ Each app needs its own local env files (copy from each app's `.env.example` /
 
 ```bash
 npm run start:dev -w gp-api
-npm run dev -w good-party     # gp-webapp's package name is "good-party"
+npm run dev -w packages/gp-webapp
 ```
 
 More in [`docs/development.md`](./docs/development.md).

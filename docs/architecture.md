@@ -47,7 +47,7 @@ nothing boring would work.
 | gp-api -> people-api        | S2S JWT             | `PEOPLE_API_S2S_SECRET`                          |
 | gp-api -> election-api      | HTTP                | Internal network / public data                   |
 | M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
-| External -> gp-webapp       | Public              | Election pages, marketing                        |
+| External -> gp-webapp       | Public              | Public election/candidate pages                  |
 
 gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/CLAUDE.md`.
@@ -64,6 +64,16 @@ as the producer and consumer. Read both code paths first and confirm every field
 producer sends is read and every field the consumer expects is sent. gp-webapp
 currently keeps some of its own hand-rolled types in `packages/gp-webapp/gpApi` +
 `helpers/types.ts`; prefer contracts for new cross-service shapes.
+
+**In-tree, not published.** `@goodparty_org/contracts` and `@goodparty_org/sdk`
+(`packages/gp-sdk`) are in-tree workspace packages, not live npm-registry packages —
+despite the scoped names. Consumers depend on them via a `"*"` workspace dependency
+and a node_modules symlink, so a change is live the moment it builds: no version
+bump, no publish, no install. That is why a cross-boundary change goes in one PR
+rather than through a release. npm publishing is **intentionally disabled** in omni
+(see the "publish ... not enabled in omni yet" notes in
+`.github/workflows/{contracts,gp-sdk}.yml`). Both were published pre-monorepo; don't
+assume the scoped name implies a registry release.
 
 ## Data and schemas
 
@@ -85,6 +95,9 @@ Some systems live outside this monorepo. Consult them when:
 - **gp-ai-projects** (`thegoodparty/gp-ai-projects`) — Python AI/ML pipeline:
   campaign-plan generation, civic message analysis, HubSpot-DDHQ matching. Read it
   when changing how gp-api calls AI generation, or when debugging plan output.
+- **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
+  moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
+  officials, not the marketing site. Marketing changes go there, not here.
 - **ops** (`thegoodparty/ops`) — operational scripts and the Delegate agent
   framework. **Relevant to code reviews** — the review automation and agent dispatch
   logic live here, so consult it when changing or debugging review flows.
