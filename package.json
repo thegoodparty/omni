@@ -11,6 +11,10 @@
     "node": "22",
     "npm": ">=10.9.0"
   },
+  "dependencies": {
+    "@opentelemetry/instrumentation": "^0.214.0",
+    "tailwindcss": "^4.1.6"
+  },
   "scripts": {
     "sync": "bash scripts/sync-all.sh",
     "sync:repo": "bash scripts/sync-repo.sh",
