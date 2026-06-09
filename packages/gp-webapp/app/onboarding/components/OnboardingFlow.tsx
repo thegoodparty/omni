@@ -725,6 +725,13 @@ export default function OnboardingFlow({
         ...trackingProperties,
         officeType: 'manual',
       })
+      trackEvent(EVENTS.OnboardingV2.OfficeCompleted, {
+        campaignId: campaign.id,
+        officeName: form.office,
+        officeLevel: 'manual',
+        officeState: form.state,
+        electionDate: form.electionDate,
+      })
       return true
     }
 
@@ -746,6 +753,13 @@ export default function OnboardingFlow({
     await identifyUser(user?.id, {
       ...trackingProperties,
       officeType: 'manual',
+    })
+    trackEvent(EVENTS.OnboardingV2.OfficeCompleted, {
+      campaignId: newCampaign.id,
+      officeName: form.office,
+      officeLevel: 'manual',
+      officeState: form.state,
+      electionDate: form.electionDate,
     })
     return true
   }
