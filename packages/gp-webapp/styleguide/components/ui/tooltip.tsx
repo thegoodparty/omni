@@ -49,9 +49,9 @@ function Tooltip({
     <TooltipProvider>
       <TooltipPrimitive.Root
         data-slot="tooltip"
+        {...props}
         open={open}
         onOpenChange={setOpen}
-        {...props}
       >
         <TooltipOpenOnClickContext.Provider
           value={() => setOpen((prev) => !prev)}
