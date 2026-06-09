@@ -20,6 +20,8 @@ describe('GET /v1/organizations', () => {
       id: 'pos-123',
       brPositionId: 'br-pos-123',
       brDatabaseId: 'br-db-123',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
     })
@@ -134,6 +136,8 @@ describe('GET /v1/organizations', () => {
       id: 'pos-pn1',
       brPositionId: 'br-pos-pn1',
       brDatabaseId: 'br-db-pn1',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
     })
@@ -209,6 +213,8 @@ describe('GET /v1/organizations', () => {
       id: 'pos-pn2',
       brPositionId: 'br-pos-pn2',
       brDatabaseId: 'br-db-pn2',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'NY',
       name: 'City Council',
     })
@@ -287,6 +293,8 @@ describe('GET /v1/organizations', () => {
       id: 'pos-456',
       brPositionId: 'br-pos-456',
       brDatabaseId: 'br-db-456',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'NY',
       name: 'City Council',
     })
@@ -413,6 +421,8 @@ describe('GET /v1/organizations/:slug', () => {
       id: 'pos-eo',
       brPositionId: 'br-pos-eo',
       brDatabaseId: 'br-db-eo',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'FL',
       name: 'School Board',
     })
@@ -445,6 +455,8 @@ describe('GET /v1/organizations/:slug', () => {
       id: 'pos-eo-custom',
       brPositionId: 'br-pos-eo-custom',
       brDatabaseId: 'br-db-eo-custom',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'TX',
       name: 'County Judge',
     })
@@ -569,6 +581,8 @@ describe('PATCH /v1/organizations/:slug', () => {
       id: 'pos-new',
       brPositionId: 'br-pos-new',
       brDatabaseId: 'br-db-new',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'TX',
       name: 'Governor',
     })
@@ -576,6 +590,8 @@ describe('PATCH /v1/organizations/:slug', () => {
       id: 'pos-new',
       brPositionId: 'br-pos-new',
       brDatabaseId: 'br-db-new',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'TX',
       name: 'Governor',
     })
@@ -645,6 +661,8 @@ describe('PATCH /v1/organizations/:slug', () => {
       id: 'pos-dist2',
       brPositionId: 'br-pos-dist2',
       brDatabaseId: 'br-db-dist2',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
       district: {
@@ -659,6 +677,8 @@ describe('PATCH /v1/organizations/:slug', () => {
       id: 'pos-dist2',
       brPositionId: 'br-pos-dist2',
       brDatabaseId: 'br-db-dist2',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
       district: {
@@ -830,6 +850,8 @@ describe('PATCH /v1/organizations/:slug', () => {
         id: 'pos-inc',
         brPositionId: 'br-pos-inc',
         brDatabaseId: 'br-db-inc',
+        isWinIcp: true,
+        isServeIcp: true,
         state: 'CA',
         name: 'Mayor',
         district: {
@@ -844,6 +866,8 @@ describe('PATCH /v1/organizations/:slug', () => {
       id: 'pos-inc',
       brPositionId: 'br-pos-inc',
       brDatabaseId: 'br-db-inc',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
     })
@@ -975,6 +999,8 @@ describe('GET /v1/organizations/admin/:slug', () => {
       id: 'pos-eo-admin',
       brPositionId: 'br-pos-eo-admin',
       brDatabaseId: 'br-db-eo-admin',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CO',
       name: 'County Commissioner',
     })
@@ -1095,6 +1121,8 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       id: 'pos-admin-patch',
       brPositionId: 'br-pos-admin-patch',
       brDatabaseId: 'br-db-admin-patch',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
     })
@@ -1102,6 +1130,8 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       id: 'pos-admin-patch',
       brPositionId: 'br-pos-admin-patch',
       brDatabaseId: 'br-db-admin-patch',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'CA',
       name: 'Mayor',
     })

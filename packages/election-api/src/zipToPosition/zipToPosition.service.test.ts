@@ -292,6 +292,8 @@ describe.skipIf(process.env.CI === 'true')(
           {
             id: positionBeverlyHillsId,
             brDatabaseId: 'pos-db-bh',
+            isWinIcp: true,
+            isServeIcp: true,
             brPositionId: `br-pos-bh-${positionBeverlyHillsId}`,
             state: 'CA',
             name: 'Mayor',
@@ -300,6 +302,8 @@ describe.skipIf(process.env.CI === 'true')(
           {
             id: positionAtlantaId,
             brDatabaseId: 'pos-db-atl',
+            isWinIcp: true,
+            isServeIcp: true,
             brPositionId: `br-pos-atl-${positionAtlantaId}`,
             state: 'GA',
             name: 'City Council',

@@ -80,6 +80,8 @@ const seedBriefingTarget = async (orgSlug: string, rrule: string) => {
     id: 'pos-real',
     brPositionId: 'br-pos-g',
     brDatabaseId: 'br-db-g',
+    isWinIcp: true,
+    isServeIcp: true,
     state: 'MN',
     name: 'City Council',
   })
@@ -755,6 +757,8 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
       id: 'pos-real',
       brPositionId: 'br-pos-d',
       brDatabaseId: 'br-db-d',
+      isWinIcp: true,
+      isServeIcp: true,
       state: 'MN',
       name: 'City Council',
     })

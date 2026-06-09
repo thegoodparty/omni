@@ -156,10 +156,8 @@ export type PositionWithOptionalDistrict = {
   state: string
   name: string
   level?: BallotReadyPositionLevel | null
-  // Optional until election-api's ICP columns deploy and backfill; null =
-  // the office's voter_count is unknown upstream (gp-data-platform#473).
-  isWinIcp?: boolean | null
-  isServeIcp?: boolean | null
+  isWinIcp: boolean
+  isServeIcp: boolean
   district?: District
   filingFee?: number | null
   filingRequirementsText?: string | null

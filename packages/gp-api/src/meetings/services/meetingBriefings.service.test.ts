@@ -1141,7 +1141,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
-  it('skips an EO when serve-ICP is null (unknown fails closed)', async () => {
+  it('skips an EO when serve-ICP is unknown (no position resolved, fails closed)', async () => {
     const orgSlug = `eo-cron-null-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-null-icp' })
     const campaign = await service.prisma.campaign.findFirst({
@@ -1158,7 +1158,6 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: null,
     })
     await seedScheduleForOrg(orgSlug)
 

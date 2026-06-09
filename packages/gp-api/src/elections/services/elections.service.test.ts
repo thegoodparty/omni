@@ -15,6 +15,8 @@ const makePosition = (
   id: 'pos-1',
   brPositionId: 'br-pos-1',
   brDatabaseId: 'br-db-1',
+  isWinIcp: true,
+  isServeIcp: true,
   state: 'TX',
   name: 'State House 005',
   district: {
@@ -147,6 +149,8 @@ describe('ElectionsService', () => {
         id: 'pos-1',
         brPositionId: 'br-pos-1',
         brDatabaseId: 'br-db-1',
+        isWinIcp: true,
+        isServeIcp: true,
         state: 'TX',
         name: 'State House 005',
       }
@@ -197,6 +201,8 @@ describe('ElectionsService', () => {
         id: 'pos-1',
         brPositionId: 'br-pos-1',
         brDatabaseId: 'br-db-1',
+        isWinIcp: true,
+        isServeIcp: true,
         state: 'TX',
         name: 'State House 005',
       }
