@@ -4,11 +4,14 @@ import {
   MeetingResourceLocationType,
 } from '../../generated/prisma'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AnalyticsService } from '@/analytics/analytics.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
+// Imported after useTestService: analytics.service sits on a circular import
+// chain (analytics -> users -> campaigns -> analytics) and must not be the
+// first app-graph module evaluated, or Nest sees an undefined DI token.
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
 const service = useTestService()
