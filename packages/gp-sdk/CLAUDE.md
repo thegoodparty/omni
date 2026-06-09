@@ -4,7 +4,9 @@ Guidance for Claude Code and other AI agents working in `gp-sdk`. Keep this file
 
 ## Project
 
-`@goodparty_org/sdk` — TypeScript SDK consumers use to call `gp-api` over HTTP with Clerk M2M auth. Built with `tsup` (CJS + ESM + d.ts), published to npm via [changesets](https://github.com/changesets/changesets). Downstream consumers: `gp-admin`, `gp-api`, `gp-webapp`, and any other service that talks to `gp-api` server-to-server. **Changes here ripple to every consumer** — a `major` bump means a coordinated upgrade across repos. It is a **library**, not an app — there is no server, no DB, no runtime here.
+`@goodparty_org/sdk` — TypeScript SDK consumers use to call `gp-api` over HTTP with Clerk M2M auth. Built with `tsup` (CJS + ESM + d.ts). Downstream consumers: `gp-admin`, `gp-api`, `gp-webapp`, and any other service that talks to `gp-api` server-to-server. **Changes here ripple to every consumer**, but inside omni they ripple instantly — consumers depend on it via a `"*"` workspace dependency and a node_modules symlink, so a change is live as soon as it's built; no version bump or install. It is a **library**, not an app — there is no server, no DB, no runtime here.
+
+**In-tree, not published.** Despite the scoped `@goodparty_org/sdk` name, this is an in-tree workspace package, not a live npm-registry package. npm publishing is intentionally disabled in omni (see the "publish ... not enabled in omni yet" note in `.github/workflows/gp-sdk.yml`). It was published pre-monorepo; don't assume the scoped name implies a registry release.
 
 ## Commands (most-used first)
 
@@ -19,16 +21,25 @@ npm run format:check     # prettier --check (CI uses this)
 npm run lint-format      # lint:fix + format
 ```
 
-CI runs `typecheck → lint → format:check → build` (`.github/workflows/ci.yml`).
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/gp-sdk.yml`) before opening a PR. From the repo root:
+
+```bash
+npm run typecheck -w packages/gp-sdk      # tsc --noEmit
+npm run lint -w packages/gp-sdk           # eslint --quiet (read-only)
+npm run format:check -w packages/gp-sdk   # prettier --check
+npm run build -w packages/gp-sdk          # tsup (CJS + ESM + d.ts)
+```
 
 ## Pointer table — when in doubt
 
-| Doing | Read |
-|-------|------|
-| Adding a resource / endpoint | `docs/architecture.md` § Module shape |
-| First-time setup, linking locally into a consumer | `docs/getting-started.md` |
-| Cutting a release | `docs/getting-started.md` § Releasing |
-| AI rule-by-rule code review | `ai-rules/` (git submodule) |
+| Doing                                             | Read                                  |
+| ------------------------------------------------- | ------------------------------------- |
+| Adding a resource / endpoint                      | `docs/architecture.md` § Module shape |
+| First-time setup, linking locally into a consumer | `docs/getting-started.md`             |
+| Cutting a release                                 | `docs/getting-started.md` § Releasing |
+| AI rule-by-rule code review                       | `ai-rules/` (git submodule)           |
 
 ## Code style
 
