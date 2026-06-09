@@ -568,6 +568,8 @@ export const EVENTS = {
     ShareDrawerOpened: 'Briefing Assistant - Share Drawer Opened',
     ShareCompleted: 'Briefing Assistant - Share Completed',
     AttachmentClicked: 'Briefing Assistant - Attachment Clicked',
+    AgendaSubmitted: 'Briefing Assistant - Agenda Submitted',
+    AgendaSubmissionFailed: 'Briefing Assistant - Agenda Submission Failed',
     SourcesExpanded: 'Briefing Assistant - Sources Expanded',
     TocItemClicked: 'Briefing Assistant - TOC Item Clicked',
   },
