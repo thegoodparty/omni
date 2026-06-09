@@ -465,6 +465,8 @@ export class OrganizationsService extends createPrismaBase(
     positionName: string
     l2DistrictType?: string
     l2DistrictName?: string
+    isWinIcp?: boolean | null
+    isServeIcp?: boolean | null
   } | null> {
     const [position, overrideDistrict] = await Promise.all([
       org.positionId
@@ -485,6 +487,8 @@ export class OrganizationsService extends createPrismaBase(
       positionName,
       l2DistrictType: district?.L2DistrictType,
       l2DistrictName: district?.L2DistrictName,
+      isWinIcp: position?.isWinIcp,
+      isServeIcp: position?.isServeIcp,
     }
   }
 

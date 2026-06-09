@@ -123,6 +123,7 @@ type DispatchContext = {
   positionName: string
   l2DistrictType?: string
   l2DistrictName?: string
+  isServeIcp?: boolean | null
 }
 
 const CRON_CONFIG = {
@@ -692,6 +693,18 @@ export class MeetingBriefingsService extends createPrismaBase(
     const ctx = await this.resolveDispatchContext(electedOffice)
     if (!ctx) return
 
+    // Fail closed: automated dispatches require an affirmative serve-ICP
+    // flag, so offices stay un-briefed until the Databricks backfill
+    // populates the column (gp-data-platform#473). Manual dispatches
+    // (dispatchManual) are not gated.
+    if (ctx.isServeIcp !== true) {
+      this.logger.info(
+        { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
+        'skipping dispatch: position is not serve-ICP',
+      )
+      return
+    }
+
     await this.dispatchBriefing(ctx, target)
   }
 
@@ -744,6 +757,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       positionName: serveCtx.positionName,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      isServeIcp: serveCtx.isServeIcp,
     }
   }
 
