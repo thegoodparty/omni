@@ -1,3 +1,4 @@
+import { useTestService } from '@/test-service'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -1490,5 +1491,41 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
       expect(result?.projectedTurnout).toBe(200)
       expect(result?.registeredVoters).toBe(900)
     })
+  })
+})
+
+describe('CampaignsService - hasCampaignStrategy', () => {
+  const service = useTestService()
+
+  it('returns false when no campaign_strategy row exists', async () => {
+    const campaign = await service.prisma.campaign.findFirst()
+    if (!campaign) return
+
+    await service.prisma.campaignStrategy.deleteMany({
+      where: { campaignId: campaign.id },
+    })
+
+    const result = await service.app
+      .get(CampaignsService)
+      .hasCampaignStrategy(campaign.id)
+
+    expect(result).toBe(false)
+  })
+
+  it('returns true when a campaign_strategy row exists', async () => {
+    const campaign = await service.prisma.campaign.findFirst()
+    if (!campaign) return
+
+    await service.prisma.campaignStrategy.upsert({
+      where: { campaignId: campaign.id },
+      create: { campaignId: campaign.id },
+      update: {},
+    })
+
+    const result = await service.app
+      .get(CampaignsService)
+      .hasCampaignStrategy(campaign.id)
+
+    expect(result).toBe(true)
   })
 })
