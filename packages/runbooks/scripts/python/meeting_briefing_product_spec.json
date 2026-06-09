@@ -168,10 +168,10 @@
       "severity": "high"
     },
     {
-      "check_id": "high_stakes_structured_match",
-      "description": "WS2 P0. Per-claim-type (structured_validators) deterministic extraction + exact match for high-stakes literals (money, dates, names, vote counts, legal citations, percentages). Every literal of the declared kind in claim_text must appear, normalized, in a cited source snapshot. High-weight/blockable claim-type failures block; others annotate.",
-      "route_if_fail": "block",
-      "severity": "high"
+      "check_id": "numeric_review_flag",
+      "description": "Detection only. Flags every high-weight claim (blockable claim_type, or claim_weight high) that states a high-stakes literal of its declared structured_validators kind (money, date, name, vote_count, legal_citation, percentage) so the triage judge is required to verify the figure against the cited extracts. Never matches values and never blocks or annotates (route diagnostic); blocking on numbers comes only from the judge verdict on high-weight claims. (Routing is driven by code, not by reading this field; this value is descriptive.)",
+      "route_if_fail": "diagnostic",
+      "severity": "info"
     },
     {
       "check_id": "source_hierarchy_policy",

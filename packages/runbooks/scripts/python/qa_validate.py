@@ -556,6 +556,29 @@ def extract_literals(text: str, kind: str) -> list[str]:
     return seen
 
 
+def flag_numeric_review(claim: dict, spec: dict, blockable: set[str]) -> dict[str, list[str]]:
+    """Detect whether a claim needs numeric review by the triage judge.
+
+    Detection only — no matching against the source. A claim is flagged when it is
+    high-weight (its claim_type is blockable, or claim_weight is "high") AND it states a
+    high-stakes literal of the kind declared for its claim_type in
+    spec.structured_validators (money, vote tally, percentage, legal citation, date).
+
+    Returns {kind: [literals]} for a flagged claim, or {} otherwise. The result steers
+    the phase-1 judge prompt only; it is never written to the artifact.
+    """
+    ctype = claim.get("claim_type", "")
+    high_weight = ctype in blockable or claim.get("claim_weight") == "high"
+    if not high_weight:
+        return {}
+    rule = (spec.get("structured_validators") or {}).get(ctype)
+    if not rule:
+        return {}
+    kind = rule.get("kind", "")
+    literals = extract_literals(claim.get("claim_text", ""), kind)
+    return {kind: literals} if literals else {}
+
+
 def _format_safe(template: str, data: dict) -> str:
     """Substitute {key} references in template; missing keys become 'unknown'."""
     def repl(m: re.Match) -> str:
@@ -1176,94 +1199,35 @@ def run_deterministic(
             details=substring_details,
         ))
 
-    # 7b. high_stakes_structured_match (WS2 P0) — per-claim-type opt-in
-    #     extraction + exact match for high-stakes literals. For each claim whose
-    #     claim_type is declared in spec.structured_validators, extract every
-    #     literal of the declared kind from claim_text and require each to appear
-    #     (normalized) in a cited source snapshot. High-weight/blockable failures
-    #     block; others annotate.
+    # 7b. numeric_review_flag — detection only. Flag every high-weight claim that
+    #     states a high-stakes literal (money, vote tally, percentage, legal citation,
+    #     date) so the triage judge is REQUIRED to verify that figure against the cited
+    #     extracts. This deterministic step never matches values and never blocks or
+    #     annotates: a regex cannot tell a rate basis from a budget figure or read a
+    #     "(in $1,000s)" table header. Blocking on numbers comes only from the judge
+    #     verdict on high-weight claims (see phase1/phase2 and compute_release_verdict).
     structured_cfg = spec.get("structured_validators") or {}
     if structured_cfg:
-        sv_high_fail: list[str] = []
-        sv_other_fail: list[str] = []
-        sv_trace: list[dict] = []
+        flagged: list[dict] = []
         for claim in claims:
-            ctype = claim.get("claim_type", "")
-            rule = structured_cfg.get(ctype)
-            if not rule:
-                continue
-            kind = rule.get("kind", "")
-            literals = extract_literals(claim.get("claim_text", ""), kind)
-            if not literals:
-                continue
-            cited_haystack_text = " ".join(
-                _norm_text(source_map.get(sid, {}).get("retrieved_text_or_snapshot") or "")
-                for sid in (claim.get("source_ids") or [])
-            )
-            # Compare normalized keys: money/percent compare canonical magnitude,
-            # the rest compare normalized substring presence in the haystack.
-            missing: list[str] = []
-            # Source name tokens (lowercased words), used for the name kind so a
-            # reordered or comma-separated rendering ("Michael Brown, Mayor" vs
-            # "Mayor Michael Brown") is not a false fail — see the name branch.
-            haystack_words = (
-                set(re.findall(r"[a-z0-9]+", cited_haystack_text)) if kind == "name" else set()
-            )
-            for lit in literals:
-                if kind in ("money", "percentage", "vote_count"):
-                    present = lit in extract_literals(cited_haystack_text, kind)
-                elif kind == "name":
-                    # A contiguous-substring test yields false fails when the
-                    # source reorders the name or separates title from name.
-                    # Require instead that every token of the claim's name run
-                    # appears as a word somewhere in the cited source.
-                    present = all(tok in haystack_words for tok in re.findall(r"[a-z0-9]+", lit))
-                else:
-                    present = lit in cited_haystack_text
-                if not present:
-                    missing.append(lit)
-            cid = claim.get("claim_id", "<no-id>")
-            sv_trace.append({
-                "claim_id": cid, "claim_type": ctype, "kind": kind,
-                "literals": literals, "missing": missing,
-            })
-            if missing:
-                entry = f"{cid}({kind}): missing {missing[:3]}"
-                if _is_high_weight(claim):
-                    sv_high_fail.append(entry)
-                else:
-                    sv_other_fail.append(entry)
-        sv_details = {
-            "claim_types_checked": list(structured_cfg.keys()),
-            "claims_with_literals": len(sv_trace),
-            "per_claim": sv_trace,
-        }
-        if sv_high_fail:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="fail", severity="high",
-                message=f"{len(sv_high_fail)} high-weight claim(s) with high-stakes literals not found in cited source",
-                route="block",
-                offending="; ".join(sv_high_fail[:5]),
-                details=sv_details,
-            ))
-        elif sv_other_fail:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="warning", severity="medium",
-                message=f"{len(sv_other_fail)} non-high-weight claim(s) with high-stakes literals not found in cited source",
-                route="annotate",
-                offending="; ".join(sv_other_fail[:5]),
-                details=sv_details,
-            ))
-        else:
-            results.append(DeterministicCheck(
-                check_id="high_stakes_structured_match",
-                status="pass", severity="info",
-                message=f"All extracted high-stakes literals found in cited sources ({len(sv_trace)} claim(s) checked)",
-                route="pass",
-                details=sv_details,
-            ))
+            kinds = flag_numeric_review(claim, spec, blockable)
+            if kinds:
+                flagged.append({
+                    "claim_id": claim.get("claim_id", "<no-id>"),
+                    "kinds": sorted(kinds.keys()),
+                })
+        results.append(DeterministicCheck(
+            check_id="numeric_review_flag",
+            status="pass", severity="info",
+            message=f"{len(flagged)} high-weight claim(s) flagged for judge numeric review",
+            route="diagnostic",
+            offending="; ".join(f"{f['claim_id']}({','.join(f['kinds'])})" for f in flagged[:5]),
+            details={
+                "claim_types_checked": list(structured_cfg.keys()),
+                "flagged_count": len(flagged),
+                "flagged": flagged,
+            },
+        ))
 
     # 7c. source_hierarchy_policy (WS2 P0) — spec-declared claim_type → allowed
     #     source_types. A claim citing a source whose source_type is not allowed
@@ -2118,6 +2082,22 @@ When you classify as anything other than Accurate, Directionally Consistent, Ext
 If your verdict is Accurate, Directionally Consistent, Extrapolating, or Modeled, leave `proposed_correction` as null."""
 
 
+_NUMERIC_REVIEW_INSTRUCTION = (
+    "NUMERIC REVIEW REQUIRED. This claim states high-stakes figures (detected: {kinds}). "
+    "Check each stated amount, vote tally, citation number, percentage, or date against "
+    "the source extract(s) above. If any stated figure is not supported by the "
+    "extract(s), mark the claim not-OK using the appropriate not-in-source or incorrect "
+    "category. Account for equivalent renderings (\"$1.8M\" = \"$1,800,000\", "
+    "\"Ordinance No. 12\" = \"Ordinance 12\") and unit headers (a value under "
+    "\"in $1,000s\" is stated in thousands)."
+)
+
+
+def _numeric_review_instruction(numeric_kinds: dict) -> str:
+    """Render the phase-1 numeric-review instruction for a flagged claim."""
+    return _NUMERIC_REVIEW_INSTRUCTION.format(kinds=", ".join(sorted(numeric_kinds)))
+
+
 def _format_phase1_user_prompt(claim: dict) -> str:
     """Build Phase 1 context: ALL source_extracts as a labeled list.
 
@@ -2455,12 +2435,21 @@ def make_judge(name: str, judges_config: list[dict]) -> Optional[Judge]:
 
 # ── Phase 1 — triage (Anthropic, all claims) ─────────────────────────────────
 
-def phase1_triage(claims: list[dict], judge: Judge, ok_cats: set[str]) -> list[Phase1Result]:
+def phase1_triage(
+    claims: list[dict],
+    judge: Judge,
+    ok_cats: set[str],
+    spec: dict,
+    blockable: set[str],
+) -> list[Phase1Result]:
     results: list[Phase1Result] = []
     for i, claim in enumerate(claims):
         cid = claim.get("claim_id", f"claim_{i}")
         try:
             user_context = _format_phase1_user_prompt(claim)
+            numeric_kinds = flag_numeric_review(claim, spec, blockable)
+            if numeric_kinds:
+                user_context += "\n\n" + _numeric_review_instruction(numeric_kinds)
             out = judge.adjudicate(claim, system_prompt=_TRIAGE_SYSTEM, source_passage=user_context)
             results.append(Phase1Result(
                 claim_id=cid,
@@ -2774,7 +2763,7 @@ def main() -> None:
             judges_used["phase1"] = {
                 "name": p1_judge.name, "provider": p1_judge.provider, "model": p1_judge.model,
             }
-            p1_results = phase1_triage(claims, p1_judge, ok_cats)
+            p1_results = phase1_triage(claims, p1_judge, ok_cats, spec, blockable)
             p1_map = {r.claim_id: r for r in p1_results}
             for trace in traces:
                 trace.phase1 = p1_map.get(trace.claim.get("claim_id", ""))
