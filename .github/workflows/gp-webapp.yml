@@ -158,10 +158,12 @@ jobs:
       - name: Run Playwright tests
         id: run-tests
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        # Scope to tests/ so Playwright collects only the e2e specs, not the
-        # app's vitest *.test.tsx. clerkSetup runs via the config's `globalSetup`
-        # key (filter-independent), so the tests/ filter no longer skips it.
-        run: npx playwright test tests/
+        # --config must be an ABSOLUTE path: Playwright resolves a relative
+        # --config (and the implicit config search) against the nearest
+        # package.json dir, which here is packages/gp-webapp — one level above
+        # e2e-tests — so it silently runs with NO config (no baseURL, no
+        # globalSetup/clerkSetup) unless we point at the file explicitly.
+        run: npx playwright test --config="$PWD/playwright.config.ts" tests/
         env:
           TEST_RUN_NAME: "E2E Tests - PR Preview"
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}

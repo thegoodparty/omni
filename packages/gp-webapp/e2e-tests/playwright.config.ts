@@ -57,9 +57,6 @@ export default defineConfig({
   projects: [
     {
       name: 'default',
-      // Inherit the top-level `use` (which sets baseURL + the Desktop Chrome
-      // device). A project-level `use: devices['Desktop Chrome']` dropped
-      // baseURL, breaking relative `page.goto('/...')` with "invalid URL".
     },
   ],
 
