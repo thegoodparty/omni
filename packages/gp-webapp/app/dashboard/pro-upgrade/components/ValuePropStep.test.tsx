@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import ValuePropStep from './ValuePropStep'
@@ -57,14 +58,22 @@ describe('ValuePropStep', () => {
     expect(container.querySelectorAll('svg.lucide-x')).toHaveLength(5)
   })
 
-  it('shows a feature tooltip when a row label is clicked', async () => {
+  it('shows a feature tooltip when a row label is tapped', async () => {
+    // Touch pointer, not user.click: a mouse click would hover-open the
+    // tooltip first and the click would then toggle it shut. Touch taps are
+    // the case openOnClick exists for, and they run the full
+    // pointerdown → click sequence including Radix's close-on-click handler.
+    const user = userEvent.setup()
     render(<ValuePropStep />)
 
     expect(
       screen.queryByText(/10DLC carrier registration/i),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('10DLC compliance'))
+    await user.pointer({
+      keys: '[TouchA]',
+      target: screen.getByText('10DLC compliance'),
+    })
 
     const tooltips = await screen.findAllByText(/10DLC carrier registration/i)
     expect(tooltips.length).toBeGreaterThan(0)

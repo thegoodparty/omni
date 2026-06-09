@@ -20,7 +20,10 @@ function TooltipProvider({
 
 // Set (not null) only when the nearest Tooltip has openOnClick, so
 // TooltipTrigger can opt into click-to-open without a prop of its own.
-const TooltipOpenOnClickContext = React.createContext<(() => void) | null>(null)
+const TooltipOpenOnClickContext = React.createContext<{
+  open: boolean
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>
+} | null>(null)
 
 function Tooltip({
   openOnClick = false,
@@ -53,9 +56,7 @@ function Tooltip({
         open={open}
         onOpenChange={setOpen}
       >
-        <TooltipOpenOnClickContext.Provider
-          value={() => setOpen((prev) => !prev)}
-        >
+        <TooltipOpenOnClickContext.Provider value={{ open, setOpen }}>
           {children}
         </TooltipOpenOnClickContext.Provider>
       </TooltipPrimitive.Root>
@@ -65,23 +66,45 @@ function Tooltip({
 
 function TooltipTrigger({
   onClick,
+  onPointerDown,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
   const openOnClick = React.useContext(TooltipOpenOnClickContext)
+  // Open state captured before Radix's own pointerdown/focus handlers run.
+  // A tap is one pointerdown → focus → click sequence, and on browsers that
+  // focus buttons on tap Radix's focus handler opens the tooltip mid-tap; a
+  // naive toggle at click time would instantly close it again. Deciding the
+  // click outcome from the state at pointerdown absorbs that.
+  const wasOpenAtPointerDownRef = React.useRef<boolean | null>(null)
+  if (!openOnClick) {
+    return (
+      <TooltipPrimitive.Trigger
+        data-slot="tooltip-trigger"
+        onClick={onClick}
+        onPointerDown={onPointerDown}
+        {...props}
+      />
+    )
+  }
+  const { open, setOpen } = openOnClick
   return (
     <TooltipPrimitive.Trigger
       data-slot="tooltip-trigger"
-      onClick={
-        openOnClick
-          ? (event) => {
-              onClick?.(event)
-              // Radix's own click handler force-closes the tooltip;
-              // preventDefault stops it so our toggle decides the state.
-              event.preventDefault()
-              openOnClick()
-            }
-          : onClick
-      }
+      onPointerDown={(event) => {
+        onPointerDown?.(event)
+        wasOpenAtPointerDownRef.current = open
+      }}
+      onClick={(event) => {
+        onClick?.(event)
+        // Radix's own click handler force-closes the tooltip; preventDefault
+        // stops it so the state set below sticks.
+        event.preventDefault()
+        const wasOpen = wasOpenAtPointerDownRef.current
+        wasOpenAtPointerDownRef.current = null
+        // null means a keyboard activation (no pointerdown) — plain toggle.
+        if (wasOpen === null) setOpen((prev) => !prev)
+        else setOpen(!wasOpen)
+      }}
       {...props}
     />
   )
