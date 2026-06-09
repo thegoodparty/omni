@@ -12,51 +12,66 @@ const meta: Meta<typeof Avatar> = {
   title: 'Components/Avatar',
   parameters: { layout: 'centered' },
   tags: ['autodocs'],
-  argTypes: {
-    size: {
-      control: 'select',
-      options: ['xSmall', 'small', 'medium', 'large', 'xLarge'],
-    },
-    shape: {
-      control: 'select',
-      options: ['circle', 'square'],
-    },
-  },
 }
 export default meta
 
 type Story = StoryObj<typeof Avatar>
 
 type PlaygroundArgs = {
-  size: 'xSmall' | 'small' | 'medium' | 'large' | 'xLarge'
+  size: 'small' | 'medium' | 'large' | 'xLarge' | 'xxLarge'
   shape: 'circle' | 'square'
-  showImage: boolean
+  content: 'initials' | 'image' | 'icon'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
     size: 'medium',
     shape: 'circle',
-    showImage: false,
+    content: 'initials',
   },
   argTypes: {
-    showImage: {
-      control: 'boolean',
+    size: {
+      options: ['small', 'medium', 'large', 'xLarge', 'xxLarge'],
+      control: {
+        type: 'select',
+        labels: {
+          small: 'small (32px)',
+          medium: 'medium (40px) — default',
+          large: 'large (48px)',
+          xLarge: 'xLarge (56px)',
+          xxLarge: 'xxLarge (64px)',
+        },
+      },
+    },
+    shape: {
+      control: 'select',
+      options: ['circle', 'square'],
+    },
+    content: {
+      control: 'select',
+      options: ['initials', 'image', 'icon'],
       description:
-        'Render an image. When false, falls back to the JD initials inside an AvatarFallback.',
+        'What to display inside the avatar. "initials" shows the JD fallback text; "image" loads a photo with initials as fallback; "icon" shows a user silhouette.',
     },
   },
-  render: ({ size, shape, showImage }) => (
-    <Avatar key={`${String(showImage)}-${shape}`} size={size} shape={shape}>
-      {showImage ? (
+  render: ({ size, shape, content }) => (
+    <Avatar key={content} size={size} shape={shape}>
+      {content === 'image' && (
         <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
-      ) : null}
-      <AvatarFallback>JD</AvatarFallback>
+      )}
+      {content === 'icon' ? (
+        <AvatarIcon>
+          <UserIcon />
+        </AvatarIcon>
+      ) : (
+        <AvatarFallback>JD</AvatarFallback>
+      )}
     </Avatar>
   ),
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Avatar>
       <AvatarFallback>JD</AvatarFallback>
@@ -65,6 +80,7 @@ export const Default: Story = {
 }
 
 export const WithImage: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Avatar>
       <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
@@ -74,21 +90,20 @@ export const WithImage: Story = {
 }
 
 export const WithIcon: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Avatar>
       <AvatarIcon>
-        <UserIcon className="h-5 w-5" />
+        <UserIcon />
       </AvatarIcon>
     </Avatar>
   ),
 }
 
 export const Sizes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex items-center gap-4">
-      <Avatar size="xSmall">
-        <AvatarFallback>XS</AvatarFallback>
-      </Avatar>
+    <div className="flex items-end gap-4">
       <Avatar size="small">
         <AvatarFallback>S</AvatarFallback>
       </Avatar>
@@ -100,6 +115,23 @@ export const Sizes: Story = {
       </Avatar>
       <Avatar size="xLarge">
         <AvatarFallback>XL</AvatarFallback>
+      </Avatar>
+      <Avatar size="xxLarge">
+        <AvatarFallback>XXL</AvatarFallback>
+      </Avatar>
+    </div>
+  ),
+}
+
+export const Shapes: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex items-center gap-4">
+      <Avatar shape="circle">
+        <AvatarFallback>JD</AvatarFallback>
+      </Avatar>
+      <Avatar shape="square">
+        <AvatarFallback>JD</AvatarFallback>
       </Avatar>
     </div>
   ),

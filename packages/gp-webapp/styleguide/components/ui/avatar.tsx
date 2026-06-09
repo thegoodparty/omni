@@ -9,15 +9,15 @@ import { cn } from '@styleguide/lib/utils'
 const avatarVariants = cva('relative flex shrink-0 overflow-hidden', {
   variants: {
     size: {
-      xSmall: 'size-6',
       small: 'size-8',
       medium: 'size-10',
       large: 'size-12',
-      xLarge: 'size-16',
+      xLarge: 'size-14',
+      xxLarge: 'size-16',
     },
     shape: {
       circle: 'rounded-full',
-      square: 'rounded-lg',
+      square: 'rounded-base',
     },
   },
   defaultVariants: {
@@ -26,7 +26,7 @@ const avatarVariants = cva('relative flex shrink-0 overflow-hidden', {
   },
 })
 
-type AvatarSize = 'xSmall' | 'small' | 'medium' | 'large' | 'xLarge'
+type AvatarSize = 'small' | 'medium' | 'large' | 'xLarge' | 'xxLarge'
 type AvatarShape = 'circle' | 'square'
 
 type AvatarContext = { size: AvatarSize; shape: AvatarShape }
@@ -35,6 +35,22 @@ const AvatarCtx = React.createContext<AvatarContext>({
   size: 'medium',
   shape: 'circle',
 })
+
+const fallbackTextSize: Record<AvatarSize, string> = {
+  small: 'text-xs',
+  medium: 'text-sm',
+  large: 'text-base',
+  xLarge: 'text-xl',
+  xxLarge: 'text-2xl',
+}
+
+const iconSize: Record<AvatarSize, string> = {
+  small: '[&>svg]:size-4',
+  medium: '[&>svg]:size-5',
+  large: '[&>svg]:size-6',
+  xLarge: '[&>svg]:size-7',
+  xxLarge: '[&>svg]:size-8',
+}
 
 interface AvatarProps
   extends
@@ -77,9 +93,9 @@ function AvatarFallback({
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        'flex size-full items-center justify-center bg-muted border border-base-border font-medium',
-        shape === 'square' ? 'rounded-lg' : 'rounded-full',
-        size === 'xSmall' ? 'text-xs' : 'text-sm',
+        'flex size-full items-center justify-center bg-muted border border-base-border text-foreground font-medium',
+        shape === 'square' ? 'rounded-base' : 'rounded-full',
+        fallbackTextSize[size],
         className,
       )}
       {...props}
@@ -92,13 +108,14 @@ function AvatarIcon({
   children,
   ...props
 }: React.ComponentProps<'div'>) {
-  const { shape } = React.useContext(AvatarCtx)
+  const { size, shape } = React.useContext(AvatarCtx)
   return (
     <div
       data-slot="avatar-icon"
       className={cn(
         'flex size-full items-center justify-center bg-muted border border-base-border',
-        shape === 'square' ? 'rounded-lg' : 'rounded-full',
+        shape === 'square' ? 'rounded-base' : 'rounded-full',
+        iconSize[size],
         className,
       )}
       {...props}
