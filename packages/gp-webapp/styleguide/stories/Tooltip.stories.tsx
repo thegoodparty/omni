@@ -148,8 +148,9 @@ export const OpenOnClick: Story = {
         <span className="flex flex-col gap-2">
           <span className="text-xl font-semibold leading-7">Campaign plan</span>
           <span className="text-base font-normal leading-6">
-            Opens on hover, keyboard focus, and click/tap. `showArrow=false`
-            plus a `sideOffset` keeps a gap between the trigger and the card.
+            Opens on hover and keyboard focus; click/tap toggles it (a second
+            tap dismisses). `showArrow=false` plus a `sideOffset` keeps a gap
+            between the trigger and the card.
           </span>
         </span>
       </TooltipContent>

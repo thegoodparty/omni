@@ -28,10 +28,10 @@ function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root> & {
   /**
-   * Also open the tooltip when the trigger is clicked/tapped (Radix only
+   * Also toggle the tooltip when the trigger is clicked/tapped (Radix only
    * opens on hover and keyboard focus, and a tap on touch devices would
-   * otherwise never show the tooltip). Manages open state internally — don't
-   * combine with `open`/`onOpenChange`.
+   * otherwise never show the tooltip; a second tap dismisses it). Manages
+   * open state internally — don't combine with `open`/`onOpenChange`.
    */
   openOnClick?: boolean
 }) {
@@ -53,7 +53,9 @@ function Tooltip({
         onOpenChange={setOpen}
         {...props}
       >
-        <TooltipOpenOnClickContext.Provider value={() => setOpen(true)}>
+        <TooltipOpenOnClickContext.Provider
+          value={() => setOpen((prev) => !prev)}
+        >
           {children}
         </TooltipOpenOnClickContext.Provider>
       </TooltipPrimitive.Root>
@@ -73,8 +75,8 @@ function TooltipTrigger({
         openOnClick
           ? (event) => {
               onClick?.(event)
-              // Radix's own click handler closes the tooltip; preventDefault
-              // stops it so a click/tap always lands on "open".
+              // Radix's own click handler force-closes the tooltip;
+              // preventDefault stops it so our toggle decides the state.
               event.preventDefault()
               openOnClick()
             }

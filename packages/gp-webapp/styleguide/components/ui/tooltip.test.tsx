@@ -37,6 +37,24 @@ describe('Tooltip', () => {
     )
   })
 
+  it('closes a click-opened tooltip on a second trigger click', async () => {
+    render(
+      <Tooltip openOnClick>
+        <TooltipTrigger>Campaign plan</TooltipTrigger>
+        <TooltipContent>Plan details</TooltipContent>
+      </Tooltip>,
+    )
+
+    fireEvent.click(screen.getByText('Campaign plan'))
+    await screen.findAllByText('Plan details')
+
+    fireEvent.click(screen.getByText('Campaign plan'))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Plan details')).not.toBeInTheDocument(),
+    )
+  })
+
   it('does not open on click without openOnClick', () => {
     render(
       <Tooltip>
