@@ -94,7 +94,7 @@ Never bypass the DTO and read `request` raw — the global pipe is what enforces
 
 ## Never
 
-- Never edit a file under `prisma/migrations/<timestamp>/` — applied migrations are immutable.
+- Never edit a file under `prisma/schema/migrations/<timestamp>/` — applied migrations are immutable.
 - Never expose this API to public traffic. It's an internal service consumed by `gp-api`; auth is network-level (VPC/SG).
 - Never bypass `createZodDto` for request validation — the global `ZodValidationPipe` is the only enforcement point.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
