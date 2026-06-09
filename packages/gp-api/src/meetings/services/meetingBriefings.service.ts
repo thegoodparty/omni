@@ -693,12 +693,13 @@ export class MeetingBriefingsService extends createPrismaBase(
     const ctx = await this.resolveDispatchContext(electedOffice)
     if (!ctx) return
 
-    // Only explicit false skips: the ICP columns are nullable until the
-    // Databricks backfill lands (gp-data-platform#473), so null/undefined
-    // fails open. Manual dispatches (dispatchManual) are not gated.
-    if (ctx.isServeIcp === false) {
+    // Fail closed: automated dispatches require an affirmative serve-ICP
+    // flag, so offices stay un-briefed until the Databricks backfill
+    // populates the column (gp-data-platform#473). Manual dispatches
+    // (dispatchManual) are not gated.
+    if (ctx.isServeIcp !== true) {
       this.logger.info(
-        { electedOfficeId: eo.id },
+        { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
         'skipping dispatch: position is not serve-ICP',
       )
       return
