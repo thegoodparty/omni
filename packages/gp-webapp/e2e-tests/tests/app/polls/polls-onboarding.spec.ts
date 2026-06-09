@@ -316,7 +316,11 @@ test.describe.serial('poll onboarding', () => {
   let sharedPollId: string
   let sharedContact: CsvRow
 
-  test('poll onboarding and expansion', async ({ page }) => {
+  // @queue-pipeline: needs the full async round-trip (gp-api consuming a
+  // pollAnalysisComplete SQS message, plus a ~240s Stripe-webhook wait), which a
+  // freshly-provisioned per-PR gp-api can't complete reliably. The full-stack CI
+  // run greps this out; it still runs against the warm dev stack and on demand.
+  test('poll onboarding and expansion @queue-pipeline', async ({ page }) => {
     // Set this test's timeout to 15 minutes. The "marked as expanding"
     // eventual check below can sleep up to ~240s waiting on the Stripe
     // webhook, so the overall budget must exceed the default 10 minutes to

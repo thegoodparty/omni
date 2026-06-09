@@ -260,7 +260,14 @@ jobs:
         # package.json dir, which here is packages/gp-webapp — one level above
         # e2e-tests — so it silently runs with NO config (no baseURL, no
         # globalSetup/clerkSetup) unless we point at the file explicitly.
-        run: npx playwright test --config="$PWD/playwright.config.ts" tests/
+        # Full-stack runs hit a freshly-provisioned per-PR gp-api. Exclude
+        # @queue-pipeline specs there: they need the full async round-trip
+        # (gp-api consuming a pollAnalysisComplete SQS message, plus a ~240s
+        # Stripe-webhook wait) which a cold per-PR stack can't complete reliably.
+        # They still run on the warm dev push and on demand.
+        run: >-
+          npx playwright test --config="$PWD/playwright.config.ts" tests/
+          ${{ needs.changes.outputs.gp_api == 'true' && '--grep-invert @queue-pipeline' || '' }}
         env:
           TEST_RUN_NAME: "E2E Tests - PR Preview"
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
