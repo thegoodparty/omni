@@ -21,6 +21,9 @@
     "test": "npx vitest run",
     "test:watch": "npx vitest"
   },
+  "prisma": {
+    "schema": "prisma/schema"
+  },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
