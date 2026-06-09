@@ -21,3 +21,5 @@ CLAUDE.local.md
 # Logs / OS
 *.log
 .DS_Store
+
+.claude/worktrees
