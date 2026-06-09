@@ -44,20 +44,25 @@ always resolves.
      open anyway (escape hatch for pre-existing or unrelated failures). Do not
      silently proceed.
 
-3. **Open or attach.**
-   - If the branch already has an open PR (`gh pr view --json number,url`), skip
-     creation and go straight to Phase 2 against it.
+3. **Open or attach.** Either way, pre-flight (step 2) must have passed first —
+   on a resume against an existing PR, run it before entering Phase 2.
+   - If the branch already has an open PR (`gh pr view --json number,url`), don't
+     recreate it; go straight to Phase 2 against it.
    - Otherwise push the branch and `gh pr create --base develop`. Write a
      **why-focused** body (the motivation and the tradeoff, not a file-by-file
      recap). Omit any test-plan section and any AI-authorship footer.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 
-Delegate is `delegate-reviewer[bot]`. It submits a GitHub **review**: `APPROVED`
-with body `Approved.`, or `COMMENTED` with `**N blocker(s).** Reply
-\`delegate review\` after fixing.`Findings carry stable`<!-- delegate-finding-id: <uuid> -->`markers; in-diff findings are inline review
-comments, out-of-diff findings live in the review body. Subsequent reviews are
-prefixed`_X resolved since last review, Y new._`.
+Delegate is `delegate-reviewer[bot]`. It submits a GitHub **review**:
+
+- `APPROVED` — body is `Approved.`
+- `COMMENTED` — body starts with `**N blocker(s).**` and asks you to reply
+  `delegate review` after fixing.
+
+Findings carry stable `<!-- delegate-finding-id: <uuid> -->` markers: in-diff
+findings are inline review comments, out-of-diff findings live in the review body.
+Re-reviews are prefixed `_X resolved since last review, Y new._`.
 
 Loop:
 
