@@ -20,6 +20,12 @@ if (!process.env.BASE_URL) {
 
 export default defineConfig({
   testDir: './tests',
+  // Run clerkSetup once before all tests, regardless of any path filter. (A
+  // project-dependency setup is skipped when the run is filtered to tests/.)
+  globalSetup: './global-setup.ts',
+  // The app's vitest unit tests are *.test.tsx/*.test.ts; never collect them as
+  // Playwright tests (they'd crash on `import { ... } from 'vitest'`).
+  testIgnore: ['**/*.test.ts', '**/*.test.tsx'],
   outputDir: './test-results',
   snapshotPathTemplate:
     '{testDir}/__visual_snapshots__/{testFileDir}/{testFileName}/{arg}{ext}',
@@ -52,12 +58,6 @@ export default defineConfig({
     {
       name: 'default',
       use: devices['Desktop Chrome'],
-      dependencies: ['global setup'],
-    },
-    {
-      name: 'global setup',
-      testDir: './',
-      testMatch: /global-setup\.ts/,
     },
   ],
 
