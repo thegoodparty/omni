@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import {
   Button,
@@ -13,7 +13,6 @@ import {
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useUser } from '@shared/hooks/useUser'
 import type { User } from 'helpers/types'
 import { resolveVoterContactGoal } from '../../components/budget'
@@ -43,7 +42,6 @@ const SuccessPage = ({
   showConfetti = true,
 }: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
   const [campaign] = useCampaign()
@@ -53,11 +51,6 @@ const SuccessPage = ({
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
 
-  // Onboarding flips campaign state server-side right before this page mounts;
-  // the client cache from earlier in the session is stale.
-  useEffect(() => {
-    void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
-  }, [queryClient])
 
   useEffect(() => {
     window.scrollTo(0, 0)
