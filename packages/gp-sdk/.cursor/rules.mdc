@@ -1,6 +1,6 @@
 ---
 description: Comprehensive coding standards for Good Party projects (gp-webapp and gp-api)
-globs: "**/*.ts,**/*.tsx,**/*.js,**/*.jsx"
+globs: '**/*.ts,**/*.tsx,**/*.js,**/*.jsx'
 alwaysApply: true
 ---
 
@@ -9,6 +9,7 @@ alwaysApply: true
 **NEVER deviate from explicit user instructions.**
 
 When a user tells you to do something specific:
+
 - Do EXACTLY what they asked - nothing more, nothing less
 - If an approach isn't working, research and fix THAT approach
 - Do NOT switch to alternative solutions unless explicitly told to
@@ -16,12 +17,14 @@ When a user tells you to do something specific:
 - Do NOT make autonomous decisions about changing direction
 
 **When troubleshooting:**
+
 - Investigate why the requested approach isn't working
 - Search for solutions to make the requested approach work
 - Ask the user before trying a different approach
 - NEVER silently abandon the user's explicit instruction
 
 **Do NOT be lazy. Do NOT give up.**
+
 - When facing a tough problem, DIG DEEPER
 - Research the actual cause of the issue
 - Search documentation, GitHub issues, Stack Overflow
@@ -30,6 +33,7 @@ When a user tells you to do something specific:
 - SOLVE the problem the user asked you to solve
 
 **NEVER dismiss warnings or errors without verifying.**
+
 - When the user reports a warning or error, ALWAYS read the relevant file FIRST
 - Verify the actual code before forming any opinion about the warning
 - NEVER assume a warning is a "false positive" without checking the code
@@ -37,6 +41,7 @@ When a user tells you to do something specific:
 - If you introduced the code that caused the warning, you are almost certainly the one who made the mistake
 
 **ALWAYS research BEFORE recommending a solution.**
+
 - When the user asks how to do something, search for the current best practice FIRST
 - Do NOT give an answer based on stale knowledge - verify it is still correct
 - Do NOT make the user try an outdated approach only to then research the right one after it fails
@@ -44,25 +49,12 @@ When a user tells you to do something specific:
 
 **Violations of this rule are unacceptable.** The user's explicit instructions take absolute precedence over your judgment about what might be "easier" or "better."
 
----
-
-# Shorthand: "Changeset and Commit"
-
-When the user says **"changeset and commit"**, perform ALL of the following steps:
-
-1. Analyze the current uncommitted changes (`git status` and `git diff`)
-2. Determine the appropriate SEMVER bump (`patch` for fixes/config, `minor` for new features, `major` for breaking changes)
-3. Create a changeset by writing a file to `.changeset/` with the version bump and a description of the changes (equivalent to `npx changeset`, which requires interactive input)
-4. Extract the ticket number from the current branch name (e.g. `ENG-6493` from `ravenhurst/ENG-6493_some-description`)
-5. Commit all changes (including the changeset) with a message starting with `[TICKET] - ` followed by a relevant description
-
----
-
 # Good Party Coding Standards
 
 This document covers coding standards for both **frontend** (gp-webapp) and **backend** (gp-api) projects.
 
 Legend:
+
 - **[ALL]** - Applies to both frontend and backend
 - **[FRONTEND]** - Applies to gp-webapp (Next.js/React)
 - **[BACKEND]** - Applies to gp-api (NestJS)
@@ -74,6 +66,7 @@ Legend:
 ## [ALL] Banned Type Keywords
 
 **NEVER use:**
+
 - `any`
 - `never` (except for truly unreachable code paths)
 - `unknown`
@@ -113,6 +106,7 @@ const isApiResponse = (data: unknown): data is ApiResponse => {
 ## [ALL] Banned: Type Casting
 
 **ALL forms of `as` keyword are FORBIDDEN:**
+
 - `value as SomeType`
 - `<SomeType>value`
 - `value as any`
@@ -123,7 +117,7 @@ const isApiResponse = (data: unknown): data is ApiResponse => {
 
 ```typescript
 // WRONG - Casting API response
-const data = await fetchData() as MyType
+const data = (await fetchData()) as MyType
 
 // CORRECT - Make fetch function generic
 const fetchData = async <T>(): Promise<T> => {
@@ -136,13 +130,14 @@ const data = await fetchData<MyType>()
 Object.keys(obj).map((key) => obj[key as keyof typeof obj])
 
 // CORRECT - Use Object.entries
-Object.entries(obj).map(([key, value]) => value)
+Object.entries(obj)
+  .map(([key, value]) => value)
 
-// WRONG - Casting reduce accumulator
-.reduce((acc, item) => ({ ...acc }), {} as Record<string, string>)
+  // WRONG - Casting reduce accumulator
+  .reduce((acc, item) => ({ ...acc }), {} as Record<string, string>)
 
-// CORRECT - Use generic parameter
-.reduce<Record<string, string>>((acc, item) => ({ ...acc }), {})
+  // CORRECT - Use generic parameter
+  .reduce<Record<string, string>>((acc, item) => ({ ...acc }), {})
 ```
 
 **[FRONTEND]** For React hooks:
@@ -263,13 +258,22 @@ export const isState = (v: string): v is State => {
 ```typescript
 // WRONG - Same interface in multiple files
 // File 1:
-interface Race { id: number; slug: string }
+interface Race {
+  id: number
+  slug: string
+}
 // File 2:
-interface RaceItem { id: number; slug: string }
+interface RaceItem {
+  id: number
+  slug: string
+}
 
 // CORRECT - Define once, import everywhere
 // shared/types.ts
-export interface Race { id: number; slug: string }
+export interface Race {
+  id: number
+  slug: string
+}
 
 // Any other file
 import { Race } from '@shared/types'
@@ -284,6 +288,7 @@ Abstract repeated code into reusable functions, classes, or modules.
 ### [FRONTEND] Check helpers/types.ts First
 
 Before defining any interface for core data models (User, Campaign, etc.):
+
 1. Check `helpers/types.ts` for existing type
 2. If exists, import it
 3. If not exists, add it to `helpers/types.ts`
@@ -291,6 +296,7 @@ Before defining any interface for core data models (User, Campaign, etc.):
 ### [FRONTEND] Check gp-api for API Response Types
 
 When typing API responses, FIRST check `gp-api/src/`:
+
 - Controllers: `src/*/*.controller.ts` - return types
 - Schemas: `src/*/schemas/*.schema.ts` - Zod schemas
 - DTOs: `src/*/*.dto.ts` - Data transfer objects
@@ -298,7 +304,7 @@ When typing API responses, FIRST check `gp-api/src/`:
 ```typescript
 // WRONG - Assumed response shape
 interface PhoneListResponse {
-  phoneListToken: string  // API actually returns "token"!
+  phoneListToken: string // API actually returns "token"!
 }
 
 // CORRECT - Checked gp-api schema first
@@ -316,16 +322,17 @@ Always prefer library types over custom definitions:
 ```typescript
 import { SearchParams } from 'next/dist/server/request/search-params'
 
-export default async function Page({ 
-  params, 
-  searchParams 
-}: { 
+export default async function Page({
+  params,
+  searchParams,
+}: {
   params: Promise<{ slug: string }>
   searchParams: SearchParams
 }): Promise<React.JSX.Element>
 ```
 
 Common frontend library types:
+
 - `next/dist/server/request/search-params` → `SearchParams`
 - `react` → `React.JSX.Element`, `React.ReactNode`
 - `@mui/material` → `ButtonProps`, `TextFieldProps`
@@ -346,6 +353,7 @@ type WebsiteWithDomain = Prisma.WebsiteGetPayload<{
 ## [ALL] Import/Export Verification
 
 When modifying files with imports or exports:
+
 - Before removing a file, check for all imports of that file
 - Before removing an export, check for all imports of that export
 - After renaming a file, update all imports that reference it
@@ -391,6 +399,7 @@ if (isStateAbbreviation(upperState)) {
 ```
 
 Use if-else when:
+
 - Multiple statements per branch
 - Complex logic
 - Early returns/guard clauses
@@ -425,6 +434,7 @@ return someAsyncFunction()
 ## [ALL] Remove Code Completely
 
 When removing code:
+
 - Delete it completely - never leave commented-out blocks
 - Remove all associated unused imports
 - Check for other code that depended on it
@@ -454,16 +464,10 @@ Use `null` for uninitialized context, never cast empty objects:
 
 ```typescript
 // WRONG
-export const MyContext = createContext<[Type, Setter]>([
-  {} as Type,
-  () => {},
-])
+export const MyContext = createContext<[Type, Setter]>([{} as Type, () => {}])
 
 // CORRECT
-export const MyContext = createContext<[Type | null, Setter]>([
-  null,
-  () => {},
-])
+export const MyContext = createContext<[Type | null, Setter]>([null, () => {}])
 ```
 
 ---
@@ -596,7 +600,7 @@ export class MyModelService extends createPrismaBase(MODELS.MyModel) {
   constructor() {
     super()
   }
-  
+
   customMethod() {
     return this.model.create({ data: {...} })
   }
@@ -712,12 +716,14 @@ const contentType = 'application/json'
 **Default: Avoid JSON columns** - Use strongly-typed relational columns instead.
 
 **When NOT to use JSON:**
+
 - Data has known structure → Use proper columns
 - Sub-fields need to be queried → Use separate model with relations
 - Data needs validation → Use typed fields with validators
 - Relationships exist → Use proper relations
 
 **When JSON is acceptable:**
+
 - Truly dynamic/unpredictable data (user-generated key-value pairs)
 - Sparse optional data (>20 optional fields rarely populated)
 
@@ -745,6 +751,7 @@ model BlogArticle {
 ### File Organization
 
 Place test files alongside the feature they test:
+
 - `src/authentication/tests/login.e2e.ts`
 - `src/campaigns/tasks/tests/list-tasks.e2e.ts`
 
@@ -783,7 +790,10 @@ expect(response.status()).toBe(HttpStatus.NO_CONTENT)
 ### Use Faker for Test Data
 
 ```typescript
-import { generateRandomEmail, generateRandomName } from '../../../e2e-tests/utils/auth.util'
+import {
+  generateRandomEmail,
+  generateRandomName,
+} from '../../../e2e-tests/utils/auth.util'
 
 const email = generateRandomEmail()
 const firstName = generateRandomName()
@@ -796,6 +806,7 @@ const firstName = generateRandomName()
 ## [ALL] Git Commit Format
 
 All git commit commands MUST:
+
 - Be in a bash code block
 - Include the `-a` flag
 
@@ -808,6 +819,7 @@ git commit -a -m "feat: add new feature"
 ## [ALL] File Deletion Verification
 
 When deleting files:
+
 1. Verify file exists first
 2. Use `delete_file` tool (try relative path, then absolute)
 3. Verify deletion success afterward
@@ -817,6 +829,7 @@ When deleting files:
 ## [ALL] Strict Implementation Scope
 
 Only create or implement EXACTLY what is explicitly requested:
+
 - Don't add additional files, features, or functionality beyond the request
 - Ask for clarification if scope is unclear
 - Wait for explicit instructions before adding functionality
