@@ -1,5 +1,15 @@
 # @goodparty_org/contracts
 
+## 0.14.0
+
+### Minor Changes
+
+- `UserMetaData` gains an optional `websiteSunsetModalDismissed` boolean so
+  the dashboard website-sunset modal can record per-candidate dismissal
+  server-side (replacing a browser-global localStorage flag that leaked the
+  dismissal across impersonated candidates). User-writable via
+  `PUT /users/me/metadata`. Additive and non-breaking.
+
 ## 0.13.0
 
 ### Minor Changes

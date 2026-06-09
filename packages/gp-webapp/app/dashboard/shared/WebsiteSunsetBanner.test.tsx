@@ -5,8 +5,8 @@ import { WebsiteSunsetBanner } from './WebsiteSunsetBanner'
 import { HUBSPOT_DOMAIN_TRANSFER_FORM_URL } from './websiteSunset'
 
 describe('WebsiteSunsetBanner', () => {
-  it('shows the discontinuation notice and a Transfer link to the HubSpot form when the candidate has a website', () => {
-    render(<WebsiteSunsetBanner hasWebsite />)
+  it('shows the discontinuation notice and a Transfer link to the HubSpot form when the candidate is eligible', () => {
+    render(<WebsiteSunsetBanner eligible />)
 
     expect(
       screen.getByText(
@@ -25,8 +25,8 @@ describe('WebsiteSunsetBanner', () => {
     expect(cta).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
-  it('renders nothing when the candidate has no website', () => {
-    const { container } = render(<WebsiteSunsetBanner hasWebsite={false} />)
+  it('renders nothing when the candidate is not eligible', () => {
+    const { container } = render(<WebsiteSunsetBanner eligible={false} />)
 
     expect(container).toBeEmptyDOMElement()
     expect(
