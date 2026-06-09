@@ -162,11 +162,15 @@ jobs:
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Generous budget: the full-stack gate waits on gp-api's (slow) deploy before
+    # the ~15-min suite runs. It fails fast if gp-api's deploy fails, so the large
+    # budget is only ever spent when gp-api is genuinely still deploying.
+    timeout-minutes: 45
     permissions:
       contents: read
       pull-requests: write
       id-token: write
+      statuses: read
     env:
       BASE_URL: ${{ needs.deploy.outputs.url }}
     steps:
@@ -188,33 +192,50 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Full-stack: when gp-api changed, the webapp was built against this PR's
-      # gp-api stack (or, on develop, gp-api-dev). Wait until that stack is
-      # actually serving THIS commit before testing. Liveness is not enough on
-      # branch builds (dev is always up on the prior commit), so poll
-      # /v1/version for the expected SHA. pulumi waits for ECS steady state, so a
-      # SHA match means the new tasks are live.
+      # gp-api stack (or, on develop, gp-api-dev). Wait until that deploy of THIS
+      # commit is done before testing. gp-api's validate+build+ECS path is much
+      # slower than the webapp deploy, so a blind timer off the (fast) webapp
+      # deploy can't cover it. Instead wait on gp-api's `full-stack/gp-api` commit
+      # status (terminal signal, fail fast on failure), then confirm the edge is
+      # serving this commit via /v1/version. Liveness alone is not enough on
+      # branch builds, where dev is always up on the prior commit.
       - name: Wait for gp-api deploy
         if: needs.changes.outputs.gp_api == 'true'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
+          echo "Waiting for gp-api deploy status on $EXPECTED_SHA"
+          for i in $(seq 1 150); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_SHA/statuses" \
+              --jq '[.[] | select(.context=="full-stack/gp-api")] | first | .state // "pending"')
+            echo "  attempt $i/150: gp-api deploy status=$state"
+            case "$state" in
+              success) break ;;
+              failure|error)
+                echo "::error::gp-api deploy failed for $EXPECTED_SHA"
+                exit 1 ;;
+            esac
+            if [ "$i" = 150 ]; then
+              echo "::error::timed out waiting for gp-api deploy status on $EXPECTED_SHA"
+              exit 1
+            fi
+            sleep 10
+          done
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             API_BASE="https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org"
           else
             API_BASE="https://gp-api-dev.goodparty.org"
           fi
-          echo "Waiting for $API_BASE to serve $EXPECTED_SHA"
-          for i in $(seq 1 72); do
+          echo "Confirming $API_BASE is serving $EXPECTED_SHA"
+          for i in $(seq 1 18); do
             got="$(curl -fsS "$API_BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
-            echo "  attempt $i/72: ${got:-<none>}"
-            if [ "$got" = "$EXPECTED_SHA" ]; then
-              echo "gp-api is serving $EXPECTED_SHA"
-              exit 0
-            fi
+            [ "$got" = "$EXPECTED_SHA" ] && { echo "gp-api serving $EXPECTED_SHA"; exit 0; }
             sleep 10
           done
-          echo "::error::Timed out waiting for gp-api $EXPECTED_SHA at $API_BASE"
+          echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
           exit 1
 
       # No --reporter override here: the playwright config emits list + html +

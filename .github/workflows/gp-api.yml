@@ -23,6 +23,7 @@ permissions:
   contents: read
   id-token: write
   pull-requests: write
+  statuses: write
 
 concurrency:
   group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -158,6 +159,21 @@ jobs:
         if: steps.pulumi.outputs.service_url != ''
         run: echo "gp-api ${{ steps.ctx.outputs.environment }} deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
 
+      # Signal the gp-webapp full-stack gate: this commit's gp-api deploy is done.
+      # pulumi above waits for ECS steady state, so success here means the new
+      # tasks are serving. The webapp e2e waits on this status (fail fast).
+      - name: Report deploy status for full-stack gate
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STATE=success
+          [ "${{ job.status }}" = "success" ] || STATE=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$STATE" \
+            -f context="full-stack/gp-api" \
+            -f description="gp-api deploy $STATE" >/dev/null
+
   preview:
     name: Deploy PR preview
     needs: validate
@@ -227,3 +243,18 @@ jobs:
       - name: Add preview summary
         if: steps.pulumi.outputs.service_url != ''
         run: echo "gp-api preview deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
+
+      # Signal the gp-webapp full-stack gate: this commit's gp-api preview is
+      # done. pulumi above waits for ECS steady state, so success here means the
+      # new tasks are serving. The webapp e2e waits on this status (fail fast).
+      - name: Report preview status for full-stack gate
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STATE=success
+          [ "${{ job.status }}" = "success" ] || STATE=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$STATE" \
+            -f context="full-stack/gp-api" \
+            -f description="gp-api preview $STATE" >/dev/null
