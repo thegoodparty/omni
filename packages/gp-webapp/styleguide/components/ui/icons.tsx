@@ -64,4 +64,10 @@ export {
   ChevronUp as ChevronUpIcon,
   Circle as CircleIcon,
   CircleCheck as CircleCheckIcon,
+  BadgeCheck as BadgeCheckIcon,
+  CalendarDays as CalendarDaysIcon,
+  FolderHeart as FolderHeartIcon,
+  Gift as GiftIcon,
+  HandHeart as HandHeartIcon,
+  Megaphone as MegaphoneIcon,
 } from 'lucide-react'
