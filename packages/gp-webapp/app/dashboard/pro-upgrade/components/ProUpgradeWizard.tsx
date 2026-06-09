@@ -7,15 +7,17 @@ import {
   useEffect,
   useMemo,
 } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { Button, Progress } from '@styleguide'
-import { FocusedExperienceWrapper } from 'app/dashboard/shared/FocusedExperienceWrapper'
+import { Button, Stepper } from '@styleguide'
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { noop } from '@shared/utils/noop'
 import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   PRO_UPGRADE_BASE_PATH,
+  PRO_UPGRADE_STEP,
   PRO_UPGRADE_STEP_ORDER,
   proUpgradeStepPath,
   type ProUpgradeStep,
@@ -25,9 +27,18 @@ import {
 // pro-upgrade3 = off fallback and is intentionally left untouched.
 const PRO_SIGN_UP_PATH = '/dashboard/pro-sign-up'
 
-// The Figma card is 640px wide with 48px/32px padding; the wrapper's md:p-16
-// default leaves only 512px of content and wraps the step headlines.
-const CARD_PADDING = 'md:px-12 md:py-8'
+// The desktop vertical stepper covers only the four collection steps (Figma
+// 7490:18728). value-prop, status, the off-order routes (guidance,
+// filing-instructions), and the post-payment SUCCESS surface render the card
+// alone.
+const STEPPER_STEPS: { step: ProUpgradeStep; label: string }[] = [
+  { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
+  { step: PRO_UPGRADE_STEP.FILING_DETAILS, label: 'Campaign details' },
+  { step: PRO_UPGRADE_STEP.CANDIDATE_PROFILE, label: 'Candidate profile' },
+  { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
+]
+
+const STEPPER_LABELS = STEPPER_STEPS.map(({ label }) => label)
 
 interface ProUpgradeWizardContextValue {
   // null on the wizard index (before redirect) or on any non-step path.
@@ -57,6 +68,53 @@ const stepFromPathname = (pathname: string | null): ProUpgradeStep | null => {
   // it as a step so the chrome can render Back without offering linear nav.
   if (match) return match
   return segment ? (segment as ProUpgradeStep) : null
+}
+
+// Page chrome per the Figma EIN frame (7490:18728): an Exit ghost link in a
+// top nav, then the 640px card centered next to the desktop-only vertical
+// stepper. stepperStep is 1-based; 0 means the current step isn't on the
+// stepper, so only the card renders.
+interface WizardChromeProps {
+  stepperStep: number
+  children: React.ReactNode
+}
+
+const WizardChrome = ({
+  stepperStep,
+  children,
+}: WizardChromeProps): React.JSX.Element => {
+  const pathname = usePathname()
+
+  return (
+    <div className="min-h-screen bg-white px-6">
+      <nav className="py-3">
+        <Button
+          asChild
+          variant="ghost"
+          size="small"
+          className="text-base-muted-foreground"
+          onClick={() => trackEvent(EVENTS.ProUpgrade.ClickExit, { pathname })}
+        >
+          <Link href="/dashboard">
+            <ArrowLeftIcon /> Exit
+          </Link>
+        </Button>
+      </nav>
+      <main className="mx-auto flex max-w-5xl justify-center gap-16 pt-6 pb-20">
+        {stepperStep > 0 && (
+          <Stepper
+            variant="vertical"
+            currentStep={stepperStep}
+            labels={STEPPER_LABELS}
+            className="w-72 shrink-0 max-lg:hidden"
+          />
+        )}
+        <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
+          {children}
+        </div>
+      </main>
+    </div>
+  )
 }
 
 interface ProUpgradeWizardProps {
@@ -112,9 +170,9 @@ const ProUpgradeWizard = ({
   // Hold the experience with a spinner only while the flag is resolving.
   if (!ready) {
     return (
-      <FocusedExperienceWrapper className={CARD_PADDING}>
+      <WizardChrome stepperStep={0}>
         <LoadingAnimation />
-      </FocusedExperienceWrapper>
+      </WizardChrome>
     )
   }
 
@@ -123,48 +181,12 @@ const ProUpgradeWizard = ({
   // router.replace can't strand the user on a permanent "loading" screen.
   if (!enabled) return null
 
-  // Show Back on the middle linear steps and on off-order routes
-  // (filing-instructions dead-end and the guidance interstitial, orderIndex -1,
-  // where goToPreviousStep falls back to router.back()). No Back on value-prop
-  // (index 0, nothing before it) or the post-payment SUCCESS surface (last
-  // index — must not navigate back to PAYMENT).
-  const canGoBack =
-    currentStep !== null &&
-    (orderIndex === -1 ||
-      (orderIndex > 0 && orderIndex < PRO_UPGRADE_STEP_ORDER.length - 1))
-  // value-prop (index 0) and the post-payment SUCCESS surface (last index)
-  // don't show step progress.
-  const showProgress =
-    orderIndex > 0 && orderIndex < PRO_UPGRADE_STEP_ORDER.length - 1
-  // The bar spans the visible steps only (index 1 .. last-1). Excluding both
-  // value-prop and SUCCESS from the denominator makes the final visible step
-  // (PAYMENT) read 100% instead of capping short.
-  const progressValue = showProgress
-    ? (orderIndex / (PRO_UPGRADE_STEP_ORDER.length - 2)) * 100
-    : 0
+  const stepperStep =
+    STEPPER_STEPS.findIndex(({ step }) => step === currentStep) + 1
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <FocusedExperienceWrapper className={CARD_PADDING}>
-        {(canGoBack || showProgress) && (
-          <div className="mb-6 flex items-center gap-3">
-            {canGoBack && (
-              <Button
-                variant="ghost"
-                size="small"
-                onClick={goToPreviousStep}
-                aria-label="Go back"
-              >
-                <ArrowLeftIcon className="h-5 w-5" />
-              </Button>
-            )}
-            {showProgress && (
-              <Progress value={progressValue} className="flex-1" />
-            )}
-          </div>
-        )}
-        {children}
-      </FocusedExperienceWrapper>
+      <WizardChrome stepperStep={stepperStep}>{children}</WizardChrome>
     </ProUpgradeWizardContext.Provider>
   )
 }

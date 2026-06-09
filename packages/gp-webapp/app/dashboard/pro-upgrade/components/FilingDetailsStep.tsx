@@ -149,6 +149,8 @@ const FilingDetailsForm = ({
     if (!loading) submittingRef.current = false
   }, [loading])
 
+  const { goToPreviousStep } = useProUpgradeWizard()
+
   const handleContinue = () => {
     if (!isValid) {
       setAttemptedSubmit(true)
@@ -284,7 +286,10 @@ const FilingDetailsForm = ({
         </div>
       </div>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button
           size="large"
           onClick={handleContinue}

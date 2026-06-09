@@ -38,6 +38,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockUpdateCampaign = vi.mocked(updateCampaign)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed EIN with an IRS-issued prefix (12) that is not a placeholder.
 const CLEAN_EIN = '12-3456780'
@@ -58,7 +59,7 @@ describe('EinStep', () => {
       currentStep: 'ein',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: no EIN on file yet, persistence succeeds.
     seedCampaign(undefined)
@@ -70,6 +71,13 @@ describe('EinStep', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.EinViewed,
     )
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<EinStep />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('renders the EIN input and the IRS link', () => {

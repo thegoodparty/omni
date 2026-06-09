@@ -68,6 +68,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockSubmit = vi.mocked(submitTcrCompliance)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed, non-placeholder EIN with an IRS-issued prefix.
 const CLEAN_EIN = '12-3456780'
@@ -149,7 +150,7 @@ describe('FilingDetailsStep', () => {
       currentStep: 'filing-details',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: a local candidate with EIN already collected at the prior step.
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })
@@ -183,6 +184,15 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
     expect(screen.getByLabelText('Phone')).toBeInTheDocument()
     expect(screen.getByTestId('select-address')).toBeInTheDocument()
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<FilingDetailsStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockSubmit).not.toHaveBeenCalled()
   })
 
   it('submits the mapped payload to createAgentic and advances on success', async () => {

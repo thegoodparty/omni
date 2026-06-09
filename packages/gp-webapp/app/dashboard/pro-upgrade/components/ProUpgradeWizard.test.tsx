@@ -71,9 +71,8 @@ describe('ProUpgradeWizard', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
-  it('does not show a Back control on the post-payment success surface', () => {
+  it('renders an Exit link to the dashboard', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
-    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
 
     render(
       <ProUpgradeWizard>
@@ -81,16 +80,15 @@ describe('ProUpgradeWizard', () => {
       </ProUpgradeWizard>,
     )
 
-    expect(
-      screen.queryByRole('button', { name: /go back/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /exit/i })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    )
   })
 
-  it('shows a Back control on the filing-instructions dead-end (off-order route)', () => {
+  it('shows the vertical stepper with the active step on a collection step', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
-    mockUsePathname.mockReturnValue(
-      '/dashboard/pro-upgrade/filing-instructions',
-    )
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/filing-details')
 
     render(
       <ProUpgradeWizard>
@@ -98,6 +96,29 @@ describe('ProUpgradeWizard', () => {
       </ProUpgradeWizard>,
     )
 
-    expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument()
+    const active = screen.getByText('Campaign details').closest('li')
+    expect(active).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('Campaign EIN').closest('li')).not.toHaveAttribute(
+      'aria-current',
+    )
+    expect(screen.getByText('Candidate profile')).toBeInTheDocument()
+    expect(screen.getByText('Payment')).toBeInTheDocument()
+    // The old top-of-card progress bar is gone from the design.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('does not show the stepper on steps outside the four collection steps', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+
+    for (const step of ['value-prop', 'status', 'guidance', 'success']) {
+      mockUsePathname.mockReturnValue(`/dashboard/pro-upgrade/${step}`)
+      const { unmount } = render(
+        <ProUpgradeWizard>
+          <div>step-content</div>
+        </ProUpgradeWizard>,
+      )
+      expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
+      unmount()
+    }
   })
 })
