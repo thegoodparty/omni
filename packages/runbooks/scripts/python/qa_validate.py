@@ -573,9 +573,15 @@ def flag_numeric_review(claim: dict, blockable: set[str]) -> dict[str, list[str]
         raw = extract_literals(text, kind)
         if raw:
             labels[kind] = raw
-    # No precise kind matched but a digit is present — fall back to the broad
-    # extractor so the prompt still lists the actual figures (e.g. "$.05").
-    return labels or {_GENERIC_NUMERIC_KIND: _bare_numbers(text)}
+    # Always add the broad-extractor figures the precise kinds missed, so a claim that
+    # mixes formats (e.g. "$5,000,000" AND "$.05") never drops the gap figure from the
+    # judge's list. A bare token already represented by a precise label (its digits
+    # appear within a labeled value, e.g. "4"/"1" inside a "4-1" vote) is skipped.
+    labeled = " ".join(v for vs in labels.values() for v in vs)
+    gaps = [n for n in _bare_numbers(text) if n not in labeled]
+    if gaps:
+        labels[_GENERIC_NUMERIC_KIND] = gaps
+    return labels or {_GENERIC_NUMERIC_KIND: []}
 
 
 def _format_safe(template: str, data: dict) -> str:
@@ -2534,31 +2540,41 @@ def phase2_escalate(
 # ── Fail-open guard ───────────────────────────────────────────────────────────
 
 def check_high_weight_unadjudicated(
-    traces: list[ClaimTrace], blockable: set[str], *, llm_expected: bool
+    traces: list[ClaimTrace], blockable: set[str], *, llm_expected: bool, p2_expected: bool = False
 ) -> Optional[DeterministicCheck]:
     """Guard against silent fail-open when judge review was expected but did not run.
 
-    A high-weight/blockable claim with no Phase 1 verdict falls through to 'ok'
-    unreviewed. That is correct when the operator opted out of LLM review (--no-llm)
-    or no judge is configured. But when a judge WAS expected (`llm_expected`) and
-    still did not run — judge unavailable, missing API key, provider outage — those
-    claims pass without the review the verdict depends on. This is a general guard,
-    not numeric-specific: every blockable type (budget, vote, legal, date, name, …)
-    shares the hole the numeric flag merely exposed.
+    A high-weight/blockable claim that the verdict depends on can slip through unreviewed
+    at two points:
+      - Phase 1 never ran (`llm_expected` but `phase1 is None`) — falls through to 'ok'.
+      - Phase 1 flagged it not-OK and Phase 2 never ran (`p2_expected` but `phase2 is
+        None`) — the block decision lives in Phase 2, so it silently downgrades to 'warn'.
+    Both happen on judge unavailability (missing API key, provider outage). This is a
+    general guard, not numeric-specific: every blockable type (budget, vote, legal, date,
+    name, …) shares the hole the numeric flag merely exposed.
 
-    Returns a blocking check when such claims exist, else None. Its route='block'
-    flips release_verdict to 'block' unconditionally (like any block check); the
-    non-zero exit is gated by --enforce-verdict, matching the spine's report-don't-
-    enforce mode. Stays silent when review was not expected.
+    Silent when review was not expected (--no-llm or no judge configured). Returns a
+    blocking check when such claims exist, else None. Its route='block' flips
+    release_verdict to 'block' unconditionally (like any block check); the non-zero exit
+    is gated by --enforce-verdict, matching the spine's report-don't-enforce mode.
     """
     if not llm_expected:
         return None
-    unadjudicated = [
-        t.claim.get("claim_id", "<no-id>")
-        for t in traces
-        if (t.claim.get("claim_type") in blockable or t.claim.get("claim_weight") == "high")
-        and t.phase1 is None
-    ]
+
+    def _is_high_weight(t: ClaimTrace) -> bool:
+        c = t.claim
+        return c.get("claim_type") in blockable or c.get("claim_weight") == "high"
+
+    unadjudicated: list[str] = []
+    for t in traces:
+        if not _is_high_weight(t):
+            continue
+        # Phase 1 never produced a verdict for this claim.
+        if t.phase1 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
+        # Phase 1 said not-OK and Phase 2 (where the block decision is made) didn't run.
+        elif p2_expected and not t.phase1.is_ok and t.phase2 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
     if not unadjudicated:
         return None
     return DeterministicCheck(
@@ -2818,9 +2834,12 @@ def main() -> None:
                 "name": p1_judge.name, "provider": p1_judge.provider, "model": p1_judge.model,
             }
             p1_results = phase1_triage(claims, p1_judge, ok_cats, blockable)
-            p1_map = {r.claim_id: r for r in p1_results}
-            for trace in traces:
-                trace.phase1 = p1_map.get(trace.claim.get("claim_id", ""))
+            # Attach positionally: phase1_triage returns exactly one result per claim in
+            # order, so this is robust to a missing or duplicate claim_id. A claim_id-keyed
+            # map would mis-attach (claim_id absent → phase1 falls to None), which the
+            # unadjudicated guard would then read as "never reviewed" and false-block.
+            for trace, result in zip(traces, p1_results):
+                trace.phase1 = result
             not_ok = sum(1 for r in p1_results if not r.is_ok)
             print(f"  Phase 1 done: {not_ok}/{len(p1_results)} claims not-OK")
     else:
@@ -2870,9 +2889,13 @@ def main() -> None:
 
     # 5. Route + release_verdict
     # Fail-open guard: if a judge was expected (not --no-llm, judge configured) but a
-    # high-weight claim went unadjudicated, block rather than silently pass it.
+    # high-weight claim went unadjudicated — Phase 1 never ran, or Phase 1 flagged it
+    # not-OK and Phase 2 never ran — block rather than silently pass it.
     llm_expected = (not args.no_llm) and bool(p1_name)
-    unadjudicated_guard = check_high_weight_unadjudicated(traces, blockable, llm_expected=llm_expected)
+    p2_expected = (not args.no_llm) and bool(p2_name)
+    unadjudicated_guard = check_high_weight_unadjudicated(
+        traces, blockable, llm_expected=llm_expected, p2_expected=p2_expected
+    )
     if unadjudicated_guard is not None:
         det_checks.append(unadjudicated_guard)
     status, reason = route(det_checks, traces, blockable)

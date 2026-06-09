@@ -183,6 +183,10 @@ def _structured_artifact(claim_text: str, snapshot: str, claim_type="budget_numb
         # are the cases that motivated the branch and that the old detector dropped.
         ("budget_number", "high", "the fee is $.05 per page", {"number": ["$.05"]}),
         ("budget_number", "high", "the table amount is 186,115.00", {"number": ["186,115.00"]}),
+        # MIXED formats: a precise match ($5,000,000) must NOT suppress a figure the
+        # precise extractor misses ($.05) — both reach the judge's list.
+        ("budget_number", "high", "approved $5,000,000 plus a $.05 surcharge",
+         {"money": ["$5,000,000"], "number": ["$.05"]}),
         # finding 2: a numeric claim MISCLASSIFIED into a non-numeric, non-blockable type
         # is still flagged when high-weight — detection does not trust claim_type.
         ("background_context", "high", "approved a $5,000,000 bond", {"money": ["$5,000,000"]}),
@@ -369,6 +373,38 @@ def test_unadjudicated_guard_silent_when_high_weight_claims_reviewed(spec_no_lay
     traces = [_weighted_trace("budget_number", "high", True),
               _weighted_trace("background_context", "low", None)]
     assert qa_validate.check_high_weight_unadjudicated(traces, blockable, llm_expected=True) is None
+
+
+def test_unadjudicated_guard_blocks_when_phase2_expected_but_absent(spec_no_layer1):
+    # Phase 1 flagged a high-weight claim not-OK, but Phase 2 — where the block decision is
+    # made — never ran (judge unavailable). Without this the verdict downgrades to warn.
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    traces = [_weighted_trace("budget_number", "high", False)]  # phase1 not-OK, phase2 None
+    chk = qa_validate.check_high_weight_unadjudicated(
+        traces, blockable, llm_expected=True, p2_expected=True
+    )
+    assert chk is not None and chk.route == "block"
+
+
+def test_unadjudicated_guard_silent_on_phase2_gap_when_p2_not_expected(spec_no_layer1):
+    # Backwards compat: with p2_expected defaulting False, a not-OK Phase 1 claim whose
+    # Phase 2 did not run is not flagged (e.g. no phase2 judge configured).
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    traces = [_weighted_trace("budget_number", "high", False)]
+    assert qa_validate.check_high_weight_unadjudicated(traces, blockable, llm_expected=True) is None
+
+
+def test_unadjudicated_guard_silent_when_phase2_completed(spec_no_layer1):
+    # Phase 2 produced a verdict → the normal block path owns it, not this guard.
+    blockable = qa_validate.blockable_types(spec_no_layer1)
+    t = _weighted_trace("budget_number", "high", False)
+    t.phase2 = qa_validate.Phase2Result(
+        claim_id="budget_number_high", accuracy_category="Incorrect",
+        reasoning="x", is_ok=False, proposed_correction=None,
+    )
+    assert qa_validate.check_high_weight_unadjudicated(
+        [t], blockable, llm_expected=True, p2_expected=True
+    ) is None
 
 
 # ── Check 2: source-hierarchy policy ──────────────────────────────────────────
