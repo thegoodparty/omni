@@ -21,7 +21,6 @@ dist/
 .vscode
 *.code-workspace
 temp-docs/
-CLAUDE.md
 .claude/
 
 # Debug

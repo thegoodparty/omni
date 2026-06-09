@@ -28,14 +28,15 @@ their workspace name.
 
 ```bash
 npm run start:dev -w gp-api          # gp-api on :3000
-npm run dev       -w good-party      # gp-webapp (package name is "good-party") on :4000
+npm run dev       -w packages/gp-webapp # gp-webapp on :4000
 npm run start:dev -w election-api    # :3001
 npm run start:dev -w people-api      # :3002
 npm run dev       -w gp-admin        # :3500
 npm run dev       -w candidate-sites # :4001
 ```
 
-The web app's workspace name is `good-party`, not `gp-webapp` — use that with `-w`.
+`npm`'s `-w` resolves either a workspace name or its path; the path form
+`-w packages/<dir>` always works and is unambiguous.
 
 ## Prisma
 

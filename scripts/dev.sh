@@ -22,7 +22,7 @@ echo "==> Starting gp-api on :3000"
 npm run start:dev -w gp-api &
 
 echo "==> Starting gp-webapp on :4000"
-npm run dev -w good-party &
+npm run dev -w packages/gp-webapp &
 
 echo "==> gp-api: http://localhost:3000   gp-webapp: http://localhost:4000"
 echo "==> Press Ctrl+C to stop."

@@ -65,6 +65,16 @@ producer sends is read and every field the consumer expects is sent. gp-webapp
 currently keeps some of its own hand-rolled types in `packages/gp-webapp/gpApi` +
 `helpers/types.ts`; prefer contracts for new cross-service shapes.
 
+**In-tree, not published.** `@goodparty_org/contracts` and `@goodparty_org/sdk`
+(`packages/gp-sdk`) are in-tree workspace packages, not live npm-registry packages —
+despite the scoped names. Consumers depend on them via a `"*"` workspace dependency
+and a node_modules symlink, so a change is live the moment it builds: no version
+bump, no publish, no install. That is why a cross-boundary change goes in one PR
+rather than through a release. npm publishing is **intentionally disabled** in omni
+(see the "publish ... not enabled in omni yet" notes in
+`.github/workflows/{contracts,gp-sdk}.yml`). Both were published pre-monorepo; don't
+assume the scoped name implies a registry release.
+
 ## Data and schemas
 
 Each backend owns its own Postgres database, managed by Prisma with modular

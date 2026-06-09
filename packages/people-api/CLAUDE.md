@@ -28,14 +28,23 @@ npm run ai-rules:update        # advance the ai-rules submodule pin
 
 `npm run lint` runs `eslint --fix` — it mutates files. Stage your work first.
 
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/people-api.yml`) before opening a PR. There is no type-check step in CI here. From the repo root:
+
+```bash
+npm run lint -w packages/people-api   # eslint --fix (mutates files — stage first)
+npm run test -w packages/people-api   # vitest run
+```
+
 ## Pointer table — when in doubt
 
-| Doing | Read |
-|-------|------|
-| Adding an endpoint / module | `docs/architecture.md` § Module shape |
-| Touching the voter data flow | `docs/data-pipeline.md` |
-| First-time setup | `docs/getting-started.md` |
-| AI rule-by-rule code review | `ai-rules/` (git submodule) |
+| Doing                        | Read                                  |
+| ---------------------------- | ------------------------------------- |
+| Adding an endpoint / module  | `docs/architecture.md` § Module shape |
+| Touching the voter data flow | `docs/data-pipeline.md`               |
+| First-time setup             | `docs/getting-started.md`             |
+| AI rule-by-rule code review  | `ai-rules/` (git submodule)           |
 
 ## Code style
 
