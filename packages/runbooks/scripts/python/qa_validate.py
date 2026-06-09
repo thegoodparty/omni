@@ -575,9 +575,10 @@ def flag_numeric_review(claim: dict, blockable: set[str]) -> dict[str, list[str]
             labels[kind] = raw
     # Always add the broad-extractor figures the precise kinds missed, so a claim that
     # mixes formats (e.g. "$5,000,000" AND "$.05") never drops the gap figure from the
-    # judge's list. A bare token already represented by a precise label (its digits
-    # appear within a labeled value, e.g. "4"/"1" inside a "4-1" vote) is skipped.
-    labeled = " ".join(v for vs in labels.values() for v in vs)
+    # judge's list. Exact-set membership, NOT substring: a bare "1,000" must not be
+    # swallowed by a labeled "$1,000,000". Recall over precision — a sub-token of a
+    # multi-part value (e.g. "4"/"1" from a "4-1" vote) may be listed too; harmless.
+    labeled = {v for vs in labels.values() for v in vs}
     gaps = [n for n in _bare_numbers(text) if n not in labeled]
     if gaps:
         labels[_GENERIC_NUMERIC_KIND] = gaps

@@ -187,6 +187,10 @@ def _structured_artifact(claim_text: str, snapshot: str, claim_type="budget_numb
         # precise extractor misses ($.05) — both reach the judge's list.
         ("budget_number", "high", "approved $5,000,000 plus a $.05 surcharge",
          {"money": ["$5,000,000"], "number": ["$.05"]}),
+        # GAP-DEDUP must be exact-set, not substring: a distinct figure ("1,000") whose
+        # digits appear inside a labeled value ("$1,000,000") must still reach the judge.
+        ("budget_number", "high", "approved $1,000,000 for 1,000 residents",
+         {"money": ["$1,000,000"], "number": ["1,000"]}),
         # finding 2: a numeric claim MISCLASSIFIED into a non-numeric, non-blockable type
         # is still flagged when high-weight — detection does not trust claim_type.
         ("background_context", "high", "approved a $5,000,000 bond", {"money": ["$5,000,000"]}),

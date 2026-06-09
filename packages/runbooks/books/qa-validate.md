@@ -77,7 +77,7 @@ The spine routes validation by artifact shape and runs a set of config-driven ch
 
 The `diagnostic` route is recorded in `qa_bundle.json` but never drives `release_verdict`.
 
-Fail-open guard: because `numeric_review_flag` (and high-weight routing generally) depends on the judge actually running, the `high_weight_claims_unadjudicated` check blocks when a judge was expected (no `--no-llm`, a `judges.phase1` is configured) but did not run — judge unavailable, missing key, provider outage — and a high-weight/blockable claim therefore has no Phase 1 verdict. It stays silent on an intentional `--no-llm` run or when no judge is configured.
+Fail-open guard: because `numeric_review_flag` (and high-weight routing generally) depends on the judge actually running, the `high_weight_claims_unadjudicated` check blocks in two cases: (1) a judge was expected (no `--no-llm`, a `judges.phase1` is configured) but Phase 1 did not run — judge unavailable, missing key, provider outage — so a high-weight/blockable claim has no Phase 1 verdict; (2) Phase 1 ran and flagged a high-weight claim not-OK, a `judges.phase2` is configured, but Phase 2 did not run — same causes — so the block decision was never made. It stays silent on an intentional `--no-llm` run or when no judge is configured.
 
 ## Adding a new product
 
