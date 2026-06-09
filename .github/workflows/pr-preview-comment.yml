@@ -1,13 +1,13 @@
 name: PR preview comment
 
 # Posts a single, upserted comment listing the deterministic preview URL for each
-# app this PR actually touches. URLs are derived from the PR number (each Next app
-# aliases its PR preview to <slug>-pr-<N>-good-party.vercel.app; gp-api's Pulumi
-# preview is pr-<N>.preview.goodparty.org), so the comment can be posted
-# immediately on open/sync without waiting on the deploys and without racing to
-# edit a shared comment. Only apps whose paths filter matches the PR's changed
-# files are listed, so we never show dead links for apps that won't deploy. This
-# is the sole owner of the preview comment for every app, including gp-api.
+# app. URLs are derived from the PR number (each Next app aliases its PR preview
+# to <slug>-pr-<N>-good-party.vercel.app; gp-api's Pulumi preview is
+# pr-<N>.preview.goodparty.org), so the comment can be posted immediately on
+# open/sync without waiting on the deploys and without racing to edit a shared
+# comment. Every app is always listed; the disclaimer notes a URL only resolves
+# if that app's deploy job actually runs for the PR. This is the sole owner of
+# the preview comment for every app, including gp-api.
 
 on:
   pull_request:
@@ -33,93 +33,35 @@ jobs:
             const pr = context.issue.number
             const marker = '<!-- vercel-previews -->'
 
-            // Per-app path predicates mirror each workflow's
-            // on.pull_request.paths. A `/**` suffix is a prefix match; any other
-            // entry is an exact-file match.
             const apps = [
               {
                 name: 'gp-api',
                 url: `https://pr-${pr}.preview.goodparty.org`,
-                paths: [
-                  'packages/gp-api/**',
-                  'packages/contracts/**',
-                  'package.json',
-                  'package-lock.json',
-                  '.github/workflows/gp-api.yml',
-                  '.github/actions/**',
-                ],
               },
               {
                 name: 'gp-webapp',
                 url: `https://gp-ui-pr-${pr}-good-party.vercel.app`,
-                paths: [
-                  'packages/gp-webapp/**',
-                  'package.json',
-                  'package-lock.json',
-                  '.github/workflows/gp-webapp.yml',
-                  '.github/actions/**',
-                ],
               },
               {
                 name: 'gp-admin',
                 url: `https://gp-admin-web-pr-${pr}-good-party.vercel.app`,
-                paths: [
-                  'packages/gp-admin/**',
-                  'packages/gp-sdk/**',
-                  'packages/contracts/**',
-                  'package.json',
-                  'package-lock.json',
-                  '.github/workflows/gp-admin.yml',
-                  '.github/actions/**',
-                ],
               },
               {
                 name: 'candidate-sites',
                 url: `https://candidate-sites-pr-${pr}-good-party.vercel.app`,
-                paths: [
-                  'packages/candidate-sites/**',
-                  'package.json',
-                  'package-lock.json',
-                  '.github/workflows/candidate-sites.yml',
-                  '.github/actions/**',
-                ],
               },
             ]
 
-            const changed = await github.paginate(
-              github.rest.pulls.listFiles,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr,
-                per_page: 100,
-              },
-            )
-            const changedFiles = changed.map((f) => f.filename)
-
-            const matches = (pattern, file) => {
-              if (pattern.endsWith('/**')) {
-                return file.startsWith(pattern.slice(0, -2))
-              }
-              return file === pattern
-            }
-            const appMatched = (app) =>
-              app.paths.some((p) => changedFiles.some((f) => matches(p, f)))
-
-            const active = apps.filter(appMatched)
-
-            const body = active.length === 0
-              ? [marker, 'No app previews for this PR.'].join('\n')
-              : [
-                  marker,
-                  '## Preview deploys',
-                  '',
-                  '| App | Preview |',
-                  '|-----|---------|',
-                  ...active.map((a) => `| ${a.name} | ${a.url} |`),
-                  '',
-                  '> these preview URLs will work once deploys are complete below',
-                ].join('\n')
+            const body = [
+              marker,
+              '## Preview deploys',
+              '',
+              '| App | Preview |',
+              '|-----|---------|',
+              ...apps.map((a) => `| ${a.name} | ${a.url} |`),
+              '',
+              '> if there is a deploy job for the app below, it will be available once complete',
+            ].join('\n')
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,

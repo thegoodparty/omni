@@ -23,7 +23,8 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   the URL is predictable per PR.
 - `prod` deploys to the production target.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
-  comment on the PR covering all affected apps.
+  comment on the PR listing every app; a URL only resolves if that app's deploy
+  job runs for the PR.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
