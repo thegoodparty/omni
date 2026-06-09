@@ -91,7 +91,7 @@
     "rescue_threshold": 0.70
   },
 
-  "_structured_validators_comment": "WS2 P0. Per-claim-type opt-in deterministic extraction + exact match for high-stakes literals. For each declared claim_type, the spine extracts every token of the named kind from claim_text and requires each to appear, normalized, in the retrieved_text_or_snapshot of at least one cited source. kind is one of: money, date, name, vote_count, legal_citation, percentage. rounding_tolerance (money/percentage only) permits a numeric delta; absent or 0 means exact. These are extraction rules, not calibrated thresholds — the only numeric (rounding_tolerance) is 0 (exact) here because no rounding behavior was prompt-derivable; any non-zero tolerance must come from a committed fixture, never invented. Violations on high-weight/blockable claim types block; others annotate.",
+  "_structured_validators_comment": "WS2 P0, superseded by the numeric-review pivot. Per-claim-type kind metadata for high-stakes literals. RETAINED for operator reference and possible future exact-match use; qa_validate.py no longer reads this block to drive detection. numeric_review_flag is detection-only and is emitted for every high-weight claim regardless of this config (see the numeric_review_flag deterministic_check), and a wrong figure now blocks only via the judge verdict, never deterministically. kind is one of: money, date, name, vote_count, legal_citation, percentage. rounding_tolerance (money/percentage only) is reserved for future exact-match logic; currently unused.",
   "structured_validators": {
     "budget_number":    { "kind": "money",          "rounding_tolerance": 0 },
     "date_or_deadline": { "kind": "date" },
