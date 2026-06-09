@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react'
 import { Button } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
@@ -38,21 +37,21 @@ const GuidanceStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-2">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         Great! We&apos;ll need to gather a few things to get you set up for
         texting
-      </H2>
-      <Body2 className="text-secondary mb-8">
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         This is required to access voter data and send texts.
       </Body2>
 
-      <ol className="rounded-xl border border-gray-200">
+      <ol className="rounded-xl border border-base-border">
         {GATHER_STEPS.map((label, index) => (
           <li
             key={label}
-            className="flex items-center gap-3 border-t border-gray-200 p-4 first:border-t-0"
+            className="flex items-center gap-3 border-t border-base-border p-4 first:border-t-0"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 font-medium text-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-400">
               {index + 1}
             </span>
             <span>{label}</span>

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { ProBadge } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -34,21 +33,21 @@ const OrderSummary = (): React.JSX.Element => {
   const amountLabel = monthly === null ? null : `$${monthly.toFixed(2)}`
 
   return (
-    <aside className="rounded-xl border border-gray-200 p-6">
+    <aside className="rounded-xl border border-base-border p-6">
       <div className="flex items-center justify-between">
         <span className="font-medium">Pro Plan</span>
         <ProBadge />
       </div>
-      <Body2 className="text-secondary mt-1">Billed monthly</Body2>
+      <Body2 className="text-base-muted-foreground mt-1">Billed monthly</Body2>
 
       <div className="mt-6 flex items-baseline justify-between">
-        <span className="text-secondary">Monthly</span>
+        <span className="text-base-muted-foreground">Monthly</span>
         <span className="font-medium">
           {amountLabel === null ? '—' : `${amountLabel}/mo`}
         </span>
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
+      <div className="mt-4 flex items-center justify-between border-t border-base-border pt-4">
         <span className="font-semibold">Total</span>
         <span className="font-semibold">{amountLabel ?? '—'}</span>
       </div>
@@ -112,7 +111,9 @@ const PaymentStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-6">Complete your upgrade</H2>
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-6">
+        Complete your upgrade
+      </h1>
       <CheckoutSessionProvider createSession={createSession}>
         <PaymentContent onConfirmed={handleConfirmed} />
       </CheckoutSessionProvider>

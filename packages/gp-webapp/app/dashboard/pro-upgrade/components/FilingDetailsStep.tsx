@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import TextField from '@shared/inputs/TextField'
 import AddressAutocomplete from '@shared/AddressAutocomplete'
@@ -172,8 +171,10 @@ const FilingDetailsForm = ({
 
   return (
     <div>
-      <H2 className="mb-2">What are your campaign filing details?</H2>
-      <Body2 className="text-secondary mb-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        What are your campaign filing details?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         If these do not match the details you submitted on your campaign filing
         or registration, it will take much longer before you can send text
         messages.
@@ -236,7 +237,7 @@ const FilingDetailsForm = ({
           <div className="font-medium">
             Which of these appear on your campaign filing?
           </div>
-          <Body2 className="text-secondary mt-1 mb-4">
+          <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter them exactly as they appear on your campaign filing. You will
             receive a PIN within 7 business days to one of these to verify your
             campaign.
