@@ -92,6 +92,9 @@ jobs:
     concurrency:
       group: gp-api-deploy-${{ github.ref_name }}
       cancel-in-progress: false
+    outputs:
+      environment: ${{ steps.ctx.outputs.environment }}
+      service_url: ${{ steps.pulumi.outputs.service_url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -164,6 +167,9 @@ jobs:
     concurrency:
       group: gp-api-deploy-pr-${{ github.event.number }}
       cancel-in-progress: false
+    outputs:
+      environment: dev
+      service_url: ${{ steps.pulumi.outputs.service_url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -223,3 +229,107 @@ jobs:
       - name: Add preview summary
         if: steps.pulumi.outputs.service_url != ''
         run: echo "gp-api preview deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
+
+  e2e:
+    name: E2E Tests (shard ${{ matrix.shard }}/3)
+    needs: [preview, deploy]
+    if: >-
+      always()
+      && (needs.preview.result == 'success' || needs.deploy.result == 'success')
+      && (github.event_name == 'pull_request'
+          || (github.event_name == 'push' && github.ref_name == 'develop'))
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      ENVIRONMENT: ${{ needs.preview.outputs.environment || needs.deploy.outputs.environment }}
+      API_BASE_URL: ${{ needs.preview.outputs.service_url || needs.deploy.outputs.service_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: "true"
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: "true"
+
+      - name: Install Playwright browsers
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
+          CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          CANDIDATE_ID: ${{ env.ENVIRONMENT == 'qa' && secrets.QA_CANDIDATE_ID || secrets.DEV_CANDIDATE_ID }}
+          CAMPAIGN_SLUG: ${{ env.ENVIRONMENT == 'qa' && secrets.QA_CAMPAIGN_SLUG || secrets.DEV_CAMPAIGN_SLUG }}
+        run: >-
+          npx playwright test
+          --config=e2e-tests/playwright.config.ts
+          --shard=${{ matrix.shard }}/3
+          --reporter=blob
+
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gp-api-blob-report-${{ matrix.shard }}
+          path: ${{ env.WORKSPACE }}/blob-report
+          retention-days: 1
+          if-no-files-found: ignore
+
+  e2e-merge:
+    name: E2E Tests merge
+    needs: [preview, deploy, e2e]
+    if: >-
+      always()
+      && (needs.preview.result == 'success' || needs.deploy.result == 'success')
+      && (github.event_name == 'pull_request'
+          || (github.event_name == 'push' && github.ref_name == 'develop'))
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ env.WORKSPACE }}/all-blob-reports
+          pattern: gp-api-blob-report-*
+          merge-multiple: true
+
+      - name: Merge reports into HTML + JSON
+        working-directory: ${{ env.WORKSPACE }}
+        run: >-
+          npx playwright merge-reports
+          --config=e2e-tests/playwright.config.ts
+          ./all-blob-reports
+
+      - name: Upload merged report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gp-api-playwright-report-${{ github.sha }}
+          path: |
+            ${{ env.WORKSPACE }}/e2e-tests/playwright-report
+            ${{ env.WORKSPACE }}/e2e-tests/test-results
+          if-no-files-found: ignore
