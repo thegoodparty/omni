@@ -2,11 +2,11 @@
 
 ## Branch -> environment model
 
-| Branch    | Environment | Notes                          |
-| --------- | ----------- | ------------------------------ |
+| Branch    | Environment | Notes                             |
+| --------- | ----------- | --------------------------------- |
 | `develop` | dev         | Integration branch; PRs target it |
-| `qa`      | qa          | people-api has no qa env       |
-| `master`  | prod        |                                |
+| `qa`      | qa          | people-api has no qa env          |
+| `master`  | prod        |                                   |
 
 PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
 
@@ -16,9 +16,13 @@ gp-webapp, gp-admin, and candidate-sites deploy to Vercel imperatively via the
 Vercel CLI (no git integration), driven by GitHub Actions and the shared
 `.github/actions/vercel-deploy` composite action.
 
-- Each app is its own Vercel project; the build uses `rootDirectory=packages/<app>`.
+- Each app is its own Vercel project; the build runs **remotely on Vercel** (not
+  on the runner) using the project's configured `rootDirectory=packages/<app>`,
+  so system + integration-injected env vars are present at build time.
 - Env deploys (develop/qa) hit Vercel's **preview** target with branch-scoped env
-  vars, then alias the result to a stable domain (e.g. `dev.goodparty.org`).
+  vars (the action passes the branch as `--meta githubCommitRef=<branch>` so Vercel
+  applies branch-scoped preview env), then alias the result to a stable domain
+  (e.g. `dev.goodparty.org`).
 - PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
   the URL is predictable per PR.
 - `prod` deploys to the production target.
