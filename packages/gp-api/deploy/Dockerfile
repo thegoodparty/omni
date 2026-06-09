@@ -29,4 +29,10 @@ ENV NODE_ENV=production
 COPY packages/gp-api/deploy/docker-entrypoint.sh ./
 RUN chmod +x ./docker-entrypoint.sh
 
+# Deployed commit SHA, surfaced at runtime via GET /v1/version so deploys can be
+# gated on "the new build is actually serving". Placed last to avoid busting the
+# layer cache for earlier (content-addressed) layers.
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
+
 ENTRYPOINT ["./docker-entrypoint.sh"]

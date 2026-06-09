@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "packages/gp-webapp/**"
+      # gp-api/contracts so a backend or contract change runs the webapp e2e
+      # against this PR's full-stack build (see the changes job + deploy/e2e).
+      - "packages/gp-api/**"
+      - "packages/contracts/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/gp-webapp.yml"
@@ -12,6 +16,10 @@ on:
     branches: [develop, qa, master]
     paths:
       - "packages/gp-webapp/**"
+      # gp-api/contracts so a backend or contract change runs the webapp e2e
+      # against this PR's full-stack build (see the changes job + deploy/e2e).
+      - "packages/gp-api/**"
+      - "packages/contracts/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/gp-webapp.yml"
@@ -29,6 +37,25 @@ env:
   WORKSPACE: packages/gp-webapp
 
 jobs:
+  # Did this PR/push touch gp-api or contracts? Drives full-stack mode: point the
+  # webapp build at the per-PR gp-api preview and gate the e2e on it.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      gp_api: ${{ steps.filter.outputs.gp_api }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gp_api:
+              - 'packages/gp-api/**'
+              - 'packages/contracts/**'
+
   ci:
     name: Validate
     runs-on: ubuntu-latest
@@ -61,6 +88,7 @@ jobs:
 
   deploy:
     name: Deploy
+    needs: changes
     if: >-
       github.event_name == 'pull_request'
       || (github.event_name == 'push'
@@ -86,6 +114,12 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "target=preview" >> "$GITHUB_OUTPUT"
+            # Full-stack: when this PR touches gp-api, bake the per-PR backend so
+            # the preview + e2e exercise this PR's gp-api. Otherwise leave unset
+            # (the project default points at gp-api-dev).
+            if [ "${{ needs.changes.outputs.gp_api }}" = "true" ]; then
+              echo "api_base=https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org" >> "$GITHUB_OUTPUT"
+            fi
           else
             case "${{ github.ref_name }}" in
               develop)
@@ -112,6 +146,7 @@ jobs:
           git-branch: ${{ steps.ctx.outputs.branch }}
           alias-domain: ${{ steps.ctx.outputs.alias }}
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
+          api-base: ${{ steps.ctx.outputs.api_base }}
 
   # Imperatively run the Playwright suite against the freshly deployed preview.
   # Depends on deploy (not on Validate) so e2e starts as soon as the preview URL
@@ -121,17 +156,21 @@ jobs:
   # publishes the HTML report to S3 so it's viewable via URL.
   e2e:
     name: E2E
-    needs: deploy
+    needs: [deploy, changes]
     if: >-
       needs.deploy.outputs.url != ''
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Generous budget: the full-stack gate waits on gp-api's (slow) deploy before
+    # the ~15-min suite runs. It fails fast if gp-api's deploy fails, so the large
+    # budget is only ever spent when gp-api is genuinely still deploying.
+    timeout-minutes: 45
     permissions:
       contents: read
       pull-requests: write
       id-token: write
+      actions: read
     env:
       BASE_URL: ${{ needs.deploy.outputs.url }}
     steps:
@@ -151,6 +190,64 @@ jobs:
       - name: Install Playwright browsers
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: npx playwright install --with-deps chromium
+
+      # Full-stack: when gp-api changed, the webapp was built against this PR's
+      # gp-api stack (or, on develop, gp-api-dev). Wait until that deploy of THIS
+      # commit is done before testing. gp-api's validate+build+ECS path is much
+      # slower than the webapp deploy, so a blind timer off the (fast) webapp
+      # deploy can't cover it. Instead wait on gp-api's existing Deploy job
+      # finishing for this commit (terminal signal, fail fast), then confirm the
+      # edge is serving it via /v1/version. Liveness alone is not enough on branch
+      # builds, where dev is always up on the prior commit.
+      #
+      # The gp-api run is keyed to the source commit (PR head, or the pushed
+      # commit) — distinct from github.sha, which on a PR is the merge commit.
+      # gp-api tags its image with github.sha, so /v1/version reports that.
+      - name: Wait for gp-api deploy
+        if: needs.changes.outputs.gp_api == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
+          JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
+        run: |
+          echo "Waiting for gp-api '$JOB_NAME' job on $RUN_SHA"
+          for i in $(seq 1 150); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA" \
+              --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
+            conclusion=""
+            if [ -n "$run_id" ]; then
+              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
+                --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+            fi
+            echo "  attempt $i/150: gp-api '$JOB_NAME' conclusion=${conclusion:-<running>}"
+            case "$conclusion" in
+              success) break ;;
+              failure|cancelled|timed_out|skipped)
+                echo "::error::gp-api '$JOB_NAME' did not succeed ($conclusion)"
+                exit 1 ;;
+            esac
+            if [ "$i" = 150 ]; then
+              echo "::error::timed out waiting for gp-api '$JOB_NAME' on $RUN_SHA"
+              exit 1
+            fi
+            sleep 10
+          done
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            API_BASE="https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org"
+          else
+            API_BASE="https://gp-api-dev.goodparty.org"
+          fi
+          echo "Confirming $API_BASE is serving $EXPECTED_SHA"
+          for i in $(seq 1 18); do
+            got="$(curl -fsS "$API_BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            [ "$got" = "$EXPECTED_SHA" ] && { echo "gp-api serving $EXPECTED_SHA"; exit 0; }
+            sleep 10
+          done
+          echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
+          exit 1
 
       # No --reporter override here: the playwright config emits list + html +
       # json, and we need the html report (for S3) and results.json (for the

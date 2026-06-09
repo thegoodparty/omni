@@ -2,11 +2,11 @@
 
 ## Branch -> environment model
 
-| Branch    | Environment | Notes                          |
-| --------- | ----------- | ------------------------------ |
+| Branch    | Environment | Notes                             |
+| --------- | ----------- | --------------------------------- |
 | `develop` | dev         | Integration branch; PRs target it |
-| `qa`      | qa          | people-api has no qa env       |
-| `master`  | prod        |                                |
+| `qa`      | qa          | people-api has no qa env          |
+| `master`  | prod        |                                   |
 
 PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
 
@@ -24,6 +24,32 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - `prod` deploys to the production target.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR covering all affected apps.
+
+### Full-stack PR previews (gp-webapp <-> gp-api)
+
+When a PR (or a develop push) touches `packages/gp-api` or `packages/contracts`,
+the gp-webapp build and its Playwright e2e run against that change's gp-api stack
+instead of shared dev, so the e2e exercises the full-stack version proposed in the
+PR. The gp-webapp workflow is path-triggered on gp-api/contracts too, and a
+`changes` job sets `gp_api`.
+
+- `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
+  (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
+  `https://pr-<N>.preview.goodparty.org`. Webapp-only PRs keep the dev default.
+- Coordinating the two independent workflows: the e2e job polls gp-api's existing
+  Deploy job (via the Actions API, scoped to the gp-api run for this commit) and
+  waits for it to finish, proceeding on success and failing fast otherwise. This
+  beats a blind timer, since gp-api's validate+build+ECS path is much slower than
+  the webapp deploy. pulumi waits for ECS steady state, so a successful Deploy job
+  means the new tasks are serving. The gp-api run is keyed to the source commit
+  (PR head, or the pushed commit), which on a PR differs from `github.sha` (the
+  merge commit) that the image is tagged with.
+- gp-api also exposes its deployed commit at `GET /v1/version` (`{ commit }`), set
+  from the `GIT_SHA` build arg. After the status clears, the e2e confirms the edge
+  is serving the expected `github.sha` via that endpoint (liveness alone is not
+  enough on branch builds, where dev is always up on the prior commit).
+- election-api is not part of this yet (the webapp does not call it directly and it
+  has no preview stack).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
