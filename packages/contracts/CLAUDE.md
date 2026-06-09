@@ -1,8 +1,8 @@
 # Contracts (`@goodparty_org/contracts`)
 
-Public npm package: shared Zod schemas and TypeScript types consumed by `gp-api`, `@goodparty_org/sdk`, and `gp-admin`. Lives **inside** the `gp-api` repo and is built as part of the API build, but is published independently.
+Shared Zod schemas and TypeScript types consumed by `gp-api`, `@goodparty_org/sdk`, and `gp-admin`. Anything that crosses a service boundary (request/response shapes, public enums) belongs here. ADR / detailed guide: `docs/contracts.md`.
 
-Anything that crosses a service boundary (request/response shapes, public enums) belongs here. ADR / detailed guide: `docs/contracts.md`.
+**In-tree, not published.** Despite the scoped `@goodparty_org/contracts` name, this is an in-tree workspace package, not a live npm-registry package. Consumers depend on it via a `"*"` workspace dependency and a node_modules symlink, so a change is live as soon as it's built — no version bump, no publish, no install. npm publishing is intentionally disabled in omni (see the "publish ... not enabled in omni yet" note in `.github/workflows/contracts.yml`). It was published pre-monorepo; don't assume the scoped name implies a registry release.
 
 ## Key files
 
@@ -31,5 +31,12 @@ Anything that crosses a service boundary (request/response shapes, public enums)
 - **Never bypass `@goodparty_org/contracts` for cross-service shapes** (root `CLAUDE.md`, "Never" list). Don't redeclare a schema in `gp-api/src/` if it's already in contracts.
 - **Don't use `.passthrough()` on input schemas** (Rule from root `CLAUDE.md`). Use `.strict()` or the default behaviour.
 - The published `dist/` should never be edited by hand — it's regenerated on every build.
-- `gp-sdk` and `gp-admin` import from this package over npm, not via a path alias. A breaking change here ripples across repos — coordinate via Changesets and bump the version intentionally.
-- `provenance: true` is set in `publishConfig`; the publish workflow needs OIDC creds to succeed.
+- `gp-sdk`, `gp-admin`, and `gp-api` consume this in-tree via the `"*"` workspace dependency (node_modules symlink), not over the npm registry. A breaking change is live the moment it's built — coordinate the producer and every consumer in the **same PR** rather than relying on a version bump.
+
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/contracts.yml`) before opening a PR. From the repo root:
+
+```bash
+npm run build -w packages/contracts   # generate-enums + tsup
+```

@@ -29,32 +29,42 @@ npm run infra deploy <env>     # deploy via Pulumi
 
 `--legacy-peer-deps` is set in `.npmrc`; plain `npm install` and `npm ci` work.
 
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/gp-api.yml`) before opening a PR. From the repo root:
+
+```bash
+npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
+```
+
+CI additionally runs `prisma migrate diff ... --exit-code` against a shadow DB to assert migrations match the schema. If you touched `prisma/`, make sure there are no undeclared schema changes (see `npm run migrate:dev`).
+
 ## Pointer table — when in doubt
 
-| Doing                        | Read                                             |
-| ---------------------------- | ------------------------------------------------ |
+| Doing                        | Read                                               |
+| ---------------------------- | -------------------------------------------------- |
 | **Writing or editing code**  | **`.cursor/rules/*.mdc` — read first, every time** |
-| Adding an endpoint           | `docs/architecture.md` § Module shape            |
-| Touching contracts           | `docs/contracts.md`                              |
-| Writing or fixing a test     | `docs/writing-tests.md`                          |
-| Adding/debugging an alert    | `docs/observability.md`                          |
-| Reproducing a reported bug   | `docs/debugging.md`                              |
-| First-time setup             | `docs/getting-started.md` + `docs/team-setup.md` |
-| Why a thing is the way it is | `docs/adr/`                                      |
-| AI rule-by-rule code review  | `ai-rules/` (git submodule)                      |
+| Adding an endpoint           | `docs/architecture.md` § Module shape              |
+| Touching contracts           | `docs/contracts.md`                                |
+| Writing or fixing a test     | `docs/writing-tests.md`                            |
+| Adding/debugging an alert    | `docs/observability.md`                            |
+| Reproducing a reported bug   | `docs/debugging.md`                                |
+| First-time setup             | `docs/getting-started.md` + `docs/team-setup.md`   |
+| Why a thing is the way it is | `docs/adr/`                                        |
+| AI rule-by-rule code review  | `ai-rules/` (git submodule)                        |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
 Every file in `.cursor/rules/` carries `alwaysApply: true`. They override the rest of this file when they conflict. Read them before writing code, not after the review comes back.
 
-| File                                       | Enforces                                                                                                                                |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `.cursor/rules/rules.mdc`                  | Rules 0–28: type safety, PrismaBase pattern, exception types, services/ layout, strict scope, library enums, date-fns, JSON columns, …  |
-| `.cursor/rules/prettier-conformance.mdc`   | **80-char max line width**. Write Prettier-conformant on first write — no post-hoc formatting.                                          |
+| File                                          | Enforces                                                                                                                                     |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.cursor/rules/rules.mdc`                     | Rules 0–28: type safety, PrismaBase pattern, exception types, services/ layout, strict scope, library enums, date-fns, JSON columns, …       |
+| `.cursor/rules/prettier-conformance.mdc`      | **80-char max line width**. Write Prettier-conformant on first write — no post-hoc formatting.                                               |
 | `.cursor/rules/no-underscore-unused-vars.mdc` | Delete unused variables. Do **not** rename to `_foo`. Underscore is only OK for required-by-signature callback params and ignored iterators. |
-| `.cursor/rules/no-clickup-mutations.mdc`   | Read-only ClickUp by default. Ask before any mutating MCP call.                                                                         |
-| `.cursor/rules/no-unprompted-questions.mdc`| Don't ask "how would you like to proceed?" — only ask when genuinely blocked or ambiguous.                                              |
-| `.cursor/rules/plans-must-show-diffs.mdc`  | Plans that change code must present every edit as a unified `diff` block.                                                               |
+| `.cursor/rules/no-clickup-mutations.mdc`      | Read-only ClickUp by default. Ask before any mutating MCP call.                                                                              |
+| `.cursor/rules/no-unprompted-questions.mdc`   | Don't ask "how would you like to proceed?" — only ask when genuinely blocked or ambiguous.                                                   |
+| `.cursor/rules/plans-must-show-diffs.mdc`     | Plans that change code must present every edit as a unified `diff` block.                                                                    |
 
 ## Code style
 
@@ -184,12 +194,12 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 Categories that PR review keeps catching. Each one has caused a real bug. Read these before writing code that crosses a service boundary, persists state, or touches the queue.
 
 - **Cross-service contracts.** Cross-boundary payloads (SQS messages between services, S2S fetches, webhook bodies) live in `@goodparty_org/contracts`. Before changing one: read the consumer code path, confirm every field the producer sends is read and every field the consumer expects is sent. The contract update lands in the same PR — not the next one. Use the `update-contract` skill.
-- **Verify before stamping state.** Never write `verifiedAt` / `completedAt` / `registeredAt` / `status='succeeded'` on the strength of a 2xx response. A webhook hit or request body is evidence of *a request*, not *a state*. Fetch back against the source of truth and confirm the external state first.
-- **Transaction scoping.** Writes that must succeed or fail together go inside one `prisma.$transaction(...)`. Don't mutate JSON columns or call sibling services *before* the transaction that creates the matching row — failure mid-transaction leaves orphan state with nothing to roll back. Don't call a service that opens its own `$transaction` from inside an outer one — Prisma rejects nesting. If you need shared scope, accept a `tx` parameter and pass it through. Order writes so failure leaves the pre-change state intact — never `delete` the old row before the replacement `create` succeeds.
+- **Verify before stamping state.** Never write `verifiedAt` / `completedAt` / `registeredAt` / `status='succeeded'` on the strength of a 2xx response. A webhook hit or request body is evidence of _a request_, not _a state_. Fetch back against the source of truth and confirm the external state first.
+- **Transaction scoping.** Writes that must succeed or fail together go inside one `prisma.$transaction(...)`. Don't mutate JSON columns or call sibling services _before_ the transaction that creates the matching row — failure mid-transaction leaves orphan state with nothing to roll back. Don't call a service that opens its own `$transaction` from inside an outer one — Prisma rejects nesting. If you need shared scope, accept a `tx` parameter and pass it through. Order writes so failure leaves the pre-change state intact — never `delete` the old row before the replacement `create` succeeds.
 - **Idempotency check breadth.** When guarding a retry path, match on `(key, status in (succeeded, in_progress))`. Guarding on `key` alone blocks legitimate retries of terminally-failed records.
 - **Secrets in payloads.** Never embed short-lived credentials, impersonation tokens, signing tokens, or `*_url` fields that carry credentials in SQS message bodies, forwarded webhook bodies, log lines, or error responses returned to callers. Pass a stable identifier (user ID, campaign ID, request ID); mint the credential at the consumer side from that identifier when the handler runs.
 - **SQS handler semantics.** A stub `case` that returns `true` for an unhandled `QueueType` silently acks and drops the message. New `QueueType` values need a real handler case in the same PR, not a stub. `throw` from a handler triggers infinite redelivery, not DLQ — use the framework's failure-return path. `enqueue` / `sendMessage` defaults to `throwOnError: false`; producers must check the result or opt in. Detail: `src/queue/CLAUDE.md`.
-- **Verify cross-repo claims from review tools.** When a `Findings`-style review cites a field, endpoint, or contract that *should* exist in another repo, verify it exists before changing code on that premise: `git log -S<symbol> origin/develop` in the named repo. Codex treats ticket bodies as ground truth and is sometimes confidently wrong about cross-repo state.
+- **Verify cross-repo claims from review tools.** When a `Findings`-style review cites a field, endpoint, or contract that _should_ exist in another repo, verify it exists before changing code on that premise: `git log -S<symbol> origin/develop` in the named repo. Codex treats ticket bodies as ground truth and is sometimes confidently wrong about cross-repo state.
 
 ## Never
 

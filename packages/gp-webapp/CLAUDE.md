@@ -21,6 +21,18 @@ npm run types            # TypeScript type check
 npm run storybook        # Component library on :6006
 ```
 
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
+
+```bash
+npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
+npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
+npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
+npm run lint -w packages/gp-webapp                                              # eslint --quiet + prettier --check
+npm run test -w packages/gp-webapp                                              # vitest run
+```
+
 ## Architecture
 
 Next.js 15 App Router deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
@@ -101,22 +113,22 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Pointer table — when in doubt
 
-| Doing | Read |
-|-------|------|
-| Overall architecture / stack / module shape | `docs/architecture.md` |
-| Auth (cookie/JWT, server vs client, impersonation) | `docs/architecture.md` § Auth |
-| Adding or migrating an API call | `docs/api-clients.md` + `gpApi/CLAUDE.md` |
-| Writing a unit/component test | `docs/testing.md` |
-| Reproducing a Sentry issue locally | `docs/debugging.md` |
-| State / providers / React Query patterns | `docs/state-management.md` |
-| Adding or removing a feature flag | `docs/feature-flags.md` |
-| Working inside a dashboard feature | `app/dashboard/<feature>/CLAUDE.md` |
-| Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir |
-| Working with helpers | `helpers/CLAUDE.md` |
-| Working in `gpApi/` | `gpApi/CLAUDE.md` |
-| Writing or running E2E tests | `e2e-tests/CLAUDE.md` (and `e2e-tests/README.md`) |
-| AI rule-by-rule code review | `ai-rules/` (git submodule) |
-| Website feature internals | `app/dashboard/website/README.md` |
+| Doing                                                        | Read                                              |
+| ------------------------------------------------------------ | ------------------------------------------------- |
+| Overall architecture / stack / module shape                  | `docs/architecture.md`                            |
+| Auth (cookie/JWT, server vs client, impersonation)           | `docs/architecture.md` § Auth                     |
+| Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/CLAUDE.md`         |
+| Writing a unit/component test                                | `docs/testing.md`                                 |
+| Reproducing a Sentry issue locally                           | `docs/debugging.md`                               |
+| State / providers / React Query patterns                     | `docs/state-management.md`                        |
+| Adding or removing a feature flag                            | `docs/feature-flags.md`                           |
+| Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`               |
+| Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                    |
+| Working with helpers                                         | `helpers/CLAUDE.md`                               |
+| Working in `gpApi/`                                          | `gpApi/CLAUDE.md`                                 |
+| Writing or running E2E tests                                 | `e2e-tests/CLAUDE.md` (and `e2e-tests/README.md`) |
+| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                       |
+| Website feature internals                                    | `app/dashboard/website/README.md`                 |
 
 ## Code Style
 
