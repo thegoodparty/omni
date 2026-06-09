@@ -63,11 +63,15 @@ jobs:
               '> if there is a deploy job for the app below, it will be available once complete',
             ].join('\n')
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr,
-            })
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                per_page: 100,
+              },
+            )
             const existing = comments.find(
               (c) => c.body && c.body.includes(marker),
             )
