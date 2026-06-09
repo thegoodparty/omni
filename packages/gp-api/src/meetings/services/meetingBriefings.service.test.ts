@@ -606,7 +606,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     expect(row).toBeNull()
   })
 
-  it('tracks Briefing Assistant - Briefing Not Created with daysUntilMeeting on a placeholder briefing', async () => {
+  it('tracks Briefing Assistant - Agenda Not Created with daysUntilMeeting on a placeholder briefing', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-06-05T12:00:00Z'))
     try {
@@ -644,7 +644,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
 
       expect(trackSpy).toHaveBeenCalledWith(
         service.user.id,
-        'Briefing Assistant - Briefing Not Created',
+        'Briefing Assistant - Agenda Not Created',
         {
           electedOfficeId: eo.id,
           experimentRunId: briefingRun.runId,
@@ -658,7 +658,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     }
   })
 
-  it('tracks Briefing Assistant - Briefing Not Created without date fields when no target date is known', async () => {
+  it('tracks Briefing Assistant - Agenda Not Created without date fields when no target date is known', async () => {
     const orgSlug = `eo-track-no-meeting-${Date.now()}`
     await service.prisma.organization.create({
       data: { slug: orgSlug, ownerId: service.user.id },
@@ -691,7 +691,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
 
     expect(trackSpy).toHaveBeenCalledWith(
       service.user.id,
-      'Briefing Assistant - Briefing Not Created',
+      'Briefing Assistant - Agenda Not Created',
       {
         electedOfficeId: eo.id,
         experimentRunId: briefingRun.runId,

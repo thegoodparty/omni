@@ -72,7 +72,7 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 `upsertBriefingRow` is selective about which `briefing_status` values it persists:
 
 - `briefing_ready`, `agenda_provided_by_user` → write the row.
-- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log, fire the `Briefing Assistant - Briefing Not Created` Segment event (with `daysUntilMeeting` to the target meeting date), and skip so the next cron retries.
+- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log, fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date), and skip so the next cron retries.
 - `error` → log and skip.
 
 ## Controllers and routes

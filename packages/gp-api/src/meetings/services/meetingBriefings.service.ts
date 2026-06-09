@@ -878,7 +878,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, briefingStatus },
         'meeting_briefing produced a placeholder; skipping row write so the next cron run retries',
       )
-      await this.trackBriefingNotCreated(
+      await this.trackAgendaNotCreated(
         run,
         electedOffice,
         briefingStatus,
@@ -947,7 +947,7 @@ export class MeetingBriefingsService extends createPrismaBase(
   // the artifact's meeting_date is the fallback for runs dispatched
   // without one. Both UTC midnights in the diff keep daysUntilMeeting
   // independent of the server's local timezone.
-  private async trackBriefingNotCreated(
+  private async trackAgendaNotCreated(
     run: ExperimentRun,
     electedOffice: { id: string; userId: number },
     briefingStatus: 'awaiting_agenda' | 'no_meeting_found',
@@ -962,7 +962,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     try {
       await this.analytics.track(
         electedOffice.userId,
-        'Briefing Assistant - Briefing Not Created',
+        'Briefing Assistant - Agenda Not Created',
         {
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
@@ -983,7 +983,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     } catch (err) {
       this.logger.error(
         { err, userId: electedOffice.userId },
-        '[SEGMENT] Failed to track Briefing Assistant - Briefing Not Created',
+        '[SEGMENT] Failed to track Briefing Assistant - Agenda Not Created',
       )
     }
   }
