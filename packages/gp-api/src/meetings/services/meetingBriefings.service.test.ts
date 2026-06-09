@@ -1073,6 +1073,71 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       }),
     )
   })
+
+  it('skips an EO whose position is explicitly not serve-ICP', async () => {
+    const orgSlug = `eo-cron-non-icp-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-non-icp' })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: false,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('dispatches when serve-ICP is null (unknown fails open until backfill)', async () => {
+    const orgSlug = `eo-cron-null-icp-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-null-icp' })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: null,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
+  })
 })
 
 describe('MeetingBriefingsService.dispatchManual', () => {

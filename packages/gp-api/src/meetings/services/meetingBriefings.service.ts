@@ -123,6 +123,7 @@ type DispatchContext = {
   positionName: string
   l2DistrictType?: string
   l2DistrictName?: string
+  isServeIcp?: boolean | null
 }
 
 const CRON_CONFIG = {
@@ -692,6 +693,17 @@ export class MeetingBriefingsService extends createPrismaBase(
     const ctx = await this.resolveDispatchContext(electedOffice)
     if (!ctx) return
 
+    // Only explicit false skips: the ICP columns are nullable until the
+    // Databricks backfill lands (gp-data-platform#473), so null/undefined
+    // fails open. Manual dispatches (dispatchManual) are not gated.
+    if (ctx.isServeIcp === false) {
+      this.logger.info(
+        { electedOfficeId: eo.id },
+        'skipping dispatch: position is not serve-ICP',
+      )
+      return
+    }
+
     await this.dispatchBriefing(ctx, target)
   }
 
@@ -744,6 +756,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       positionName: serveCtx.positionName,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      isServeIcp: serveCtx.isServeIcp,
     }
   }
 
