@@ -14,6 +14,13 @@ describe('UpdateMetadataSchema', () => {
     ).not.toThrow()
   })
 
+  it('accepts websiteSunsetModalDismissed', () => {
+    const result = UpdateMetadataSchema.create({
+      meta: { websiteSunsetModalDismissed: true },
+    })
+    expect(result.meta.websiteSunsetModalDismissed).toBe(true)
+  })
+
   it('strips customerId from input', () => {
     const result = UpdateMetadataSchema.create({
       meta: { customerId: 'cus_VICTIM', textNotifications: true },
