@@ -19,7 +19,9 @@ export function WebsiteSunsetModalController({
 }: WebsiteSunsetModalControllerProps): React.JSX.Element | null {
   const [user, setUser, isUserLoading] = useUser()
   const [open, setOpen] = useState(false)
-  const dismissed = Boolean(user?.metaData?.websiteSunsetModalDismissed)
+  const [localDismissed, setLocalDismissed] = useState(false)
+  const dismissed =
+    localDismissed || Boolean(user?.metaData?.websiteSunsetModalDismissed)
 
   useEffect(() => {
     if (!isUserLoading && eligible && !dismissed) {
@@ -28,9 +30,13 @@ export function WebsiteSunsetModalController({
   }, [isUserLoading, eligible, dismissed])
 
   const dismiss = (): void => {
+    // Session guard: prevents the effect from reopening the modal for the rest
+    // of this mount even if the optimistic cache update can't apply (null
+    // client user) or the PUT below fails.
+    setLocalDismissed(true)
     // Optimistically flip the flag on the cached (enriched) user so a failed
-    // PUT can't reopen the modal on client navigation. Spreading the existing
-    // user preserves Clerk fields/relations; the PUT below makes it durable.
+    // PUT can't reopen the modal across client navigation. Spreading the
+    // existing user preserves Clerk fields/relations; the PUT makes it durable.
     if (user) {
       setUser({
         ...user,
