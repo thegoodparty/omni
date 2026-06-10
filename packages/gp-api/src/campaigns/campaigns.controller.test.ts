@@ -141,6 +141,7 @@ describe('CampaignsController', () => {
       updateJsonFields: vi.fn(),
       launch: vi.fn(),
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
+      hasCampaignStrategy: vi.fn().mockResolvedValue(false),
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
@@ -272,6 +273,7 @@ describe('CampaignsController', () => {
         ...campaignWithRelations,
         positionName: 'Mayor',
         raceTargetMetrics: null,
+        hasCampaignStrategy: false,
       })
     })
 
@@ -298,6 +300,7 @@ describe('CampaignsController', () => {
 
       expect(result.raceTargetMetrics).toEqual(liveMetrics)
       expect(result.positionName).toBe('Mayor')
+      expect(result.hasCampaignStrategy).toBe(false)
     })
   })
 

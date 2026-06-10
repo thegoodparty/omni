@@ -4,6 +4,7 @@ import { getServerUser } from 'helpers/userServerHelper'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { CAMPAIGN_STRATEGY_FLAG_KEY } from '@shared/experiments/campaignStrategyFlag'
 import SuccessPage from './components/SuccessPage'
+import InvalidateCampaignOnMount from './components/InvalidateCampaignOnMount'
 
 const meta = pageMetaData({
   title: 'Your Campaign Plan | GoodParty.org',
@@ -26,6 +27,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       flagKey={CAMPAIGN_STRATEGY_FLAG_KEY}
       redirectTo="/dashboard"
     >
+      <InvalidateCampaignOnMount />
       <SuccessPage initialUser={initialUser} />
     </FeatureFlagGuard>
   )

@@ -1,8 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+// Module-scoped dedup map so `fireOnce` survives remounts (e.g. dashboard
+// users navigating back to the Campaign Plan page). Keyed by campaignId so
+// different campaigns never share dedup state.
+const _firedEvents = new Map<number, Set<string>>()
 import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import {
   Button,
@@ -13,7 +18,6 @@ import {
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useUser } from '@shared/hooks/useUser'
 import type { User } from 'helpers/types'
 import { resolveVoterContactGoal } from '../../components/budget'
@@ -35,11 +39,19 @@ import { useStrategicLandscape } from '../hooks/useStrategicLandscape'
 
 interface SuccessPageProps {
   initialUser: User | null
+  showConfetti?: boolean
+  inDashboard?: boolean
 }
 
-const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
+const SuccessPage = ({
+  initialUser,
+  showConfetti = true,
+  inDashboard = false,
+}: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
-  const queryClient = useQueryClient()
+  const planEvents = inDashboard
+    ? EVENTS.Dashboard.CampaignPlan
+    : EVENTS.OnboardingV2
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
   const [campaign] = useCampaign()
@@ -48,12 +60,6 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const [downloading, setDownloading] = useState(false)
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
-
-  // Onboarding flips campaign state server-side right before this page mounts;
-  // the client cache from earlier in the session is stale.
-  useEffect(() => {
-    void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
-  }, [queryClient])
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -276,17 +282,21 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
     !isLocalNewsGenerating &&
     !voterIssuesQuery.isPending
 
-  // Per-resource lifecycle events fire exactly once each. The hooks poll on
-  // an interval, so an effect that runs on every status change would re-fire
-  // without a guard. A single ref of already-fired event keys backs a small
-  // `fireOnce` helper used by all nine lifecycle effects below.
-  const firedEventsRef = useRef<Set<string>>(new Set())
+  // Per-resource lifecycle events fire exactly once per campaign visit. The
+  // hooks poll on an interval, so an effect that runs on every status change
+  // would re-fire without a guard.
   const fireOnce = (
     event: string,
     properties: Record<string, string | number | undefined>,
   ): void => {
-    if (firedEventsRef.current.has(event)) return
-    firedEventsRef.current.add(event)
+    const key = campaignId ?? 0
+    let fired = _firedEvents.get(key)
+    if (!fired) {
+      fired = new Set()
+      _firedEvents.set(key, fired)
+    }
+    if (fired.has(event)) return
+    fired.add(event)
     trackEvent(event, properties)
   }
 
@@ -296,42 +306,44 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const communityEventsCount = events.data?.events?.length ?? 0
   const strategyReady = strategy.data !== undefined
 
-  // Requested — Strategic Landscape and Community Events are prewarmed at the
-  // office step (see OnboardingFlow), so those `Requested` events fire there,
-  // not here. Media's request fires from this page's first poll. Wait for a
-  // resolved campaignId so the once-fire isn't spent on an undefined id while
-  // the invalidated campaign query is still refetching.
+  // Requested — all three fire when the page mounts with a resolved campaignId.
+  // In onboarding, StrategicLandscape and CommunityEvents were pre-warmed from
+  // OnboardingFlow so those fire there instead (deduped here by _firedEvents).
+  // On the dashboard, all three requests originate from this page.
+  // Dashboard revisits fire Dashboard.CampaignPlan equivalents instead of
+  // OnboardingV2 events so the two contexts stay in separate funnels.
   useEffect(() => {
     if (campaignId === undefined) return
-    fireOnce(EVENTS.OnboardingV2.MediaRequested, { campaignId })
-  }, [campaignId])
+    fireOnce(planEvents.MediaRequested, { campaignId })
+    // In onboarding these fire from OnboardingFlow (pre-warm step), not here.
+    // In dashboard context this page is the origin, so fire them here.
+    if (inDashboard) {
+      fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
+      fireOnce(planEvents.CommunityEventsRequested, { campaignId })
+    }
+  }, [planEvents, campaignId, inDashboard])
 
   // Results Received — fire once when each resource's status first hits ready.
   useEffect(() => {
-    if (localNewsReady) {
-      fireOnce(EVENTS.OnboardingV2.MediaResultsReceived, {
-        campaignId,
-        outletCount: localNewsOutletCount,
-      })
-    }
-  }, [localNewsReady, localNewsOutletCount, campaignId])
+    if (!localNewsReady) return
+    fireOnce(planEvents.MediaResultsReceived, {
+      campaignId,
+      outletCount: localNewsOutletCount,
+    })
+  }, [planEvents, localNewsReady, localNewsOutletCount, campaignId])
 
   useEffect(() => {
-    if (communityEventsReady) {
-      fireOnce(EVENTS.OnboardingV2.CommunityEventsResultsReceived, {
-        campaignId,
-        eventCount: communityEventsCount,
-      })
-    }
-  }, [communityEventsReady, communityEventsCount, campaignId])
+    if (!communityEventsReady) return
+    fireOnce(planEvents.CommunityEventsResultsReceived, {
+      campaignId,
+      eventCount: communityEventsCount,
+    })
+  }, [planEvents, communityEventsReady, communityEventsCount, campaignId])
 
   useEffect(() => {
-    if (strategyReady) {
-      fireOnce(EVENTS.OnboardingV2.StrategicLandscapeResultsReceived, {
-        campaignId,
-      })
-    }
-  }, [strategyReady, campaignId])
+    if (!strategyReady) return
+    fireOnce(planEvents.StrategicLandscapeResultsReceived, { campaignId })
+  }, [planEvents, strategyReady, campaignId])
 
   // Displayed — fire once when the corresponding plan section renders with
   // real (non-skeleton) data. The ready data above is what PlanSections
@@ -339,22 +351,19 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   // skeleton for content. Kept as separate effects so each dedup key is
   // independent.
   useEffect(() => {
-    if (localNewsReady) {
-      fireOnce(EVENTS.OnboardingV2.MediaDisplayed, { campaignId })
-    }
-  }, [localNewsReady, campaignId])
+    if (!localNewsReady) return
+    fireOnce(planEvents.MediaDisplayed, { campaignId })
+  }, [planEvents, localNewsReady, campaignId])
 
   useEffect(() => {
-    if (communityEventsReady) {
-      fireOnce(EVENTS.OnboardingV2.CommunityEventsDisplayed, { campaignId })
-    }
-  }, [communityEventsReady, campaignId])
+    if (!communityEventsReady) return
+    fireOnce(planEvents.CommunityEventsDisplayed, { campaignId })
+  }, [planEvents, communityEventsReady, campaignId])
 
   useEffect(() => {
-    if (strategyReady) {
-      fireOnce(EVENTS.OnboardingV2.StrategicLandscapeDisplayed, { campaignId })
-    }
-  }, [strategyReady, campaignId])
+    if (!strategyReady) return
+    fireOnce(planEvents.StrategicLandscapeDisplayed, { campaignId })
+  }, [planEvents, strategyReady, campaignId])
 
   const handleShare = () => setShareOpen(true)
 
@@ -364,7 +373,7 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
     source: 'download-button' | 'reminder-modal',
   ) => {
     if (downloading || !planReady) return
-    trackEvent(EVENTS.OnboardingV2.PlanDownloaded, { campaignId, source })
+    trackEvent(planEvents.PlanDownloaded, { campaignId, source })
     setDownloading(true)
     try {
       await downloadCampaignPlanPdf(plan, { liveUrl: shareUrl || undefined })
@@ -375,10 +384,7 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   }
 
   const goToCampaignManager = (source: 'button' | 'reminder-modal') => {
-    trackEvent(EVENTS.OnboardingV2.CampaignManagerClicked, {
-      campaignId,
-      source,
-    })
+    trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
   }
 
@@ -403,9 +409,11 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
 
   return (
     <div className="relative min-h-screen w-full bg-base-surface pb-28 text-foreground">
-      <div className="pointer-events-none fixed inset-0 z-40">
-        <ConfettiCanvas play />
-      </div>
+      {showConfetti && (
+        <div className="pointer-events-none fixed inset-0 z-40">
+          <ConfettiCanvas play />
+        </div>
+      )}
 
       <main className="mx-auto w-full max-w-4xl px-4 pt-4 pb-12 sm:px-8 sm:pt-16 sm:pb-20">
         <HeroCard
@@ -437,6 +445,7 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
               state: onboardingState,
               office: onboardingOffice,
             }}
+            inDashboard={inDashboard}
           />
         </div>
 
@@ -448,7 +457,9 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
         </p>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-base-border bg-base-surface">
+      <div
+        className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface left-0 ${inDashboard ? 'md:left-[var(--sidebar-width,16rem)]' : ''}`}
+      >
         <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
           {/* Mobile download. While the plan is still generating the button
               is disabled; a disabled button suppresses its own pointer
