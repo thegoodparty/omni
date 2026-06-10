@@ -18,6 +18,7 @@ export const CampaignWithLiveContextSchema =
   CampaignWithPositionNameSchema.extend({
     raceTargetMetrics: RaceTargetMetricsSchema.nullable(),
     organization: OrganizationSchema.optional(),
+    hasCampaignStrategy: z.boolean().optional(),
   })
 
 export type CampaignWithLiveContext = z.infer<

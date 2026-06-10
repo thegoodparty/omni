@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -41,6 +42,8 @@ import {
   FecCommitteeIdInput,
   getFecCommitteeIdValidation,
 } from 'app/dashboard/profile/texting-compliance/register/components/FecCommitteeIdInput'
+import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // The backend createAgentic endpoint validates officeLevel against the
@@ -122,9 +125,9 @@ const FilingDetailsForm = ({
 
   // `website` is validated but has no input in this form (the agentic flow
   // buys the domain after submit), so the banner must never name it. `ein`
-  // has no input here either (EIN is owned by the wizard's EIN step, and entry
-  // derivation routes a sanity-failing EIN there) but stays listed as a
-  // defense for direct-URL arrivals — Back is the EIN step, where it's fixed.
+  // has no input here either, but it can't fail: EIN is owned by the wizard's
+  // EIN step, and the step redirects a missing/bad persisted EIN there before
+  // rendering (ENG-10346).
   const failingFields = getFailingFields(validations).filter(
     (field) => field !== 'website',
   )
@@ -345,6 +348,7 @@ const FilingDetailsForm = ({
 // client-side; using createAgentic is enough.
 const FilingDetailsStep = (): React.JSX.Element => {
   const { goToNextStep } = useProUpgradeWizard()
+  const router = useRouter()
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -352,14 +356,27 @@ const FilingDetailsStep = (): React.JSX.Element => {
 
   const ready = Boolean(campaign)
 
+  // This form has no EIN input, so an EIN validation failure here is one the
+  // candidate cannot fix in place (ENG-10346). Entry derivation already keeps
+  // the normal flow out, but a direct-URL arrival (stale tab, bookmark) with a
+  // missing or sanity-failing persisted EIN must go to the EIN step, which
+  // owns the field — never see an error about a field this page doesn't have.
+  const mustFixEin =
+    ready && !checkEinSanity(campaign?.details?.einNumber ?? '').valid
+
+  useEffect(() => {
+    if (mustFixEin) router.replace(proUpgradeStepPath(PRO_UPGRADE_STEP.EIN))
+  }, [mustFixEin, router])
+
   // Fire the funnel view event once the form is actually shown (gated behind
-  // `ready`), not while the Loading… placeholder is up.
+  // `ready`), not while the Loading… placeholder is up or while redirecting
+  // away to the EIN step.
   const viewTrackedRef = useRef(false)
   useEffect(() => {
-    if (!ready || viewTrackedRef.current) return
+    if (!ready || mustFixEin || viewTrackedRef.current) return
     viewTrackedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingDetailsViewed)
-  }, [ready])
+  }, [ready, mustFixEin])
 
   const handleSubmit = async (formData: FormDataState) => {
     if (loading) return
@@ -388,7 +405,7 @@ const FilingDetailsStep = (): React.JSX.Element => {
     }
   }
 
-  if (!ready) {
+  if (!ready || mustFixEin) {
     return <div className="text-sm text-muted-foreground">Loading…</div>
   }
 

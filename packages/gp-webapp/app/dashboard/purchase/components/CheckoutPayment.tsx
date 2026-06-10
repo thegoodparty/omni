@@ -16,9 +16,10 @@ export type CheckoutPaymentProps = {
   onPaymentConfirmed?: () => void | Promise<void>
   onPaymentError?: (errorMessage: string) => void
   submitLabel?: string
-  // Rendered inside the CheckoutProvider (alongside the form) so it can read the
-  // live total via Stripe's useCheckout — e.g. the Pro plan order summary.
-  orderSummary?: ReactNode
+  // Lays out chrome around the form (card, order summary) inside the
+  // CheckoutProvider so it can read the live total via Stripe's useCheckout —
+  // e.g. the Pro plan payment step.
+  renderLayout?: (form: ReactNode) => ReactNode
 }
 
 const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
@@ -26,7 +27,7 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
   onPaymentConfirmed,
   onPaymentError,
   submitLabel,
-  orderSummary,
+  renderLayout,
 }) => {
   const { checkoutSession } = useCheckoutSession()
 
@@ -47,14 +48,7 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
       stripe={stripePromise}
       options={{ clientSecret: checkoutSession.clientSecret }}
     >
-      {orderSummary ? (
-        <div className="flex flex-col gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start">
-          {form}
-          {orderSummary}
-        </div>
-      ) : (
-        form
-      )}
+      {renderLayout ? renderLayout(form) : form}
     </CheckoutProvider>
   )
 }

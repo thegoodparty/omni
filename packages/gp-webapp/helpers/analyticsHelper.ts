@@ -145,6 +145,7 @@ export const EVENTS = {
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
+      ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
     },
   },
 
@@ -159,6 +160,24 @@ export const EVENTS = {
       ViewModeToggled: 'Dashboard - Campaign Plan View Mode Toggled',
       VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
       VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
+      MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
+      StrategicLandscapeRequested:
+        'Dashboard - Campaign Plan: Strategic Landscape Requested',
+      CommunityEventsRequested:
+        'Dashboard - Campaign Plan: Community Events Requested',
+      MediaResultsReceived: 'Dashboard - Campaign Plan: Media Results Received',
+      MediaDisplayed: 'Dashboard - Campaign Plan: Media Displayed',
+      CommunityEventsResultsReceived:
+        'Dashboard - Campaign Plan: Community Events Results Received',
+      CommunityEventsDisplayed:
+        'Dashboard - Campaign Plan: Community Events Displayed',
+      StrategicLandscapeResultsReceived:
+        'Dashboard - Campaign Plan: Strategic Landscape Results Received',
+      StrategicLandscapeDisplayed:
+        'Dashboard - Campaign Plan: Strategic Landscape Displayed',
+      PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
+      CampaignManagerClicked:
+        'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
     PathToVictory: {
       ClickUnderstand:

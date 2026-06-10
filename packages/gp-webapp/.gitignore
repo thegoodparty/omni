@@ -103,3 +103,5 @@ lh-*.report.html
 lh-*.report.json
 bundle-*.html
 bundle-*.json
+# clerk configuration (can include secrets)
+/.clerk/

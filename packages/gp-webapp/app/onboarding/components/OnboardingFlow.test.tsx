@@ -33,6 +33,14 @@ describe('new onboarding flow shell', () => {
     ).toBe('path-to-victory')
   })
 
+  it('routes structured users from voter-demographics straight to pledge', () => {
+    expect(
+      getNextOnboardingStep(ONBOARDING_STEPS, 'voter-demographics', {
+        officePath: 'structured',
+      })?.id,
+    ).toBe('pledge')
+  })
+
   it('routes manual office users through manual entry and skips structured calculation steps', () => {
     const visibleStepIds = getVisibleOnboardingSteps(ONBOARDING_STEPS, {
       officePath: 'manual',

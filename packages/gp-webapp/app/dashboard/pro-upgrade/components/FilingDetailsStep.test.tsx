@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { apiRoutes } from 'gpApi/routes'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { submitTcrCompliance } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
@@ -226,8 +227,8 @@ describe('FilingDetailsStep', () => {
   })
 
   it('does not submit and lists the failing fields when the form is invalid', () => {
-    // No fields filled (and no EIN on file) → invalid form.
-    seedCampaign({ ballotLevel: 'Local/Township/City' })
+    // EIN on file but nothing else filled → invalid form.
+    seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })
     render(<FilingDetailsStep />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -245,26 +246,30 @@ describe('FilingDetailsStep', () => {
     expect(screen.queryByText('Website')).not.toBeInTheDocument()
   })
 
-  it('names the EIN in the banner when a legacy bad EIN fails validation', () => {
-    // EIN is owned by the wizard's EIN step (entry derivation routes a
-    // sanity-failing EIN there), so this form never renders an EIN input. The
-    // banner still names a bad EIN as a defense for direct-URL arrivals —
-    // Back is the EIN step, where it's fixed.
+  it('redirects to the EIN step instead of rendering when the persisted EIN fails sanity', () => {
+    // ENG-10346: this form has no EIN input, so an EIN error here is one the
+    // candidate cannot fix in place. A direct-URL arrival (stale tab, bookmark)
+    // with a legacy bad EIN is sent to the EIN step, which owns the field.
     seedCampaign({
       einNumber: '00-0000000',
       ballotLevel: 'Local/Township/City',
     })
     render(<FilingDetailsStep />)
-    fillValidNonFederalForm()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(mockSubmit).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Campaign EIN')).not.toBeInTheDocument()
-    expect(screen.getByText('EIN')).toBeInTheDocument()
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
     expect(
-      screen.getByText(/placeholder values aren't accepted/i),
-    ).toBeInTheDocument()
+      screen.queryByText('What are your campaign filing details?'),
+    ).not.toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.FilingDetailsViewed,
+    )
+  })
+
+  it('redirects to the EIN step when no EIN is on file', () => {
+    seedCampaign({ ballotLevel: 'Local/Township/City' })
+    render(<FilingDetailsStep />)
+
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
   it('surfaces an error and does not advance when the submit fails', async () => {

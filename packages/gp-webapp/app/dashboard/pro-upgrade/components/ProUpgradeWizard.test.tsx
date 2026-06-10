@@ -145,10 +145,16 @@ describe('ProUpgradeWizard', () => {
     }
   })
 
-  it('does not show the stepper on steps outside the four collection steps', () => {
+  it('does not show the stepper on payment or on steps outside the collection steps', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
 
-    for (const step of ['value-prop', 'status', 'guidance', 'success']) {
+    for (const step of [
+      'payment',
+      'value-prop',
+      'status',
+      'guidance',
+      'success',
+    ]) {
       mockUsePathname.mockReturnValue(`/dashboard/pro-upgrade/${step}`)
       const { unmount } = render(
         <ProUpgradeWizard>
