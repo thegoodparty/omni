@@ -13,6 +13,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: gp-api-infrastructure-diffs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-west-2
   WORKSPACE: packages/gp-api
