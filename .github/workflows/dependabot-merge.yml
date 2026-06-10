@@ -1,0 +1,78 @@
+name: Dependabot merge
+
+# Auto-merges Dependabot security PRs once they are approved (delegate reviews
+# every PR), every check is green, and the last commit is at least 24h old
+# (supply-chain cooldown; a Dependabot force-push restarts the clock).
+#
+# Merges use a GitHub App token instead of GITHUB_TOKEN because pushes made
+# with GITHUB_TOKEN never trigger other workflows — the deploy workflows on
+# develop would not run for the merge commit.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: dependabot-merge
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - name: Merge eligible Dependabot PRs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
+
+          gh pr list --repo "$REPO" --author 'app/dependabot' --state open \
+            --json number,headRefName,reviewDecision,mergeable,statusCheckRollup,commits \
+            > prs.json
+
+          jq -c '.[] | {number, headRefName, reviewDecision, mergeable}' prs.json
+
+          eligible="$(jq -r --arg cutoff "$cutoff" '
+            .[]
+            | select(.headRefName | startswith("dependabot/"))
+            | select(.reviewDecision == "APPROVED")
+            | select(.mergeable == "MERGEABLE")
+            | select((.commits | length) > 0)
+            | select(([.commits[].authors[].login] | length) > 0)
+            | select([.commits[].authors[].login] | all(. == "dependabot[bot]"))
+            | select(([.commits[].committedDate] | max) <= $cutoff)
+            | select((.statusCheckRollup | length) > 0)
+            | select([.statusCheckRollup[] | .conclusion // .state] | all(IN("SUCCESS", "SKIPPED", "NEUTRAL")))
+            | .number
+          ' prs.json)"
+
+          if [ -z "$eligible" ]; then
+            echo "No eligible PRs."
+            exit 0
+          fi
+
+          for n in $eligible; do
+            echo "Merging #$n"
+            gh pr merge "$n" --repo "$REPO" --squash
+          done
+
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,took
