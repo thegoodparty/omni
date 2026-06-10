@@ -69,6 +69,9 @@ exercises the exact full-stack version proposed in the PR.
 gp-api, election-api, and people-api build a production Docker image, push to ECR
 (tagged with the commit SHA), and deploy to ECS Fargate via Pulumi.
 
+- ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
+  exists and skip the build/push if so — this is what makes re-running a deploy
+  job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
   (`gp-api-cleanup-preview.yml`).
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
