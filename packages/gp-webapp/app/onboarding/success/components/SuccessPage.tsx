@@ -444,7 +444,7 @@ const SuccessPage = ({
       </main>
 
       <div
-        className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface left-0 ${inDashboard ? 'md:left-(--sidebar-width)' : ''}`}
+        className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface left-0 ${inDashboard ? 'md:left-[var(--sidebar-width,16rem)]' : ''}`}
       >
         <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
           {/* Mobile download. While the plan is still generating the button
