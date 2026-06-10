@@ -122,6 +122,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Reproducing a Sentry issue locally                           | `docs/debugging.md`                               |
 | State / providers / React Query patterns                     | `docs/state-management.md`                        |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                           |
+| Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event.md`    |
 | Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`               |
 | Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                    |
 | Working with helpers                                         | `helpers/CLAUDE.md`                               |
