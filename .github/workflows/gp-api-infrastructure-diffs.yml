@@ -3,6 +3,10 @@ name: gp-api infrastructure diffs
 on:
   pull_request:
     branches-ignore: [qa, master]
+    paths:
+      - "packages/gp-api/deploy/**"
+      - ".github/workflows/gp-api-infrastructure-diffs.yml"
+      - ".github/actions/**"
 
 permissions:
   id-token: write
