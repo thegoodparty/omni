@@ -239,4 +239,22 @@ describe('EinStep', () => {
       screen.getByText(/prefix isn't one the IRS issues/i),
     ).toBeInTheDocument()
   })
+
+  it('keeps the error banner up while a routed-in bad EIN is being retyped', async () => {
+    // Editing makes the EIN incomplete (`validatedEin` goes neutral), but the
+    // candidate was routed here to fix a bad EIN — the guidance must not
+    // vanish mid-edit before anything is actually fixed.
+    seedCampaign('07-1234567')
+
+    render(<EinStep />)
+    expect(
+      screen.getByText(/prefix isn't one the IRS issues/i),
+    ).toBeInTheDocument()
+
+    setEin('0')
+
+    expect(
+      await screen.findByText('Please add your campaign EIN'),
+    ).toBeInTheDocument()
+  })
 })

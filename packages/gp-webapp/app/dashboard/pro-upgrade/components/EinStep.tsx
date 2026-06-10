@@ -52,10 +52,15 @@ const EinStep = (): React.JSX.Element => {
   // Sync the field from the persisted EIN until the candidate edits it. This
   // also covers a campaign query that resolves *after* first render (no SSR
   // initialData), which a one-time useState initializer would miss — leaving a
-  // returning candidate's saved EIN unpopulated.
+  // returning candidate's saved EIN unpopulated. A prefilled complete-but-bad
+  // EIN also marks the step as attempted so the error banner survives editing
+  // (retyping makes the value incomplete, flipping the live verdict back to
+  // neutral, but the candidate was routed here to fix it — the guidance must
+  // not vanish before anything is fixed).
   useEffect(() => {
     if (hasInteracted.current) return
     setEinInputValue(persistedEin)
+    if (einIndicatorState(persistedEin) === false) setAttemptedSubmit(true)
   }, [persistedEin])
 
   // Recompute the verdict whenever the value changes. `einIndicatorState` is
