@@ -10,7 +10,10 @@ import { Switch, SwitchLabel, SwitchBox } from './switch'
 describe('Switch', () => {
   it('renders unchecked by default', () => {
     render(<Switch aria-label="Toggle" />)
-    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('switch')).toHaveAttribute(
+      'data-state',
+      'unchecked',
+    )
   })
 
   it('renders checked when defaultChecked is set', () => {
@@ -47,7 +50,10 @@ describe('Switch', () => {
 
     await user.click(screen.getByRole('switch'))
     expect(handler).not.toHaveBeenCalled()
-    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('switch')).toHaveAttribute(
+      'data-state',
+      'unchecked',
+    )
   })
 
   it('toggles via Space key', async () => {
@@ -62,12 +68,17 @@ describe('Switch', () => {
   it('respects controlled checked prop', async () => {
     const user = userEvent.setup()
     const handler = vi.fn()
-    render(<Switch aria-label="Toggle" checked={false} onCheckedChange={handler} />)
+    render(
+      <Switch aria-label="Toggle" checked={false} onCheckedChange={handler} />,
+    )
 
     await user.click(screen.getByRole('switch'))
     expect(handler).toHaveBeenCalledWith(true)
     // controlled — state stays false until parent updates
-    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('switch')).toHaveAttribute(
+      'data-state',
+      'unchecked',
+    )
   })
 
   it('forwards className to the root element', () => {
@@ -88,7 +99,11 @@ describe('SwitchLabel', () => {
 
   it('renders description when provided', () => {
     render(
-      <SwitchLabel id="sl" label="Notifications" description="Get email alerts." />,
+      <SwitchLabel
+        id="sl"
+        label="Notifications"
+        description="Get email alerts."
+      />,
     )
     expect(screen.getByText('Get email alerts.')).toBeInTheDocument()
   })
@@ -107,7 +122,11 @@ describe('SwitchLabel', () => {
 
   it('associates description with switch via aria-describedby', () => {
     render(
-      <SwitchLabel id="sl" label="Notifications" description="Get email alerts." />,
+      <SwitchLabel
+        id="sl"
+        label="Notifications"
+        description="Get email alerts."
+      />,
     )
     expect(screen.getByRole('switch')).toHaveAttribute(
       'aria-describedby',
@@ -132,7 +151,10 @@ describe('SwitchLabel', () => {
     render(<SwitchLabel id="sl" label="Notifications" disabled />)
 
     await user.click(screen.getByText('Notifications'))
-    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('switch')).toHaveAttribute(
+      'data-state',
+      'unchecked',
+    )
   })
 
   it('forwards switchClassName to the switch element', () => {
@@ -158,9 +180,7 @@ describe('SwitchLabel', () => {
 
 describe('SwitchBox', () => {
   it('renders label and description', () => {
-    render(
-      <SwitchBox id="sb" label="Dark mode" description="Switch themes." />,
-    )
+    render(<SwitchBox id="sb" label="Dark mode" description="Switch themes." />)
     expect(screen.getByText('Dark mode')).toBeInTheDocument()
     expect(screen.getByText('Switch themes.')).toBeInTheDocument()
   })
@@ -185,7 +205,10 @@ describe('SwitchBox', () => {
     render(<SwitchBox id="sb" label="Dark mode" disabled />)
 
     await user.click(screen.getByRole('switch'))
-    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('switch')).toHaveAttribute(
+      'data-state',
+      'unchecked',
+    )
   })
 
   it('forwards className to the card wrapper', () => {
@@ -196,9 +219,7 @@ describe('SwitchBox', () => {
   })
 
   it('forwards switchClassName to the switch element', () => {
-    render(
-      <SwitchBox id="sb" label="Dark mode" switchClassName="ring-test" />,
-    )
+    render(<SwitchBox id="sb" label="Dark mode" switchClassName="ring-test" />)
     expect(screen.getByRole('switch')).toHaveClass('ring-test')
   })
 })

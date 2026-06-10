@@ -29,12 +29,14 @@ const meta: Meta<typeof Switch> = {
     },
     description: {
       control: 'text',
-      description: 'Description text below the label (SwitchLabel and SwitchBox only).',
+      description:
+        'Description text below the label (SwitchLabel and SwitchBox only).',
     },
     side: {
       control: { type: 'inline-radio' },
       options: ['left', 'right'],
-      description: 'Side the switch appears on (SwitchLabel and SwitchBox only).',
+      description:
+        'Side the switch appears on (SwitchLabel and SwitchBox only).',
     },
   },
 }
@@ -190,8 +192,17 @@ export const WithLabel: Story = {
       />
       <SwitchLabel id="wl-no-desc-off" label="Airplane mode" />
       <SwitchLabel id="wl-no-desc-on" label="Airplane mode" defaultChecked />
-      <SwitchLabel id="wl-no-desc-right-off" label="Airplane mode" side="right" />
-      <SwitchLabel id="wl-no-desc-right-on" label="Airplane mode" side="right" defaultChecked />
+      <SwitchLabel
+        id="wl-no-desc-right-off"
+        label="Airplane mode"
+        side="right"
+      />
+      <SwitchLabel
+        id="wl-no-desc-right-on"
+        label="Airplane mode"
+        side="right"
+        defaultChecked
+      />
       <SwitchLabel
         id="wl-right-off"
         label="Notifications"
@@ -259,7 +270,12 @@ export const WithBox: Story = {
       <SwitchBox id="wb-no-desc-off" label="Dark mode" />
       <SwitchBox id="wb-no-desc-on" label="Dark mode" defaultChecked />
       <SwitchBox id="wb-no-desc-right-off" label="Dark mode" side="right" />
-      <SwitchBox id="wb-no-desc-right-on" label="Dark mode" side="right" defaultChecked />
+      <SwitchBox
+        id="wb-no-desc-right-on"
+        label="Dark mode"
+        side="right"
+        defaultChecked
+      />
       <SwitchBox
         id="wb-right-off"
         label="Dark mode"
