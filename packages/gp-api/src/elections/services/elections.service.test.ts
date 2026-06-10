@@ -105,7 +105,7 @@ describe('ElectionsService', () => {
       expect(district?.L2DistrictName).toBe('STATE HOUSE 005')
       expect(projectedTurnout).toBe(1000)
       expect(winNumber).toBe(501)
-      expect(voterContactGoal).toBe(2505)
+      expect(voterContactGoal).toBe(5010)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.anything(),
@@ -122,7 +122,7 @@ describe('ElectionsService', () => {
       expect(district?.L2DistrictName).toBe('STATE HOUSE 005')
       expect(projectedTurnout).toBe(1000)
       expect(winNumber).toBe(501)
-      expect(voterContactGoal).toBe(2505)
+      expect(voterContactGoal).toBe(5010)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/pos-1'),
         expect.anything(),
@@ -433,7 +433,7 @@ describe('ElectionsService', () => {
         expect.objectContaining({
           projectedTurnout: 5000,
           winNumber: 2501,
-          voterContactGoal: 12505,
+          voterContactGoal: 25010,
         }),
       )
       expect(mockHttpGet).toHaveBeenCalledWith(

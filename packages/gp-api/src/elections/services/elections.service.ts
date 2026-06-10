@@ -34,7 +34,7 @@ import {
 @Injectable()
 export class ElectionsService {
   private static readonly BASE_URL = process.env.ELECTION_API_URL
-  private static readonly VOTER_CONTACT_MULTIPLIER = 5
+  private static readonly VOTER_CONTACT_MULTIPLIER = 10
   private static readonly WIN_NUMBER_MULTIPLIER = 0.5
   private static readonly API_VERSION = 'v1'
 

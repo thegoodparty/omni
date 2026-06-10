@@ -243,11 +243,11 @@ export class VotersService {
     counts.projectedTurnoutPercent =
       (parseFloat(projectedTurnoutPercent) * 100).toFixed(2).toString() + '%'
 
-    // Currently win number is projected turnout x .51 and voter contact is win number x 5
+    // Currently win number is projected turnout x .51 and voter contact is win number x 10
     if (projectedTurnout && projectedTurnout > 0) {
       const winNumber: string = Math.ceil(projectedTurnout * 0.51).toFixed(2)
       const voterContactGoal: string = Math.ceil(
-        parseFloat(winNumber) * 5,
+        parseFloat(winNumber) * 10,
       ).toFixed(2)
       counts.winNumber = parseInt(winNumber)
       counts.voterContactGoal = parseInt(voterContactGoal)
