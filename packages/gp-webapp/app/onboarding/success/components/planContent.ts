@@ -28,13 +28,16 @@ const formatDate = (date: Date): string => dateUsHelper(date.toISOString())
 // "Tuesday, November 3" — the day-of-week format the ClickUp template uses
 // for key dates, the timeline, events, and the contact schedule. Mirrors
 // dateUsHelper's +8h PST shift so a date-only ISO string renders as the
-// intended calendar day.
+// intended calendar day. timeZone: 'UTC' pins the formatter so the shift
+// isn't re-interpreted in the server's local zone (which would render the
+// day before on hosts west of UTC-8).
 const formatDayDate = (date: Date): string => {
   const pstDate = new Date(date.getTime() + 8 * ONE_HOUR_MS)
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
+    timeZone: 'UTC',
   }).format(pstDate)
 }
 
@@ -512,16 +515,22 @@ const buildTimeline = (
         'From here on, some people will vote.',
       ),
     },
-    {
-      date: eventsDate,
-      milestone: 'Community events to attend in person',
-      notes:
-        eventCount > 0
-          ? `Starting with the first of ${eventCount} event${
+    // Only show the events row when we have a real event to anchor it.
+    // Without one, eventsDate is a fabricated E-20 fallback, and the row
+    // would render an invented date (and "we'll add events" copy that's
+    // wrong once generation finishes with none found). Key Dates keeps the
+    // fallback — that's pre-existing behavior, not part of the timeline.
+    ...(firstEventDate !== null
+      ? [
+          {
+            date: firstEventDate,
+            milestone: 'Community events to attend in person',
+            notes: `Starting with the first of ${eventCount} event${
               eventCount === 1 ? '' : 's'
-            } we found for you.`
-          : "We'll add events here as we find them.",
-    },
+            } we found for you.`,
+          },
+        ]
+      : []),
     voterRegHasNoDeadline
       ? {
           date: electionDate,

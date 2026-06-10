@@ -281,4 +281,46 @@ describe('buildPlanData derived key numbers', () => {
       'Get out the vote',
     ])
   })
+
+  it('omits the community-events timeline row when there are no events', () => {
+    // No communityEvents (still generating, or none found). The row would
+    // otherwise render a fabricated election-minus-20-days date.
+    const plan = buildPlanData(makeInput())
+    expect(
+      timelineRows(plan).some(
+        (row) => row.milestone === 'Community events to attend in person',
+      ),
+    ).toBe(false)
+  })
+
+  it('anchors the community-events row on the first real event date', () => {
+    const plan = buildPlanData(
+      makeInput({
+        communityEvents: {
+          events: [
+            {
+              title: 'Town hall',
+              description: 'Meet voters.',
+              date: '2026-10-15',
+              address: null,
+              url: null,
+            },
+            {
+              title: 'Street fair',
+              description: 'Shake hands.',
+              date: '2026-09-20',
+              address: null,
+              url: null,
+            },
+          ],
+        },
+      }),
+    )
+    const eventRow = timelineRows(plan).find(
+      (row) => row.milestone === 'Community events to attend in person',
+    )
+    expect(eventRow).toBeDefined()
+    // Earliest of the two events (Sep 20), in the template's day format.
+    expect(eventRow?.date).toBe('Sunday, September 20')
+  })
 })
