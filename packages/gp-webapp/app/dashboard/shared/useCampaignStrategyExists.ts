@@ -10,8 +10,9 @@ const STRATEGY_EXISTS_ROUTE = 'GET /v1/campaignStrategy/mine/exists' as const
 // (e.g. pro-upgrade steps storing a raw PUT response) kept wiping the
 // computed hasCampaignStrategy field and hiding the tab mid-session; asking
 // the server every time the menu mounts removes that dependency entirely.
-// Returns false while loading or on error — the tab appears when the answer
-// arrives, and a transient failure degrades to "hidden", never to a crash.
+// Returns false while the first answer is loading or if it errors; once an
+// answer exists, a failed refetch keeps the last known value (React Query
+// retains it), so a transient network blip never yanks a visible tab.
 export const useCampaignStrategyExists = (): boolean => {
   const query = useQuery({
     queryKey: ['campaign-strategy-exists'],
