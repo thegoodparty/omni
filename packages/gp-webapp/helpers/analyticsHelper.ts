@@ -171,6 +171,9 @@ export const EVENTS = {
         'Dashboard - Campaign Plan: Strategic Landscape Results Received',
       StrategicLandscapeDisplayed:
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
+      PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
+      CampaignManagerClicked:
+        'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
     PathToVictory: {
       ClickUnderstand:

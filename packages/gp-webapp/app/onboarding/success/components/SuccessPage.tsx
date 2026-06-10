@@ -386,7 +386,12 @@ const SuccessPage = ({
     source: 'download-button' | 'reminder-modal',
   ) => {
     if (downloading || !planReady) return
-    trackEvent(EVENTS.OnboardingV2.PlanDownloaded, { campaignId, source })
+    trackEvent(
+      inDashboard
+        ? EVENTS.Dashboard.CampaignPlan.PlanDownloaded
+        : EVENTS.OnboardingV2.PlanDownloaded,
+      { campaignId, source },
+    )
     setDownloading(true)
     try {
       await downloadCampaignPlanPdf(plan, { liveUrl: shareUrl || undefined })
@@ -397,10 +402,12 @@ const SuccessPage = ({
   }
 
   const goToCampaignManager = (source: 'button' | 'reminder-modal') => {
-    trackEvent(EVENTS.OnboardingV2.CampaignManagerClicked, {
-      campaignId,
-      source,
-    })
+    trackEvent(
+      inDashboard
+        ? EVENTS.Dashboard.CampaignPlan.CampaignManagerClicked
+        : EVENTS.OnboardingV2.CampaignManagerClicked,
+      { campaignId, source },
+    )
     router.push('/dashboard')
   }
 
