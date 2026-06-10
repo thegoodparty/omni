@@ -293,6 +293,15 @@ describe('buildPlanData derived key numbers', () => {
     ).toBe(false)
   })
 
+  it('omits the community-events key date when there are no events', () => {
+    // Key Dates must drop the events row too — without a real event it would
+    // otherwise present a fabricated election-minus-20-days date as a key date.
+    const plan = buildPlanData(makeInput())
+    expect(
+      plan.keyDates.some((d) => /community event/i.test(d.description)),
+    ).toBe(false)
+  })
+
   it('anchors the community-events row on the first real event date', () => {
     const plan = buildPlanData(
       makeInput({
@@ -322,5 +331,10 @@ describe('buildPlanData derived key numbers', () => {
     expect(eventRow).toBeDefined()
     // Earliest of the two events (Sep 20), in the template's day format.
     expect(eventRow?.date).toBe('Sunday, September 20')
+    // Key Dates anchors the same events row on that first real event date.
+    const eventKeyDate = plan.keyDates.find((d) =>
+      /community event/i.test(d.description),
+    )
+    expect(eventKeyDate?.date).toBe('Sunday, September 20')
   })
 })

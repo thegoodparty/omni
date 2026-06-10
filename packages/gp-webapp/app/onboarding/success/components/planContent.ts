@@ -486,8 +486,6 @@ const buildTimeline = (
 
   type RawRow = { date: Date; milestone: string; notes: string }
 
-  const eventsDate = firstEventDate ?? addDays(electionDate, -20)
-
   const stage1Rows: RawRow[] = [
     {
       date: filing,
@@ -516,10 +514,9 @@ const buildTimeline = (
       ),
     },
     // Only show the events row when we have a real event to anchor it.
-    // Without one, eventsDate is a fabricated E-20 fallback, and the row
-    // would render an invented date (and "we'll add events" copy that's
-    // wrong once generation finishes with none found). Key Dates keeps the
-    // fallback — that's pre-existing behavior, not part of the timeline.
+    // Without a real event date the row would render a fabricated
+    // election-minus-20-days date (and "we'll add events" copy that's wrong
+    // once generation finishes with none found).
     ...(firstEventDate !== null
       ? [
           {
@@ -598,15 +595,19 @@ const buildTimeline = (
       description:
         'Mail and early ballots start going out. Your first message to voters needs to land before this day.',
     },
-    {
-      date: eventsDate,
-      description:
-        eventCount > 0
-          ? `First of ${eventCount} community event${
+    // Mirror the timeline: only anchor the events key date when a real event
+    // exists. Without one, firstEventDate is null and the row would render a
+    // fabricated election-minus-20-days date as if it were authoritative.
+    ...(firstEventDate !== null
+      ? [
+          {
+            date: firstEventDate,
+            description: `First of ${eventCount} community event${
               eventCount === 1 ? '' : 's'
-            } to show up to in person.`
-          : 'Identify community events in your area to attend in person.',
-    },
+            } to show up to in person.`,
+          },
+        ]
+      : []),
     voterRegHasNoDeadline
       ? {
           date: electionDate,
