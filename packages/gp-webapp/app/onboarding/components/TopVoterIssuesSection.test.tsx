@@ -78,7 +78,13 @@ describe('TopVoterIssuesSection', () => {
       data: { issues: issues.slice(0, 1) },
     })
 
-    render(<TopVoterIssuesSection office="Mayor of Springfield" />)
+    render(
+      <TopVoterIssuesSection
+        office="Mayor of Springfield"
+        city="Austin"
+        state="TX"
+      />,
+    )
 
     expect(
       await screen.findByText(
@@ -86,6 +92,7 @@ describe('TopVoterIssuesSection', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Mayor of Springfield/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Austin, TX/)).not.toBeInTheDocument()
   })
 
   it('refetches when ballotReadyPositionId changes (no stale cross-office cache)', async () => {
