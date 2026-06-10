@@ -9,6 +9,7 @@ import { CampaignPlanSharesRateLimitGuard } from './guards/campaignPlanSharesRat
 import { CampaignPlanSharesService } from './services/campaignPlanShares.service'
 
 const VALID_UUID_PDF = '0f1e2d3c-4b5a-4978-8765-43210fedcba9.pdf'
+const NOT_FOUND_COPY = 'no longer available'
 
 describe('CampaignPlanSharesController', () => {
   let controller: CampaignPlanSharesController
@@ -19,9 +20,11 @@ describe('CampaignPlanSharesController', () => {
 
   const makeReply = () => {
     const reply = {
+      header: vi.fn(),
       status: vi.fn(),
       type: vi.fn(),
     }
+    reply.header.mockReturnValue(reply)
     reply.status.mockReturnValue(reply)
     reply.type.mockReturnValue(reply)
     return reply
@@ -53,7 +56,29 @@ describe('CampaignPlanSharesController', () => {
       )
       expect(service.getSharePdf).not.toHaveBeenCalled()
       expect(reply.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND)
-      expect(String(result)).toContain('no longer available')
+      expect(String(result)).toContain(NOT_FOUND_COPY)
+    })
+
+    it('returns 404 html for a malformed campaign id without touching s3', async () => {
+      const reply = makeReply()
+      const result = await controller.getSharePdf(
+        'not-a-number',
+        VALID_UUID_PDF,
+        reply as never,
+      )
+      expect(service.getSharePdf).not.toHaveBeenCalled()
+      expect(reply.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND)
+      expect(String(result)).toContain(NOT_FOUND_COPY)
+    })
+
+    it('keeps every response out of shared caches', async () => {
+      service.getSharePdf.mockResolvedValue(Buffer.from('%PDF-1.7'))
+      const reply = makeReply()
+      await controller.getSharePdf('7', VALID_UUID_PDF, reply as never)
+      expect(reply.header).toHaveBeenCalledWith(
+        'Cache-Control',
+        'private, no-store',
+      )
     })
 
     it('returns 404 html when the object is missing', async () => {
@@ -65,7 +90,7 @@ describe('CampaignPlanSharesController', () => {
         reply as never,
       )
       expect(reply.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND)
-      expect(String(result)).toContain('no longer available')
+      expect(String(result)).toContain(NOT_FOUND_COPY)
     })
 
     it('streams the pdf when found', async () => {

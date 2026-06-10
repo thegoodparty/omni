@@ -11,7 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
-import { MimeTypes } from 'http-constants-ts'
+import { Headers, MimeTypes } from 'http-constants-ts'
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
@@ -91,6 +91,9 @@ export class CampaignPlanSharesController {
     @Param('fileName') fileName: string,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<StreamableFile | string> {
+    // The uuid in the path is a capability token — keep responses out of
+    // shared caches so deleting the object actually revokes the link.
+    reply.header(Headers.CACHE_CONTROL, 'private, no-store')
     const valid =
       CAMPAIGN_ID_PATTERN.test(campaignId) && FILE_NAME_PATTERN.test(fileName)
     const pdf = valid
