@@ -145,9 +145,11 @@ jobs:
         if: steps.pulumi.outputs.service_url != ''
         run: echo "gp-api ${{ steps.ctx.outputs.environment }} deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # Intentionally no needs: validate — the preview deploy runs in parallel with
+  # validation so the webapp e2e (which waits on this job) starts sooner. A
+  # preview stack of code that fails validate is acceptable; the PR can't merge.
   preview:
     name: Deploy PR preview
-    needs: validate
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
