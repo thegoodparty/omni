@@ -1,0 +1,240 @@
+name: Update Visual Snapshots
+
+# Comment `/update-snapshots` on a gp-webapp PR to regenerate the Playwright
+# visual baselines against the PR's Vercel preview and push them to the branch.
+# Ported from the standalone gp-webapp repo; the preview URL is now the
+# deterministic per-PR alias (see gp-webapp.yml) instead of a deployments-API
+# lookup.
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: update-snapshots-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  WORKSPACE: packages/gp-webapp
+
+jobs:
+  update-snapshots:
+    name: Update Visual Snapshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.issue.pull_request && contains(github.event.comment.body,
+      '/update-snapshots') && (github.event.comment.author_association ==
+      'OWNER' ||
+       github.event.comment.author_association == 'MEMBER')
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+    steps:
+      - name: React to comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes'
+            });
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('is_fork', String(pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`));
+
+      - name: Stop on fork PRs
+        if: steps.pr.outputs.is_fork == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚠️ `/update-snapshots` cannot push to fork branches with `GITHUB_TOKEN`. Please run this command from a branch in this repository.'
+            });
+            core.setFailed('Fork PRs are not supported for snapshot auto-push with GITHUB_TOKEN.');
+
+      # The PR preview only exists if the gp-webapp deploy job ran for this PR
+      # (the workflow is path-filtered), so verify the deterministic alias is
+      # actually serving before burning 15 minutes of Playwright.
+      - name: Resolve preview URL
+        id: preview
+        run: |
+          URL="https://gp-ui-pr-${{ github.event.issue.number }}-good-party.vercel.app"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 15 "$URL" || echo "000")
+          if [ "$code" = "000" ]; then
+            echo "::error::No preview found at $URL. Make sure the gp-webapp deploy ran for this PR before /update-snapshots."
+            exit 1
+          fi
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::error::Preview at $URL returned HTTP $code — deployment may still be in progress or failed. Retry once the Vercel deploy is complete."
+            exit 1
+          fi
+          echo "Preview $URL responded with $code"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+
+      - name: Install Playwright browsers
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: npx playwright install --with-deps chromium
+
+      # Always proceed to the commit step, even if some tests fail. The
+      # purpose of this workflow is to regenerate visual snapshots — unrelated
+      # test failures (network, auth, flakes) should not block the commit of
+      # updated baselines.
+      #
+      # --config must be an ABSOLUTE path: Playwright resolves a relative
+      # --config against the nearest package.json dir (packages/gp-webapp, one
+      # level above e2e-tests), silently running with NO config otherwise.
+      - name: Run tests with --update-snapshots
+        id: run_tests
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: npx playwright test --config="$PWD/playwright.config.ts" tests/ --update-snapshots
+        continue-on-error: true
+        env:
+          BASE_URL: ${{ steps.preview.outputs.url }}
+          TEST_RUN_NAME: "Update Visual Snapshots"
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+      - name: Commit updated baselines
+        id: commit
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${GITHUB_TOKEN}" | base64 -w 0)"
+          git add ${{ env.WORKSPACE }}/e2e-tests/tests/__visual_snapshots__
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to commit"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore: update visual snapshots from CI"
+            git push origin "HEAD:$BRANCH"
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: React when snapshots were committed
+        if: steps.commit.outputs.committed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ Visual snapshots have been updated and pushed to this branch.'
+            });
+
+      - name: React when no snapshot changes were needed
+        if: steps.commit.outputs.committed == 'false' && steps.run_tests.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1'
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: 'ℹ️ No snapshot changes needed — visual baselines are already up to date.'
+            });
+
+      - name: React when tests failed but no snapshots changed
+        if: steps.commit.outputs.committed == 'false' && steps.run_tests.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'confused'
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚠️ Tests failed and no snapshots were updated. [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})'
+            });
+
+      - name: React with failure
+        if: failure() && steps.pr.outputs.is_fork != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'confused'
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '❌ Failed to update visual snapshots. [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})'
+            });
+
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-update-report-${{ github.run_id }}
+          path: |
+            ${{ env.WORKSPACE }}/e2e-tests/playwright-report
+            ${{ env.WORKSPACE }}/e2e-tests/test-results/**/*.png
+          retention-days: 7
