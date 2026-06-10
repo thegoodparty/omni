@@ -26,8 +26,7 @@ jobs:
       github.event.issue.pull_request && contains(github.event.comment.body,
       '/update-snapshots') && (github.event.comment.author_association ==
       'OWNER' ||
-       github.event.comment.author_association == 'MEMBER' ||
-       github.event.comment.author_association == 'COLLABORATOR')
+       github.event.comment.author_association == 'MEMBER')
     permissions:
       actions: read
       contents: write
@@ -143,13 +142,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${GITHUB_TOKEN}" | base64 -w 0)"
           git add ${{ env.WORKSPACE }}/e2e-tests/tests/__visual_snapshots__
           if git diff --cached --quiet; then
             echo "No snapshot changes to commit"
             echo "committed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "chore: update visual snapshots from CI"
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:$BRANCH"
+            git push origin "HEAD:$BRANCH"
             echo "committed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -211,7 +211,7 @@ jobs:
             });
 
       - name: React with failure
-        if: failure()
+        if: failure() && steps.pr.outputs.is_fork != 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
