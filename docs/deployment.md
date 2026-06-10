@@ -13,6 +13,16 @@ PR-triggered workflows (validation and preview deploys) skip PRs targeting `qa`
 or `master` (`branches-ignore`) — promotion PRs don't re-run PR CI; those branches
 are covered by their push-triggered deploys.
 
+### Concurrency: never `cancel-in-progress: true`
+
+Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
+started run can kill `pulumi up` mid-deploy, which orphans the stack's S3 state
+lock and permanently fails every later deploy of that stack until someone runs
+`pulumi cancel` by hand. Queued (not yet started) runs are still superseded by
+newer ones within a concurrency group, so rapid pushes don't pile up — the
+trade-off is only that an in-flight stale run finishes before the newest one
+starts.
+
 ## Frontends (Vercel)
 
 gp-webapp, gp-admin, and candidate-sites deploy to Vercel imperatively via the
