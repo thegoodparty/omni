@@ -2,6 +2,7 @@
 
 import DashboardLayout from '../../shared/DashboardLayout'
 import SuccessPage from 'app/onboarding/success/components/SuccessPage'
+import InvalidateCampaignOnMount from 'app/onboarding/success/components/InvalidateCampaignOnMount'
 import type { User } from 'helpers/types'
 
 interface CampaignPlanPageProps {
@@ -13,6 +14,7 @@ export default function CampaignPlanPage({
 }: CampaignPlanPageProps): React.JSX.Element {
   return (
     <DashboardLayout>
+      <InvalidateCampaignOnMount />
       <SuccessPage initialUser={initialUser} showConfetti={false} inDashboard />
     </DashboardLayout>
   )
