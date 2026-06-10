@@ -29,7 +29,7 @@ const HeroCard = ({
           className="h-12 w-auto sm:h-14"
         />
         <h1 className="text-3xl font-bold text-foreground sm:text-5xl">
-          Initial campaign plan
+          Campaign plan
         </h1>
       </div>
 
