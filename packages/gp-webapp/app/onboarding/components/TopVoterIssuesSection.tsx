@@ -10,7 +10,6 @@ interface TopVoterIssuesSectionProps {
   city?: string
   state?: string
   office?: string
-  districtName?: string
   headingsAsSubsections?: boolean
 }
 
@@ -53,7 +52,6 @@ export const TopVoterIssuesSection = ({
   city,
   state,
   office,
-  districtName,
   headingsAsSubsections = false,
 }: TopVoterIssuesSectionProps): React.JSX.Element | null => {
   const query = useQuery(
@@ -91,9 +89,7 @@ export const TopVoterIssuesSection = ({
           Top issues for your voters
         </HeadingTag>
         <p className="text-sm leading-6 text-slate-500">
-          {districtName
-            ? `The issues voters in ${districtName} care about most right now.`
-            : 'The issues voters in your district care about most right now.'}
+          The issues voters in your district care about most right now.
         </p>
       </div>
 

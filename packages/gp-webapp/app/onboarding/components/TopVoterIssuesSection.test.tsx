@@ -72,22 +72,7 @@ describe('TopVoterIssuesSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('names the district when districtName is provided', async () => {
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 200,
-      data: { issues: issues.slice(0, 1) },
-    })
-
-    render(<TopVoterIssuesSection districtName="Mesa USD 4" />)
-
-    expect(
-      await screen.findByText(
-        /The issues voters in Mesa USD 4 care about most right now\./i,
-      ),
-    ).toBeInTheDocument()
-  })
-
-  it('falls back to the generic district copy and ignores office or location props', async () => {
+  it('shows the static district copy and ignores office or location props', async () => {
     api.mock('GET /v1/onboarding/voter-issues', {
       status: 200,
       data: { issues: issues.slice(0, 1) },

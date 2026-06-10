@@ -28,7 +28,6 @@ export { onboardingDistrictStatsQueryOptions }
 interface VoterDemographicsStepProps {
   ballotReadyPositionId?: string
   districtId?: string
-  districtName?: string
   city?: string
   state?: string
   office?: string
@@ -39,7 +38,6 @@ interface VoterDemographicsStepProps {
 export const VoterDemographicsStep = ({
   ballotReadyPositionId,
   districtId,
-  districtName,
   city,
   state,
   office,
@@ -161,7 +159,6 @@ export const VoterDemographicsStep = ({
         city={city}
         state={state}
         office={office}
-        districtName={districtName}
         headingsAsSubsections={headingsAsSubsections}
       />
 

@@ -318,7 +318,6 @@ const StepBody = ({
         city={answers.structuredOffice?.city}
         state={answers.structuredOffice?.state}
         office={answers.structuredOffice?.positionName}
-        districtName={liveCampaign?.details?.district || undefined}
       />
     )
   }
