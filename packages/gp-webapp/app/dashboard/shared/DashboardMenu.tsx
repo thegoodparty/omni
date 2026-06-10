@@ -38,6 +38,7 @@ import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { Campaign } from 'helpers/types'
 import {
@@ -237,6 +238,7 @@ const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  campaignStrategyExists: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -251,7 +253,10 @@ const getDashboardMenuItems = (
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
-  if (campaign?.hasCampaignStrategy) {
+  // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
+  // — the cached campaign object gets overwritten by responses that lack that
+  // computed field (see useCampaignStrategyExists).
+  if (campaignStrategyExists) {
     menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
@@ -268,12 +273,14 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
+  const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
     const items = getDashboardMenuItems(
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      campaignStrategyExists,
     )
 
     if (ecanvasser) {
@@ -290,6 +297,7 @@ export default function DashboardMenu({
     electedOffice,
     proUpgradeReady,
     proUpgradeEnabled,
+    campaignStrategyExists,
   ])
 
   useEffect(() => {
