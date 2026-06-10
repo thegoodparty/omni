@@ -112,3 +112,29 @@ export const getBriefingBySlug = async (
     throw e
   }
 }
+
+export type BriefingReviewVerdict = {
+  verdict: 'passed' | 'failed'
+  failReason: string | null
+  reviewerEmail: string | null
+  reviewedAt: string
+}
+
+// 403 (not impersonating) and 404 (no briefing) both render as "no verdict";
+// the page-level gates handle those cases themselves.
+export const getBriefingReviewVerdict = async (
+  slug: string,
+): Promise<BriefingReviewVerdict | null> => {
+  try {
+    const { data } = await serverRequest(
+      'GET /v1/meetings/:date/briefing/review-verdict',
+      { date: slug },
+    )
+    return data.review
+  } catch (e) {
+    if (e instanceof FetchError && (e.status === 403 || e.status === 404)) {
+      return null
+    }
+    throw e
+  }
+}
