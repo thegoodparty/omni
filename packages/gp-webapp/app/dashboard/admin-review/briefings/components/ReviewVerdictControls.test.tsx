@@ -66,6 +66,24 @@ describe('ReviewVerdictControls', () => {
     await waitFor(() => expect(stopImpersonating).toHaveBeenCalled())
   })
 
+  it('resets the fail reason when the dialog is cancelled', async () => {
+    render(<ReviewVerdictControls meetingDate="2026-06-10" reviewsCount={0} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /fail/i }))
+    await userEvent.type(
+      screen.getByPlaceholderText(/why is this briefing failing/i),
+      'Summary is wrong',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: /fail/i }))
+
+    expect(
+      screen.getByPlaceholderText(/why is this briefing failing/i),
+    ).toHaveValue('')
+    expect(screen.getByRole('button', { name: /confirm fail/i })).toBeDisabled()
+  })
+
   it('stays in the session when the request fails', async () => {
     api.mock('PUT /v1/meetings/:date/briefing/review-verdict', {
       status: 500,

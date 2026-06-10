@@ -37,6 +37,7 @@ export default function ReviewVerdictControls({
   const close = () => {
     setPending(null)
     setFailReason('')
+    setSubmitting(false)
     setError(null)
   }
 
@@ -90,7 +91,7 @@ export default function ReviewVerdictControls({
       <Dialog
         open={pending !== null}
         onOpenChange={(next) => {
-          if (!next) close()
+          if (!next && !submitting) close()
         }}
       >
         <DialogContent>
@@ -107,6 +108,7 @@ export default function ReviewVerdictControls({
 
           {failing && (
             <Textarea
+              aria-label="Fail reason"
               placeholder="Why is this briefing failing?"
               maxLength={2000}
               value={failReason}
@@ -114,7 +116,11 @@ export default function ReviewVerdictControls({
             />
           )}
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
 
           <DialogFooter>
             <Button variant="outline" disabled={submitting} onClick={close}>
