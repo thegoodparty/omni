@@ -17,6 +17,7 @@ export interface PlanSectionRef {
 interface PlanSectionNavProps {
   sections: PlanSectionRef[]
   onStuckChange?: (stuck: boolean) => void
+  inDashboard?: boolean
 }
 
 // Activate a section when its top sits in the upper half of the viewport,
@@ -26,6 +27,7 @@ const OBSERVER_ROOT_MARGIN = '-120px 0px -55% 0px'
 const PlanSectionNav = ({
   sections,
   onStuckChange,
+  inDashboard = false,
 }: PlanSectionNavProps): React.JSX.Element => {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
   const [isStuck, setIsStuck] = useState(false)
@@ -105,7 +107,9 @@ const PlanSectionNav = ({
       ref={wrapperRef}
       className={
         isStuck
-          ? 'sticky top-0 z-30 mx-[calc(50%-50vw)] w-screen border-b border-base-border bg-base-surface'
+          ? inDashboard
+            ? 'sticky top-0 z-30 border-b border-base-border bg-base-surface'
+            : 'sticky top-0 z-30 mx-[calc(50%-50vw)] w-screen border-b border-base-border bg-base-surface'
           : 'sticky top-0 z-30 rounded-xl border border-base-border bg-base-surface px-3 py-2 shadow-sm'
       }
     >

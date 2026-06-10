@@ -46,6 +46,7 @@ interface PlanSectionsProps {
   pressOutletsState?: PressOutletsState
   onStuckChange?: (stuck: boolean) => void
   voterInsightsContext?: VoterInsightsContext
+  inDashboard?: boolean
 }
 
 interface SectionProps {
@@ -430,6 +431,7 @@ const PlanSections = ({
   pressOutletsState,
   onStuckChange,
   voterInsightsContext,
+  inDashboard = false,
 }: PlanSectionsProps): React.JSX.Element => {
   const isStrategyGenerating = strategyState?.isGenerating ?? false
   const isStrategyError = strategyState?.isError ?? false
@@ -467,7 +469,7 @@ const PlanSections = ({
 
   return (
     <div className="text-left">
-      <PlanSectionNav sections={navSections} onStuckChange={onStuckChange} />
+      <PlanSectionNav sections={navSections} onStuckChange={onStuckChange} inDashboard={inDashboard} />
 
       <div className="mt-8 space-y-12">
         {/* 1. Executive Summary */}

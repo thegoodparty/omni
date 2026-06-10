@@ -35,11 +35,13 @@ import { useStrategicLandscape } from '../hooks/useStrategicLandscape'
 interface SuccessPageProps {
   initialUser: User | null
   showConfetti?: boolean
+  inDashboard?: boolean
 }
 
 const SuccessPage = ({
   initialUser,
   showConfetti = true,
+  inDashboard = false,
 }: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
   const [clientUser] = useUser()
@@ -436,6 +438,7 @@ const SuccessPage = ({
               state: onboardingState,
               office: onboardingOffice,
             }}
+            inDashboard={inDashboard}
           />
         </div>
 
@@ -447,7 +450,7 @@ const SuccessPage = ({
         </p>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-base-border bg-base-surface">
+      <div className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface ${inDashboard ? 'left-0 md:left-(--sidebar-width)' : 'left-0'}`}>
         <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
           {/* Mobile download. While the plan is still generating the button
               is disabled; a disabled button suppresses its own pointer

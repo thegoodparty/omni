@@ -13,7 +13,7 @@ export default function CampaignPlanPage({
 }: CampaignPlanPageProps): React.JSX.Element {
   return (
     <DashboardLayout>
-      <SuccessPage initialUser={initialUser} showConfetti={false} />
+      <SuccessPage initialUser={initialUser} showConfetti={false} inDashboard />
     </DashboardLayout>
   )
 }
