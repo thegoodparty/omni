@@ -9,6 +9,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
+import { StyledAlert } from '@shared/alerts/StyledAlert'
 import { EinCheckInput } from 'app/dashboard/pro-sign-up/committee-check/components/EinCheckInput'
 import {
   checkEinSanity,
@@ -38,6 +39,9 @@ const EinStep = (): React.JSX.Element => {
     einIndicatorState(persistedEin),
   )
   const [submitting, setSubmitting] = useState(false)
+  // Continue is always enabled (Figma 7490:26881); an attempt with an
+  // incomplete EIN surfaces the error banner instead of silently doing nothing.
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false)
   // Once the candidate edits the field we stop syncing from the persisted value.
   const hasInteracted = useRef(false)
 
@@ -71,10 +75,10 @@ const EinStep = (): React.JSX.Element => {
     // Guard against a double-tap firing two updates / navigations.
     if (submitting) return
 
-    // Defense-in-depth: the button is disabled while the EIN fails sanity
-    // (placeholder, non-IRS prefix), but never persist a bad EIN even if that
-    // gate is somehow bypassed.
-    if (!checkEinSanity(einInputValue).valid) return
+    if (!checkEinSanity(einInputValue).valid) {
+      setAttemptedSubmit(true)
+      return
+    }
 
     setSubmitting(true)
     const updated = await updateCampaign([
@@ -102,13 +106,21 @@ const EinStep = (): React.JSX.Element => {
     setSubmitting(false)
   }
 
-  // `validatedEin` is sanity-aware, so this keeps Continue disabled for a
-  // complete-but-bad EIN (consistent with the red field indicator).
-  const nextDisabled = !validatedEin || submitting
-
-  // When `validatedEin === false` the EIN is complete but failed sanity; surface
-  // the specific reason inline (the disabled button can't be clicked to show it).
   const einSanity = checkEinSanity(einInputValue)
+  // A `format` failure means the EIN simply isn't fully entered, so the banner
+  // asks for it (Figma 7490:26881); a complete-but-bad EIN gets the specific
+  // sanity reason instead.
+  const einErrorMessage = einSanity.valid
+    ? null
+    : einSanity.reason === 'format'
+      ? 'Please add your campaign EIN'
+      : einSanity.message
+  // The error shows immediately for a complete-but-bad EIN
+  // (`validatedEin === false` — entry derivation routes candidates here
+  // specifically to fix one, so a neutral field would give them nothing to act
+  // on) and only after an attempted Continue for an incomplete one.
+  const showEinError =
+    einErrorMessage !== null && (attemptedSubmit || validatedEin === false)
 
   return (
     <div>
@@ -121,12 +133,18 @@ const EinStep = (): React.JSX.Element => {
         IRS in just a few minutes.
       </Body2>
 
+      {showEinError && (
+        <StyledAlert severity="error" className="mb-6">
+          <Body2>{einErrorMessage}</Body2>
+        </StyledAlert>
+      )}
+
       <EinCheckInput
         name="ein-number"
         value={einInputValue}
         validated={validatedEin}
         setValidated={setValidatedEin}
-        error={validatedEin === false}
+        error={showEinError}
         onChange={onEinChange}
         onTooltipOpen={() =>
           trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
@@ -142,12 +160,6 @@ const EinStep = (): React.JSX.Element => {
           </a>
         }
       />
-      {validatedEin === false && !einSanity.valid && (
-        <Body2 className="text-error my-4 text-center">
-          {einSanity.message}
-        </Body2>
-      )}
-
       <div className="mt-8 flex justify-between">
         <Button variant="outline" size="large" onClick={goToPreviousStep}>
           Back
@@ -155,7 +167,7 @@ const EinStep = (): React.JSX.Element => {
         <Button
           size="large"
           onClick={() => void handleNextClick()}
-          disabled={nextDisabled}
+          disabled={submitting}
         >
           Continue
         </Button>
