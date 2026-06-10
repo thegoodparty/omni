@@ -105,7 +105,7 @@ const WEBSITE_MENU_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Dashboard',
+    label: 'Campaign Manager',
     icon: <MdFactCheck />,
     v2Icon: LayoutDashboard,
     link: '/dashboard',

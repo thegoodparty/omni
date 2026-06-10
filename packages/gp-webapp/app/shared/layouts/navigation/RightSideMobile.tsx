@@ -145,7 +145,7 @@ const RightSideMobile = (): React.JSX.Element => {
                             onClick={closeMenu}
                             className="w-full font-medium focus-visible:outline-white/40"
                           >
-                            <Link href={dashboardLink}>Dashboard</Link>
+                            <Link href={dashboardLink}>Campaign Manager</Link>
                           </Button>
                         )}
                         {status === 'onboarding' && (
