@@ -1,7 +1,7 @@
 'use client'
 
 import DashboardLayout from '../../shared/DashboardLayout'
-import SuccessPage from 'app/onboarding/success/components/SuccessPage'
+import CampaignPlanView from './CampaignPlanView'
 import InvalidateCampaignOnMount from 'app/onboarding/success/components/InvalidateCampaignOnMount'
 import type { User } from 'helpers/types'
 
@@ -15,7 +15,7 @@ export default function CampaignPlanPage({
   return (
     <DashboardLayout>
       <InvalidateCampaignOnMount />
-      <SuccessPage initialUser={initialUser} showConfetti={false} inDashboard />
+      <CampaignPlanView initialUser={initialUser} />
     </DashboardLayout>
   )
 }
