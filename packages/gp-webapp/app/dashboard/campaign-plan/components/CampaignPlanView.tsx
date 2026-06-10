@@ -35,16 +35,19 @@ const CampaignPlanView = ({
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
-  // would re-fire without a guard.
+  // would re-fire without a guard. No-op until the campaign resolves: every
+  // calling effect lists campaignId in its deps and re-runs when it lands,
+  // so firing early would record under a placeholder key and then re-fire
+  // under the real one.
   const fireOnce = (
     event: string,
     properties: Record<string, string | number | boolean | undefined>,
   ): void => {
-    const key = campaignId ?? 0
-    let fired = _firedEvents.get(key)
+    if (campaignId === undefined) return
+    let fired = _firedEvents.get(campaignId)
     if (!fired) {
       fired = new Set()
-      _firedEvents.set(key, fired)
+      _firedEvents.set(campaignId, fired)
     }
     if (fired.has(event)) return
     fired.add(event)
@@ -58,7 +61,6 @@ const CampaignPlanView = ({
   // Requested — on the dashboard this page is the origin of all three
   // resource requests (no pre-warm step like onboarding has).
   useEffect(() => {
-    if (campaignId === undefined) return
     fireOnce(planEvents.MediaRequested, { campaignId })
     fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
     fireOnce(planEvents.CommunityEventsRequested, { campaignId })

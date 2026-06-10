@@ -30,16 +30,19 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
-  // would re-fire without a guard.
+  // would re-fire without a guard. No-op until the campaign resolves: every
+  // calling effect lists campaignId in its deps and re-runs when it lands,
+  // so firing early would record under a placeholder key and then re-fire
+  // under the real one.
   const fireOnce = (
     event: string,
     properties: Record<string, string | number | boolean | undefined>,
   ): void => {
-    const key = campaignId ?? 0
-    let fired = _firedEvents.get(key)
+    if (campaignId === undefined) return
+    let fired = _firedEvents.get(campaignId)
     if (!fired) {
       fired = new Set()
-      _firedEvents.set(key, fired)
+      _firedEvents.set(campaignId, fired)
     }
     if (fired.has(event)) return
     fired.add(event)
@@ -54,7 +57,6 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   // CommunityEventsRequested fire from OnboardingFlow at pre-warm time
   // (the real first request); this page only re-polls afterwards.
   useEffect(() => {
-    if (campaignId === undefined) return
     fireOnce(EVENTS.OnboardingV2.MediaRequested, { campaignId })
   }, [campaignId])
 
