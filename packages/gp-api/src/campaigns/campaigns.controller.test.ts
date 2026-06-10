@@ -302,6 +302,19 @@ describe('CampaignsController', () => {
       expect(result.positionName).toBe('Mayor')
       expect(result.hasCampaignStrategy).toBe(false)
     })
+
+    it('passes through hasCampaignStrategy: true from the service', async () => {
+      vi.spyOn(campaignsService, 'hasCampaignStrategy').mockResolvedValue(true)
+
+      const campaignWithRelations: CampaignWith<'organization'> = {
+        ...mockCampaign,
+        organization: {} as Organization,
+      }
+
+      const result = await controller.findMine(campaignWithRelations)
+
+      expect(result.hasCampaignStrategy).toBe(true)
+    })
   })
 
   describe('getUserCampaignStatus', () => {
