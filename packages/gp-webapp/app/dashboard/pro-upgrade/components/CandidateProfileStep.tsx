@@ -1,7 +1,6 @@
 'use client'
 
 import { Button } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { useCandidateProfileForm } from 'app/dashboard/profile/texting-compliance/candidate-profile/useCandidateProfileForm'
 import CandidateProfileFields from 'app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfileFields'
@@ -23,8 +22,10 @@ const CandidateProfileStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-2">What is your campaign about?</H2>
-      <Body2 className="text-secondary mb-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        What is your campaign about?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         We need to submit your candidate profile to register your campaign.
         Please be as descriptive as possible to ensure your profile is approved.
       </Body2>

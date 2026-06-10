@@ -99,7 +99,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     return (
       <div className="text-center">
         <H2 className="mb-2">Something went wrong</H2>
-        <Body2 className="mb-6 text-gray-600">
+        <Body2 className="mb-6 text-base-muted-foreground">
           We couldn&apos;t load your upgrade details. Please try again.
         </Body2>
         <Button

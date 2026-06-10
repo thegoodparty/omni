@@ -142,6 +142,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
+      isServeIcp: true,
     })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -238,7 +239,11 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
       },
     })
 
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -265,7 +270,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const artifactKey = await seedScheduleForOrg(orgSlug) // FREQ=DAILY → always inside window
     const scheduleRun = await service.prisma.experimentRun.create({
       data: {
@@ -311,7 +320,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       const eo = await service.prisma.electedOffice.create({
         data: { organizationSlug: orgSlug, userId: service.user.id },
       })
-      mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
       const artifactKey = await seedScheduleForOrg(orgSlug, {
         rrule: 'FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1',
       })
@@ -345,7 +358,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const artifactKey = await seedScheduleForOrg(orgSlug, {
       status: 'not_found',
     })
@@ -907,7 +924,11 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       },
     })
 
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
 
     // Both orgs have schedules so the imminence gate passes. Org A also has
     // an existing future briefing → coverage dedupe skips it. Only B fires.
@@ -967,7 +988,11 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
         campaignId: campaign?.id,
       },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -996,7 +1021,11 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
           campaignId: campaign?.id,
         },
       })
-      mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
       await seedScheduleForOrg(orgSlug, {
         rrule: 'FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1',
       })
@@ -1026,7 +1055,11 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       },
     })
 
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     await seedScheduleForOrg(orgSlug)
 
     const dispatchSpy = vi
@@ -1057,7 +1090,11 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       },
     })
 
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     await seedScheduleForOrg(orgSlug)
 
     const dispatchSpy = vi
@@ -1073,6 +1110,66 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       }),
     )
   })
+
+  it('skips an EO whose position is explicitly not serve-ICP', async () => {
+    const orgSlug = `eo-cron-non-icp-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-non-icp' })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: false,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips an EO when serve-ICP is null (unknown fails closed)', async () => {
+    const orgSlug = `eo-cron-null-icp-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-null-icp' })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: null,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('MeetingBriefingsService.dispatchManual', () => {
@@ -1087,7 +1184,11 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -1109,7 +1210,11 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     await seedScheduleForOrg(orgSlug)
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -1138,7 +1243,11 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -1176,6 +1285,7 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       positionName: 'City Council Member',
       l2DistrictType: 'City',
       l2DistrictName: 'Minneapolis',
+      isServeIcp: true,
     })
     await seedScheduleForOrg(orgSlug)
     const dispatchSpy = vi
@@ -1215,6 +1325,7 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       positionName: 'School Board',
       l2DistrictType: 'SchoolDistrict',
       l2DistrictName: 'LAUSD',
+      isServeIcp: true,
     })
     await seedScheduleForOrg(orgSlug)
     const dispatchSpy = vi
@@ -1281,7 +1392,11 @@ describe('MeetingBriefingsService location hints', () => {
         description: 'https://example.gov/city-council/meetings',
       },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -1306,7 +1421,11 @@ describe('MeetingBriefingsService location hints', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -1335,7 +1454,11 @@ describe('MeetingBriefingsService location hints', () => {
         description: 'https://city.granicus.com/ViewPublisher.php?view_id=5',
       },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     await seedScheduleForOrg(orgSlug)
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -1362,7 +1485,11 @@ describe('MeetingBriefingsService location hints', () => {
     const eo = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: service.user.id },
     })
-    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const artifactKey = `schedule-loc-${orgSlug}.json`
     await service.prisma.experimentRun.create({
       data: {
