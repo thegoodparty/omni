@@ -161,6 +161,10 @@ export const EVENTS = {
       VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
       VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
+      StrategicLandscapeRequested:
+        'Dashboard - Campaign Plan: Strategic Landscape Requested',
+      CommunityEventsRequested:
+        'Dashboard - Campaign Plan: Community Events Requested',
       MediaResultsReceived: 'Dashboard - Campaign Plan: Media Results Received',
       MediaDisplayed: 'Dashboard - Campaign Plan: Media Displayed',
       CommunityEventsResultsReceived:

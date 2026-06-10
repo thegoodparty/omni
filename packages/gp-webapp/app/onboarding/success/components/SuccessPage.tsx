@@ -306,16 +306,17 @@ const SuccessPage = ({
   const communityEventsCount = events.data?.events?.length ?? 0
   const strategyReady = strategy.data !== undefined
 
-  // Requested — Strategic Landscape and Community Events are prewarmed at the
-  // office step (see OnboardingFlow), so those `Requested` events fire there,
-  // not here. Media's request fires from this page's first poll. Wait for a
-  // resolved campaignId so the once-fire isn't spent on an undefined id while
-  // the invalidated campaign query is still refetching.
+  // Requested — all three fire when the page mounts with a resolved campaignId.
+  // In onboarding, StrategicLandscape and CommunityEvents were pre-warmed from
+  // OnboardingFlow so those fire there instead (deduped here by _firedEvents).
+  // On the dashboard, all three requests originate from this page.
   // Dashboard revisits fire Dashboard.CampaignPlan equivalents instead of
   // OnboardingV2 events so the two contexts stay in separate funnels.
   useEffect(() => {
     if (campaignId === undefined) return
     fireOnce(planEvents.MediaRequested, { campaignId })
+    fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
+    fireOnce(planEvents.CommunityEventsRequested, { campaignId })
   }, [planEvents, campaignId])
 
   // Results Received — fire once when each resource's status first hits ready.
