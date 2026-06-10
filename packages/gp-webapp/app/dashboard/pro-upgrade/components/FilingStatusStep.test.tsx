@@ -30,6 +30,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUpdateCampaign = vi.mocked(updateCampaign)
 const goToStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 describe('FilingStatusStep', () => {
   beforeEach(() => {
@@ -38,7 +39,7 @@ describe('FilingStatusStep', () => {
       currentStep: 'status',
       goToStep,
       goToNextStep: vi.fn(),
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: persistence succeeds and returns the updated campaign.
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
@@ -61,6 +62,13 @@ describe('FilingStatusStep', () => {
     expect(
       screen.getByText('I still need to file for this election'),
     ).toBeInTheDocument()
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<FilingStatusStep />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('persists hasFiledForRace=true and advances to guidance when "Yes" is selected', async () => {

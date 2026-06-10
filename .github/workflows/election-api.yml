@@ -2,20 +2,9 @@ name: election-api
 
 on:
   pull_request:
-    paths:
-      - "packages/election-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/election-api.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/election-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/election-api.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read

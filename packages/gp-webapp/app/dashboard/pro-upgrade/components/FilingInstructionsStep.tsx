@@ -16,6 +16,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { clientRequest } from 'gpApi/typed-request'
+import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Mirror gp-api's renderFilingInstructionsEmail window logic so the on-screen
 // window and the "email this to me" body can't drift: both → "start – end",
@@ -56,6 +57,7 @@ const InstructionRow = ({
 
 const FilingInstructionsStep = (): React.JSX.Element => {
   const router = useRouter()
+  const { goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
@@ -179,7 +181,10 @@ const FilingInstructionsStep = (): React.JSX.Element => {
         </div>
       </div>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button size="large" onClick={handleExit}>
           Continue to dashboard
         </Button>

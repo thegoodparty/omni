@@ -44,6 +44,7 @@ vi.mock('helpers/useSnackbar', () => ({
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 const websiteWith = (bio: string, issueCount: number): Website =>
   ({
@@ -66,7 +67,7 @@ beforeEach(() => {
     currentStep: 'candidate-profile',
     goToStep: vi.fn(),
     goToNextStep,
-    goToPreviousStep: vi.fn(),
+    goToPreviousStep,
   })
   // Default: a complete profile on file, save succeeds.
   getUserWebsite.mockResolvedValue(websiteWith(validBio, 1))
@@ -88,6 +89,16 @@ describe('CandidateProfileStep', () => {
     expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
     expect(screen.getByText('Your policy priorities')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  })
+
+  it('navigates to the previous step from the footer Back button', async () => {
+    const user = userEvent.setup()
+    render(<CandidateProfileStep />)
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(saveAboutFields).not.toHaveBeenCalled()
   })
 
   it('saves bio and issues and advances to payment on a valid submit', async () => {

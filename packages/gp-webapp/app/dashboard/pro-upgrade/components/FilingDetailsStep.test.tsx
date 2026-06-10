@@ -68,6 +68,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockSubmit = vi.mocked(submitTcrCompliance)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed, non-placeholder EIN with an IRS-issued prefix.
 const CLEAN_EIN = '12-3456780'
@@ -149,7 +150,7 @@ describe('FilingDetailsStep', () => {
       currentStep: 'filing-details',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: a local candidate with EIN already collected at the prior step.
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })
@@ -185,6 +186,15 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByTestId('select-address')).toBeInTheDocument()
   })
 
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<FilingDetailsStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockSubmit).not.toHaveBeenCalled()
+  })
+
   it('submits the mapped payload to createAgentic and advances on success', async () => {
     render(<FilingDetailsStep />)
     fillValidNonFederalForm()
@@ -215,7 +225,7 @@ describe('FilingDetailsStep', () => {
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 
-  it('does not submit or advance when the form is invalid', () => {
+  it('does not submit and lists the failing fields when the form is invalid', () => {
     // No fields filled (and no EIN on file) → invalid form.
     seedCampaign({ ballotLevel: 'Local/Township/City' })
     render(<FilingDetailsStep />)
@@ -224,6 +234,37 @@ describe('FilingDetailsStep', () => {
 
     expect(mockSubmit).not.toHaveBeenCalled()
     expect(goToNextStep).not.toHaveBeenCalled()
+    // The guiding banner must name what's wrong — a silent return reads as a
+    // dead Continue button.
+    expect(
+      screen.getByText('Please fix the following fields:'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+    // `website` has no input in this form and must never be listed.
+    expect(screen.queryByText('Website')).not.toBeInTheDocument()
+  })
+
+  it('names the EIN in the banner when a legacy bad EIN fails validation', () => {
+    // EIN is owned by the wizard's EIN step (entry derivation routes a
+    // sanity-failing EIN there), so this form never renders an EIN input. The
+    // banner still names a bad EIN as a defense for direct-URL arrivals —
+    // Back is the EIN step, where it's fixed.
+    seedCampaign({
+      einNumber: '00-0000000',
+      ballotLevel: 'Local/Township/City',
+    })
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Campaign EIN')).not.toBeInTheDocument()
+    expect(screen.getByText('EIN')).toBeInTheDocument()
+    expect(
+      screen.getByText(/placeholder values aren't accepted/i),
+    ).toBeInTheDocument()
   })
 
   it('surfaces an error and does not advance when the submit fails', async () => {

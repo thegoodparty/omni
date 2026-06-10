@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
-import ProUpgradeWizard from './ProUpgradeWizard'
+import ProUpgradeWizard, { useProUpgradeWizard } from './ProUpgradeWizard'
 import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
 import { usePathname } from 'next/navigation'
 import { noop } from '@shared/utils/noop'
@@ -20,6 +20,18 @@ vi.mock('next/navigation', () => ({
 
 const mockUseProUpgrade3Flag = vi.mocked(useProUpgrade3Flag)
 const mockUsePathname = vi.mocked(usePathname)
+
+// Context probe: the wizard chrome no longer renders Back itself (steps own
+// their footer Back buttons), so navigation behavior is exercised through the
+// context the steps consume.
+const BackProbe = (): React.JSX.Element => {
+  const { goToPreviousStep } = useProUpgradeWizard()
+  return (
+    <button type="button" onClick={goToPreviousStep}>
+      probe-back
+    </button>
+  )
+}
 
 describe('ProUpgradeWizard', () => {
   beforeEach(() => {
@@ -71,9 +83,8 @@ describe('ProUpgradeWizard', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
-  it('does not show a Back control on the post-payment success surface', () => {
+  it('renders an Exit link to the dashboard', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
-    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
 
     render(
       <ProUpgradeWizard>
@@ -81,16 +92,15 @@ describe('ProUpgradeWizard', () => {
       </ProUpgradeWizard>,
     )
 
-    expect(
-      screen.queryByRole('button', { name: /go back/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /exit/i })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    )
   })
 
-  it('shows a Back control on the filing-instructions dead-end (off-order route)', () => {
+  it('shows the vertical stepper with the active step on a collection step', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
-    mockUsePathname.mockReturnValue(
-      '/dashboard/pro-upgrade/filing-instructions',
-    )
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/filing-details')
 
     render(
       <ProUpgradeWizard>
@@ -98,6 +108,55 @@ describe('ProUpgradeWizard', () => {
       </ProUpgradeWizard>,
     )
 
-    expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument()
+    const active = screen.getByText('Campaign details').closest('li')
+    expect(active).toHaveAttribute('aria-current', 'step')
+    // Steps before the active one are announced as completed; upcoming ones
+    // are not.
+    const completed = screen.getByText('Campaign EIN').closest('li')
+    expect(completed).not.toHaveAttribute('aria-current')
+    expect(completed).toHaveAttribute('aria-label', 'Campaign EIN - completed')
+    expect(
+      screen.getByText('Candidate profile').closest('li'),
+    ).not.toHaveAttribute('aria-label')
+    expect(screen.getByText('Payment')).toBeInTheDocument()
+    // The old top-of-card progress bar is gone from the design.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('routes Back from the off-order routes to the status step, not browser history', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+
+    for (const step of ['filing-instructions', 'guidance']) {
+      mockUsePathname.mockReturnValue(`/dashboard/pro-upgrade/${step}`)
+      const { unmount } = render(
+        <ProUpgradeWizard>
+          <BackProbe />
+        </ProUpgradeWizard>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+      // A candidate can land here from a direct URL with no wizard history;
+      // router.back() would exit the flow entirely.
+      expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/status')
+      expect(router.back).not.toHaveBeenCalled()
+      router.push?.mockClear()
+      unmount()
+    }
+  })
+
+  it('does not show the stepper on steps outside the four collection steps', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+
+    for (const step of ['value-prop', 'status', 'guidance', 'success']) {
+      mockUsePathname.mockReturnValue(`/dashboard/pro-upgrade/${step}`)
+      const { unmount } = render(
+        <ProUpgradeWizard>
+          <div>step-content</div>
+        </ProUpgradeWizard>,
+      )
+      expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
+      unmount()
+    }
   })
 })

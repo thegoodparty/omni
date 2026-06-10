@@ -13,3 +13,19 @@ type Story = StoryObj<typeof Stepper>
 export const Bar: Story = {
   render: () => <Stepper variant="bar" currentStep={2} totalSteps={5} />,
 }
+
+export const Vertical: Story = {
+  render: () => (
+    <Stepper
+      variant="vertical"
+      currentStep={1}
+      labels={[
+        'Campaign EIN',
+        'Campaign details',
+        'Candidate profile',
+        'Payment',
+      ]}
+      className="w-72"
+    />
+  ),
+}

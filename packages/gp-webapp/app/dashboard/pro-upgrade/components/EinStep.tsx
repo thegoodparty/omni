@@ -22,23 +22,23 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 // server sanity layers can't drift: `einIndicatorState` drives the field icon
 // and `checkEinSanity` gates submit.
 const EinStep = (): React.JSX.Element => {
-  const { goToNextStep } = useProUpgradeWizard()
+  const { goToNextStep, goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
 
   const persistedEin = campaign?.details?.einNumber ?? ''
   const [einInputValue, setEinInputValue] = useState(persistedEin)
-  // Initialize to the sanity-aware verdict, but only surface a green check for a
-  // prefilled value that passes — a complete-but-bad prefilled EIN (e.g. a
-  // legacy save predating the sanity rules) stays neutral until the candidate
-  // edits it, so we never flash a red error on a field they haven't touched.
+  // Initialize to the full sanity-aware verdict, including `false` for a
+  // prefilled complete-but-bad EIN (a legacy save predating the sanity rules).
+  // Entry derivation routes those candidates here on purpose, so the red
+  // indicator and inline reason must show immediately — a neutral field with a
+  // disabled Continue would give them nothing to act on.
   const [validatedEin, setValidatedEin] = useState<boolean | null>(() =>
-    einIndicatorState(persistedEin) === true ? true : null,
+    einIndicatorState(persistedEin),
   )
   const [submitting, setSubmitting] = useState(false)
-  // Once the candidate edits the field we stop syncing from the persisted value
-  // and start surfacing the full sanity verdict (including the red error).
+  // Once the candidate edits the field we stop syncing from the persisted value.
   const hasInteracted = useRef(false)
 
   useEffect(() => {
@@ -57,13 +57,9 @@ const EinStep = (): React.JSX.Element => {
   // Recompute the verdict whenever the value changes. `einIndicatorState` is
   // sanity-aware: true for a complete, plausible EIN, false for a
   // complete-but-bad one (placeholder / non-IRS prefix), null while still
-  // typing. Before the candidate interacts we suppress the `false` verdict so a
-  // prefilled bad EIN shows neutral rather than an error on mount.
+  // typing.
   useEffect(() => {
-    const indicator = einIndicatorState(einInputValue)
-    setValidatedEin(
-      !hasInteracted.current && indicator === false ? null : indicator,
-    )
+    setValidatedEin(einIndicatorState(einInputValue))
   }, [einInputValue])
 
   const onEinChange = (value: string): void => {
@@ -152,7 +148,10 @@ const EinStep = (): React.JSX.Element => {
         </Body2>
       )}
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button
           size="large"
           onClick={() => void handleNextClick()}

@@ -50,7 +50,7 @@ export type ValidationField =
 
 type ValidationMessages = Record<ValidationField, string>
 
-const fieldDisplayNames: ValidationMessages = {
+export const fieldDisplayNames: ValidationMessages = {
   electionFilingLink: 'Election Filing Link',
   campaignCommitteeName: 'Campaign Committee Name',
   officeLevel: 'Office Level',
@@ -63,7 +63,7 @@ const fieldDisplayNames: ValidationMessages = {
   committeeType: 'Committee Type',
 }
 
-const getValidationMessage = (
+export const getValidationMessage = (
   field: ValidationField,
   officeLevel?: string,
 ): string => {
@@ -112,7 +112,7 @@ type ValidationResult = {
   isValid: boolean
 }
 
-const getFailingFields = (
+export const getFailingFields = (
   validations: Record<ValidationField, boolean>,
 ): ValidationField[] => {
   const fields: ValidationField[] = []
