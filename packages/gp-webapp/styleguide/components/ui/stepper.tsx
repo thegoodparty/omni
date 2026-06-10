@@ -33,10 +33,16 @@ function Stepper(props: StepperProps) {
         {labels.map((label, index) => {
           const stepNumber = index + 1
           const isActive = stepNumber === currentStep
+          const isCompleted = stepNumber < currentStep
           return (
             <li
               key={label}
               aria-current={isActive ? 'step' : undefined}
+              // Completed steps are announced as such but render identically
+              // to upcoming ones: the Figma "steps" component set defines only
+              // active/default variants, so there is no completed visual to
+              // apply.
+              aria-label={isCompleted ? `${label} - completed` : undefined}
               className={cn(
                 'flex items-center gap-3 rounded-full px-4 py-3',
                 isActive && 'bg-slate-200',

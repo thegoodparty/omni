@@ -110,10 +110,14 @@ describe('ProUpgradeWizard', () => {
 
     const active = screen.getByText('Campaign details').closest('li')
     expect(active).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByText('Campaign EIN').closest('li')).not.toHaveAttribute(
-      'aria-current',
-    )
-    expect(screen.getByText('Candidate profile')).toBeInTheDocument()
+    // Steps before the active one are announced as completed; upcoming ones
+    // are not.
+    const completed = screen.getByText('Campaign EIN').closest('li')
+    expect(completed).not.toHaveAttribute('aria-current')
+    expect(completed).toHaveAttribute('aria-label', 'Campaign EIN - completed')
+    expect(
+      screen.getByText('Candidate profile').closest('li'),
+    ).not.toHaveAttribute('aria-label')
     expect(screen.getByText('Payment')).toBeInTheDocument()
     // The old top-of-card progress bar is gone from the design.
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
