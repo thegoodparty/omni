@@ -1,6 +1,7 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
+import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
@@ -129,6 +130,16 @@ export = async () => {
     environment === 'preview'
       ? 'annotation-attachments-dev'
       : createAnnotationAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for shared campaign-plan PDFs. Dev-only rollout for now:
+  // preview shares the dev bucket, qa/prod get no bucket and no env vars, so
+  // their task definitions are untouched until dev is validated.
+  const campaignPlanSharesBucketName =
+    environment === 'dev'
+      ? createCampaignPlanSharesBucket({ environment }).bucket.bucket
+      : environment === 'preview'
+        ? 'campaign-plan-shares-dev'
+        : undefined
 
   // Private bucket for user-supplied inputs to agent experiment runs (first
   // use: agenda packets uploaded from /briefings). Browser PUTs via presigned
@@ -423,6 +434,12 @@ export = async () => {
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
+      ...(campaignPlanSharesBucketName
+        ? {
+            CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
+            API_PUBLIC_ROOT_URL: `https://${domain}`,
+          }
+        : {}),
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       DB_HOST: rdsCluster.endpoint,
       DB_USER: rdsCluster.masterUsername,
