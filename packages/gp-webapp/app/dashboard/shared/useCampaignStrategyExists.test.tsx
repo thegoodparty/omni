@@ -41,9 +41,12 @@ describe('useCampaignStrategyExists', () => {
   })
 
   it('degrades to hidden (false) when the request fails', async () => {
+    // exists: true in the error body makes this non-tautological: it only
+    // passes if the 500 actually lands the query in error state (data
+    // undefined) rather than resolving with the body.
     api.mock('GET /v1/campaignStrategy/mine/exists', {
       status: 500,
-      data: { exists: false },
+      data: { exists: true },
     })
 
     const { result } = renderHook(() => useCampaignStrategyExists(), {
