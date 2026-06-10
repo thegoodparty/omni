@@ -9,7 +9,7 @@ import {
   type PlanSectionKey,
 } from '../planSectionManifest'
 
-interface StrategyState {
+export interface StrategyState {
   isGenerating: boolean
   isError: boolean
 }
@@ -18,12 +18,12 @@ interface StrategyState {
 // Kept as a distinct alias so the prop intent at call sites is clear and
 // so we can diverge later if events need an additional flag (e.g.
 // "no results found" vs "generating").
-type EventsState = StrategyState
+export type EventsState = StrategyState
 
 // Same shape as StrategyState for the local-news (press outlets) pipeline.
-type PressOutletsState = StrategyState
+export type PressOutletsState = StrategyState
 
-interface VoterInsightsContext {
+export interface VoterInsightsContext {
   ballotReadyPositionId?: string
   city?: string
   state?: string
@@ -46,6 +46,7 @@ interface PlanSectionsProps {
   pressOutletsState?: PressOutletsState
   onStuckChange?: (stuck: boolean) => void
   voterInsightsContext?: VoterInsightsContext
+  navStuckClassName?: string
 }
 
 interface SectionProps {
@@ -430,6 +431,7 @@ const PlanSections = ({
   pressOutletsState,
   onStuckChange,
   voterInsightsContext,
+  navStuckClassName,
 }: PlanSectionsProps): React.JSX.Element => {
   const isStrategyGenerating = strategyState?.isGenerating ?? false
   const isStrategyError = strategyState?.isError ?? false
@@ -467,7 +469,11 @@ const PlanSections = ({
 
   return (
     <div className="text-left">
-      <PlanSectionNav sections={navSections} onStuckChange={onStuckChange} />
+      <PlanSectionNav
+        sections={navSections}
+        onStuckChange={onStuckChange}
+        stuckClassName={navStuckClassName}
+      />
 
       <div className="mt-8 space-y-12">
         {/* 1. Executive Summary */}

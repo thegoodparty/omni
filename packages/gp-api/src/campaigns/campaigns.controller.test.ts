@@ -141,6 +141,7 @@ describe('CampaignsController', () => {
       updateJsonFields: vi.fn(),
       launch: vi.fn(),
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
+      hasCampaignStrategy: vi.fn().mockResolvedValue(false),
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
@@ -272,6 +273,7 @@ describe('CampaignsController', () => {
         ...campaignWithRelations,
         positionName: 'Mayor',
         raceTargetMetrics: null,
+        hasCampaignStrategy: false,
       })
     })
 
@@ -298,6 +300,20 @@ describe('CampaignsController', () => {
 
       expect(result.raceTargetMetrics).toEqual(liveMetrics)
       expect(result.positionName).toBe('Mayor')
+      expect(result.hasCampaignStrategy).toBe(false)
+    })
+
+    it('passes through hasCampaignStrategy: true from the service', async () => {
+      vi.spyOn(campaignsService, 'hasCampaignStrategy').mockResolvedValue(true)
+
+      const campaignWithRelations: CampaignWith<'organization'> = {
+        ...mockCampaign,
+        organization: {} as Organization,
+      }
+
+      const result = await controller.findMine(campaignWithRelations)
+
+      expect(result.hasCampaignStrategy).toBe(true)
     })
   })
 

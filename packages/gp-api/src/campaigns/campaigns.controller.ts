@@ -88,15 +88,22 @@ export class CampaignsController {
   ) {
     const { organization: org } = campaign
 
-    const [{ positionName }, liveMetrics] = await Promise.all([
-      this.organizations.resolvePositionContext({
-        customPositionName: org?.customPositionName,
-        positionId: org?.positionId,
-      }),
-      this.campaigns.fetchLiveRaceTargetMetrics(campaign),
-    ])
+    const [{ positionName }, liveMetrics, hasCampaignStrategy] =
+      await Promise.all([
+        this.organizations.resolvePositionContext({
+          customPositionName: org?.customPositionName,
+          positionId: org?.positionId,
+        }),
+        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+        this.campaigns.hasCampaignStrategy(campaign.id),
+      ])
 
-    return { ...campaign, positionName, raceTargetMetrics: liveMetrics }
+    return {
+      ...campaign,
+      positionName,
+      raceTargetMetrics: liveMetrics,
+      hasCampaignStrategy,
+    }
   }
 
   @UseGuards(M2MOnly)
