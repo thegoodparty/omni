@@ -21,7 +21,8 @@ export default async function Page(): Promise<React.JSX.Element> {
     fetchUserCampaign(),
   ])
   // Don't show to users who haven't set up a campaign strategy during onboarding yet.
-  if (!campaign?.hasCampaignStrategy) {
+  // The contract types the field as optional — only an explicit true grants access.
+  if (campaign?.hasCampaignStrategy !== true) {
     redirect('/dashboard')
   }
   return <CampaignPlanPage initialUser={initialUser} />

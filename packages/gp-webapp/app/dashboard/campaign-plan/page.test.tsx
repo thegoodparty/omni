@@ -69,6 +69,14 @@ describe('dashboard/campaign-plan page', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
   })
 
+  it('redirects to /dashboard when hasCampaignStrategy is absent', async () => {
+    mockFetchUserCampaign.mockResolvedValue({ id: 1 } as Campaign)
+
+    await Page()
+
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+  })
+
   it('does not redirect when campaign has a strategy', async () => {
     mockFetchUserCampaign.mockResolvedValue(campaignWithStrategy)
 
