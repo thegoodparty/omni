@@ -17,7 +17,6 @@ import PlanSections, {
   type StrategyState,
   type VoterInsightsContext,
 } from './PlanSections'
-import SharePlanModal from './SharePlanModal'
 import DownloadReminderModal from './DownloadReminderModal'
 import type { PlanData } from './planContent'
 import { downloadCampaignPlanPdf } from '../pdf/downloadCampaignPlanPdf'
@@ -63,7 +62,6 @@ const PlanView = ({
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
   navStuckClassName,
 }: PlanViewProps): React.JSX.Element => {
-  const [shareOpen, setShareOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
@@ -72,14 +70,14 @@ const PlanView = ({
     window.scrollTo(0, 0)
   }, [])
 
-  const shareUrl = typeof window !== 'undefined' ? window.location.href : ''
+  const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
 
   const handleDownload = async (source: PlanDownloadSource) => {
     if (downloading || !planReady) return
     onDownload(source)
     setDownloading(true)
     try {
-      await downloadCampaignPlanPdf(plan, { liveUrl: shareUrl || undefined })
+      await downloadCampaignPlanPdf(plan, { liveUrl: liveUrl || undefined })
       setHasDownloaded(true)
     } finally {
       setDownloading(false)
@@ -119,7 +117,6 @@ const PlanView = ({
           race={plan.race}
           state={state}
           electionDate={plan.electionDate}
-          onShare={() => setShareOpen(true)}
         />
 
         <div className="mt-8 sm:mt-14">
@@ -225,13 +222,6 @@ const PlanView = ({
           </Button>
         </div>
       </div>
-
-      <SharePlanModal
-        open={shareOpen}
-        onClose={() => setShareOpen(false)}
-        url={shareUrl}
-        candidateName={plan.candidateName}
-      />
 
       <DownloadReminderModal
         open={reminderOpen}
