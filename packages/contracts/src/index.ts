@@ -355,6 +355,8 @@ export {
   type BriefingFeedbackListResponse,
 } from './artifactFeedback/ArtifactFeedback.schema'
 
+export * from './artifactReview'
+
 export {
   AgentRunCandidateSummarySchema,
   type AgentRunCandidateSummary,
