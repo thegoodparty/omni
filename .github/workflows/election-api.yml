@@ -2,6 +2,7 @@ name: election-api
 
 on:
   pull_request:
+    branches: [develop]
     paths:
       - "packages/election-api/**"
       - "package.json"

@@ -2,6 +2,7 @@ name: gp-api
 
 on:
   pull_request:
+    branches: [develop]
     paths:
       - "packages/gp-api/**"
       - "packages/contracts/**"

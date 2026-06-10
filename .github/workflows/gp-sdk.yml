@@ -2,6 +2,7 @@ name: gp-sdk
 
 on:
   pull_request:
+    branches: [develop]
     paths:
       - "packages/gp-sdk/**"
       - "packages/contracts/**"

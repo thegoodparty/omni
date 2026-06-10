@@ -2,6 +2,7 @@ name: people-api
 
 on:
   pull_request:
+    branches: [develop]
     paths:
       - "packages/people-api/**"
       - "package.json"

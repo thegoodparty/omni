@@ -2,6 +2,7 @@ name: contracts
 
 on:
   pull_request:
+    branches: [develop]
     paths:
       - "packages/contracts/**"
       - "package.json"
