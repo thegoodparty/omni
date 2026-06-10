@@ -25,10 +25,14 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
   // fallback to a candidate who is actually awaiting-PIN / in review / etc.
   if (isPending) {
     return (
-      <Card className="p-4 md:p-6 mt-4 gap-2" id="texting-compliance">
-        <h2 className="text-2xl font-semibold mb-4">Texting Compliance</h2>
-        <div className="h-6 w-2/3 animate-pulse rounded-md bg-slate-200" />
-        <div className="h-4 w-full animate-pulse rounded-md bg-slate-200" />
+      <Card
+        className="relative mt-4 overflow-hidden p-4 md:p-6"
+        id="texting-compliance"
+      >
+        <div className="flex flex-col gap-2 pr-24">
+          <div className="h-6 w-2/3 animate-pulse rounded-md bg-slate-200" />
+          <div className="h-4 w-full animate-pulse rounded-md bg-slate-200" />
+        </div>
       </Card>
     )
   }
@@ -57,9 +61,8 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
   // payment, so the record may not exist for a beat. Show a neutral holding
   // state rather than a blank or stuck card.
   return (
-    <Card className="p-4 md:p-6 mt-4 gap-2" id="texting-compliance">
-      <h2 className="text-2xl font-semibold mb-4">Texting Compliance</h2>
-      <p className="text-sm text-secondary">
+    <Card className="mt-4 p-4 md:p-6" id="texting-compliance">
+      <p className="text-sm text-muted-foreground">
         Your Pro upgrade status will appear here.
       </p>
     </Card>

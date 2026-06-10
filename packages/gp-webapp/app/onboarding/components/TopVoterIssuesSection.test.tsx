@@ -72,39 +72,27 @@ describe('TopVoterIssuesSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('shows the office name in the description when provided', async () => {
+  it('shows the static district copy and ignores office or location props', async () => {
     api.mock('GET /v1/onboarding/voter-issues', {
       status: 200,
       data: { issues: issues.slice(0, 1) },
     })
 
-    render(<TopVoterIssuesSection office="Mayor of Springfield" />)
-
-    expect(await screen.findByText(/Mayor of Springfield/)).toBeInTheDocument()
-  })
-
-  it('falls back to city, state when office is missing', async () => {
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 200,
-      data: { issues: issues.slice(0, 1) },
-    })
-
-    render(<TopVoterIssuesSection city="Austin" state="TX" />)
-
-    expect(await screen.findByText(/Austin, TX/)).toBeInTheDocument()
-  })
-
-  it('falls back to the generic copy when no audience info is provided', async () => {
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 200,
-      data: { issues: issues.slice(0, 1) },
-    })
-
-    render(<TopVoterIssuesSection />)
+    render(
+      <TopVoterIssuesSection
+        office="Mayor of Springfield"
+        city="Austin"
+        state="TX"
+      />,
+    )
 
     expect(
-      await screen.findByText(/your voters care about most/i),
+      await screen.findByText(
+        /voters in your district care about most right now/i,
+      ),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/Mayor of Springfield/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Austin, TX/)).not.toBeInTheDocument()
   })
 
   it('refetches when ballotReadyPositionId changes (no stale cross-office cache)', async () => {

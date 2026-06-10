@@ -147,9 +147,10 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
         /* never resolves */
       }),
     )
-    render(<ProUpgrade3Compliance />)
+    const { container } = render(<ProUpgrade3Compliance />)
 
-    expect(screen.getByText('Texting Compliance')).toBeInTheDocument()
+    // The skeleton shows animated placeholders, not the neutral fallback copy.
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
     expect(
       screen.queryByText(/your pro upgrade status will appear here/i),
     ).toBeNull()
