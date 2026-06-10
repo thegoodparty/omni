@@ -931,7 +931,7 @@ export const CampaignPlanPdfDocument = ({
     <Document
       title={`Campaign plan — ${plan.candidateName || 'Candidate'}`}
       author="GoodParty.org"
-      subject="Initial campaign plan"
+      subject="Campaign Plan"
     >
       <CoverPage plan={plan} liveUrl={liveUrl} liveQrDataUrl={liveQrDataUrl} />
 
