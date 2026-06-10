@@ -33,9 +33,19 @@ export class PollResponsesDownloadService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     const escapedPollId = client.escapeLiteral(pollId)
+    // Neutralize CSV/spreadsheet formula injection: a constituent reply stored
+    // verbatim in pim.content can begin with =, +, -, or @, which Excel/Sheets
+    // execute as a formula on the staff machine that opens the export. Prefix a
+    // single quote so the cell is forced to text. associated_clusters is
+    // system-generated poll-issue titles (not constituent input), so it is left
+    // as-is.
     const sql = `COPY (
       SELECT
-        pim.content AS message_content,
+        CASE
+          WHEN left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])
+          THEN '''' || pim.content
+          ELSE pim.content
+        END AS message_content,
         COALESCE(
           (
             SELECT string_agg(DISTINCT pi.title, '; ' ORDER BY pi.title)

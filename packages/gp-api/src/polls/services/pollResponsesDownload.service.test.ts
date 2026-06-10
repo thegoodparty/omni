@@ -138,6 +138,17 @@ describe('PollResponsesDownloadService', () => {
       )
     })
 
+    it('neutralizes leading CSV formula characters in message_content', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
+      copyStream.end()
+
+      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      expect(sql).toContain("left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])")
+      expect(sql).toContain("'''' || pim.content")
+    })
+
     it('SQL includes string_agg with DISTINCT and alphabetical ordering', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
 
