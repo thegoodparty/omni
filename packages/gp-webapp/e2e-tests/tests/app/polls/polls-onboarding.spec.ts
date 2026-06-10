@@ -310,17 +310,19 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test.describe.serial('poll onboarding', () => {
+// @dev-only: this whole serial block runs on merge to dev (the develop e2e run)
+// and on demand, never on PRs. The first test drives live pipelines — a
+// pollAnalysisComplete SQS round-trip and a ~240s Stripe-webhook wait — that an
+// ephemeral per-PR preview can't provide, and the later tests reuse its shared
+// state. Tag the describe so the whole block is excluded together. See
+// e2e-tests/CLAUDE.md ("@dev-only").
+test.describe.serial('poll onboarding @dev-only', () => {
   // Shared state between tests
   let sharedUser: AuthenticatedUser
   let sharedPollId: string
   let sharedContact: CsvRow
 
-  // @dev-only: runs on merge to dev (the develop e2e run) and on demand, never on
-  // PRs. It needs the warm dev stack and live pipelines — a pollAnalysisComplete
-  // SQS round-trip and a ~240s Stripe-webhook wait — which an ephemeral per-PR
-  // preview can't drive. See e2e-tests/CLAUDE.md ("@dev-only").
-  test('poll onboarding and expansion @dev-only', async ({ page }) => {
+  test('poll onboarding and expansion', async ({ page }) => {
     // Set this test's timeout to 15 minutes. The "marked as expanding"
     // eventual check below can sleep up to ~240s waiting on the Stripe
     // webhook, so the overall budget must exceed the default 10 minutes to
