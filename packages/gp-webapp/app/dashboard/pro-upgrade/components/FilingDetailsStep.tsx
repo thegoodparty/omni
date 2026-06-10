@@ -29,7 +29,11 @@ import {
   submitTcrCompliance,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
+import { StyledAlert } from '@shared/alerts/StyledAlert'
 import {
+  fieldDisplayNames,
+  getFailingFields,
+  getValidationMessage,
   validateRegistrationForm,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -116,6 +120,15 @@ const FilingDetailsForm = ({
     requireWebsite: false,
   })
 
+  // `website` is validated but has no input in this form (the agentic flow
+  // buys the domain after submit), so the banner must never name it. `ein`
+  // has no input here either (EIN is owned by the wizard's EIN step, and entry
+  // derivation routes a sanity-failing EIN there) but stays listed as a
+  // defense for direct-URL arrivals — Back is the EIN step, where it's fixed.
+  const failingFields = getFailingFields(validations).filter(
+    (field) => field !== 'website',
+  )
+
   // Always-enabled button so the candidate can attempt submit and get guiding
   // errors; field errors only surface after the first invalid attempt.
   const [attemptedSubmit, setAttemptedSubmit] = useState(false)
@@ -149,6 +162,8 @@ const FilingDetailsForm = ({
     if (!loading) submittingRef.current = false
   }, [loading])
 
+  const { goToPreviousStep } = useProUpgradeWizard()
+
   const handleContinue = () => {
     if (!isValid) {
       setAttemptedSubmit(true)
@@ -179,6 +194,27 @@ const FilingDetailsForm = ({
         or registration, it will take much longer before you can send text
         messages.
       </Body2>
+
+      {attemptedSubmit && !isValid && (
+        <StyledAlert severity="error" className="mb-6">
+          <Body2>
+            <span className="font-medium">
+              Please fix the following fields:
+            </span>
+            <ul className="mt-1 list-disc pl-5">
+              {failingFields.map((field) => (
+                <li key={field}>
+                  <span className="font-medium">
+                    {fieldDisplayNames[field]}
+                  </span>
+                  {' — '}
+                  {getValidationMessage(field, getStringValue(officeLevel))}
+                </li>
+              ))}
+            </ul>
+          </Body2>
+        </StyledAlert>
+      )}
 
       <div className="flex flex-col gap-6">
         <TextField
@@ -284,7 +320,10 @@ const FilingDetailsForm = ({
         </div>
       </div>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button
           size="large"
           onClick={handleContinue}

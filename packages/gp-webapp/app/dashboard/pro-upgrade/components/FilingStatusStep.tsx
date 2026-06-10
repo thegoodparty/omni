@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { Button } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
@@ -42,7 +43,7 @@ const OPTIONS: FilingStatusOption[] = [
 ]
 
 const FilingStatusStep = (): React.JSX.Element => {
-  const { goToStep } = useProUpgradeWizard()
+  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const [submitting, setSubmitting] = useState(false)
@@ -108,6 +109,12 @@ const FilingStatusStep = (): React.JSX.Element => {
             <ChevronRightIcon className="h-5 w-5 shrink-0 text-base-foreground" />
           </button>
         ))}
+      </div>
+
+      <div className="mt-8">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
       </div>
     </div>
   )

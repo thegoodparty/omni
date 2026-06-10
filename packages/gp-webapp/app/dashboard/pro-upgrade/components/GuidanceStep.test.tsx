@@ -20,6 +20,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToStep = vi.fn()
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 describe('GuidanceStep', () => {
   beforeEach(() => {
@@ -28,7 +29,7 @@ describe('GuidanceStep', () => {
       currentStep: 'guidance',
       goToStep,
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
   })
 
@@ -59,6 +60,15 @@ describe('GuidanceStep', () => {
     for (const ordinal of ['1', '2', '3', '4']) {
       expect(screen.getByText(ordinal)).toBeInTheDocument()
     }
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<GuidanceStep />)
+
+    screen.getByRole('button', { name: 'Back' }).click()
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(goToStep).not.toHaveBeenCalled()
   })
 
   it('advances explicitly to the EIN step when "Let\'s go!" is clicked', () => {

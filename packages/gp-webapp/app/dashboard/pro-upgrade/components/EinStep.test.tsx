@@ -38,6 +38,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockUpdateCampaign = vi.mocked(updateCampaign)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed EIN with an IRS-issued prefix (12) that is not a placeholder.
 const CLEAN_EIN = '12-3456780'
@@ -58,7 +59,7 @@ describe('EinStep', () => {
       currentStep: 'ein',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: no EIN on file yet, persistence succeeds.
     seedCampaign(undefined)
@@ -70,6 +71,13 @@ describe('EinStep', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.EinViewed,
     )
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<EinStep />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('renders the EIN input and the IRS link', () => {
@@ -188,26 +196,19 @@ describe('EinStep', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('does not flash an error for a prefilled complete-but-bad EIN', async () => {
+  it('surfaces the error immediately for a prefilled complete-but-bad EIN', () => {
     // A legacy EIN saved before the sanity rules existed: format-valid but a
-    // non-IRS prefix. It must stay neutral on mount (no red error) until the
-    // candidate edits the untouched field, and Continue stays disabled.
+    // non-IRS prefix. Entry derivation routes these candidates here to fix it,
+    // so the reason must show on mount — a neutral field with a disabled
+    // Continue would give them nothing to act on.
     seedCampaign('07-1234567')
 
     render(<EinStep />)
 
     expect(screen.getByLabelText('Campaign EIN')).toHaveValue('07-1234567')
     expect(
-      screen.queryByText(/prefix isn't one the IRS issues/i),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-
-    // Once the candidate edits it, the sanity verdict (and error) surfaces.
-    fireEvent.change(screen.getByLabelText('Campaign EIN'), {
-      target: { value: '08-1234567' },
-    })
-    expect(
-      await screen.findByText(/prefix isn't one the IRS issues/i),
+      screen.getByText(/prefix isn't one the IRS issues/i),
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })
