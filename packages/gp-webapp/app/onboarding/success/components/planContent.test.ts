@@ -337,4 +337,24 @@ describe('buildPlanData derived key numbers', () => {
     )
     expect(eventKeyDate?.date).toBe('Sunday, September 20')
   })
+
+  it('flags the ballots-go-out date as approximate when it is the E-45 fallback', () => {
+    // No milestones, so requestBallotStart is the fabricated election-minus-45
+    // fallback. Section 2 embeds the date in prose, so it must be qualified.
+    const plan = buildPlanData(makeInput())
+    expect(plan.ballotsGoOutDate).toContain('(approximate)')
+  })
+
+  it('does not flag the ballots-go-out date when a real BR date exists', () => {
+    const plan = buildPlanData(
+      makeInput({
+        milestones: {
+          voter_registration: null,
+          early_voting: null,
+          request_ballot: { start: '2026-09-22', end: null },
+        },
+      }),
+    )
+    expect(plan.ballotsGoOutDate).toBe('Tuesday, September 22')
+  })
 })

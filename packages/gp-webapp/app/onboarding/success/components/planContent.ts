@@ -642,7 +642,12 @@ const buildTimeline = (
   return {
     timelineStages,
     keyDates,
-    ballotsGoOutDate: formatDayDate(requestBallotStart),
+    // Section 2's early-vote challenge row embeds this date in prose, so
+    // flag it when it's the E-45 fallback rather than a real BR date —
+    // otherwise an invented date reads as a hard fact to the candidate.
+    ballotsGoOutDate: requestBallotStartIsReal
+      ? formatDayDate(requestBallotStart)
+      : `${formatDayDate(requestBallotStart)} (approximate)`,
   }
 }
 
