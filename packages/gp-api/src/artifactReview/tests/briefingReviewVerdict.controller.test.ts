@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { BriefingReviewVerdictService } from '../services/briefingReviewVerdict.service'
@@ -197,6 +197,23 @@ describe('BriefingReviewVerdictService — verdicts with an actor', () => {
     })
     expect(passed.verdict).toBe('passed')
     expect(passed.failReason).toBeNull()
+  })
+
+  it('rejects setting a verdict for a date with no briefing', async () => {
+    const verdicts = service.app.get(BriefingReviewVerdictService)
+    const orgSlug = 'eo-verdict-no-briefing'
+    const eo = await seedElectedOffice(orgSlug)
+    const admin = await actorAdmin('reviewer-nobriefing@goodparty.org')
+
+    await expect(
+      verdicts.setForBriefing({
+        meetingDate: '2026-01-01',
+        electedOffice: eo,
+        actorSub: ACTOR_SUB,
+        actorUser: admin,
+        verdict: 'passed',
+      }),
+    ).rejects.toThrow(NotFoundException)
   })
 
   it('returns null when no verdict exists', async () => {

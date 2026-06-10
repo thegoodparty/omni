@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import {
   AnnotationKind,
+  AnnotationResourceType,
   ArtifactReviewResourceType,
   ArtifactReviewVerdict,
   ElectedOffice,
@@ -52,7 +53,7 @@ export class BriefingReviewVerdictService extends createPrismaBase(
     if (verdict === ArtifactReviewVerdict.failed && !failReason) {
       const reviewComments = await this.client.annotation.count({
         where: {
-          resourceType: 'briefing',
+          resourceType: AnnotationResourceType.briefing,
           resourceId: briefingId,
           kind: AnnotationKind.review,
         },
