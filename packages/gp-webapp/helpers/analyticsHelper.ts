@@ -160,6 +160,17 @@ export const EVENTS = {
       ViewModeToggled: 'Dashboard - Campaign Plan View Mode Toggled',
       VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
       VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
+      MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
+      MediaResultsReceived: 'Dashboard - Campaign Plan: Media Results Received',
+      MediaDisplayed: 'Dashboard - Campaign Plan: Media Displayed',
+      CommunityEventsResultsReceived:
+        'Dashboard - Campaign Plan: Community Events Results Received',
+      CommunityEventsDisplayed:
+        'Dashboard - Campaign Plan: Community Events Displayed',
+      StrategicLandscapeResultsReceived:
+        'Dashboard - Campaign Plan: Strategic Landscape Results Received',
+      StrategicLandscapeDisplayed:
+        'Dashboard - Campaign Plan: Strategic Landscape Displayed',
     },
     PathToVictory: {
       ClickUnderstand:
