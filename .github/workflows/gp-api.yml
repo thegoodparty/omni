@@ -3,22 +3,8 @@ name: gp-api
 on:
   pull_request:
     branches-ignore: [qa, master]
-    paths:
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-api.yml"
-      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-api.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read

@@ -3,22 +3,8 @@ name: gp-sdk
 on:
   pull_request:
     branches-ignore: [qa, master]
-    paths:
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-sdk.yml"
-      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-sdk.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read

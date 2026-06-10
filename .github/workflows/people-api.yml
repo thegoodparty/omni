@@ -3,20 +3,8 @@ name: people-api
 on:
   pull_request:
     branches-ignore: [qa, master]
-    paths:
-      - "packages/people-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/people-api.yml"
-      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/people-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/people-api.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read

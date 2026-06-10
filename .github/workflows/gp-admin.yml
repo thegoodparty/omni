@@ -3,24 +3,8 @@ name: gp-admin
 on:
   pull_request:
     branches-ignore: [qa, master]
-    paths:
-      - "packages/gp-admin/**"
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-admin.yml"
-      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-admin/**"
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-admin.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read

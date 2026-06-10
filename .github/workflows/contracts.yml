@@ -3,20 +3,8 @@ name: contracts
 on:
   pull_request:
     branches-ignore: [qa, master]
-    paths:
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/contracts.yml"
-      - ".github/actions/**"
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/contracts.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
