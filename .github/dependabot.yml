@@ -1,0 +1,10 @@
+# Security updates only. Version updates are disabled via
+# open-pull-requests-limit: 0; security PRs are driven by Dependabot alerts
+# (repo setting) and auto-merged by .github/workflows/dependabot-merge.yml.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0

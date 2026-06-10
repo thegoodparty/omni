@@ -59,6 +59,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
+import { ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -104,7 +105,7 @@ const WEBSITE_MENU_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Dashboard',
+    label: 'Campaign Manager',
     icon: <MdFactCheck />,
     v2Icon: LayoutDashboard,
     link: '/dashboard',
@@ -222,6 +223,16 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
+  id: 'campaign-plan-dashboard',
+  label: 'Campaign Plan',
+  link: '/dashboard/campaign-plan',
+  icon: <MdFileOpen />,
+  v2Icon: ScrollTextIcon,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
+}
+
 const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
@@ -238,6 +249,10 @@ const getDashboardMenuItems = (
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
+  }
+
+  if (campaign?.hasCampaignStrategy) {
+    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems

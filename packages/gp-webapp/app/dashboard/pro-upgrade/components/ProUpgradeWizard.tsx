@@ -27,10 +27,11 @@ import {
 // pro-upgrade3 = off fallback and is intentionally left untouched.
 const PRO_SIGN_UP_PATH = '/dashboard/pro-sign-up'
 
-// The desktop vertical stepper covers only the four collection steps (Figma
-// 7490:18728). value-prop, status, the off-order routes (guidance,
-// filing-instructions), and the post-payment SUCCESS surface render the card
-// alone.
+// The desktop vertical stepper covers the four collection steps (Figma
+// 7490:18728), but the payment step hides it (Figma 7563:3405) — "Payment"
+// still appears as the upcoming step on the three earlier steps. value-prop,
+// status, the off-order routes (guidance, filing-instructions), and the
+// post-payment SUCCESS surface render the card alone.
 const STEPPER_STEPS: { step: ProUpgradeStep; label: string }[] = [
   { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
   { step: PRO_UPGRADE_STEP.FILING_DETAILS, label: 'Campaign details' },
@@ -73,14 +74,18 @@ const stepFromPathname = (pathname: string | null): ProUpgradeStep | null => {
 // Page chrome per the Figma EIN frame (7490:18728): an Exit ghost link in a
 // top nav, then the 640px card centered next to the desktop-only vertical
 // stepper. stepperStep is 1-based; 0 means the current step isn't on the
-// stepper, so only the card renders.
+// stepper, so only the card renders. cardless steps (payment, Figma
+// 7563:3405) own their card + side-column layout, so the chrome renders the
+// children bare at full width.
 interface WizardChromeProps {
   stepperStep: number
+  cardless?: boolean
   children: React.ReactNode
 }
 
 const WizardChrome = ({
   stepperStep,
+  cardless = false,
   children,
 }: WizardChromeProps): React.JSX.Element => {
   const pathname = usePathname()
@@ -109,9 +114,13 @@ const WizardChrome = ({
             className="w-72 shrink-0 max-lg:hidden"
           />
         )}
-        <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
-          {children}
-        </div>
+        {cardless ? (
+          <div className="w-full">{children}</div>
+        ) : (
+          <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
+            {children}
+          </div>
+        )}
       </main>
     </div>
   )
@@ -190,12 +199,16 @@ const ProUpgradeWizard = ({
   // router.replace can't strand the user on a permanent "loading" screen.
   if (!enabled) return null
 
-  const stepperStep =
-    STEPPER_STEPS.findIndex(({ step }) => step === currentStep) + 1
+  const isPayment = currentStep === PRO_UPGRADE_STEP.PAYMENT
+  const stepperStep = isPayment
+    ? 0
+    : STEPPER_STEPS.findIndex(({ step }) => step === currentStep) + 1
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <WizardChrome stepperStep={stepperStep}>{children}</WizardChrome>
+      <WizardChrome stepperStep={stepperStep} cardless={isPayment}>
+        {children}
+      </WizardChrome>
     </ProUpgradeWizardContext.Provider>
   )
 }

@@ -13,6 +13,16 @@ PR-triggered workflows (validation and preview deploys) skip PRs targeting `qa`
 or `master` (`branches-ignore`) — promotion PRs don't re-run PR CI; those branches
 are covered by their push-triggered deploys.
 
+### Concurrency: never `cancel-in-progress: true`
+
+Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
+started run can kill `pulumi up` mid-deploy, which orphans the stack's S3 state
+lock and permanently fails every later deploy of that stack until someone runs
+`pulumi cancel` by hand. Queued (not yet started) runs are still superseded by
+newer ones within a concurrency group, so rapid pushes don't pile up — the
+trade-off is only that an in-flight stale run finishes before the newest one
+starts.
+
 ## Frontends (Vercel)
 
 gp-webapp, gp-admin, and candidate-sites deploy to Vercel imperatively via the
@@ -59,6 +69,9 @@ exercises the exact full-stack version proposed in the PR.
 gp-api, election-api, and people-api build a production Docker image, push to ECR
 (tagged with the commit SHA), and deploy to ECS Fargate via Pulumi.
 
+- ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
+  exists and skip the build/push if so — this is what makes re-running a deploy
+  job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
   (`gp-api-cleanup-preview.yml`).
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
@@ -69,7 +82,24 @@ gp-api, election-api, and people-api build a production Docker image, push to EC
 
 ## CI layout
 
-Workflows live in `.github/workflows/`, one per package, path-filtered so only
-affected apps run. The primary validate job is named **"Validate"** across all
+Workflows live in `.github/workflows/`, one per package; every package's
+workflow runs on every PR (no path filters, except the infra-diffs workflow).
+The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
+
+## Dependency updates (Dependabot)
+
+Policy: **security updates only** — no version-bump PRs. Version updates are
+disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
+PRs are driven by Dependabot alerts (enabled in repo settings) and target
+`develop`.
+
+Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
+30 minutes and squash-merges any Dependabot PR that is approved (delegate
+reviews every PR), has all checks green, and whose last commit is at least 24
+hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+from auto-merge. Merges authenticate as the `omni-automation` GitHub App
+(`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
+push triggers the dev deploy workflows like any other merge. Auto-merge stops
+at `develop`; security fixes reach qa/prod through the normal promotion flow.

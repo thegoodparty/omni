@@ -7,24 +7,28 @@ import type { User } from 'helpers/types'
 import PlanView, {
   type PlanContinueSource,
   type PlanDownloadSource,
-} from './PlanView'
-import { useCampaignPlanData } from '../hooks/useCampaignPlanData'
-import { useGenerationTiming } from '../hooks/useGenerationTiming'
-import { useRefreshCampaignOnStrategyCreated } from '../hooks/useRefreshCampaignOnStrategyCreated'
+} from 'app/onboarding/success/components/PlanView'
+import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
+import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 
-// Module-scoped dedup map so `fireOnce` survives remounts. Keyed by
-// campaignId so different campaigns never share dedup state.
+const planEvents = EVENTS.Dashboard.CampaignPlan
+
+// Module-scoped dedup map so `fireOnce` survives remounts (users navigating
+// away and back to the page). Keyed by campaignId so different campaigns
+// never share dedup state. Separate from SuccessPage's map — the two
+// containers track different event namespaces.
 const _firedEvents = new Map<number, Set<string>>()
 
-interface SuccessPageProps {
+interface CampaignPlanViewProps {
   initialUser: User | null
 }
 
-// Onboarding-only container for the campaign plan: owns the OnboardingV2
-// analytics and hands presentation to PlanView. The dashboard revisit page
-// has its own container (dashboard/campaign-plan/CampaignPlanView) with its
-// own event namespace.
-const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
+// Dashboard revisit container for the campaign plan: same data and
+// presentation as the onboarding success page, but with its own
+// Dashboard.CampaignPlan analytics so the two funnels never mix.
+const CampaignPlanView = ({
+  initialUser,
+}: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
   const data = useCampaignPlanData(initialUser)
   const { campaignId, strategy, communityEvents, media } = data
@@ -54,23 +58,12 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const getEventsTiming = useGenerationTiming(communityEvents.isGenerating)
   const getMediaTiming = useGenerationTiming(media.isGenerating)
 
-  // Any settled response from either endpoint means gp-api has upserted the
-  // campaignStrategy row — it does so before validating, so even a 400
-  // (e.g. manual-office campaigns with no raceId) creates the row.
-  useRefreshCampaignOnStrategyCreated(
-    strategy.isGenerating ||
-      strategy.ready ||
-      data.strategyState.isError ||
-      communityEvents.isGenerating ||
-      communityEvents.ready ||
-      data.eventsState.isError,
-  )
-
-  // Requested — media only. StrategicLandscapeRequested and
-  // CommunityEventsRequested fire from OnboardingFlow at pre-warm time
-  // (the real first request); this page only re-polls afterwards.
+  // Requested — on the dashboard this page is the origin of all three
+  // resource requests (no pre-warm step like onboarding has).
   useEffect(() => {
-    fireOnce(EVENTS.OnboardingV2.MediaRequested, { campaignId })
+    fireOnce(planEvents.MediaRequested, { campaignId })
+    fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
+    fireOnce(planEvents.CommunityEventsRequested, { campaignId })
   }, [campaignId])
 
   // Results Received — fire once when each resource's status first hits
@@ -80,42 +73,39 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   // instant the section swaps the skeleton for content.
   useEffect(() => {
     if (!media.ready) return
-    fireOnce(EVENTS.OnboardingV2.MediaResultsReceived, {
+    fireOnce(planEvents.MediaResultsReceived, {
       campaignId,
       outletCount: media.outletCount,
       ...getMediaTiming(),
     })
-    fireOnce(EVENTS.OnboardingV2.MediaDisplayed, { campaignId })
+    fireOnce(planEvents.MediaDisplayed, { campaignId })
   }, [media.ready, media.outletCount, campaignId])
 
   useEffect(() => {
     if (!communityEvents.ready) return
-    fireOnce(EVENTS.OnboardingV2.CommunityEventsResultsReceived, {
+    fireOnce(planEvents.CommunityEventsResultsReceived, {
       campaignId,
       eventCount: communityEvents.eventCount,
       ...getEventsTiming(),
     })
-    fireOnce(EVENTS.OnboardingV2.CommunityEventsDisplayed, { campaignId })
+    fireOnce(planEvents.CommunityEventsDisplayed, { campaignId })
   }, [communityEvents.ready, communityEvents.eventCount, campaignId])
 
   useEffect(() => {
     if (!strategy.ready) return
-    fireOnce(EVENTS.OnboardingV2.StrategicLandscapeResultsReceived, {
+    fireOnce(planEvents.StrategicLandscapeResultsReceived, {
       campaignId,
       ...getStrategyTiming(),
     })
-    fireOnce(EVENTS.OnboardingV2.StrategicLandscapeDisplayed, { campaignId })
+    fireOnce(planEvents.StrategicLandscapeDisplayed, { campaignId })
   }, [strategy.ready, campaignId])
 
   const handleDownload = (source: PlanDownloadSource) => {
-    trackEvent(EVENTS.OnboardingV2.PlanDownloaded, { campaignId, source })
+    trackEvent(planEvents.PlanDownloaded, { campaignId, source })
   }
 
   const handleContinue = (source: PlanContinueSource) => {
-    trackEvent(EVENTS.OnboardingV2.CampaignManagerClicked, {
-      campaignId,
-      source,
-    })
+    trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
   }
 
@@ -130,8 +120,11 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
       voterInsightsContext={data.voterInsightsContext}
       onDownload={handleDownload}
       onContinue={handleContinue}
+      showConfetti={false}
+      bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
+      navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
     />
   )
 }
 
-export default SuccessPage
+export default CampaignPlanView

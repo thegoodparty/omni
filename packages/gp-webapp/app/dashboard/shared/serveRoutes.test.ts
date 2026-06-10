@@ -7,6 +7,10 @@ describe('isServeRoutePath', () => {
     expect(isServeRoutePath('/dashboard/briefings/2026-01-15')).toBe(true)
     expect(isServeRoutePath('/dashboard/polls')).toBe(true)
     expect(isServeRoutePath('/dashboard/polls/42/expand')).toBe(true)
+    expect(isServeRoutePath('/dashboard/admin-review/briefings')).toBe(true)
+    expect(
+      isServeRoutePath('/dashboard/admin-review/briefings/2026-01-15'),
+    ).toBe(true)
   })
 
   it('ignores query strings and hashes when matching', () => {

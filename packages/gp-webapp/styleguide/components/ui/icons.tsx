@@ -70,4 +70,5 @@ export {
   Gift as GiftIcon,
   HandHeart as HandHeartIcon,
   Megaphone as MegaphoneIcon,
+  ScrollText as ScrollTextIcon,
 } from 'lucide-react'
