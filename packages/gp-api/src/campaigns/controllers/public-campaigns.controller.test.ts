@@ -1,0 +1,163 @@
+import { useTestService } from '@/test-service'
+import { describe, expect, it } from 'vitest'
+
+const service = useTestService()
+
+const MONICA_SLUG = 'monica-alponte'
+const MONICA_RACE = 'race-monica'
+const MONICA = { firstName: 'Monica', lastName: 'Alponte' }
+
+const seedCampaign = async (args: {
+  id: number
+  slug: string
+  raceId: string
+  isActive: boolean
+  details?: {
+    party?: string
+    einNumber?: string
+    subscriptionId?: string
+    campaignCommittee?: string
+  }
+}) => {
+  const organizationSlug = `org-${args.id}`
+  await service.prisma.organization.create({
+    data: { slug: organizationSlug, ownerId: service.user.id },
+  })
+  return service.prisma.campaign.create({
+    data: {
+      id: args.id,
+      organizationSlug,
+      userId: service.user.id,
+      slug: args.slug,
+      isActive: args.isActive,
+      details: { raceId: args.raceId, ...args.details },
+    },
+  })
+}
+
+const find = (params: {
+  raceId?: string
+  firstName?: string
+  lastName?: string
+}) => service.client.get('/v1/public-campaigns', { params })
+
+describe('GET /v1/public-campaigns', () => {
+  it('returns the active campaign matching raceId + candidate name', async () => {
+    await seedCampaign({
+      id: 1,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: MONICA_RACE,
+      ...MONICA,
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe(MONICA_SLUG)
+  })
+
+  it('404s when no campaign matches the raceId (unclaimed)', async () => {
+    const res = await find({
+      raceId: 'race-ariel',
+      firstName: 'Ariel',
+      lastName: 'Rofeim',
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('404s when the matching campaign is not active', async () => {
+    await seedCampaign({
+      id: 2,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: false,
+    })
+
+    const res = await find({
+      raceId: MONICA_RACE,
+      ...MONICA,
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('404s when raceId matches but the name does not match the slug', async () => {
+    await seedCampaign({
+      id: 3,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: MONICA_RACE,
+      firstName: 'Someone',
+      lastName: 'Else',
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('disambiguates by first name when two active campaigns share raceId + last name', async () => {
+    await seedCampaign({
+      id: 4,
+      slug: 'john-smith',
+      raceId: 'race-smith',
+      isActive: true,
+    })
+    await seedCampaign({
+      id: 5,
+      slug: 'jane-smith',
+      raceId: 'race-smith',
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: 'race-smith',
+      firstName: 'Jane',
+      lastName: 'Smith',
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe('jane-smith')
+  })
+
+  it('strips sensitive details fields from the public response', async () => {
+    await seedCampaign({
+      id: 6,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: {
+        party: 'Independent',
+        einNumber: '12-3456789',
+        subscriptionId: 'sub_secret123',
+        campaignCommittee: 'Friends of Monica',
+      },
+    })
+
+    const res = await find({
+      raceId: MONICA_RACE,
+      ...MONICA,
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.party).toBe('Independent')
+    expect(res.data.details.einNumber).toBeUndefined()
+    expect(res.data.details.subscriptionId).toBeUndefined()
+    expect(res.data.details.campaignCommittee).toBeUndefined()
+  })
+
+  it('400s when a required query param is missing', async () => {
+    const res = await find({
+      raceId: MONICA_RACE,
+      firstName: MONICA.firstName,
+    })
+
+    expect(res.status).toBe(400)
+  })
+})
