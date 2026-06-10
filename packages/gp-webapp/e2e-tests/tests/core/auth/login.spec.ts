@@ -63,6 +63,8 @@ test.describe('Login Functionality', () => {
     // before landing on /dashboard, which can exceed 5s on a cold preview.
     await page.waitForURL('**/dashboard', { timeout: 30000 })
     await wait(500)
-    await expect(page.getByText('Campaign Progress')).toBeVisible()
+    await expect(
+      page.getByText('Campaign progress', { exact: true }),
+    ).toBeVisible()
   })
 })

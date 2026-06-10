@@ -4,21 +4,22 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `playwright.config.ts` | Playwright config — testDir is `./tests`, BASE_URL required, visual diff thresholds tuned for CI |
-| `global-setup.ts` | One-shot `clerkSetup()` before tests run |
-| `tests/core/` | Cross-cutting tests (auth, navigation, public pages) |
-| `tests/app/` | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
-| `tests/utils/` | Test-only helpers (selectors, factories) |
-| `tests/__visual_snapshots__/` | Pixel snapshots — versioned per-platform |
-| `src/fixtures/` | Static fixtures (PDFs, images, JSON poll results) |
-| `src/helpers/` | Reusable test helpers (clerk, navigation, account, organizations, contacts, visual, wait, data) |
-| `.env.example` | Required env (`BASE_URL`, secrets per `#devs-only`) |
+| File                          | Role                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playwright.config.ts`        | Playwright config — testDir is `./tests`, BASE_URL required, visual diff thresholds tuned for CI                                                  |
+| `global-setup.ts`             | One-shot `clerkSetup()` before tests run                                                                                                          |
+| `tests/core/`                 | Cross-cutting tests (auth, navigation, public pages)                                                                                              |
+| `tests/app/`                  | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
+| `tests/utils/`                | Test-only helpers (selectors, factories)                                                                                                          |
+| `tests/__visual_snapshots__/` | Pixel snapshots — versioned per-platform                                                                                                          |
+| `src/fixtures/`               | Static fixtures (PDFs, images, JSON poll results)                                                                                                 |
+| `src/helpers/`                | Reusable test helpers (clerk, navigation, account, organizations, contacts, visual, wait, data)                                                   |
+| `.env.example`                | Required env (`BASE_URL`, secrets per `#devs-only`)                                                                                               |
 
 ## Patterns
 
 - **One config, many environments.** Set `BASE_URL` in `.env` to point at local / dev / qa. Tests fail-fast if missing.
+- **`@dev-only` (merge-only) tests.** A test that depends on the warm dev stack or live async pipelines (e.g. the SQS analyze round-trip and the Stripe expansion webhook in `polls-onboarding`) can't pass against an ephemeral per-PR preview. Tag such a test `@dev-only` in its title (e.g. `test('... @dev-only', ...)`); for a `describe.serial` block whose tests share state seeded by the gated test, tag the **describe** title so the whole block is excluded together. The CI workflow greps these **out** on `pull_request` runs and **includes** them on the post-merge `develop` run (and they always run locally / on demand). Add the tag plus a one-line comment naming the live dependency; that's the whole pattern — no per-test workflow plumbing.
 - **Authenticated flows** use Clerk via `@clerk/testing/playwright`. `clerkSetup()` runs once in `global-setup.ts`; per-test sign-in helpers live in `src/helpers/clerk.helper.ts`.
 - **`authenticateTestUser(page, options?)`** (`tests/utils/api-registration.ts`) is the one-call way to get a logged-in user. Use it in a `beforeEach` (or at the top of a test) when the scenario needs an authenticated candidate. It:
   1. creates a real Clerk user via the backend SDK, signs in through the UI to mint a session token,
@@ -34,6 +35,7 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
   - `skipCampaignCreation: true` — stops after user creation (no campaign); **requires `isolated: true`** so an incomplete user is never cached.
 
   Requires `BASE_URL` and `CLERK_SECRET_KEY` (throws at import if missing); `API_BASE_URL` is optional and defaults to `BASE_URL`. Created users are **not** deleted by the test — gp-api's scheduled `deleteTestUsers` sweep removes stale `@test.goodparty.org` users older than 3 hours.
+
 - **Visual diffs**: thresholds are deliberately permissive (`maxDiffPixels: 25000`, ratio `0.045`) to absorb font/layout drift across machines. Tighten only with a clear reason.
 - **Mirroring**: a feature dir under `app/` should have a matching dir under `tests/app/`. Add tests in the matching dir, not at the top of `tests/`.
 
@@ -55,7 +57,7 @@ Some tests need AWS auth: `aws sso login --profile gp-engineer`.
 
 - **Visual snapshots are platform-specific** — refreshing them on a Mac may not match CI Linux. Prefer letting CI regenerate via PR if you change UI.
 - `BASE_URL` is enforced in `playwright.config.ts` — there's no default. Configure `.env` first.
-- **Always invoke Playwright with `--config="$PWD/playwright.config.ts"`** (an absolute path), as the `test:e2e` script and CI do. Playwright resolves the config (and the implicit config search) against the nearest `package.json` directory — which in this monorepo is `packages/gp-webapp`, one level *above* `e2e-tests`. So a bare `npx playwright test` (or a relative `--config`) finds **no** config and silently runs with defaults: no `baseURL` (every `page.goto('/...')` fails with "Cannot navigate to invalid URL") and no `globalSetup` (clerkSetup never runs → "Clerk Frontend API URL is required"). If you see either symptom, check the config is actually loading first.
+- **Always invoke Playwright with `--config="$PWD/playwright.config.ts"`** (an absolute path), as the `test:e2e` script and CI do. Playwright resolves the config (and the implicit config search) against the nearest `package.json` directory — which in this monorepo is `packages/gp-webapp`, one level _above_ `e2e-tests`. So a bare `npx playwright test` (or a relative `--config`) finds **no** config and silently runs with defaults: no `baseURL` (every `page.goto('/...')` fails with "Cannot navigate to invalid URL") and no `globalSetup` (clerkSetup never runs → "Clerk Frontend API URL is required"). If you see either symptom, check the config is actually loading first.
 - Don't import from `app/` or `helpers/` here. This dir is a separate workspace with its own `tsconfig` and no Next runtime — pulling in app code drags in client-only modules (`next/navigation`, the `@shared/*` alias, MUI, etc.) that fail to resolve under Playwright. Put shared test-side helpers in `e2e-tests/src/helpers/` instead.
 
 ## Related
