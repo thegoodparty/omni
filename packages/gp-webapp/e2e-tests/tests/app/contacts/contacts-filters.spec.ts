@@ -4,7 +4,6 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { visualSnapshot } from 'src/helpers/visual.helper'
 import { filtersSheet, personContactPanel } from 'src/helpers/contacts-e2e'
 import { WaitHelper } from 'src/helpers/wait.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
@@ -175,15 +174,6 @@ test('validate contacts filters', async ({ page }) => {
   await expect(
     table.locator('tbody tr').first().locator('td').first(),
   ).toHaveText(/.+/)
-
-  // Capture the contacts page with segment active — mask voter data rows
-  await visualSnapshot(page, 'contacts-with-segment.png', {
-    mask: [
-      page.locator(`[data-testid="contact-stats-totalConstituents"]`),
-      page.locator(`[data-testid="contact-stats-visibleContactsPercent"]`),
-      table.locator('tbody'),
-    ],
-  })
 
   await test.step('Filter: Gender', async () => {
     await testFilterField(page, {
