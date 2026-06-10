@@ -16,7 +16,10 @@ export default function TextingComplianceDenied(): React.JSX.Element {
         </p>
         <p className="text-sm text-muted-foreground">
           Email{' '}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-blue-600">
+          <a
+            href={`mailto:${SUPPORT_EMAIL}`}
+            className="text-blue-600 underline"
+          >
             {SUPPORT_EMAIL}
           </a>{' '}
           and we’ll help you fix the issues.
