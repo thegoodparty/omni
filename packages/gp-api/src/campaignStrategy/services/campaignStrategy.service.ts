@@ -186,6 +186,10 @@ export class CampaignStrategyService
     return campaign?.userId ?? null
   }
 
+  async existsForCampaign(campaignId: number): Promise<boolean> {
+    return (await this.model.count({ where: { campaignId } })) > 0
+  }
+
   async getOrGenerateStrategicLandscape(
     campaign: CampaignWith<'user'>,
   ): Promise<StrategicLandscapeResponse> {

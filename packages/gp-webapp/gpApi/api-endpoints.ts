@@ -205,6 +205,14 @@ export type APIEndpoints = {
     Response: CommunityEventsResponse
   }
 
+  // Cheap existence probe used to gate the dashboard's Campaign Plan tab.
+  // Mirrors `StrategyExistsResponseSchema` in
+  // `gp-api/src/campaignStrategy/schemas/strategyExists.schema.ts`.
+  'GET /v1/campaignStrategy/mine/exists': {
+    Request: {}
+    Response: { exists: boolean }
+  }
+
   'GET /v1/elected-office/current': {
     Request: {}
     Response: ElectedOffice
