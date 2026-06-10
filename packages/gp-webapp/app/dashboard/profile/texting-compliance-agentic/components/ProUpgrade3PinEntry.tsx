@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import { REGEXP_ONLY_DIGITS } from 'input-otp'
 import {
   Button,
   Card,
@@ -84,6 +85,7 @@ export default function ProUpgrade3PinEntry({
             onChange={setPin}
             disabled={submitting}
             aria-label="PIN"
+            pattern={REGEXP_ONLY_DIGITS}
           >
             <InputOTPGroup>
               {Array.from({ length: PIN_LENGTH }, (_, index) => (

@@ -258,4 +258,19 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     // Form re-enabled so the candidate can retry.
     expect(screen.getByRole('button', { name: /submit/i })).toBeEnabled()
   })
+
+  it('rejects non-digit characters so a non-numeric PIN can never be submitted', async () => {
+    const user = userEvent.setup()
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+
+    render(<ProUpgrade3Compliance />)
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
+
+    await user.type(getPinInput()!, 'abcdef')
+
+    // The digit-only pattern drops the input, so nothing accumulates and Submit
+    // stays disabled — the API never receives a non-numeric PIN.
+    expect(getPinInput()!.value).toBe('')
+    expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled()
+  })
 })
