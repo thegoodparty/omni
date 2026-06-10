@@ -452,13 +452,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
   }
 
-  async hasCampaignStrategy(campaignId: number): Promise<boolean> {
-    const count = await this.client.campaignStrategy.count({
-      where: { campaignId },
-    })
-    return count > 0
-  }
-
   async checkFreeTextsEligibility(campaignId: number): Promise<boolean> {
     const campaign = await this.model.findUnique({
       where: { id: campaignId },

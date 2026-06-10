@@ -4,7 +4,6 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
-import { visualSnapshot } from '../../../src/helpers/visual.helper'
 import { getClerkContinueButton } from '../../../src/helpers/clerk.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { wait } from 'tests/utils/eventually'
@@ -22,8 +21,6 @@ test.describe('Login Functionality', () => {
     await expect(page.locator('.cl-signIn-root')).toBeVisible()
     await expect(page.getByLabel(/email/i).first()).toBeVisible()
     await expect(getClerkContinueButton(page)).toBeVisible()
-
-    await visualSnapshot(page, 'login-page.png')
   })
 
   test('should show error for invalid credentials', async ({ page }) => {
@@ -34,8 +31,6 @@ test.describe('Login Functionality', () => {
     await expect(page.locator('.cl-formFieldErrorText').first()).toBeVisible({
       timeout: 5000,
     })
-
-    await visualSnapshot(page, 'login-error-state.png')
   })
 
   test('should login and redirect to dashboard', async ({

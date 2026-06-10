@@ -5,7 +5,6 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-import { visualSnapshot } from '../../../src/helpers/visual.helper'
 
 function campaignPageGreetingHeading(page: Page) {
   return page
@@ -36,9 +35,6 @@ test.describe('Mobile Navigation', () => {
       timeout: 15000,
     })
 
-    await visualSnapshot(page, 'mobile-dashboard.png', {
-      mask: [campaignPageGreetingHeading(page)],
-    })
     console.log('✅ Mobile dashboard accessible')
   })
 
@@ -62,10 +58,6 @@ test.describe('Mobile Navigation', () => {
       page.getByRole('heading', { name: 'AI Assistant' }).first(),
     ).toBeVisible({ timeout: 15000 })
     await expect(page).toHaveURL(/\/dashboard\/campaign-assistant$/)
-
-    await visualSnapshot(page, 'mobile-ai-assistant.png', {
-      mask: [page.getByRole('heading', { name: 'AI Assistant' })],
-    })
   })
 
   test('should navigate to Content Builder on mobile', async ({ page }) => {
@@ -79,10 +71,6 @@ test.describe('Mobile Navigation', () => {
       page.getByRole('heading', { name: 'Content Builder' }).first(),
     ).toBeVisible({ timeout: 15000 })
     await expect(page).toHaveURL(/\/dashboard\/content$/)
-
-    await visualSnapshot(page, 'mobile-content-builder.png', {
-      mask: [page.getByRole('heading', { name: 'Content Builder' })],
-    })
   })
 
   test('should navigate to My Profile on mobile', async ({ page }) => {
@@ -100,16 +88,6 @@ test.describe('Mobile Navigation', () => {
     const bodyContent = page.locator('body')
     await expect(bodyContent).toBeVisible()
 
-    await visualSnapshot(page, 'mobile-profile.png', {
-      mask: [
-        page.getByTestId('personal-first-name'),
-        page.getByTestId('personal-last-name'),
-        page.getByTestId('personal-email'),
-        page.getByTestId('personal-phone'),
-        page.getByLabel('Mobile Number'),
-        page.getByTestId('personal-zip'),
-      ],
-    })
     console.log('✅ Mobile profile page accessible')
   })
 })

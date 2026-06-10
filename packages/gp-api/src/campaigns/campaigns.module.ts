@@ -37,6 +37,8 @@ import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.ser
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
 import { CampaignUpdateHistoryController } from './updateHistory/campaignUpdateHistory.controller'
 import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHistory.service'
+import { PublicCampaignsController } from './controllers/public-campaigns.controller'
+import { PublicCampaignsService } from './services/public-campaigns.service'
 
 @Global()
 @Module({
@@ -68,6 +70,7 @@ import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHist
     CampaignTasksController,
     LegacyCampaignTasksController,
     CampaignTcrComplianceController,
+    PublicCampaignsController,
   ],
   providers: [
     CampaignsService,
@@ -83,6 +86,7 @@ import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHist
     ComplianceStateService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
+    PublicCampaignsService,
   ],
   exports: [
     CampaignsService,

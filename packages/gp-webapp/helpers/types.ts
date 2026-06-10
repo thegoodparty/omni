@@ -467,7 +467,6 @@ export interface Campaign {
   canDownloadFederal: boolean
   completedTaskIds: string[]
   hasFreeTextsOffer: boolean
-  hasCampaignStrategy?: boolean
   firstName?: string
   lastName?: string
   image?: string

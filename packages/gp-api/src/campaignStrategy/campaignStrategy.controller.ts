@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   HttpStatus,
   Post,
   Res,
@@ -9,6 +10,7 @@ import {
 import { FastifyReply } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { Campaign } from '../generated/prisma'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -23,6 +25,10 @@ import {
   StrategicLandscapeResponse,
   StrategicLandscapeResponseSchema,
 } from './schemas/strategicLandscape.schema'
+import {
+  StrategyExistsResponse,
+  StrategyExistsResponseSchema,
+} from './schemas/strategyExists.schema'
 
 @Controller('campaignStrategy')
 @UsePipes(ZodValidationPipe)
@@ -33,6 +39,21 @@ export class CampaignStrategyController {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignStrategyController.name)
+  }
+
+  // Cheap existence probe for UI gating (the dashboard's Campaign Plan tab).
+  // Deliberately a dedicated endpoint rather than a field on the campaign
+  // payload: cached campaign objects get overwritten by responses that lack
+  // computed fields, which made campaign-derived gating unreliable.
+  @Get('mine/exists')
+  @ResponseSchema(StrategyExistsResponseSchema)
+  @UseCampaign()
+  async strategyExists(
+    @ReqCampaign() campaign: Campaign,
+  ): Promise<StrategyExistsResponse> {
+    return {
+      exists: await this.campaignStrategy.existsForCampaign(campaign.id),
+    }
   }
 
   @Post('mine/strategic-landscape')

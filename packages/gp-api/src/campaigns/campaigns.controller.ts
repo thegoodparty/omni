@@ -88,21 +88,18 @@ export class CampaignsController {
   ) {
     const { organization: org } = campaign
 
-    const [{ positionName }, liveMetrics, hasCampaignStrategy] =
-      await Promise.all([
-        this.organizations.resolvePositionContext({
-          customPositionName: org?.customPositionName,
-          positionId: org?.positionId,
-        }),
-        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
-        this.campaigns.hasCampaignStrategy(campaign.id),
-      ])
+    const [{ positionName }, liveMetrics] = await Promise.all([
+      this.organizations.resolvePositionContext({
+        customPositionName: org?.customPositionName,
+        positionId: org?.positionId,
+      }),
+      this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+    ])
 
     return {
       ...campaign,
       positionName,
       raceTargetMetrics: liveMetrics,
-      hasCampaignStrategy,
     }
   }
 

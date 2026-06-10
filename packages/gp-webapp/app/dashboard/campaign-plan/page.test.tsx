@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Campaign, User } from 'helpers/types'
+import type { User } from 'helpers/types'
 import Page from './page'
 
 const {
   mockCandidateAccess,
   mockGetServerUser,
-  mockFetchUserCampaign,
+  mockServerRequest,
   mockRedirect,
 } = vi.hoisted(() => ({
   mockCandidateAccess: vi.fn(),
   mockGetServerUser: vi.fn(),
-  mockFetchUserCampaign: vi.fn(),
+  mockServerRequest: vi.fn(),
   mockRedirect: vi.fn(),
 }))
 
@@ -22,8 +22,8 @@ vi.mock('helpers/userServerHelper', () => ({
   getServerUser: () => mockGetServerUser(),
 }))
 
-vi.mock('app/onboarding/shared/getCampaign', () => ({
-  fetchUserCampaign: () => mockFetchUserCampaign(),
+vi.mock('gpApi/server-request', () => ({
+  serverRequest: (...args: unknown[]) => mockServerRequest(...args),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -39,11 +39,6 @@ vi.mock('helpers/metadataHelper', () => ({
 }))
 
 const mockUser = { id: 1, firstName: 'Test', lastName: 'User' } as User
-const campaignWithStrategy = { id: 1, hasCampaignStrategy: true } as Campaign
-const campaignWithoutStrategy = {
-  id: 1,
-  hasCampaignStrategy: false,
-} as Campaign
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -53,32 +48,28 @@ beforeEach(() => {
 })
 
 describe('dashboard/campaign-plan page', () => {
-  it('redirects to /dashboard when campaign has no strategy', async () => {
-    mockFetchUserCampaign.mockResolvedValue(campaignWithoutStrategy)
+  it('redirects to /dashboard when no strategy exists', async () => {
+    mockServerRequest.mockResolvedValue({ data: { exists: false } })
+
+    await Page()
+
+    expect(mockServerRequest).toHaveBeenCalledWith(
+      'GET /v1/campaignStrategy/mine/exists',
+      {},
+    )
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('redirects to /dashboard when the existence check fails', async () => {
+    mockServerRequest.mockRejectedValue(new Error('api down'))
 
     await Page()
 
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('redirects to /dashboard when campaign is null', async () => {
-    mockFetchUserCampaign.mockResolvedValue(null)
-
-    await Page()
-
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
-  })
-
-  it('redirects to /dashboard when hasCampaignStrategy is absent', async () => {
-    mockFetchUserCampaign.mockResolvedValue({ id: 1 } as Campaign)
-
-    await Page()
-
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
-  })
-
-  it('does not redirect when campaign has a strategy', async () => {
-    mockFetchUserCampaign.mockResolvedValue(campaignWithStrategy)
+  it('does not redirect when a strategy exists', async () => {
+    mockServerRequest.mockResolvedValue({ data: { exists: true } })
 
     await Page()
 
