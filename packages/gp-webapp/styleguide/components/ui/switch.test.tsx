@@ -110,7 +110,7 @@ describe('SwitchLabel', () => {
 
   it('does not render description element when omitted', () => {
     render(<SwitchLabel id="sl" label="Notifications" />)
-    expect(screen.queryByRole('paragraph')).not.toBeInTheDocument()
+    expect(document.getElementById('sl-description')).not.toBeInTheDocument()
   })
 
   it('associates label with switch via htmlFor', () => {

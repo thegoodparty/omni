@@ -28,7 +28,7 @@ function Switch({ className, ...props }: SwitchProps) {
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform data-[state=checked]:translate-x-4"
+        className="pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform data-[state=checked]:translate-x-[calc(100%-2px)]"
       />
     </SwitchPrimitive.Root>
   )
@@ -50,6 +50,7 @@ function SwitchLabel({
   id,
   className,
   switchClassName,
+  disabled,
   ...props
 }: SwitchLabelProps) {
   const descriptionId = description ? `${id}-description` : undefined
@@ -57,8 +58,9 @@ function SwitchLabel({
   return (
     <div
       data-slot="switch-label"
+      data-disabled={disabled ? 'true' : undefined}
       className={cn(
-        'flex w-full items-start gap-2',
+        'group flex w-full items-start gap-2',
         side === 'right' && 'flex-row-reverse',
         className,
       )}
@@ -67,6 +69,7 @@ function SwitchLabel({
         id={id}
         aria-describedby={descriptionId}
         className={cn('shrink-0', switchClassName)}
+        disabled={disabled}
         {...props}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -77,7 +80,13 @@ function SwitchLabel({
           {label}
         </Label>
         {description && (
-          <p id={descriptionId} className="text-xs text-muted-foreground">
+          <p
+            id={descriptionId}
+            className={cn(
+              'text-xs text-muted-foreground',
+              disabled && 'opacity-50',
+            )}
+          >
             {description}
           </p>
         )}
