@@ -1,6 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+// Module-scoped dedup map so `fireOnce` survives remounts (e.g. dashboard
+// users navigating back to the Campaign Plan page). Keyed by campaignId so
+// different campaigns never share dedup state.
+const _firedEvents = new Map<number, Set<string>>()
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
@@ -277,17 +282,21 @@ const SuccessPage = ({
     !isLocalNewsGenerating &&
     !voterIssuesQuery.isPending
 
-  // Per-resource lifecycle events fire exactly once each. The hooks poll on
-  // an interval, so an effect that runs on every status change would re-fire
-  // without a guard. A single ref of already-fired event keys backs a small
-  // `fireOnce` helper used by all nine lifecycle effects below.
-  const firedEventsRef = useRef<Set<string>>(new Set())
+  // Per-resource lifecycle events fire exactly once per campaign visit. The
+  // hooks poll on an interval, so an effect that runs on every status change
+  // would re-fire without a guard.
   const fireOnce = (
     event: string,
     properties: Record<string, string | number | undefined>,
   ): void => {
-    if (firedEventsRef.current.has(event)) return
-    firedEventsRef.current.add(event)
+    const key = campaignId ?? 0
+    let fired = _firedEvents.get(key)
+    if (!fired) {
+      fired = new Set()
+      _firedEvents.set(key, fired)
+    }
+    if (fired.has(event)) return
+    fired.add(event)
     trackEvent(event, properties)
   }
 
