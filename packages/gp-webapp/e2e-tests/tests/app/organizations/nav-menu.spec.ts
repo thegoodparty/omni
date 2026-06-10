@@ -32,7 +32,9 @@ test.describe('Navigation Menu by Org Type', () => {
 
     const sidebar = page.locator('[data-sidebar="content"]')
 
-    await expect(sidebar.getByText('Dashboard')).toBeVisible({ timeout: 10000 })
+    await expect(sidebar.getByText('Campaign Manager')).toBeVisible({
+      timeout: 10000,
+    })
     await expect(sidebar.getByText('Voter Outreach')).toBeVisible()
     await expect(sidebar.getByText('Website')).toBeVisible()
     await expect(sidebar.getByText('AI Assistant')).toBeVisible()
@@ -54,7 +56,7 @@ test.describe('Navigation Menu by Org Type', () => {
     })
     await expect(sidebar.getByText('Polls')).toBeVisible()
 
-    await expect(sidebar.getByText('Dashboard')).not.toBeVisible()
+    await expect(sidebar.getByText('Campaign Manager')).not.toBeVisible()
     await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()
     await expect(sidebar.getByText('Website')).not.toBeVisible()
     await expect(sidebar.getByText('AI Assistant')).not.toBeVisible()
