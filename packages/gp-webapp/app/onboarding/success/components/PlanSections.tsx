@@ -468,7 +468,13 @@ const PlanSections = ({
   }))
 
   return (
-    <div className="text-left">
+    // [&_li]:list-item restores bullet markers inside the dashboard shell:
+    // globals.css applies `[data-slot] li { display: flex }` to every list
+    // under the sidebar's data-slot wrapper, and a flex li renders no
+    // ::marker. The utility wins over that base-layer rule and matches how
+    // the same content renders on the onboarding success page. The section
+    // nav's Select portals out of this subtree, so it is unaffected.
+    <div className="text-left [&_li]:list-item">
       <PlanSectionNav
         sections={navSections}
         onStuckChange={onStuckChange}
