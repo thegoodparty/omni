@@ -1,7 +1,7 @@
 'use client'
 
 import Paper from '@shared/utils/Paper'
-import Crumbs from '../../../shared/Crumbs'
+import { BreadcrumbNav } from '@styleguide'
 import { usePoll } from '../../../shared/hooks/PollProvider'
 
 interface ExpandPollLayoutProps {
@@ -28,7 +28,7 @@ export default function ExpandPollLayout({
 
   return (
     <div className="bg-indigo-100 min-h-screen p-4 md:p-8">
-      {showBreadcrumbs && <Crumbs breadcrumbsLinks={breadcrumbsLinks} />}
+      {showBreadcrumbs && <BreadcrumbNav items={breadcrumbsLinks} />}
 
       <Paper className="min-h-full max-w-[700px] mx-auto mt-8 md:mt-16 lg:p-12 flex flex-col items-center">
         {children}

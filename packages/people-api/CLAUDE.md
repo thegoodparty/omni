@@ -93,7 +93,7 @@ See `docs/data-pipeline.md` for the full pipeline.
 
 ## Never
 
-- Never edit a file under `prisma/migrations/<timestamp>/` — applied migrations are immutable.
+- Never edit a file under `prisma/schema/migrations/<timestamp>/` — applied migrations are immutable.
 - Never inject `PrismaService` directly into a new service — always extend `createPrismaBase(MODELS.X)`.
 - Never expose this API publicly. It is internal-only; no end-user-facing routes.
 - Never bypass `S2SAuthGuard` except via the `@Public()` decorator on health-check routes.

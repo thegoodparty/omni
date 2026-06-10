@@ -20,8 +20,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest run",
-    "test:e2e": "cd e2e-tests && npx playwright install chromium && npx playwright test tests/ --reporter=list",
-    "test:visual:update": "cd e2e-tests && npx playwright install chromium && npx playwright test --update-snapshots --reporter=list",
+    "test:e2e": "cd e2e-tests && npx playwright install chromium && npx playwright test --config=\"$PWD/playwright.config.ts\" tests/ --reporter=list",
+    "test:visual:update": "cd e2e-tests && npx playwright install chromium && npx playwright test --config=\"$PWD/playwright.config.ts\" --update-snapshots --reporter=list",
     "test:watch": "vitest",
     "types": "npx tsc"
   },
@@ -29,6 +29,7 @@
     "@amplitude/experiment-js-client": "^1.16.2",
     "@amplitude/session-replay-browser": "^1.27.0",
     "@clerk/nextjs": "^7.0.8",
+    "@clerk/react": "^6.7.3",
     "@contentful/rich-text-plain-text-renderer": "^16.0.1",
     "@contentful/rich-text-react-renderer": "^16.0.1",
     "@contentful/rich-text-types": "^16.0.1",
@@ -151,13 +152,14 @@
     "uuidv7": "^1.1.0",
     "validator": "^13.15.22",
     "vaul": "^1.1.2",
-    "zod": "4.0.17",
-    "@clerk/react": "^6.7.3"
+    "zod": "4.0.17"
   },
   "devDependencies": {
+    "@apidevtools/json-schema-ref-parser": "^15.3.5",
     "@aws-sdk/client-s3": "^3.948.0",
     "@aws-sdk/client-sqs": "^3.968.0",
     "@chromatic-com/storybook": "^5.0.1",
+    "@clerk/backend": "^3.5.0",
     "@clerk/testing": "^2.0.6",
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
@@ -168,6 +170,7 @@
     "@stylistic/eslint-plugin": "^3.1.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "^24.10.0",
     "@types/qrcode": "^1.5.6",

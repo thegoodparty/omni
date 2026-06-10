@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -83,26 +82,30 @@ const FilingStatusStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-2">Have you already filed for your race?</H2>
-      <Body2 className="text-secondary mb-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        Have you already filed for your race?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         In order to get Pro you need to be officially filed as a candidate to
         comply with voter data and texting regulations.
       </Body2>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {OPTIONS.map((option) => (
           <button
             key={option.title}
             type="button"
             onClick={() => void handleSelect(option)}
             disabled={submitting}
-            className="flex w-full items-center justify-between gap-4 rounded-xl border border-gray-200 p-4 text-left transition-colors hover:border-primary hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-60"
+            className="flex w-full items-center justify-between gap-4 rounded-xl border border-components-input-border p-4 text-left transition-colors hover:border-primary hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-60"
           >
             <span>
-              <span className="block font-medium">{option.title}</span>
-              <Body2 className="text-secondary">{option.description}</Body2>
+              <span className="block">{option.title}</span>
+              <Body2 className="text-base-muted-foreground">
+                {option.description}
+              </Body2>
             </span>
-            <ChevronRightIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <ChevronRightIcon className="h-5 w-5 shrink-0 text-base-foreground" />
           </button>
         ))}
       </div>

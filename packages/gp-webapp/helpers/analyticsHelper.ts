@@ -568,6 +568,8 @@ export const EVENTS = {
     ShareDrawerOpened: 'Briefing Assistant - Share Drawer Opened',
     ShareCompleted: 'Briefing Assistant - Share Completed',
     AttachmentClicked: 'Briefing Assistant - Attachment Clicked',
+    AgendaSubmitted: 'Briefing Assistant - Agenda Submitted',
+    AgendaSubmissionFailed: 'Briefing Assistant - Agenda Submission Failed',
     SourcesExpanded: 'Briefing Assistant - Sources Expanded',
     TocItemClicked: 'Briefing Assistant - TOC Item Clicked',
   },
@@ -608,6 +610,10 @@ export const EVENTS = {
       'Onboarding V2 - Strategic Landscape Results Received',
     StrategicLandscapeDisplayed:
       'Onboarding V2 - Strategic Landscape Displayed',
+    VotesNeededCalculated: 'Onboarding V2 - Votes Needed Calculated',
+    VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
+    OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
+    PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
   },
 } as const
 

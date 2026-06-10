@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -117,8 +116,10 @@ const EinStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-2">What is your campaign EIN?</H2>
-      <Body2 className="text-secondary mb-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        What is your campaign EIN?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         Every campaign needs one to access voter data and texting. If you
         don&apos;t have one for your campaign, you can get a free EIN from the
         IRS in just a few minutes.

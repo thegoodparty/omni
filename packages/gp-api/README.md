@@ -161,72 +161,47 @@ curl -fsSL https://raw.githubusercontent.com/thegoodparty/gp-api/master/scripts/
 
 ## Contracts Package (`@goodparty_org/contracts`)
 
-A shared Zod schema and TypeScript types package published to npm as `@goodparty_org/contracts`. It is consumed by `gp-sdk` and other projects to keep API request/response types in sync without duplication.
+A shared Zod schema and TypeScript types package consumed by `gp-api`, `gp-sdk`, and other workspaces to keep API request/response types in sync without duplication.
 
-The contracts source lives in the `contracts/` directory at the repo root and is managed as an npm workspace.
+The contracts source lives in `packages/contracts` and is managed as an npm workspace.
 
 ### Local Development
 
-Contracts are built automatically as part of `npm run start:dev` and `npm run build` — no extra steps needed. A fresh clone workflow is:
+Contracts are built by the monorepo workflows before dependent packages. A fresh clone workflow is:
 
 ```bash
 npm install
-npm run start:dev
+npm run build -w packages/contracts
 ```
-
-This runs Prisma client generation, contracts codegen + build, then starts the NestJS watcher.
 
 For live rebuilds of contracts source during development (e.g., when editing schemas for `gp-sdk` consumption):
 
 ```bash
-cd contracts && npm run dev
+npm run dev -w packages/contracts
 ```
 
 ### When You Modify a Contract Schema
 
-Add a changeset file before opening your PR:
-
-```bash
-cd contracts
-npx changeset
-```
-
-Follow the interactive prompt to select a semver bump type and write a summary, then commit the generated changeset file with your PR.
+Update any consumers in the same PR when the public contract changes.
 
 ### When You Modify a Prisma Enum
 
-Run `npm run generate` at the repo root first (to regenerate Prisma client), then:
+Regenerate the gp-api Prisma metadata first, then rebuild contracts:
 
 ```bash
-cd contracts && npm run build
+npm run generate:prisma:gp-api
+npm run build -w packages/contracts
 ```
 
-This regenerates the enum definitions in `contracts/src/generated/enums.ts`.
-
-### How Publishing Works
-
-Contracts are automatically published to npm when changes are merged to `master`. The `changesets/action` in CI opens a "Version Packages" PR to bump the version. Merging that PR triggers the actual npm publish.
-
-On `develop` and `qa` branches, contracts receive a snapshot version that is committed but not published.
+This regenerates the enum definitions in `packages/contracts/src/generated/enums.ts`.
 
 ### Testing Against gp-sdk Locally
 
-Build contracts first, then use the path form of `npm link` from gp-sdk:
+Build contracts first, then build gp-sdk:
 
 ```bash
-cd ~/dev/good-party/gp-api/contracts
-npm run build
-
-cd ~/dev/good-party/gp-sdk
-npm link ../gp-api/contracts
-```
-
-Run `npm run dev` in both `contracts/` and `gp-sdk/` for live rebuild chaining. To revert to the npm-published version:
-
-```bash
-cd ~/dev/good-party/gp-sdk
-npm unlink @goodparty_org/contracts
-npm install
+npm run build -w packages/contracts
+npm run build -w packages/gp-sdk
 ```
 
 ## Agent Job Contracts

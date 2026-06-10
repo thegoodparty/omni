@@ -70,9 +70,9 @@ test.describe('Custom office flow', () => {
     await continueButton.click()
 
     // Manual flow skips P2V/voter-demographics; lands on the pledge step
-    // (H1 reads "Almost there..." since the renamed copy).
+    // (H1 reads "Take our pledge to get your campaign plan").
     await expect(
-      page.getByRole('heading', { level: 1, name: /almost there/i }),
+      page.getByRole('heading', { level: 1, name: /take our pledge/i }),
     ).toBeVisible({ timeout: 15000 })
 
     type OrganizationsResponse = {

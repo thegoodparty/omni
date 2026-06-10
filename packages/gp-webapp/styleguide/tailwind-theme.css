@@ -45,6 +45,7 @@
   --radius-lg: var(--radius, 0.5rem);
   --radius-md: calc(var(--radius, 0.5rem) - 2px);
   --radius-sm: calc(var(--radius, 0.5rem) - 4px);
+  --radius-base: var(--border-radius-base);
 
   /* ==========================================================================
    * SHADCN/UI COMPONENT TOKENS

@@ -57,7 +57,7 @@ const mockS3 = (responses: Record<string, string | undefined>) => {
 
 // Seed everything a briefing dispatch needs to resolve: org + position +
 // elected office + a COMPLETED meeting_schedule artifact in S3 whose RRULE
-// the caller controls (to land a meeting inside or outside the 5-day gate).
+// the caller controls (to land a meeting inside or outside the 3-day gate).
 const seedBriefingTarget = async (orgSlug: string, rrule: string) => {
   await service.prisma.organization.create({
     data: { slug: orgSlug, ownerId: service.user.id, positionId: 'br-pos-g' },
@@ -781,7 +781,7 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
     })
   })
 
-  it('with useImminenceGate, dispatches a briefing when a meeting is inside the 5-day window', async () => {
+  it('with useImminenceGate, dispatches a briefing when a meeting is inside the 3-day window', async () => {
     const orgSlug = `eo-gate-in-${Date.now()}`
     const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
     const dispatchedRun = await service.prisma.experimentRun.create({
@@ -810,13 +810,14 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
     )
   })
 
-  it('with useImminenceGate, returns 201 dispatched:false (no dispatch) when the next meeting is outside the 5-day window', async () => {
+  it('with useImminenceGate, returns 201 dispatched:false (no dispatch) when the next meeting is outside the 3-day window', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-06-01T12:00:00Z'))
     try {
       const orgSlug = `eo-gate-out-${Date.now()}`
-      // Next occurrence is the 20th — ~19 days out: outside 5, inside 60.
-      const eo = await seedBriefingTarget(orgSlug, 'FREQ=MONTHLY;BYMONTHDAY=20')
+      // Next occurrence is the 5th — 4 days out: inside the old 5-day
+      // window, outside 3, inside 60.
+      const eo = await seedBriefingTarget(orgSlug, 'FREQ=MONTHLY;BYMONTHDAY=5')
       const dispatchSpy = vi
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue(undefined)
@@ -839,7 +840,7 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
     vi.setSystemTime(new Date('2026-06-01T12:00:00Z'))
     try {
       const orgSlug = `eo-nogate-${Date.now()}`
-      const eo = await seedBriefingTarget(orgSlug, 'FREQ=MONTHLY;BYMONTHDAY=20')
+      const eo = await seedBriefingTarget(orgSlug, 'FREQ=MONTHLY;BYMONTHDAY=5')
       const dispatchedRun = await service.prisma.experimentRun.create({
         data: {
           organizationSlug: orgSlug,

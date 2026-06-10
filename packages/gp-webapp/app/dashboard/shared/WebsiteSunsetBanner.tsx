@@ -1,21 +1,19 @@
 import { buttonVariants } from '@styleguide/components/ui/button'
-import {
-  HUBSPOT_DOMAIN_TRANSFER_FORM_URL,
-  WEBSITE_SUNSET_NOTICE_ENABLED,
-} from './websiteSunset'
+import { HUBSPOT_DOMAIN_TRANSFER_FORM_URL } from './websiteSunset'
 
 interface WebsiteSunsetBannerProps {
-  hasWebsite: boolean
+  eligible: boolean
 }
 
 // Persistent (non-dismissible) counterpart to WebsiteSunsetModal. The modal
 // shows once on the dashboard; this banner gives candidates a permanent path
 // back to the domain-transfer form from Settings (ENG-10304). Same eligibility
-// as the modal: a candidate with a website while the notice is enabled.
+// as the modal — see isWebsiteSunsetEligible: a candidate who purchased a
+// domain while the notice is enabled.
 export function WebsiteSunsetBanner({
-  hasWebsite,
+  eligible,
 }: WebsiteSunsetBannerProps): React.JSX.Element | null {
-  if (!hasWebsite || !WEBSITE_SUNSET_NOTICE_ENABLED) {
+  if (!eligible) {
     return null
   }
 
