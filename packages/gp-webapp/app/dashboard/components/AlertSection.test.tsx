@@ -19,6 +19,13 @@ const startedCheckoutUser = {
   metaData: { checkoutSessionId: 'cs_test_123' },
 } as User
 
+// checkoutSessionId + customerId but no subscriptionId is the "paid, waiting
+// for the subscription to activate" state that triggers the pending alert.
+const pendingSubscriptionUser = {
+  id: 2,
+  metaData: { checkoutSessionId: 'cs_test_456', customerId: 'cus_test_456' },
+} as User
+
 const renderSection = (user: User, campaign: Campaign) =>
   render(
     <UserContext.Provider value={[user, vi.fn(), false]}>
@@ -56,5 +63,26 @@ describe('AlertSection', () => {
     expect(
       screen.queryByText('Please complete your pro sign up!'),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the subscription-pending alert for the legacy cohort', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
+    renderSection(pendingSubscriptionUser, { isPro: false } as Campaign)
+
+    expect(screen.getByText('Subscription Pending')).toBeInTheDocument()
+  })
+
+  it('hides the subscription-pending alert for the pro-upgrade3 cohort', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+    renderSection(pendingSubscriptionUser, { isPro: false } as Campaign)
+
+    expect(screen.queryByText('Subscription Pending')).not.toBeInTheDocument()
+  })
+
+  it('hides the subscription-pending alert until the flag resolves', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: false, enabled: false })
+    renderSection(pendingSubscriptionUser, { isPro: false } as Campaign)
+
+    expect(screen.queryByText('Subscription Pending')).not.toBeInTheDocument()
   })
 })
