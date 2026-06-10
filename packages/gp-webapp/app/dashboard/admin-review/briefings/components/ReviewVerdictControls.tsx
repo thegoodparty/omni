@@ -45,16 +45,22 @@ export default function ReviewVerdictControls({
     setSubmitting(true)
     setError(null)
     const reason = failReason.trim()
-    const res = await clientRequest(
-      'PUT /v1/meetings/:date/briefing/review-verdict',
-      {
-        date: meetingDate,
-        verdict: pending,
-        ...(pending === 'failed' && reason ? { failReason: reason } : {}),
-      },
-      { ignoreResponseError: true },
-    )
-    if (!res.ok) {
+    let ok = false
+    try {
+      const res = await clientRequest(
+        'PUT /v1/meetings/:date/briefing/review-verdict',
+        {
+          date: meetingDate,
+          verdict: pending,
+          ...(pending === 'failed' && reason ? { failReason: reason } : {}),
+        },
+        { ignoreResponseError: true },
+      )
+      ok = res.ok
+    } catch {
+      ok = false
+    }
+    if (!ok) {
       setSubmitting(false)
       setError('Could not save the verdict. Please try again.')
       return
