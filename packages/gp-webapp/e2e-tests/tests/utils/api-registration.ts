@@ -103,7 +103,7 @@ type PlaywrightCookie = Parameters<BrowserContext['addCookies']>[0][0]
 // Global cache for shared users per worker
 let cachedUser: BootstrappedUser | null = null
 
-async function signInAndGetToken(page: Page, email: string): Promise<string> {
+async function signInUser(page: Page, email: string): Promise<void> {
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
@@ -118,14 +118,27 @@ async function signInAndGetToken(page: Page, email: string): Promise<string> {
       }),
     5,
   )
+}
 
-  const token = await page.evaluate(() => window.Clerk!.session!.getToken())
+// Browser-minted Clerk session tokens expire after 60 seconds, so a token
+// baked into a static Authorization header dies partway through any long
+// test (the polls flow runs 10+ minutes and its late `client` calls were
+// all 401ing). Mint the API token from a backend session instead, with a
+// lifetime that outlasts the CI job.
+const E2E_TOKEN_TTL_SECONDS = 60 * 60
 
-  if (!token) {
-    throw new Error('Failed to get Clerk session token after sign-in')
-  }
-
-  return token
+async function mintApiToken(clerkUserId: string): Promise<string> {
+  const session = await clerkThrottle(() =>
+    clerkBackend.sessions.createSession({ userId: clerkUserId }),
+  )
+  const { jwt } = await clerkThrottle(() =>
+    clerkBackend.sessions.getToken(
+      session.id,
+      undefined,
+      E2E_TOKEN_TTL_SECONDS,
+    ),
+  )
+  return jwt
 }
 
 const bootstrapTestUser = async (
@@ -150,7 +163,8 @@ const bootstrapTestUser = async (
     }),
   )
 
-  const token = await signInAndGetToken(page, generated.email)
+  await signInUser(page, generated.email)
+  const token = await mintApiToken(clerkUser.id)
 
   const client = axios.create({
     baseURL: apiURL,
