@@ -267,7 +267,7 @@ export interface PlanData {
   registeredVotersHigh: number
   voterContactGoal: number
   // Contacts per voter the plan is built around (voterContactGoal ÷
-  // winNumber, normally 10). Derived so the copy stays honest if the
+  // winNumber, normally 5). Derived so the copy stays honest if the
   // race-specific goal from the API uses a different multiplier.
   contactsPerVoter: number
   // Win number as a share of registered voters ("you only need ~X% of
@@ -907,7 +907,7 @@ const GLOSSARY: GlossaryRow[] = [
   {
     term: 'Targeted Voter Contact Goal',
     definition:
-      'The total number of contacts sent to voters that the campaign aims to deliver. Industry rule of thumb is 10× the projected votes needed to win.',
+      'The total number of contacts sent to voters that the campaign aims to deliver. Industry rule of thumb is 5× the projected votes needed to win.',
   },
   {
     term: 'Voter Contact',
@@ -1279,11 +1279,11 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     input.voterContactGoal,
     winNumber,
   )
-  // Normally 10 (the contact-goal multiplier), but derived from the actual
+  // Normally 5 (the contact-goal multiplier), but derived from the actual
   // goal so the "reach each voter about N times" copy can't drift from the
   // numbers when the API supplies a race-specific goal.
   const contactsPerVoter =
-    winNumber > 0 ? Math.max(1, Math.round(voterContactGoal / winNumber)) : 10
+    winNumber > 0 ? Math.max(1, Math.round(voterContactGoal / winNumber)) : 5
 
   const winNumberLow = Math.max(0, Math.round(winNumber * 0.9))
   const winNumberHigh = Math.round(winNumber * 1.1)

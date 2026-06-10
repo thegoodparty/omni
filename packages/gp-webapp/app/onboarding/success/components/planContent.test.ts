@@ -23,7 +23,7 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   filingDateEndIso: '2026-08-07',
   winNumber: 1000,
   projectedTurnout: 2000,
-  voterContactGoal: 10000,
+  voterContactGoal: 5000,
   runningAgainst: [],
   customIssues: [],
   stances: [],
@@ -242,7 +242,7 @@ describe('buildPlanData fallback for unknown state', () => {
 describe('buildPlanData derived key numbers', () => {
   it('derives contacts per voter from the goal and win number', () => {
     const plan = buildPlanData(makeInput())
-    expect(plan.contactsPerVoter).toBe(10)
+    expect(plan.contactsPerVoter).toBe(5)
   })
 
   it('computes the votes-needed share of registered voters', () => {
