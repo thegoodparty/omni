@@ -29,6 +29,30 @@ describe('updateCampaignBodySchema', () => {
     expect(result.details).toHaveProperty('state', 'CA')
   })
 
+  it('accepts the pro-upgrade wizard fields so the EIN and status steps persist', () => {
+    const result = updateCampaignBodySchema.parse({
+      details: {
+        einNumber: '23-1234567',
+        validatedEin: true,
+        hasFiledForRace: true,
+      },
+    })
+
+    expect(result.details).toEqual({
+      einNumber: '23-1234567',
+      validatedEin: true,
+      hasFiledForRace: true,
+    })
+  })
+
+  it('rejects an einNumber that is not in XX-XXXXXXX format', () => {
+    expect(() =>
+      updateCampaignBodySchema.parse({
+        details: { einNumber: '231234567' },
+      }),
+    ).toThrow()
+  })
+
   it.each(['won', 'lost'])(
     'accepts top-level primaryResult "%s" so the election result persists',
     (primaryResult) => {
