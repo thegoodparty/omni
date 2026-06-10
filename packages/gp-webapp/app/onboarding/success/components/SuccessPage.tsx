@@ -56,7 +56,6 @@ const SuccessPage = ({
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
 
-
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [])
@@ -444,7 +443,9 @@ const SuccessPage = ({
         </p>
       </main>
 
-      <div className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface left-0 ${inDashboard ? 'md:left-(--sidebar-width)' : ''}`}>
+      <div
+        className={`fixed bottom-0 right-0 z-40 border-t border-base-border bg-base-surface left-0 ${inDashboard ? 'md:left-(--sidebar-width)' : ''}`}
+      >
         <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
           {/* Mobile download. While the plan is still generating the button
               is disabled; a disabled button suppresses its own pointer

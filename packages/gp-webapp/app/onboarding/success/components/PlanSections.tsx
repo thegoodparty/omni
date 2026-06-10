@@ -469,7 +469,11 @@ const PlanSections = ({
 
   return (
     <div className="text-left">
-      <PlanSectionNav sections={navSections} onStuckChange={onStuckChange} inDashboard={inDashboard} />
+      <PlanSectionNav
+        sections={navSections}
+        onStuckChange={onStuckChange}
+        inDashboard={inDashboard}
+      />
 
       <div className="mt-8 space-y-12">
         {/* 1. Executive Summary */}

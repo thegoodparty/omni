@@ -2,13 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Campaign, User } from 'helpers/types'
 import Page from './page'
 
-const { mockCandidateAccess, mockGetServerUser, mockFetchUserCampaign, mockRedirect } =
-  vi.hoisted(() => ({
-    mockCandidateAccess: vi.fn(),
-    mockGetServerUser: vi.fn(),
-    mockFetchUserCampaign: vi.fn(),
-    mockRedirect: vi.fn(),
-  }))
+const {
+  mockCandidateAccess,
+  mockGetServerUser,
+  mockFetchUserCampaign,
+  mockRedirect,
+} = vi.hoisted(() => ({
+  mockCandidateAccess: vi.fn(),
+  mockGetServerUser: vi.fn(),
+  mockFetchUserCampaign: vi.fn(),
+  mockRedirect: vi.fn(),
+}))
 
 vi.mock('../shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
@@ -36,7 +40,10 @@ vi.mock('helpers/metadataHelper', () => ({
 
 const mockUser = { id: 1, firstName: 'Test', lastName: 'User' } as User
 const campaignWithStrategy = { id: 1, hasCampaignStrategy: true } as Campaign
-const campaignWithoutStrategy = { id: 1, hasCampaignStrategy: false } as Campaign
+const campaignWithoutStrategy = {
+  id: 1,
+  hasCampaignStrategy: false,
+} as Campaign
 
 beforeEach(() => {
   vi.clearAllMocks()
