@@ -10,6 +10,7 @@ import PlanView, {
 } from './PlanView'
 import { useCampaignPlanData } from '../hooks/useCampaignPlanData'
 import { useGenerationTiming } from '../hooks/useGenerationTiming'
+import { useRefreshCampaignOnStrategyCreated } from '../hooks/useRefreshCampaignOnStrategyCreated'
 
 // Module-scoped dedup map so `fireOnce` survives remounts. Keyed by
 // campaignId so different campaigns never share dedup state.
@@ -52,6 +53,15 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const getStrategyTiming = useGenerationTiming(strategy.isGenerating)
   const getEventsTiming = useGenerationTiming(communityEvents.isGenerating)
   const getMediaTiming = useGenerationTiming(media.isGenerating)
+
+  // Any response from either endpoint (even `generating`) means gp-api has
+  // upserted the campaignStrategy row.
+  useRefreshCampaignOnStrategyCreated(
+    strategy.isGenerating ||
+      strategy.ready ||
+      communityEvents.isGenerating ||
+      communityEvents.ready,
+  )
 
   // Requested — media only. StrategicLandscapeRequested and
   // CommunityEventsRequested fire from OnboardingFlow at pre-warm time
