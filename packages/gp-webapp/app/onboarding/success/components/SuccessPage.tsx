@@ -54,13 +54,16 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const getEventsTiming = useGenerationTiming(communityEvents.isGenerating)
   const getMediaTiming = useGenerationTiming(media.isGenerating)
 
-  // Any response from either endpoint (even `generating`) means gp-api has
-  // upserted the campaignStrategy row.
+  // Any settled response from either endpoint means gp-api has upserted the
+  // campaignStrategy row — it does so before validating, so even a 400
+  // (e.g. manual-office campaigns with no raceId) creates the row.
   useRefreshCampaignOnStrategyCreated(
     strategy.isGenerating ||
       strategy.ready ||
+      data.strategyState.isError ||
       communityEvents.isGenerating ||
-      communityEvents.ready,
+      communityEvents.ready ||
+      data.eventsState.isError,
   )
 
   // Requested — media only. StrategicLandscapeRequested and
