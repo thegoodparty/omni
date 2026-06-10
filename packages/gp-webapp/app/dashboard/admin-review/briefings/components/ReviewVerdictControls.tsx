@@ -66,7 +66,12 @@ export default function ReviewVerdictControls({
       setError('Could not save the verdict. Please try again.')
       return
     }
-    await stopImpersonatingAndReturnToAdmin(signOut)
+    try {
+      await stopImpersonatingAndReturnToAdmin(signOut)
+    } catch {
+      setSubmitting(false)
+      setError('Could not end the session. Please refresh and try again.')
+    }
   }
 
   const failing = pending === 'failed'
