@@ -24,6 +24,7 @@ const SUCCESS_RETURN_URL = `${APP_BASE}${proUpgradeStepPath(
 
 // Reads the live total from the mounted Stripe checkout so the amount can't
 // drift from the configured Stripe price. Rendered inside CheckoutProvider.
+// Borderless: it sits beside the form card, not in one (Figma 7563:3405).
 const OrderSummary = (): React.JSX.Element => {
   const checkoutResult = useCheckout()
   const monthly =
@@ -33,7 +34,7 @@ const OrderSummary = (): React.JSX.Element => {
   const amountLabel = monthly === null ? null : `$${monthly.toFixed(2)}`
 
   return (
-    <aside className="rounded-xl border border-base-border p-6">
+    <aside className="w-full max-w-screen-sm">
       <div className="flex items-center justify-between">
         <span className="font-medium">Pro Plan</span>
         <ProBadge />
@@ -55,10 +56,40 @@ const OrderSummary = (): React.JSX.Element => {
   )
 }
 
+// The wizard chrome renders the payment step cardless, so the step owns its
+// layout: the bordered form card next to the borderless order summary on
+// desktop, stacked and centered below lg (Figma 7563:3405).
+const PaymentFrame = ({
+  onBack,
+  summary,
+  children,
+}: {
+  onBack: () => void
+  summary?: React.ReactNode
+  children: React.ReactNode
+}): React.JSX.Element => (
+  <div className="flex flex-col items-center gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start lg:gap-16">
+    <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-6">
+        Complete your upgrade
+      </h1>
+      {children}
+      <div className="mt-8">
+        <Button variant="outline" size="large" onClick={onBack}>
+          Back
+        </Button>
+      </div>
+    </div>
+    {summary}
+  </div>
+)
+
 const PaymentContent = ({
   onConfirmed,
+  onBack,
 }: {
   onConfirmed: () => void
+  onBack: () => void
 }): React.JSX.Element => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
   const hasFetchedSession = useRef(false)
@@ -77,18 +108,30 @@ const PaymentContent = ({
   // keep the form so the candidate can fix their card and retry rather than
   // being bounced to an error screen.
   if (error && !checkoutSession) {
-    return <PurchaseError error={error} serverError={undefined} />
+    return (
+      <PaymentFrame onBack={onBack}>
+        <PurchaseError error={error} serverError={undefined} />
+      </PaymentFrame>
+    )
   }
 
   if (!checkoutSession) {
-    return <LoadingAnimation />
+    return (
+      <PaymentFrame onBack={onBack}>
+        <LoadingAnimation />
+      </PaymentFrame>
+    )
   }
 
   return (
     <CheckoutPayment
       onPaymentConfirmed={onConfirmed}
       submitLabel="Complete upgrade"
-      orderSummary={<OrderSummary />}
+      renderLayout={(form) => (
+        <PaymentFrame onBack={onBack} summary={<OrderSummary />}>
+          {form}
+        </PaymentFrame>
+      )}
     />
   )
 }
@@ -110,20 +153,9 @@ const PaymentStep = (): React.JSX.Element => {
   }, [goToStep])
 
   return (
-    <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-6">
-        Complete your upgrade
-      </h1>
-      <CheckoutSessionProvider createSession={createSession}>
-        <PaymentContent onConfirmed={handleConfirmed} />
-      </CheckoutSessionProvider>
-
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
-          Back
-        </Button>
-      </div>
-    </div>
+    <CheckoutSessionProvider createSession={createSession}>
+      <PaymentContent onConfirmed={handleConfirmed} onBack={goToPreviousStep} />
+    </CheckoutSessionProvider>
   )
 }
 
