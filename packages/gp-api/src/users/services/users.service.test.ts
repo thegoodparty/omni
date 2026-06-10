@@ -453,6 +453,19 @@ describe('UsersService', () => {
       expect(result?.id).toBe(existing.id)
     })
 
+    it('returns user when a concurrent provision already bound the same clerkId', async () => {
+      const existing = await createUser(
+        'race-same@test.goodparty.org',
+        'user_race_same',
+      )
+      vi.spyOn(usersService, 'findUser').mockResolvedValueOnce(null)
+      const result = await provision(
+        'user_race_same',
+        'race-same@test.goodparty.org',
+      )
+      expect(result?.id).toBe(existing.id)
+    })
+
     it('returns null and preserves clerkId when email matches a user that already has one', async () => {
       const victim = await createUser(
         'victim@test.goodparty.org',
