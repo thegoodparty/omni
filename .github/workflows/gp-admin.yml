@@ -2,6 +2,7 @@ name: gp-admin
 
 on:
   pull_request:
+    branches-ignore: [qa, master]
     paths:
       - "packages/gp-admin/**"
       - "packages/gp-sdk/**"

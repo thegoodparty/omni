@@ -2,6 +2,7 @@ name: contracts
 
 on:
   pull_request:
+    branches-ignore: [qa, master]
     paths:
       - "packages/contracts/**"
       - "package.json"

@@ -2,6 +2,7 @@ name: gp-webapp
 
 on:
   pull_request:
+    branches-ignore: [qa, master]
     paths:
       - "packages/gp-webapp/**"
       # gp-api/contracts so a backend or contract change runs the webapp e2e

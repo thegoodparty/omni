@@ -9,6 +9,9 @@
 | `master`  | prod        |                                   |
 
 PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
+PR-triggered workflows (validation and preview deploys) skip PRs targeting `qa`
+or `master` (`branches-ignore`) — promotion PRs don't re-run PR CI; those branches
+are covered by their push-triggered deploys.
 
 ## Frontends (Vercel)
 

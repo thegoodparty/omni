@@ -2,6 +2,7 @@ name: candidate-sites
 
 on:
   pull_request:
+    branches-ignore: [qa, master]
     paths:
       - "packages/candidate-sites/**"
       - "package.json"
