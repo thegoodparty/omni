@@ -33,6 +33,14 @@ npm run lint -w packages/gp-webapp                                              
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 
+Run all five steps locally before opening a PR. The most common CI failure is Prettier — always run `lint` last and fix any formatting issues with:
+
+```bash
+cd packages/gp-webapp && npx prettier --write .
+```
+
+Then re-run `lint` to confirm it passes before pushing.
+
 ## Architecture
 
 Next.js 15 App Router deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
