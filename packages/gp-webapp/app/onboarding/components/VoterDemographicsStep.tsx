@@ -82,14 +82,6 @@ export const VoterDemographicsStep = ({
 
   return (
     <div className="flex w-full flex-col items-stretch gap-6 text-left">
-      <TopVoterIssuesSection
-        ballotReadyPositionId={ballotReadyPositionId}
-        city={city}
-        state={state}
-        office={office}
-        headingsAsSubsections={headingsAsSubsections}
-      />
-
       <div className="space-y-2">
         <HeadingTag className={headingClass}>Voter Demographics</HeadingTag>
         {locationLabel ? (
@@ -160,6 +152,14 @@ export const VoterDemographicsStep = ({
         data={chartData.education}
         isLoading={isLoading}
         error={error}
+      />
+
+      <TopVoterIssuesSection
+        ballotReadyPositionId={ballotReadyPositionId}
+        city={city}
+        state={state}
+        office={office}
+        headingsAsSubsections={headingsAsSubsections}
       />
 
       {showLocalNewsSources ? (

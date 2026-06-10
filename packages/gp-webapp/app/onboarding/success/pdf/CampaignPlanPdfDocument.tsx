@@ -1068,13 +1068,7 @@ export const CampaignPlanPdfDocument = ({
         )}. Voter Insights For Your District`}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro={
-          plan.voterInsightsSource === 'district'
-            ? 'The issues below come from district-level survey data on what voters here care about most right now. Personalize your platform around them in Campaign Manager.'
-            : plan.voterInsightsSource === 'candidate'
-              ? 'The issues below are the ones you flagged during onboarding. Keep them updated in Campaign Manager as your platform evolves.'
-              : 'These are common top issues in races at this level. Personalize them in Campaign Manager to align your plan with the actual race.'
-        }
+        intro="The issues voters in your district care about most right now."
         transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues in Campaign Manager and this section will re-frame around your priorities."
       >
         <DefinitionList
