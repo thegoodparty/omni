@@ -64,8 +64,12 @@ export function BriefingList({ briefings }: BriefingListProps) {
                     {briefing.review.verdict === 'passed' ? 'Passed' : 'Failed'}
                   </Badge>
                   <Text as="div" size="1" color="gray">
-                    {briefing.review.reviewerEmail ?? ''}{' '}
-                    {formatDate(briefing.review.reviewedAt)}
+                    {[
+                      briefing.review.reviewerEmail,
+                      formatDate(briefing.review.reviewedAt),
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                   </Text>
                 </>
               ) : (

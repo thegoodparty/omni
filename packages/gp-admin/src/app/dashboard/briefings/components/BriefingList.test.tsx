@@ -52,5 +52,6 @@ describe('BriefingList review column', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument()
     expect(screen.getByText('Passed')).toBeInTheDocument()
     expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toHaveAttribute('title', 'Bad summary')
   })
 })
