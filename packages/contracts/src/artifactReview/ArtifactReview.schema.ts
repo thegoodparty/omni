@@ -13,6 +13,8 @@ export type ArtifactReview = z.infer<typeof ArtifactReviewSchema>
 
 export const SetArtifactReviewVerdictRequestSchema = z.object({
   verdict: ArtifactReviewVerdictSchema,
+  // Optional here (callers simply omit it) vs nullable on the response,
+  // where the DB's nullable column comes back as null.
   failReason: z.string().min(1).max(2000).optional(),
 })
 export type SetArtifactReviewVerdictRequest = z.infer<
