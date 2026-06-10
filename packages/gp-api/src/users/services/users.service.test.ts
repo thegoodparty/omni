@@ -519,6 +519,18 @@ describe('UsersService', () => {
           Awaited<ReturnType<typeof usersService.findUser>>
         >
 
+      it('returns the user found by clerkId (primary race recovery path)', async () => {
+        const existing = await createUser(
+          'p2002-same-clerk@test.goodparty.org',
+          'user_p2002_same',
+        )
+        const result = await resolveAfterP2002(
+          'user_p2002_same',
+          'p2002-same-clerk@test.goodparty.org',
+        )
+        expect(result?.id).toBe(existing.id)
+      })
+
       it('returns null when email match has different clerkId', async () => {
         await createUser('p2002-diff@test.goodparty.org', 'user_p2002_other')
         const result = await resolveAfterP2002(
