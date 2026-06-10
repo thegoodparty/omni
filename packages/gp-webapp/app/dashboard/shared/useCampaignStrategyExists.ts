@@ -18,8 +18,13 @@ export const useCampaignStrategyExists = (): boolean => {
     queryKey: ['campaign-strategy-exists'],
     queryFn: () =>
       clientRequest(STRATEGY_EXISTS_ROUTE, {}).then((res) => res.data),
-    staleTime: 0,
-    refetchOnMount: 'always',
+    // DashboardLayout is re-instantiated by every dashboard page, so an
+    // always-refetch here would fire on every client-side navigation. A
+    // short staleTime dedupes that without hurting correctness — nothing
+    // reachable from the dashboard can create the strategy row, so the
+    // answer can't flip mid-minute.
+    staleTime: 60_000,
+    refetchOnMount: true,
   })
   return query.data?.exists === true
 }
