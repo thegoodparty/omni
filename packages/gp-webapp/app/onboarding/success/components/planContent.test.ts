@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlanData, type PlanInput } from './planContent'
+import {
+  buildPlanData,
+  type PlanData,
+  type PlanInput,
+  type TimelineRow,
+} from './planContent'
 
 // Minimum-viable PlanInput fixture. Tests override only the fields under
 // test (state, milestones). Election date is fixed at a known Tue in the
@@ -18,7 +23,7 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   filingDateEndIso: '2026-08-07',
   winNumber: 1000,
   projectedTurnout: 2000,
-  voterContactGoal: 5000,
+  voterContactGoal: 10000,
   runningAgainst: [],
   customIssues: [],
   stances: [],
@@ -33,6 +38,14 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   ...overrides,
 })
 
+// The timeline is grouped into stages for rendering; flatten it so the
+// milestone assertions below don't care which stage a row landed in.
+const timelineRows = (plan: PlanData): TimelineRow[] =>
+  plan.timelineStages.flatMap((stage) => stage.items)
+
+const REGISTRATION_DEADLINE = 'Last day for people to register to vote'
+const ABSENTEE_DEADLINE = 'Last day to request a mail ballot'
+
 describe('buildPlanData voter-registration deadline — no-deadline states', () => {
   const ND_COPY =
     'There is no registration deadline as North Dakota has no voter registration requirement.'
@@ -43,11 +56,9 @@ describe('buildPlanData voter-registration deadline — no-deadline states', () 
     const plan = buildPlanData(makeInput({ state: 'ND' }))
 
     expect(
-      plan.timeline.some(
-        (row) => row.milestone === 'Voter registration deadline',
-      ),
+      timelineRows(plan).some((row) => row.milestone === REGISTRATION_DEADLINE),
     ).toBe(false)
-    const regRow = plan.timeline.find(
+    const regRow = timelineRows(plan).find(
       (row) => row.milestone === 'Voter registration',
     )
     expect(regRow).toBeDefined()
@@ -58,7 +69,7 @@ describe('buildPlanData voter-registration deadline — no-deadline states', () 
 
     expect(
       plan.keyDates.some((d) =>
-        d.description.startsWith('Voter registration deadline'),
+        d.description.startsWith(REGISTRATION_DEADLINE),
       ),
     ).toBe(false)
     expect(plan.keyDates.some((d) => d.description === ND_COPY)).toBe(true)
@@ -68,11 +79,9 @@ describe('buildPlanData voter-registration deadline — no-deadline states', () 
     const plan = buildPlanData(makeInput({ state: 'VT' }))
 
     expect(
-      plan.timeline.some(
-        (row) => row.milestone === 'Voter registration deadline',
-      ),
+      timelineRows(plan).some((row) => row.milestone === REGISTRATION_DEADLINE),
     ).toBe(false)
-    const regRow = plan.timeline.find(
+    const regRow = timelineRows(plan).find(
       (row) => row.milestone === 'Voter registration',
     )
     expect(regRow).toBeDefined()
@@ -86,21 +95,17 @@ describe('buildPlanData voter-registration deadline — no-deadline states', () 
     // regression on the absentee suppression branch for VT-shaped data
     // would slip through unnoticed.
     expect(
-      plan.timeline.some(
-        (row) => row.milestone === 'Absentee ballot request deadline',
-      ),
+      timelineRows(plan).some((row) => row.milestone === ABSENTEE_DEADLINE),
     ).toBe(false)
     expect(
-      plan.keyDates.some((d) =>
-        d.description.startsWith('Absentee ballot request deadline'),
-      ),
+      plan.keyDates.some((d) => d.description.startsWith(ABSENTEE_DEADLINE)),
     ).toBe(false)
   })
 
   it('appends the local pre-registration tier note for NH', () => {
     const plan = buildPlanData(makeInput({ state: 'NH' }))
 
-    const regRow = plan.timeline.find(
+    const regRow = timelineRows(plan).find(
       (row) => row.milestone === 'Voter registration',
     )
     expect(regRow).toBeDefined()
@@ -118,14 +123,10 @@ describe('buildPlanData absentee-request deadline omission', () => {
     const plan = buildPlanData(makeInput({ state: 'CA' }))
 
     expect(
-      plan.timeline.some(
-        (row) => row.milestone === 'Absentee ballot request deadline',
-      ),
+      timelineRows(plan).some((row) => row.milestone === ABSENTEE_DEADLINE),
     ).toBe(false)
     expect(
-      plan.keyDates.some((d) =>
-        d.description.startsWith('Absentee ballot request deadline'),
-      ),
+      plan.keyDates.some((d) => d.description.startsWith(ABSENTEE_DEADLINE)),
     ).toBe(false)
   })
 
@@ -147,12 +148,13 @@ describe('buildPlanData absentee-request deadline omission', () => {
       }),
     )
 
-    const regRow = plan.timeline.find(
-      (row) => row.milestone === 'Voter registration deadline',
+    const regRow = timelineRows(plan).find(
+      (row) => row.milestone === REGISTRATION_DEADLINE,
     )
     expect(regRow).toBeDefined()
-    expect(regRow?.date).toContain('Oct 19, 2026')
-    expect(regRow?.date).not.toContain('Nov 2, 2026')
+    // Timeline dates render in the template's day-of-week format.
+    expect(regRow?.date).toBe('Monday, October 19')
+    expect(regRow?.date).not.toContain('November 2')
     expect(regRow?.notes).toContain('Per state SOS data')
   })
 })
@@ -161,8 +163,8 @@ describe('buildPlanData tier-note rendering', () => {
   it('renders the curated tier-note in the absentee row notes for AK', () => {
     const plan = buildPlanData(makeInput({ state: 'AK' }))
 
-    const absenteeRow = plan.timeline.find(
-      (row) => row.milestone === 'Absentee ballot request deadline',
+    const absenteeRow = timelineRows(plan).find(
+      (row) => row.milestone === ABSENTEE_DEADLINE,
     )
     expect(absenteeRow).toBeDefined()
     expect(absenteeRow?.notes).toContain('Per state SOS data')
@@ -179,11 +181,11 @@ describe('buildPlanData fallback for unknown state', () => {
     // BR/E-offset path that previously drove everything.
     const plan = buildPlanData(makeInput({ state: 'XX' }))
 
-    const regRow = plan.timeline.find(
-      (row) => row.milestone === 'Voter registration deadline',
+    const regRow = timelineRows(plan).find(
+      (row) => row.milestone === REGISTRATION_DEADLINE,
     )
-    const absenteeRow = plan.timeline.find(
-      (row) => row.milestone === 'Absentee ballot request deadline',
+    const absenteeRow = timelineRows(plan).find(
+      (row) => row.milestone === ABSENTEE_DEADLINE,
     )
 
     expect(regRow).toBeDefined()
@@ -207,8 +209,8 @@ describe('buildPlanData fallback for unknown state', () => {
       makeInput({ state: 'CA', electionDateIso: '2027-11-02' }),
     )
 
-    const absenteeRow = plan.timeline.find(
-      (row) => row.milestone === 'Absentee ballot request deadline',
+    const absenteeRow = timelineRows(plan).find(
+      (row) => row.milestone === ABSENTEE_DEADLINE,
     )
     expect(absenteeRow).toBeDefined()
     expect(absenteeRow?.notes).not.toContain('Per state SOS data')
@@ -222,17 +224,61 @@ describe('buildPlanData fallback for unknown state', () => {
       makeInput({ state: 'CA', electionDateIso: '2026-06-02' }),
     )
 
-    const regRow = plan.timeline.find(
-      (row) => row.milestone === 'Voter registration deadline',
+    const regRow = timelineRows(plan).find(
+      (row) => row.milestone === REGISTRATION_DEADLINE,
     )
     expect(regRow).toBeDefined()
     expect(regRow?.notes).not.toContain('Per state SOS data')
     // And the absentee row is back in play for the same reason —
     // universal-VBM suppression depends on the curated lookup, which
     // is gated to the Nov 2026 general.
-    const absenteeRow = plan.timeline.find(
-      (row) => row.milestone === 'Absentee ballot request deadline',
+    const absenteeRow = timelineRows(plan).find(
+      (row) => row.milestone === ABSENTEE_DEADLINE,
     )
     expect(absenteeRow).toBeDefined()
+  })
+})
+
+describe('buildPlanData derived key numbers', () => {
+  it('derives contacts per voter from the goal and win number', () => {
+    const plan = buildPlanData(makeInput())
+    expect(plan.contactsPerVoter).toBe(10)
+  })
+
+  it('computes the votes-needed share of registered voters', () => {
+    const plan = buildPlanData(
+      makeInput({ registeredVoters: 20000, winNumber: 1000 }),
+    )
+    expect(plan.votesNeededPctOfRegistered).toBe(5)
+  })
+
+  it('computes cellphone coverage and surfaces the cellphone opportunity row', () => {
+    const plan = buildPlanData(
+      makeInput({ registeredVoters: 20000, uniqueCellphones: 15000 }),
+    )
+    expect(plan.pctVotersWithCellphone).toBe(75)
+    expect(
+      plan.opportunityRows.some(
+        (row) => row.title === 'Most of your voters have a cellphone',
+      ),
+    ).toBe(true)
+  })
+
+  it('drops the cellphone opportunity row when phone-match data is missing', () => {
+    const plan = buildPlanData(makeInput({ uniqueCellphones: null }))
+    expect(
+      plan.opportunityRows.some(
+        (row) => row.title === 'Most of your voters have a cellphone',
+      ),
+    ).toBe(false)
+  })
+
+  it('groups the timeline into the three template stages', () => {
+    const plan = buildPlanData(makeInput())
+    expect(plan.timelineStages.map((s) => s.stage)).toEqual([
+      'Get on the ballot',
+      'Get known',
+      'Get out the vote',
+    ])
   })
 })

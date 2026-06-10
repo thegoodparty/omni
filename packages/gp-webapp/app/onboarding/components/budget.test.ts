@@ -14,18 +14,18 @@ describe('resolveVoterContactGoal', () => {
     expect(resolveVoterContactGoal(8000, 1000)).toBe(8000)
   })
 
-  it('falls back to winNumber * 5 when the goal is missing', () => {
-    expect(resolveVoterContactGoal(null, 1000)).toBe(5000)
-    expect(resolveVoterContactGoal(undefined, 1000)).toBe(5000)
+  it('falls back to winNumber * 10 when the goal is missing', () => {
+    expect(resolveVoterContactGoal(null, 1000)).toBe(10000)
+    expect(resolveVoterContactGoal(undefined, 1000)).toBe(10000)
   })
 
   it('falls back when the goal is zero or negative', () => {
-    expect(resolveVoterContactGoal(0, 1000)).toBe(5000)
-    expect(resolveVoterContactGoal(-50, 1000)).toBe(5000)
+    expect(resolveVoterContactGoal(0, 1000)).toBe(10000)
+    expect(resolveVoterContactGoal(-50, 1000)).toBe(10000)
   })
 
   it('rounds the win-number fallback to a whole contact count', () => {
-    expect(resolveVoterContactGoal(null, 333)).toBe(1665)
+    expect(resolveVoterContactGoal(null, 333)).toBe(3330)
   })
 })
 

@@ -300,6 +300,12 @@ const styles = StyleSheet.create({
     lineHeight: 1.6,
   },
 
+  timelineNotes: {
+    fontSize: 9.5,
+    color: COLOR.muted,
+    lineHeight: 1.5,
+  },
+
   definitionList: {
     marginBottom: 10,
   },
@@ -657,27 +663,6 @@ const DefinitionList = ({
   </View>
 )
 
-const KeyValueTable = ({
-  rows,
-}: {
-  rows: { label: string; value: string }[]
-}) => (
-  <View style={styles.keyValueTable}>
-    {rows.map((row, i) => (
-      <View
-        key={row.label}
-        style={[
-          styles.keyValueRow,
-          i === rows.length - 1 ? styles.keyValueRowLast : {},
-        ]}
-      >
-        <Text style={styles.keyValueLabel}>{row.label}</Text>
-        <Text style={styles.keyValueValue}>{row.value}</Text>
-      </View>
-    ))}
-  </View>
-)
-
 type CellRenderer = (
   row: Record<string, string>,
   key: string,
@@ -863,7 +848,8 @@ const CoverPage = ({
       ) : null}
 
       <Text style={styles.coverFooterDisclaimer}>
-        Campaign plan prepared by GoodParty.org&apos;s Campaign Intelligence
+        Campaign plan prepared for {plan.candidateName || 'you'} on{' '}
+        {plan.planGenerationDate} by GoodParty.org&apos;s Campaign Intelligence
         System using public voter data and historical election results.
       </Text>
     </View>
@@ -871,38 +857,35 @@ const CoverPage = ({
 )
 
 const theRaceCopy = (plan: PlanData): string => {
-  const district = plan.hasDistrict ? ` representing ${plan.districtName}` : ''
-  const electionTypeLabel =
-    plan.electionType === 'partisan'
-      ? 'a partisan election'
-      : plan.electionType === 'nonpartisan'
-        ? 'a nonpartisan election'
-        : 'a race'
+  const district = plan.hasDistrict ? ` in ${plan.districtName}` : ''
+  const opener = `You're running for ${plan.race}${district}. As of ${plan.planGenerationDate}, `
+  const electionDay = `Election Day is ${plan.electionDate}.`
 
   if (plan.opponentCount === 0) {
-    return `You are running for ${plan.race}${district}. As of ${plan.planGenerationDate}, the race is uncontested — we'll update this plan as we become aware of candidates entering the race. Election Day is ${plan.electionDate}. Because the electorate is small and no party cue appears on the ballot, the race is decided by name recognition and turnout, not by ideological persuasion.`
+    return `${opener}no one else has entered, so right now you're the only candidate. We'll update this the moment that changes. ${electionDay}`
   }
+  const others = `${plan.opponentCount} other ${
+    plan.opponentCount === 1 ? 'person is' : 'people are'
+  } running`
   if (plan.incumbent) {
-    const noun = plan.opponentCount === 1 ? 'opponent' : 'opponents'
-    return `You are running for ${plan.race}${district}. As of ${plan.planGenerationDate}, the race is ${electionTypeLabel} with ${plan.opponentCount} ${noun}, including the incumbent ${plan.incumbent.fullName}. Election Day is ${plan.electionDate}. Beating an incumbent requires giving voters a concrete reason to switch, not just an alternative to choose.`
+    return `${opener}${others}, including ${plan.incumbent.fullName}, who holds the seat now. Someone already in office starts out better known, so your job is to give voters one clear reason to pick you instead. ${electionDay}`
   }
-  const noun = plan.opponentCount === 1 ? 'opponent' : 'opponents'
-  return `You are running for ${plan.race}${district}. As of ${plan.planGenerationDate}, the race is ${electionTypeLabel} with ${plan.opponentCount} ${noun}. Because the electorate is small and no party cue appears on the ballot, the race is decided by name recognition and turnout, not by ideological persuasion.`
+  return `${opener}${others}, and none of them holds the seat now, so everyone's starting on even footing. ${electionDay}`
 }
 
-const oppositionCopy = (plan: PlanData): string | null => {
+const runningAgainstCopy = (plan: PlanData): string | null => {
   if (plan.opponentCount > 0) return null
   if (plan.filingDateStart && plan.filingDateEnd) {
-    return `Candidates begin filing on ${plan.filingDateStart} and the filing window closes on ${plan.filingDateEnd}. Before ${plan.filingDateStart}, we don't yet know who will be on the ballot with you, so this section is a placeholder. We'll automatically check for new filings starting on ${plan.filingDateStart} and update this section as candidates enter the race.`
+    return `People can start filing on ${plan.filingDateStart}, and the window closes on ${plan.filingDateEnd}. Until then we won't know for sure who's on the ballot, so we'll keep checking and add them here as they enter.`
   }
   if (plan.filingDateEnd) {
-    return `The filing deadline for this race is on ${plan.filingDateEnd}. We don't yet have a complete picture of who will be on the ballot with you, but we'll automatically check for new filings and update this section as candidates enter the race.`
+    return `The filing window for this race closes on ${plan.filingDateEnd}. We won't know for sure who's on the ballot until then, so we'll keep checking and add anyone who files here.`
   }
-  return `We'll automatically check for opponents and update this section as we become aware of candidates entering the race.`
+  return `No one's officially entered yet. We'll keep checking and add anyone who files to run against you. If you hear about someone before we do, just tell us in Campaign Manager.`
 }
 
 const districtLabel = (plan: PlanData): string =>
-  plan.hasDistrict ? plan.districtName : 'Your district'
+  plan.hasDistrict ? plan.districtName : 'your area'
 
 export const CampaignPlanPdfDocument = ({
   plan,
@@ -911,17 +894,17 @@ export const CampaignPlanPdfDocument = ({
   tocPageMap,
   onSectionPage,
 }: DocProps) => {
-  const opposition = oppositionCopy(plan)
+  const runningAgainst = runningAgainstCopy(plan)
 
-  // Mirror the on-screen plan: Strategic Landscape is hidden when the
-  // strategy agent failed or returned empty (no opportunities/challenges).
-  // The download is gated until generation settles, so there's no
-  // "generating" state to consider here.
-  const showStrategicLandscape =
-    plan.opportunities.length > 0 || plan.challenges.length > 0
-  const numberedSections = getNumberedPlanSections(showStrategicLandscape)
+  // Every section always renders — Sizing Up Your Race is templated from
+  // race data, so there's no LLM dependency that could empty it.
+  const numberedSections = getNumberedPlanSections(true)
   const numberFor = (key: PlanSectionKey): number =>
     numberedSections.find((s) => s.key === key)?.number ?? 0
+  const titleFor = (key: PlanSectionKey): string =>
+    numberedSections.find((s) => s.key === key)?.title ?? ''
+  const sectionTitle = (key: PlanSectionKey): string =>
+    `${numberFor(key)}. ${titleFor(key)}`
   const tocSections: TocSection[] = numberedSections.map((s) => ({
     id: SECTION_ID[s.key],
     title: `${s.number}. ${s.title}`,
@@ -943,49 +926,63 @@ export const CampaignPlanPdfDocument = ({
 
       <SectionPage
         id={SECTION_ID.executiveSummary}
-        title={`${numberFor('executiveSummary')}. Executive Summary`}
+        title={sectionTitle('executiveSummary')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="This is the whole plan in one view. If you read nothing else, read this."
-        transition="The race is mapped by your opponents, your projected votes needed to win, and your timeline. What shapes everything else is you. Continue to your Campaign Manager and we'll help rebuild this plan around you specifically."
+        transition="This is your starting plan, not your final one. The more you tell us about who you are and why you're running, the more we'll tailor every number and every step to you. Let's get to work."
       >
+        <Text style={styles.para}>
+          Running for office is one of the hardest and most rewarding things you
+          can do, and almost everyone who does it is doing it for the first
+          time. You don&apos;t need to be a political expert. That&apos;s what
+          we&apos;re here for.
+        </Text>
+        <Text style={styles.para}>
+          Think of us as your campaign manager. We&apos;ll tell you what to do,
+          when to do it, and how to reach the voters who decide your race, so
+          you&apos;re never guessing what comes next. Thousands of people with
+          no experience and no plan have started right where you are and gone on
+          to win. You can too.
+        </Text>
+        <Text style={styles.para}>
+          This is your starting plan. We built it from public voter records and
+          past elections in your area, and it lays out a real path to victory.
+          The more you tell us about yourself and why you&apos;re running, the
+          more we&apos;ll shape it around you.
+        </Text>
+
         <Text style={styles.h3}>The Race</Text>
         <Text style={styles.para}>{theRaceCopy(plan)}</Text>
 
-        <Text style={styles.h3}>Projected Votes Needed to Win</Text>
+        <Text style={styles.h3}>What It Takes to Win</Text>
         <Text style={styles.para}>
-          Our modeling projects voter turnout of{' '}
-          <Text style={styles.paraBold}>
-            {plan.projectedTurnout.toLocaleString('en-US')} voters
-          </Text>
-          , putting the threshold for a win at{' '}
-          <Text style={styles.paraBold}>
-            {plan.winNumber.toLocaleString('en-US')} votes
-          </Text>{' '}
-          — a simple majority (50% + 1) of voters who cast a ballot. Hitting
-          that target requires{' '}
-          <Text style={styles.paraBold}>
-            {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
-          </Text>{' '}
-          across the cycle (roughly 5 contacts per targeted voter).
+          Here&apos;s something every winning campaign knows: you have to reach
+          a lot more people than the number of votes you need. Most people have
+          to hear from you several times before they remember your name and
+          decide to vote for you. The research is consistent on this, so the
+          plan is built to reach each voter about {plan.contactsPerVoter} times.
+        </Text>
+        <Text style={styles.para}>
+          Here&apos;s your campaign math, in three numbers.
+        </Text>
+        <DefinitionList items={plan.campaignMath} />
+        <Text style={styles.para}>
+          You won&apos;t do any of this alone, and you won&apos;t do it all at
+          once.
         </Text>
 
-        <Text style={styles.h3}>Campaign Plan at a Glance</Text>
-        <DefinitionList items={plan.planAtAGlance} />
-
-        <Text style={styles.h3}>Key Campaign Targets</Text>
-        <KeyValueTable
-          rows={plan.keyCampaignTargets.map((t) => ({
-            label: t.metric,
-            value: t.target,
-          }))}
-        />
-
         <Text style={styles.h3}>Key Dates</Text>
+        <Text style={styles.para}>
+          These are the dates that shape your race. You don&apos;t need to
+          memorize them, we&apos;ll remind you before each one. The most
+          important is getting your first message to voters out before mail
+          ballots start going out, because some people vote the day their ballot
+          arrives.
+        </Text>
         <Bullets
           items={plan.keyDates.map((d) => (
             <Text key={`${d.date}-${d.description}`}>
-              <Text style={styles.paraBold}>{d.date}.</Text>{' '}
+              <Text style={styles.paraBold}>{d.date}:</Text>{' '}
               <Text style={styles.definitionBody}>
                 {renderTextWithLinks(d.description)}
               </Text>
@@ -994,33 +991,29 @@ export const CampaignPlanPdfDocument = ({
         />
       </SectionPage>
 
-      {showStrategicLandscape ? (
-        <SectionPage
-          id={SECTION_ID.strategicLandscape}
-          title={`${numberFor('strategicLandscape')}. Strategic Landscape`}
-          plan={plan}
-          onSectionPage={onSectionPage}
-          intro={`${districtLabel(
-            plan,
-          )} is an electorate where name recognition and turnout (not ideological persuasion) decide most races. The following opportunities and challenges are framed against that reality.`}
-          transition="The strategic landscape is drawn from public data and historical election results. Head to your Campaign Manager to share your platform and your opponents, and we'll reframe these around what you stand for."
-        >
-          <View style={styles.twoColRow}>
-            <View style={styles.twoColCol}>
-              <Text style={styles.h3}>Opportunities</Text>
-              <Bullets items={plan.opportunities} />
-            </View>
-            <View style={styles.twoColCol}>
-              <Text style={styles.h3}>Challenges</Text>
-              <Bullets items={plan.challenges} />
-            </View>
-          </View>
-
-          <Text style={styles.h3}>Opposition Research</Text>
-          {opposition ? (
-            <Text style={styles.para}>{opposition}</Text>
-          ) : (
-            plan.opponents.map((opp) => (
+      <SectionPage
+        id={SECTION_ID.strategicLandscape}
+        title={sectionTitle('strategicLandscape')}
+        plan={plan}
+        onSectionPage={onSectionPage}
+        intro="Before you make a move, it helps to know the shape of your race: who you're up against, what's working for you, and what you'll have to work around. You don't need to act on any of it today. Knowing it now is what keeps you from wasting time and money later. None of this is unusual, and none of it is a dealbreaker."
+        transition="Where this comes from: public voter records (L2 Voter Data), your area's certified election results, and our local news directory. See Section 10 for the full list."
+      >
+        <Text style={styles.h3}>Who You&apos;re Running Against</Text>
+        <Text style={styles.para}>
+          This is the first thing to understand, because your message and where
+          you spend your time both depend on who else is on the ballot.
+        </Text>
+        {runningAgainst ? (
+          <Text style={styles.para}>{runningAgainst}</Text>
+        ) : (
+          <>
+            <Text style={styles.para}>
+              Here&apos;s who else is running. Knowing their background and what
+              they tend to run on helps you decide where to draw a clear
+              contrast and where to skip a fight you can&apos;t win.
+            </Text>
+            {plan.opponents.map((opp) => (
               <View key={opp.fullName} style={styles.para}>
                 <Text style={styles.paraBold}>{opp.fullName}</Text>
                 <Bullets
@@ -1028,30 +1021,64 @@ export const CampaignPlanPdfDocument = ({
                     ...(opp.partyAffiliation
                       ? [`Party: ${opp.partyAffiliation}`]
                       : []),
-                    ...(opp.incumbent === true ? ['Incumbent'] : []),
+                    ...(opp.incumbent === true
+                      ? ['Holds the seat now: Yes']
+                      : []),
                   ]}
                 />
               </View>
-            ))
-          )}
-        </SectionPage>
-      ) : null}
+            ))}
+          </>
+        )}
+
+        <Text style={styles.h3}>Opportunities Working in Your Favor</Text>
+        <PlanTable
+          columns={[
+            { key: 'title', header: 'Opportunities', flex: 1, bold: true },
+            { key: 'body', header: 'Why it helps you', flex: 2 },
+          ]}
+          rows={plan.opportunityRows.map((row) => ({
+            title: row.title,
+            body: row.body,
+          }))}
+        />
+
+        <Text style={styles.h3}>
+          Challenges You&apos;ll Have to Work Around
+        </Text>
+        <PlanTable
+          columns={[
+            { key: 'title', header: 'Challenges', flex: 1, bold: true },
+            { key: 'body', header: 'How we plan around it', flex: 2 },
+          ]}
+          rows={plan.challengeRows.map((row) => ({
+            title: row.title,
+            body: row.body,
+          }))}
+        />
+
+        <Text style={styles.para}>
+          Plenty of first-time candidates have started in exactly this spot and
+          won. The point of this page isn&apos;t to worry you, it&apos;s to make
+          sure nothing here surprises you later.
+        </Text>
+      </SectionPage>
 
       <SectionPage
         id={SECTION_ID.electoralGoals}
-        title={`${numberFor('electoralGoals')}. Electoral Goals & Key Metrics`}
+        title={sectionTitle('electoralGoals')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro={`The numbers below are projected from historical voter data and proprietary models for ${districtLabel(
+        intro={`These are the numbers behind your plan, projected from past voter records and our models for ${districtLabel(
           plan,
-        )}.`}
-        transition="These projections come straight from public voter data and proprietary models. Once you confirm your platform in Campaign Manager, we can re-forecast against the audience you're actually targeting."
+        )}. The three at the top are the ones to remember. The rest just show how we got there.`}
+        transition="Where these come from: voter and turnout data is from L2 Voter Data and your area's certified election results. See Section 10 for every source and how firm each estimate is."
       >
         <PlanTable
           columns={[
-            { key: 'metric', header: 'Metric', flex: 1.4 },
+            { key: 'metric', header: 'Number', flex: 1.4 },
             { key: 'target', header: 'Target', flex: 1.2, bold: true },
-            { key: 'source', header: 'Source / Formula', flex: 2 },
+            { key: 'source', header: 'How we got it', flex: 2 },
           ]}
           rows={plan.metrics.map((m) => ({
             metric: m.metric,
@@ -1059,13 +1086,47 @@ export const CampaignPlanPdfDocument = ({
             source: m.source,
           }))}
         />
+
+        <Text style={styles.h3}>
+          Why reach each voter {plan.contactsPerVoter} times?
+        </Text>
+        <Text style={styles.para}>
+          Two reasons. First, not every message gets through: texts bounce,
+          calls go unanswered, people are busy. Second, most people need to hear
+          from you several times before your name sticks and they decide to vote
+          for you. So to earn your{' '}
+          <Text style={styles.paraBold}>
+            {plan.winNumber.toLocaleString('en-US')} votes
+          </Text>
+          , the plan reaches out about{' '}
+          <Text style={styles.paraBold}>
+            {plan.voterContactGoal.toLocaleString('en-US')} times
+          </Text>{' '}
+          in total, which works out to roughly {plan.contactsPerVoter} tries per
+          voter.
+        </Text>
+
+        <Text style={styles.h3}>Why volunteers, not just hours</Text>
+        <Text style={styles.para}>
+          Campaigns run on people, not a big budget. You don&apos;t need to
+          think in terms of total hours. Think in terms of friends: about{' '}
+          <Text style={styles.paraBold}>
+            {plan.volunteerCount.toLocaleString('en-US')}{' '}
+            {plan.volunteerCount === 1 ? 'volunteer' : 'volunteers'}
+          </Text>{' '}
+          giving around{' '}
+          <Text style={styles.paraBold}>
+            {plan.volunteerHoursPerWeek} hours a week
+          </Text>
+          , from now to Election Day, covers what this campaign needs. If you
+          can call ten people you know and ask each for an afternoon a week,
+          you&apos;re most of the way there.
+        </Text>
       </SectionPage>
 
       <SectionPage
         id={SECTION_ID.voterInsights}
-        title={`${numberFor(
-          'voterInsights',
-        )}. Voter Insights For Your District`}
+        title={sectionTitle('voterInsights')}
         plan={plan}
         onSectionPage={onSectionPage}
         intro={
@@ -1087,36 +1148,74 @@ export const CampaignPlanPdfDocument = ({
 
       <SectionPage
         id={SECTION_ID.resources}
-        title={`${numberFor('resources')}. Projected Minimum Resources Needed`}
+        title={sectionTitle('resources')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro={`We project that you need at least ${plan.winNumber.toLocaleString(
-          'en-US',
-        )} votes to win, with at least ${
-          plan.weeksRemaining
-        } weeks left to campaign. Recommended total budget is approximately $${plan.totalBudget.toLocaleString(
-          'en-US',
-        )} for outreach, compliance and fees, while ${plan.volunteerHourTarget.toLocaleString(
-          'en-US',
-        )} volunteer hours are needed for in-person campaigning, events, and volunteers.`}
-        transition={`The $${plan.totalBudget.toLocaleString(
-          'en-US',
-        )} floor covers your minimum voter contact goal across digital and phone channels at a generic cost-per-vote benchmark. The real budget and how it gets spent depends on two things we don't yet know: what you can raise, and which voter you should specifically target.`}
+        transition="Where this comes from: cost figures are standard vendor rates; filing fees are from BallotReady; channel guidance is sourced above. See Section 10 for detail."
       >
-        <Text style={styles.h3}>
-          Budget Breakdown (based on {plan.weeksRemaining} weeks in campaign)
+        <Text style={styles.para}>
+          First, the most important thing: GoodParty.org is free, and you can
+          run a real campaign without spending much at all. This section
+          isn&apos;t a bill. It&apos;s here because almost every candidate asks
+          us the same question, &quot;what should I actually spend money
+          on?&quot; So here&apos;s the honest answer.
         </Text>
+        <Text style={styles.para}>
+          A fully-funded version of this race costs about{' '}
+          <Text style={styles.paraBold}>
+            ${plan.totalBudget.toLocaleString('en-US')}
+          </Text>{' '}
+          to reach the{' '}
+          <Text style={styles.paraBold}>
+            {plan.voterContactGoal.toLocaleString('en-US')} people you need
+          </Text>{' '}
+          and win your{' '}
+          <Text style={styles.paraBold}>
+            {plan.winNumber.toLocaleString('en-US')} votes
+          </Text>
+          . You won&apos;t need all of it, and most of it is optional.
+          Here&apos;s where that money would go, and when each piece is worth
+          it.
+        </Text>
+
+        <Text style={styles.h3}>Where Your Money Would Go</Text>
         <PlanTable
           columns={[
-            { key: 'category', header: 'Category', flex: 1.2 },
-            { key: 'amount', header: 'Amount', width: 90, bold: true },
-            { key: 'rationale', header: 'Rationale', flex: 2.2 },
+            { key: 'category', header: 'Way to reach voters', flex: 1.1 },
+            { key: 'whenWorthIt', header: "When it's worth it", flex: 2 },
+            { key: 'costEach', header: 'Cost each', width: 80 },
+            {
+              key: 'amount',
+              header: 'Your estimated total',
+              width: 80,
+              bold: true,
+            },
           ]}
           rows={plan.budgetLineItems.map((b) => ({
             category: b.category,
+            whenWorthIt: b.whenWorthIt,
+            costEach: b.costEach,
             amount: b.amount,
-            rationale: b.rationale,
           }))}
+        />
+        <Text style={styles.para}>
+          A few honest notes so you can choose well:
+        </Text>
+        <DefinitionList
+          items={[
+            {
+              title: 'Texting beats email for reaching voters.',
+              body: 'Save email for asking your supporters to donate, where it works better.',
+            },
+            {
+              title: 'Heads up on mailers:',
+              body: "GoodParty.org doesn't send mail for you yet, so that's one you'd arrange on your own. We include it because you'll hear about it from others, and it helps to know where it fits.",
+            },
+            {
+              title: 'What the research shows:',
+              body: 'researchers who study local and independent races consistently find that personal contact, texts, calls, and doors, moves voters more than paid ads at this level. When something\'s based on our own experience instead of a study, we\'ll say "based on what we see across campaigns."',
+            },
+          ]}
         />
 
         <Text style={styles.h3}>How to Raise This</Text>
@@ -1124,14 +1223,16 @@ export const CampaignPlanPdfDocument = ({
           <Text style={styles.paraBold}>
             ${plan.totalBudget.toLocaleString('en-US')}
           </Text>{' '}
-          sounds like real money. For most candidates at this level, it comes
-          from a surprisingly small number of people, typically 20 to 40 donors
-          giving $25 to $100 each. For a race like yours, the default starting
-          fundraising mix looks like this:
+          sounds like real money, but for most candidates at this level it comes
+          from a surprisingly small number of people, usually 20 to 40 folks
+          giving $25 to $100 each. You don&apos;t need a big check from anyone.
+          The mix below is just a starting point, and each source tends to feed
+          the next: an online donor becomes a house-party host, a loan you make
+          yourself gets paid back by small donations you didn&apos;t expect.
         </Text>
         <PlanTable
           columns={[
-            { key: 'source', header: 'Source', flex: 2 },
+            { key: 'source', header: 'Where it comes from', flex: 2 },
             { key: 'share', header: 'Share', width: 80, bold: true },
           ]}
           rows={plan.fundraisingMix.map((f) => ({
@@ -1140,86 +1241,97 @@ export const CampaignPlanPdfDocument = ({
           }))}
         />
 
-        <Text style={styles.h3}>
-          Time Breakdown (based on {plan.weeksRemaining} weeks in campaign)
+        <Text style={styles.h3}>How Much Time It Takes</Text>
+        <Text style={styles.para}>
+          Campaigns run on hours, but you don&apos;t need to count them. A race
+          your size runs smoothly with about{' '}
+          <Text style={styles.paraBold}>
+            {plan.volunteerCount.toLocaleString('en-US')}{' '}
+            {plan.volunteerCount === 1 ? 'volunteer' : 'volunteers'} giving
+            around {plan.volunteerHoursPerWeek} hours a week
+          </Text>{' '}
+          from now to Election Day, plus roughly{' '}
+          <Text style={styles.paraBold}>
+            {plan.candidateHoursPerWeek} hours a week from you
+          </Text>
+          . That&apos;s it. No paid staff, no full-time hours. If you can ask
+          ten people you trust for an afternoon a week, you&apos;ve got what you
+          need.
         </Text>
-        <PlanTable
-          columns={[
-            { key: 'category', header: 'Category', flex: 1.2 },
-            { key: 'amount', header: 'Amount', width: 110, bold: true },
-            { key: 'rationale', header: 'Rationale', flex: 2.2 },
-          ]}
-          rows={plan.timeBreakdown.map((t) => ({
-            category: t.category,
-            amount: t.amount,
-            rationale: t.rationale,
-          }))}
-        />
       </SectionPage>
 
       <SectionPage
         id={SECTION_ID.timeline}
-        title={`${numberFor('timeline')}. Campaign Timeline`}
+        title={sectionTitle('timeline')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="Dates below are the hard gates the campaign must hit. Each is followed by an internal working deadline (one week earlier wherever possible) to preserve a buffer."
-        transition="The key dates you need to know about your race have been established. Share your launch event, fundraising rollout, and issue moments in Campaign Manager and we'll turn this into a working plan."
+        intro="Here's the whole race on one timeline, in three stages: get on the ballot, get known, and get out the vote. You don't have to track these yourself, we'll remind you before each one. The dates that can't move are marked along the way."
+        transition="Tell us about your launch plans and your schedule in Campaign Manager, and we'll fill this timeline in with your own events and deadlines."
       >
-        <PlanTable
-          columns={[
-            { key: 'date', header: 'Date', width: 110, bold: true },
-            { key: 'milestone', header: 'Milestone', flex: 1.6 },
-            { key: 'notes', header: 'Notes', flex: 1.4 },
-          ]}
-          rows={plan.timeline.map((t) => ({
-            date: t.date,
-            milestone: t.milestone,
-            notes: t.notes,
-          }))}
-        />
+        {plan.timelineStages.map((stage, index) => (
+          <View key={stage.stage}>
+            <Text style={styles.h3}>
+              Stage {index + 1} / {stage.stage}
+            </Text>
+            {stage.items.map((item) => (
+              <View
+                key={`${item.date}-${item.milestone}`}
+                style={styles.bulletRow}
+                wrap={false}
+              >
+                <Text style={styles.bulletDot}>•</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bulletText}>
+                    <Text style={styles.paraBold}>{item.date}:</Text>{' '}
+                    {item.milestone}.
+                  </Text>
+                  {item.notes ? (
+                    <Text style={styles.timelineNotes}>{item.notes}</Text>
+                  ) : null}
+                </View>
+              </View>
+            ))}
+          </View>
+        ))}
       </SectionPage>
 
       <SectionPage
         id={SECTION_ID.community}
-        title={`${numberFor('community')}. Community Engagement & Earned Media`}
+        title={sectionTitle('community')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="Earned media and in-person visibility are the highest-ROI channels in a race this size. A single mention in a local outlet or a strong showing at a civic association meeting can move more voters than any paid channel at this budget."
-        transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for in Campaign Manager, we can turn this list into ready-to-use talking points and press pitches."
+        intro="Earned media and showing up in person are the most valuable ways to get known in a race this size. One mention in a local outlet, or a strong showing at a neighborhood event, can reach more voters than any ad you could buy on this budget."
+        transition="Once you tell us why you're running and what you stand for, we can turn this into ready-to-use talking points and a press email you can send this week."
       >
-        <Text style={styles.h3}>Community Events</Text>
+        <Text style={styles.h3}>Events Worth Showing Up To</Text>
         <PlanTable
           columns={[
-            { key: 'event', header: 'Event', flex: 1.5 },
-            { key: 'address', header: 'Address', flex: 1.3 },
-            { key: 'date', header: 'Date', width: 90 },
-            { key: 'why', header: 'Why It Matters', flex: 1.8 },
+            { key: 'event', header: 'Event', flex: 1.4 },
+            { key: 'whenAndWhere', header: 'When and where', flex: 1.4 },
+            { key: 'why', header: "Why it's worth going", flex: 1.8 },
           ]}
           rows={plan.civicEvents.map((e) => ({
             event: e.event,
-            address: e.address,
-            date: e.date,
-            why: e.why,
+            whenAndWhere: e.address ? `${e.date}\n${e.address}` : e.date,
+            why: e.whyBullets.map((b) => `• ${b}`).join('\n'),
           }))}
         />
-
-        <Text style={styles.h3}>Press & Media Outlets</Text>
         <Text style={styles.para}>
-          Target at least one earned-media placement per week between{' '}
-          <Text style={styles.paraBold}>
-            {plan.contactWindowStart || '{12_weeks_before_election_date}'}
-          </Text>{' '}
-          and{' '}
-          <Text style={styles.paraBold}>
-            {plan.electionDate || '{election_date}'}
-          </Text>
-          .
+          We can help you prep a simple one-page handout and a short way to
+          introduce yourself, so you make the most of each one.
+        </Text>
+
+        <Text style={styles.h3}>Local Press to Reach Out To</Text>
+        <Text style={styles.para}>
+          Aim for at least one piece of local coverage a week from now through
+          Election Day. Here are the outlets that cover races like yours, and
+          what to pitch each one.
         </Text>
         <PlanTable
           columns={[
             { key: 'outlet', header: 'Outlet', flex: 1.3 },
-            { key: 'type', header: 'Type', flex: 1.4 },
-            { key: 'angle', header: 'Pitch Angle', flex: 1.8 },
+            { key: 'type', header: 'Type', flex: 1 },
+            { key: 'angle', header: 'What to pitch', flex: 1.8 },
             { key: 'contact', header: 'Contact', flex: 1.5 },
           ]}
           rows={plan.pressOutlets.map((o) => ({
@@ -1233,17 +1345,45 @@ export const CampaignPlanPdfDocument = ({
 
       <SectionPage
         id={SECTION_ID.voterContact}
-        title={`${numberFor('voterContact')}. Voter Contact Plan`}
+        title={sectionTitle('voterContact')}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="The contact cadence below is designed so that every likely voter receives at least 1 introductory contact, 1 persuasion contact, 1 early-vote reminder, and 1 Election Day push. Texts are the primary workhorse; robocalls layer on top to catch landline-only voters."
-        transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story in Campaign Manager, we'll help you build the actual message."
+        intro="This is the schedule for when you'll reach out to voters, and why. Every message has one job: first to introduce you, then to make your case, and finally to get people to actually vote. Texts do most of the work because they're cheap and reach the most people. Robocalls go to the voters who only have a landline."
+        transition="Repeating contact only works if the message is specific and real. Once you share your story and your issues, we'll help you write each one, so all you have to do is hit send."
       >
+        <Text style={styles.para}>
+          {plan.cellphoneCount !== null && plan.landlineCount !== null ? (
+            <>
+              Here&apos;s how it ties back to your numbers: each text goes to
+              your roughly{' '}
+              <Text style={styles.paraBold}>
+                {plan.cellphoneCount.toLocaleString('en-US')}
+              </Text>{' '}
+              voters with a cellphone, and each robocall to your roughly{' '}
+              <Text style={styles.paraBold}>
+                {plan.landlineCount.toLocaleString('en-US')}
+              </Text>{' '}
+              voters with a landline. Run all 7 and you&apos;ll have made about{' '}
+              <Text style={styles.paraBold}>
+                {plan.voterContactGoal.toLocaleString('en-US')} contacts
+              </Text>
+              , the number of people you need to reach.
+            </>
+          ) : (
+            <>
+              Run all 7 and you&apos;ll have made about{' '}
+              <Text style={styles.paraBold}>
+                {plan.voterContactGoal.toLocaleString('en-US')} contacts
+              </Text>
+              , the number of people you need to reach.
+            </>
+          )}
+        </Text>
         <PlanTable
           columns={[
-            { key: 'date', header: 'Date', width: 100, bold: true },
-            { key: 'tactic', header: 'Tactic', width: 90, bold: true },
-            { key: 'purpose', header: 'Purpose', flex: 2 },
+            { key: 'date', header: 'When', width: 130, bold: true },
+            { key: 'tactic', header: 'What you send', width: 90, bold: true },
+            { key: 'purpose', header: 'Its job', flex: 2 },
           ]}
           rows={plan.contactSchedule.map((s) => ({
             date: s.date,
@@ -1251,29 +1391,11 @@ export const CampaignPlanPdfDocument = ({
             purpose: s.purpose,
           }))}
         />
-
-        <Text style={styles.h3}>Expected Outcome</Text>
-        <Text style={styles.para}>
-          Across <Text style={styles.paraBold}>7 voter contact campaigns</Text>,
-          this plan produces over{' '}
-          <Text style={styles.paraBold}>
-            {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
-          </Text>{' '}
-          against the group of{' '}
-          <Text style={styles.paraBold}>
-            {plan.winNumber.toLocaleString('en-US')} voters
-          </Text>
-          , more than the 5 contacts per likely voter. Expected realized contact
-          (accounting for deliverability and answer rates) is{' '}
-          <Text style={styles.paraBold}>~60–70%</Text> of voter contacts, which
-          clears the threshold for reliable name recognition in a nonpartisan
-          race.
-        </Text>
       </SectionPage>
 
       <SectionPage
         id={SECTION_ID.measurement}
-        title={`${numberFor('measurement')}. Measurement & Accountability`}
+        title={sectionTitle('measurement')}
         plan={plan}
         onSectionPage={onSectionPage}
         transition="The measurement system is live in Campaign Manager. Once you personalize your plan with your goals, capacity, and timeline, the dashboard starts tracking the campaign you're actually running."
@@ -1305,7 +1427,7 @@ export const CampaignPlanPdfDocument = ({
 
       <SectionPage
         id={SECTION_ID.methodology}
-        title={`${numberFor('methodology')}. Methodology & Data Sources`}
+        title={sectionTitle('methodology')}
         plan={plan}
         onSectionPage={onSectionPage}
         intro="This plan was produced by GoodParty.org using public voter data, historical election results, and our proprietary models. Every metric in this document is an estimate derived from the sources below."
@@ -1354,7 +1476,7 @@ export const CampaignPlanPdfDocument = ({
 
       <SectionPage
         id={SECTION_ID.glossary}
-        title={`${numberFor('glossary')}. Glossary`}
+        title={sectionTitle('glossary')}
         plan={plan}
         onSectionPage={onSectionPage}
       >

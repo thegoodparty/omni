@@ -21,17 +21,16 @@ describe('plan section manifest', () => {
     ])
   })
 
-  it('marks only Strategic Landscape optional', () => {
+  it('marks no section optional — Sizing Up Your Race is templated and always renders', () => {
     const optional = PLAN_SECTION_ORDER.filter((s) => s.optional).map(
       (s) => s.key,
     )
-    expect(optional).toEqual(['strategicLandscape'])
+    expect(optional).toEqual([])
   })
 
   describe('getNumberedPlanSections', () => {
-    it('numbers all 11 sections 1..11 when Strategic Landscape is shown', () => {
-      const sections = getNumberedPlanSections(true)
-      expect(sections.map((s) => [s.key, s.number])).toEqual([
+    it('numbers all 11 sections 1..11 regardless of the strategic-landscape flag', () => {
+      const expected = [
         ['executiveSummary', 1],
         ['strategicLandscape', 2],
         ['electoralGoals', 3],
@@ -43,25 +42,14 @@ describe('plan section manifest', () => {
         ['measurement', 9],
         ['methodology', 10],
         ['glossary', 11],
-      ])
-    })
-
-    it('drops Strategic Landscape and renumbers contiguously when hidden', () => {
-      const sections = getNumberedPlanSections(false)
-      // No gap at 2: Electoral Goals shifts up into the vacated slot.
-      expect(sections.map((s) => [s.key, s.number])).toEqual([
-        ['executiveSummary', 1],
-        ['electoralGoals', 2],
-        ['voterInsights', 3],
-        ['resources', 4],
-        ['timeline', 5],
-        ['community', 6],
-        ['voterContact', 7],
-        ['measurement', 8],
-        ['methodology', 9],
-        ['glossary', 10],
-      ])
-      expect(sections.some((s) => s.key === 'strategicLandscape')).toBe(false)
+      ]
+      expect(
+        getNumberedPlanSections(true).map((s) => [s.key, s.number]),
+      ).toEqual(expected)
+      // With no optional sections the hide flag is a no-op.
+      expect(
+        getNumberedPlanSections(false).map((s) => [s.key, s.number]),
+      ).toEqual(expected)
     })
   })
 })

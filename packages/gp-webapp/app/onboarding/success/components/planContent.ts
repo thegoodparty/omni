@@ -6,27 +6,37 @@ import type {
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
 import {
   computeBudget,
-  LITERATURE_PACK_COST,
-  LITERATURE_PACK_SIZE,
   MAIL_COST_PER_PIECE,
   resolveVoterContactGoal,
   ROBOCALL_COST,
   TEXT_COST,
 } from '../../components/budget'
 import {
-  type CampaignHours,
   computeCampaignHours,
-  CONTACTS_PER_VOLUNTEER_HOUR,
   resolveWeeksRemaining,
 } from '../../components/volunteerHours'
 import { VOTER_DEADLINES_2026 } from '../data/voterDeadlines2026'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const ONE_HOUR_MS = 60 * 60 * 1000
 
 const addDays = (date: Date, days: number): Date =>
   new Date(date.getTime() + days * ONE_DAY_MS)
 
 const formatDate = (date: Date): string => dateUsHelper(date.toISOString())
+
+// "Tuesday, November 3" — the day-of-week format the ClickUp template uses
+// for key dates, the timeline, events, and the contact schedule. Mirrors
+// dateUsHelper's +8h PST shift so a date-only ISO string renders as the
+// intended calendar day.
+const formatDayDate = (date: Date): string => {
+  const pstDate = new Date(date.getTime() + 8 * ONE_HOUR_MS)
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(pstDate)
+}
 
 const parseDateIso = (value: string | null | undefined): Date | null => {
   if (!value) return null
@@ -135,11 +145,6 @@ export interface ApiPressOutlet {
   address?: string | null
 }
 
-export interface KeyTarget {
-  metric: string
-  target: string
-}
-
 export interface KeyDate {
   date: string
   description: string
@@ -151,6 +156,13 @@ export interface TimelineRow {
   notes: string
 }
 
+// Section 6 renders as a visual timeline grouped into three stages: get on
+// the ballot, get known, get out the vote.
+export interface TimelineStage {
+  stage: string
+  items: TimelineRow[]
+}
+
 export interface MetricRow {
   metric: string
   target: string
@@ -159,14 +171,9 @@ export interface MetricRow {
 
 export interface BudgetRow {
   category: string
+  whenWorthIt: string
+  costEach: string
   amount: string
-  rationale: string
-}
-
-export interface TimeRow {
-  category: string
-  amount: string
-  rationale: string
 }
 
 export interface FundraisingRow {
@@ -174,11 +181,18 @@ export interface FundraisingRow {
   share: string
 }
 
+// Title + body pair used by the campaign-math list (Section 1) and the
+// opportunities / challenges tables (Section 2).
+export interface TitledNote {
+  title: string
+  body: string
+}
+
 export interface CivicEvent {
   event: string
   address: string
   date: string
-  why: string
+  whyBullets: string[]
 }
 
 export interface PressOutlet {
@@ -238,7 +252,6 @@ export interface PlanData {
   electionDate: string
   electionDateRaw: Date | null
   planGenerationDate: string
-  contactWindowStart: string
 
   winNumber: number
   winNumberLow: number
@@ -250,11 +263,24 @@ export interface PlanData {
   registeredVotersLow: number
   registeredVotersHigh: number
   voterContactGoal: number
+  // Contacts per voter the plan is built around (voterContactGoal ÷
+  // winNumber, normally 10). Derived so the copy stays honest if the
+  // race-specific goal from the API uses a different multiplier.
+  contactsPerVoter: number
+  // Win number as a share of registered voters ("you only need ~X% of
+  // them"). Null when registered voters are unknown.
+  votesNeededPctOfRegistered: number | null
+  // Cellphone / landline coverage from the voter file. Null when the race
+  // hash didn't resolve or upstream data is sparse.
+  pctVotersWithCellphone: number | null
+  cellphoneCount: number | null
+  landlineCount: number | null
 
   opponentCount: number
-  volunteerHourTarget: number
+  volunteerCount: number
+  volunteerHoursPerWeek: number
+  candidateHoursPerWeek: number
   totalBudget: number
-  averageTouchesPerVoter: number
   eventCount: number
   mediaCount: number
 
@@ -263,25 +289,28 @@ export interface PlanData {
   filingDateEnd: string | null
   filingDeadline: string | null
 
-  planAtAGlance: { title: string; body: string }[]
-  keyCampaignTargets: KeyTarget[]
+  // "Here's your campaign math, in three numbers" (Section 1).
+  campaignMath: TitledNote[]
   keyDates: KeyDate[]
 
   voterInsightsIssues: VoterInsightIssue[]
   voterInsightsSource: 'district' | 'candidate' | 'stub'
 
-  opportunities: string[]
-  challenges: string[]
+  // Section 2 tables — templated from race data per the ClickUp template
+  // (not LLM-generated).
+  opportunityRows: TitledNote[]
+  challengeRows: TitledNote[]
   opponents: Opponent[]
   incumbent: Opponent | null
 
   metrics: MetricRow[]
 
-  timeline: TimelineRow[]
+  timelineStages: TimelineStage[]
+  // "Mail and early ballots start going out" date, used by the Section 2
+  // early-vote challenge row. Empty when the election date is unknown.
+  ballotsGoOutDate: string
 
   budgetLineItems: BudgetRow[]
-  timeBreakdown: TimeRow[]
-  totalCampaignHours: number
   fundraisingMix: FundraisingRow[]
 
   civicEvents: CivicEvent[]
@@ -306,29 +335,28 @@ const buildTimeline = (
   filingDateEnd: Date | null,
   milestones: RaceMilestones | null,
   eventCount: number,
+  firstEventDate: Date | null,
   stateCode: string,
 ): {
-  timeline: TimelineRow[]
+  timelineStages: TimelineStage[]
   keyDates: KeyDate[]
+  ballotsGoOutDate: string
 } => {
   if (!electionDate) {
-    return { timeline: [], keyDates: [] }
+    return { timelineStages: [], keyDates: [], ballotsGoOutDate: '' }
   }
 
-  // Row order, copy, and source mapping per ClickUp Campaign Plan
-  // Template § 6 (2026-05-30):
-  //   1. filing_end_date           — Nomination papers filed
-  //   2. EARLY_VOTING.OPEN         — Early voting begins
-  //   3. EARLY_VOTING.CLOSE        — Early voting ends
-  //   4. REQUEST_BALLOT.OPEN       — Absentee ballot request opens
-  //   5. REGISTRATION.OPEN         — Voter registration opens
-  //   6. REGISTRATION.CLOSE        — Voter registration deadline
-  //   7. REQUEST_BALLOT.CLOSE      — Absentee ballot request deadline
-  //   8. VOTING.CLOSE              — Election Day
+  // Stage grouping, copy, and source mapping per the ClickUp Campaign Plan
+  // rework § 6 ("Your Campaign Timeline"):
+  //   Stage 1 / Get on the ballot — filing_end_date
+  //   Stage 2 / Get known — REQUEST_BALLOT.OPEN (mail ballots go out),
+  //     EARLY_VOTING.OPEN, community events, REGISTRATION.CLOSE
+  //   Stage 3 / Get out the vote — REQUEST_BALLOT.CLOSE,
+  //     EARLY_VOTING.CLOSE, VOTING.CLOSE (Election Day)
   //
   // Source priority per row: real BR milestone date if present (>90% fill
-  // rate per Nigel's screenshot), else E-offset approximation. Notes
-  // column flags which one is in play so the candidate knows.
+  // rate per Nigel's screenshot), else E-offset approximation. Notes flag
+  // which one is in play so the candidate knows.
   const filing = filingDateEnd ?? filingDateStart ?? addDays(electionDate, -40)
   const filingIsReal = filingDateEnd != null
   const earlyVotingStart =
@@ -343,9 +371,6 @@ const buildTimeline = (
     parseDateIso(milestones?.request_ballot?.start ?? null) ??
     addDays(electionDate, -45)
   const requestBallotStartIsReal = milestones?.request_ballot?.start != null
-  const voterRegOpen = parseDateIso(
-    milestones?.voter_registration?.start ?? null,
-  )
 
   // Voter registration deadline + absentee request deadline pull from a
   // curated SOS-verified table per state (see voterDeadlines2026.ts) rather
@@ -436,7 +461,10 @@ const buildTimeline = (
   const requestBallotTierNote = curated?.absentee.tierNote ?? null
 
   const sourceNote = (isReal: boolean, baseNote: string): string =>
-    isReal ? `Per BallotReady. ${baseNote}` : `Approximate. ${baseNote}`
+    (isReal
+      ? `Per BallotReady. ${baseNote}`
+      : `Approximate. ${baseNote}`
+    ).trim()
 
   // For deadlines pulled from the curated table, attribute to SOS data and
   // append the tier breakdown when methods differ (e.g. ID online vs mail).
@@ -448,117 +476,126 @@ const buildTimeline = (
     if (source === 'curated') {
       const prefix = 'Per state SOS data.'
       const tiers = tierNote ? ` Method differences — ${tierNote}.` : ''
-      return `${prefix}${tiers} ${baseNote}`
+      return `${prefix}${tiers} ${baseNote}`.trim()
     }
     return sourceNote(source === 'ballotReady', baseNote)
   }
 
-  const timelineRows: Array<{ date: Date; milestone: string; notes: string }> =
-    [
-      {
-        date: filing,
-        milestone: 'Nomination papers filed with Town Clerk',
-        notes: filingIsReal
-          ? 'Filing deadline per BallotReady. Bring two backup copies.'
-          : 'Bring two backup copies.',
-      },
-      {
-        date: earlyVotingStart,
-        milestone: 'Early voting begins',
-        notes: sourceNote(
-          earlyVotingStartIsReal,
-          'Persuasion contact should be wrapping up.',
-        ),
-      },
-      {
-        date: earlyVotingEnd,
-        milestone: 'Early voting ends',
-        notes: sourceNote(
-          earlyVotingEndIsReal,
-          'Last day for in-person early voting in most jurisdictions.',
-        ),
-      },
-      {
-        date: requestBallotStart,
-        milestone: 'Absentee ballot request opens',
-        notes: sourceNote(
-          requestBallotStartIsReal,
-          'Plan introduction text and robocall campaigns to land before this date.',
-        ),
-      },
-      // REGISTRATION.OPEN is the only row with no good E-offset fallback —
-      // registration is year-round in most states. Show only when BR has a
-      // real date so we don't render an invented one.
-      ...(voterRegOpen
-        ? [
-            {
-              date: voterRegOpen,
-              milestone: 'Voter registration opens',
-              notes: 'Per BallotReady.',
-            },
-          ]
-        : []),
-      voterRegHasNoDeadline
-        ? {
-            date: electionDate,
-            milestone: 'Voter registration',
-            notes: noDeadlineNotes,
-          }
-        : {
-            date: voterRegDeadline,
-            milestone: 'Voter registration deadline',
+  type RawRow = { date: Date; milestone: string; notes: string }
+
+  const eventsDate = firstEventDate ?? addDays(electionDate, -20)
+
+  const stage1Rows: RawRow[] = [
+    {
+      date: filing,
+      milestone: 'File your paperwork to officially get on the ballot',
+      notes: filingIsReal
+        ? 'Filing deadline per BallotReady.'
+        : 'Approximate filing deadline.',
+    },
+  ]
+
+  const stage2Rows: RawRow[] = [
+    {
+      date: requestBallotStart,
+      milestone: 'Mail and early ballots start going out',
+      notes: sourceNote(
+        requestBallotStartIsReal,
+        'Your first message to voters has to land by now.',
+      ),
+    },
+    {
+      date: earlyVotingStart,
+      milestone: 'Early voting begins',
+      notes: sourceNote(
+        earlyVotingStartIsReal,
+        'From here on, some people will vote.',
+      ),
+    },
+    {
+      date: eventsDate,
+      milestone: 'Community events to attend in person',
+      notes:
+        eventCount > 0
+          ? `Starting with the first of ${eventCount} event${
+              eventCount === 1 ? '' : 's'
+            } we found for you.`
+          : "We'll add events here as we find them.",
+    },
+    voterRegHasNoDeadline
+      ? {
+          date: electionDate,
+          milestone: 'Voter registration',
+          notes: noDeadlineNotes,
+        }
+      : {
+          date: voterRegDeadline,
+          milestone: 'Last day for people to register to vote',
+          notes: curatedNote(voterRegSource, voterRegTierNote, ''),
+        },
+  ]
+
+  const stage3Rows: RawRow[] = [
+    ...(absenteeOmitted
+      ? []
+      : [
+          {
+            date: requestBallotEnd,
+            milestone: 'Last day to request a mail ballot',
             notes: curatedNote(
-              voterRegSource,
-              voterRegTierNote,
-              'Push via robocall campaign.',
+              requestBallotEndSource,
+              requestBallotTierNote,
+              '',
             ),
           },
-      ...(absenteeOmitted
-        ? []
-        : [
-            {
-              date: requestBallotEnd,
-              milestone: 'Absentee ballot request deadline',
-              notes: curatedNote(
-                requestBallotEndSource,
-                requestBallotTierNote,
-                'Push via text campaign.',
-              ),
-            },
-          ]),
-      {
-        date: electionDate,
-        milestone: 'Election Day, polls open; absentee ballots due',
-        notes: 'All hands on deck; push via GOTV text and robocall campaigns.',
-      },
-    ]
+        ]),
+    {
+      date: earlyVotingEnd,
+      milestone: 'Early voting ends',
+      notes: sourceNote(earlyVotingEndIsReal, ''),
+    },
+    {
+      date: electionDate,
+      milestone: 'Election Day',
+      notes: 'Polls are open. Make your final push to get supporters out.',
+    },
+  ]
 
-  const timeline: TimelineRow[] = timelineRows
-    .slice()
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .map((r) => ({
-      date: formatDate(r.date),
-      milestone: r.milestone,
-      notes: r.notes,
-    }))
+  const toStage = (stage: string, rows: RawRow[]): TimelineStage => ({
+    stage,
+    items: rows
+      .slice()
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .map((r) => ({
+        date: formatDayDate(r.date),
+        milestone: r.milestone,
+        notes: r.notes,
+      })),
+  })
+
+  const timelineStages: TimelineStage[] = [
+    toStage('Get on the ballot', stage1Rows),
+    toStage('Get known', stage2Rows),
+    toStage('Get out the vote', stage3Rows),
+  ]
 
   const keyDateRows: Array<{ date: Date; description: string }> = [
     {
       date: filing,
-      description: 'Nomination papers filed with Town Clerk.',
+      description: 'Turn in your paperwork to get on the ballot.',
     },
     {
       date: requestBallotStart,
       description:
-        'Absentee / mail ballot requests open. First voter contact must land by this date.',
+        'Mail and early ballots start going out. Your first message to voters needs to land before this day.',
     },
     {
-      date: addDays(electionDate, -20),
+      date: eventsDate,
       description:
         eventCount > 0
-          ? `${eventCount} community event${
+          ? `First of ${eventCount} community event${
               eventCount === 1 ? '' : 's'
-            } that you should personally attend.`
+            } to show up to in person.`
           : 'Identify community events in your area to attend in person.',
     },
     voterRegHasNoDeadline
@@ -568,14 +605,14 @@ const buildTimeline = (
         }
       : {
           date: voterRegDeadline,
-          description: 'Voter registration deadline.',
+          description: 'Last day for people to register to vote.',
         },
     ...(absenteeOmitted
       ? []
       : [
           {
             date: requestBallotEnd,
-            description: 'Absentee ballot request deadline.',
+            description: 'Last day to request a mail ballot.',
           },
         ]),
     {
@@ -588,11 +625,15 @@ const buildTimeline = (
     .slice()
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .map((r) => ({
-      date: formatDate(r.date),
+      date: formatDayDate(r.date),
       description: r.description,
     }))
 
-  return { timeline, keyDates }
+  return {
+    timelineStages,
+    keyDates,
+    ballotsGoOutDate: formatDayDate(requestBallotStart),
+  }
 }
 
 const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
@@ -616,46 +657,53 @@ const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
       offset: -35,
       data: {
         tactic: 'Text',
-        purpose:
-          'Build trust and persuade voters with cellphones to vote for you.',
+        purpose: 'Make your case to cellphone voters.',
       },
     },
     {
       offset: -28,
       data: {
         tactic: 'Robocall',
-        purpose:
-          'Build trust and persuade voters with landlines to vote for you.',
+        purpose: 'Make your case to landline voters.',
       },
     },
     {
       offset: -14,
       data: {
         tactic: 'Text',
-        purpose: 'Encourage voters with cellphones to vote early.',
+        purpose: 'Remind cellphone voters to vote early.',
       },
     },
     {
       offset: -1,
       data: {
         tactic: 'Robocall',
-        purpose: 'Get out the vote on election day.',
+        purpose: 'Get out the vote, landline voters.',
       },
     },
     {
       offset: 0,
       data: {
         tactic: 'Text',
-        purpose: 'Get out the vote on election day.',
+        purpose: 'Get out the vote, cellphone voters.',
       },
     },
   ]
 
   return sends.map(({ offset, data }) => ({
-    date: formatDate(addDays(electionDate, offset)),
+    date: formatDayDate(addDays(electionDate, offset)),
     ...data,
   }))
 }
+
+// The template renders "Why it's worth going" as short bullets, not a
+// paragraph. The LLM returns a prose description, so split it on sentence
+// boundaries into bullet-sized pieces.
+const splitIntoBullets = (description: string): string[] =>
+  description
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
 
 const buildCivicEvents = (
   communityEvents: CommunityEventsData | undefined,
@@ -666,12 +714,27 @@ const buildCivicEvents = (
   // `address` is the venue's physical street address from BR/search,
   // null when the search data had no address.
   if (!communityEvents) return []
-  return communityEvents.events.map((e) => ({
-    event: e.title,
-    address: e.address ?? '',
-    date: dateUsHelper(e.date),
-    why: e.description,
-  }))
+  return communityEvents.events.map((e) => {
+    const parsed = parseDateIso(e.date)
+    return {
+      event: e.title,
+      address: e.address ?? '',
+      date: parsed ? formatDayDate(parsed) : dateUsHelper(e.date),
+      whyBullets: splitIntoBullets(e.description),
+    }
+  })
+}
+
+// Earliest event date, used to anchor the "community events" milestone on
+// the timeline and in Key Dates. Null while events are still generating.
+const earliestEventDate = (
+  communityEvents: CommunityEventsData | undefined,
+): Date | null => {
+  const dates = (communityEvents?.events ?? [])
+    .map((e) => parseDateIso(e.date))
+    .filter((d): d is Date => d !== null)
+  if (dates.length === 0) return null
+  return dates.reduce((min, d) => (d < min ? d : min))
 }
 
 const OUTLET_TYPE_LABEL: Record<ApiPressOutlet['type'], string> = {
@@ -713,6 +776,11 @@ interface BudgetBreakdown {
   lineItems: BudgetRow[]
 }
 
+// "Where Your Money Would Go" rows per the ClickUp template — channel,
+// when it's worth paying for, unit cost, and the race-sized estimate.
+// Filing fees aren't in the template's table, but they're part of the
+// computed total, and the rows must keep summing exactly to the total, so
+// the row stays.
 const buildBudgetBreakdown = (
   contactGoal: number,
   projectedTurnout: number,
@@ -722,98 +790,75 @@ const buildBudgetBreakdown = (
 
   const lineItems: BudgetRow[] = [
     {
-      category: 'Text campaigns',
+      category: 'Texting',
+      whenWorthIt:
+        'Almost always. Reaches the most people for the least money, the workhorse for a race your size.',
+      costEach: `$${TEXT_COST.toFixed(3)} / text`,
       amount: formatDollars(budget.textCost),
-      rationale: `60% of your ${contactGoal.toLocaleString(
-        'en-US',
-      )} voter contacts (${budget.textCount.toLocaleString(
-        'en-US',
-      )} texts) at $${TEXT_COST.toFixed(3)} per text.`,
     },
     {
-      category: 'Robocall campaigns',
+      category: 'Robocalls',
+      whenWorthIt:
+        'When some voters have no cellphone. Catches landlines that texts miss.',
+      costEach: `$${ROBOCALL_COST.toFixed(3)} / call`,
       amount: formatDollars(budget.robocallCost),
-      rationale: `20% of your ${contactGoal.toLocaleString(
-        'en-US',
-      )} voter contacts (${budget.robocallCount.toLocaleString(
-        'en-US',
-      )} calls) at $${ROBOCALL_COST.toFixed(3)} per call.`,
     },
     {
-      category: 'Literature',
-      amount: formatDollars(budget.literatureCost),
-      rationale: `Door hanger or palm card for each of ${budget.doorGoal.toLocaleString(
-        'en-US',
-      )} doors — ${budget.literaturePacks.toLocaleString(
-        'en-US',
-      )} packs of ${LITERATURE_PACK_SIZE} at $${LITERATURE_PACK_COST} per pack.`,
-    },
-    {
-      category: 'Direct mail',
+      category: 'Mailers',
+      whenWorthIt:
+        "Optional. A reminder in the mailbox if you've got budget left and your voters are spread out.",
+      costEach: `$${MAIL_COST_PER_PIECE.toFixed(2)} / piece`,
       amount: formatDollars(budget.mailCost),
-      rationale: `${budget.mailCount.toLocaleString(
-        'en-US',
-      )} mailers (40% of likely voters) at $${MAIL_COST_PER_PIECE.toFixed(
-        2,
-      )} per piece.`,
+    },
+    {
+      category: 'Palm cards and literature',
+      whenWorthIt: 'Handouts to give voters at the door and at events.',
+      costEach: 'flat',
+      amount: formatDollars(budget.literatureCost),
     },
     {
       category: 'Yard signs',
+      whenWorthIt: 'Name recognition around town, reusable all season.',
+      costEach: 'flat',
       amount: formatDollars(budget.yardSignsCost),
-      rationale: 'Flat estimate of 50 yard signs.',
+    },
+    {
+      category: 'Events and showing up',
+      whenWorthIt:
+        'Always. The most persuasive way to win someone over, and free.',
+      costEach: 'free',
+      amount: '$0',
     },
     {
       category: 'Filing fees',
+      whenWorthIt: budget.filingFeeIsDefault
+        ? 'Required to get on the ballot. Estimated until BallotReady confirms the fee for your race.'
+        : 'Required to get on the ballot, per BallotReady.',
+      costEach: 'flat',
       amount: formatDollars(budget.filingFee),
-      rationale: budget.filingFeeIsDefault
-        ? 'Estimated $100 default. Replaced with the BallotReady value once available.'
-        : 'Sourced from BallotReady for this race.',
     },
     {
-      category: 'Contingency (5%)',
+      category: '5% cushion',
+      whenWorthIt: 'A small reserve for last-minute surprises.',
+      costEach: 'n/a',
       amount: formatDollars(budget.contingency),
-      rationale: 'Reserve for last-week opportunities.',
     },
     {
       category: 'Total',
+      whenWorthIt: 'The full picture if you fund everything.',
+      costEach: '',
       amount: formatDollars(budget.totalBudget),
-      rationale: 'Sum of all budget line-items.',
     },
   ]
 
   return { totalBudget: budget.totalBudget, lineItems }
 }
 
-const buildTimeBreakdown = (
-  hours: CampaignHours,
-  contactGoal: number,
-): TimeRow[] => [
-  {
-    category: 'Your time (hours)',
-    amount: `${hours.candidateHours.toLocaleString('en-US')} hours`,
-    rationale: `${hours.candidateHoursPerWeek} hours per week for the ${hours.weeksRemaining} weeks remaining.`,
-  },
-  {
-    category: 'Volunteer time (hours)',
-    amount: `${hours.volunteerHours.toLocaleString('en-US')} hours`,
-    rationale: `Assuming ${CONTACTS_PER_VOLUNTEER_HOUR} voter contact attempts per hour to reach your door-knocking goal of ${hours.doorGoal.toLocaleString(
-      'en-US',
-    )} doors (20% of your ${contactGoal.toLocaleString(
-      'en-US',
-    )} voter contacts).`,
-  },
-  {
-    category: 'Total',
-    amount: `${hours.totalHours.toLocaleString('en-US')} hours`,
-    rationale: 'Sum of all time line-items.',
-  },
-]
-
 const FUNDRAISING_MIX: FundraisingRow[] = [
-  { source: 'Self-fund or loan', share: '30%' },
-  { source: 'Friends & family', share: '30%' },
-  { source: 'Small-dollar online', share: '25%' },
-  { source: 'Events, house parties, larger checks', share: '15%' },
+  { source: 'Yourself (self-fund or loan)', share: '30%' },
+  { source: 'Friends and family', share: '30%' },
+  { source: 'Small online donations', share: '25%' },
+  { source: 'Events and larger checks', share: '15%' },
 ]
 
 const KEY_ASSUMPTIONS: string[] = [
@@ -847,7 +892,7 @@ const GLOSSARY: GlossaryRow[] = [
   {
     term: 'Targeted Voter Contact Goal',
     definition:
-      'The total number of contacts sent to voters that the campaign aims to deliver. Industry rule of thumb is 5× the projected votes needed to win.',
+      'The total number of contacts sent to voters that the campaign aims to deliver. Industry rule of thumb is 10× the projected votes needed to win.',
   },
   {
     term: 'Voter Contact',
@@ -886,38 +931,121 @@ const GLOSSARY: GlossaryRow[] = [
   },
 ]
 
-const buildPlanAtAGlance = (
+// "Here's your campaign math, in three numbers" — the three headline numbers
+// Section 1 walks through. Same labels every time: votes to win, people to
+// reach, money to raise.
+const buildCampaignMath = (
+  winNumber: number,
   projectedTurnout: number,
-  contactWindowStart: string,
-  electionDate: string,
-  eventCount: number,
-): { title: string; body: string }[] => [
+  voterContactGoal: number,
+  totalBudget: number,
+): TitledNote[] => [
   {
-    title: 'Voter turnout is the ball game.',
-    body: `In a ${projectedTurnout.toLocaleString(
+    title: 'The votes you need to win.',
+    body: `We expect about ${projectedTurnout.toLocaleString(
       'en-US',
-    )}-group of targeted voters with no party label to lean on, repeated name exposure and getting your people to the polls are the decisive levers.`,
+    )} people to vote in your race. You need a little more than half of them, which comes out to ${winNumber.toLocaleString(
+      'en-US',
+    )} votes. That's your finish line.`,
   },
   {
-    title: 'Stack the channels.',
-    body: `7 coordinated voter contacts (text + robocall) blanket your targeted voters between ${
-      contactWindowStart || '{12_weeks_before_election_date}'
-    } and ${electionDate || '{election_date}'}.`,
+    title: 'The people you need to reach.',
+    body: `To earn those votes, you'll aim for about ${voterContactGoal.toLocaleString(
+      'en-US',
+    )} contacts across the whole race, through texts, calls, mail, and conversations at the door. That's a big number, and it's meant to be. We'll break it into small weekly steps so you're never doing it all at once.`,
   },
   {
-    title: 'Show up in person.',
-    body:
-      eventCount > 0
-        ? `${eventCount} high-density community event${
-            eventCount === 1 ? '' : 's'
-          } during your campaign carry more weight per hour than any paid channel.`
-        : 'Attending community events in person carries more weight per hour than any paid channel.',
-  },
-  {
-    title: 'Message discipline.',
-    body: 'Define your core values and top issues that matter to you and your voters and stay consistent in how you communicate them.',
+    title: "The money you'll raise.",
+    body: `Reaching people costs a little, so plan to raise about $${totalBudget.toLocaleString(
+      'en-US',
+    )} over the course of the race. For most candidates that's 20 to 40 people giving $25 to $100 each, not big checks, and we'll help you plan it.`,
   },
 ]
+
+// Section 2 "Opportunities Working in Your Favor" — templated from race
+// data. Rows that depend on data we don't have yet (cellphone match) drop
+// out instead of rendering with blanks.
+const buildOpportunityRows = (
+  registeredVoters: number,
+  winNumber: number,
+  votesNeededPctOfRegistered: number | null,
+  cellphoneCount: number | null,
+  pctVotersWithCellphone: number | null,
+  voterContactGoal: number,
+  mediaCount: number,
+  eventCount: number,
+): TitledNote[] => {
+  const rows: TitledNote[] = []
+  if (registeredVoters > 0 && winNumber > 0) {
+    const pctFragment =
+      votesNeededPctOfRegistered !== null
+        ? `, about ${votesNeededPctOfRegistered}% of them`
+        : ''
+    rows.push({
+      title: "You don't have to win everyone",
+      body: `Of the ${registeredVoters.toLocaleString(
+        'en-US',
+      )} registered voters in your area, you only need the ${winNumber.toLocaleString(
+        'en-US',
+      )} votes to win${pctFragment}. So reaching the right voters matters far more than trying to reach all of them.`,
+    })
+  }
+  if (
+    cellphoneCount !== null &&
+    cellphoneCount > 0 &&
+    pctVotersWithCellphone !== null
+  ) {
+    rows.push({
+      title: 'Most of your voters have a cellphone',
+      body: `About ${pctVotersWithCellphone}% of voters (${cellphoneCount.toLocaleString(
+        'en-US',
+      )} of them) have a cellphone on file. That means a big share of the ${voterContactGoal.toLocaleString(
+        'en-US',
+      )} people you need to reach can get a text, which costs far less than mail or ads.`,
+    })
+  }
+  rows.push({
+    title: 'There are free ways to get known',
+    body:
+      mediaCount > 0 && eventCount > 0
+        ? `${mediaCount} local news outlet${
+            mediaCount === 1 ? ' covers' : 's cover'
+          } races like yours, and at least ${eventCount} community event${
+            eventCount === 1 ? ' falls' : 's fall'
+          } during your race. Press and showing up in person build name recognition without costing much.`
+        : 'Local news outlets cover races like yours, and community events happen all season. Press and showing up in person build name recognition without costing much.',
+  })
+  return rows
+}
+
+// Section 2 "Challenges You'll Have to Work Around" — templated from race
+// data.
+const buildChallengeRows = (
+  projectedTurnout: number,
+  ballotsGoOutDate: string,
+): TitledNote[] => {
+  const rows: TitledNote[] = [
+    {
+      title: "Voters don't know your name yet",
+      body: 'With no party label next to your name, people need to see it a few times before it sticks. Your plan repeats contact on a schedule so you feel familiar by Election Day.',
+    },
+  ]
+  if (projectedTurnout > 0) {
+    rows.push({
+      title: 'Most people skip local elections',
+      body: `We expect only about ${projectedTurnout.toLocaleString(
+        'en-US',
+      )} of registered voters to actually vote. When turnout's that low, who shows up decides the race, so your plan ends with a push to get your supporters to vote.`,
+    })
+  }
+  if (ballotsGoOutDate) {
+    rows.push({
+      title: 'Some people vote before Election Day',
+      body: `Mail and early ballots start going out on ${ballotsGoOutDate}. Once someone's voted you can't change their mind, so we get your outreach to them first.`,
+    })
+  }
+  return rows
+}
 
 const buildOpponents = (
   strategicLandscape: StrategicLandscapeData | undefined,
@@ -1127,9 +1255,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const electionDate = electionDateValid ? formatDate(electionDateValid) : ''
   const filingDateStart = parseDateIso(input.filingDateStartIso)
   const filingDateEnd = parseDateIso(input.filingDateEndIso)
-  const contactWindowStart = electionDateValid
-    ? formatDate(addDays(electionDateValid, -84))
-    : ''
 
   const planGenerationDate = formatDate(new Date())
 
@@ -1139,6 +1264,11 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     input.voterContactGoal,
     winNumber,
   )
+  // Normally 10 (the contact-goal multiplier), but derived from the actual
+  // goal so the "reach each voter about N times" copy can't drift from the
+  // numbers when the API supplies a race-specific goal.
+  const contactsPerVoter =
+    winNumber > 0 ? Math.max(1, Math.round(voterContactGoal / winNumber)) : 10
 
   const winNumberLow = Math.max(0, Math.round(winNumber * 0.9))
   const winNumberHigh = Math.round(winNumber * 1.1)
@@ -1157,10 +1287,25 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const registeredVotersLow = Math.max(0, Math.round(registeredVoters * 0.9))
   const registeredVotersHigh = Math.round(registeredVoters * 1.1)
 
-  const averageTouchesPerVoter =
-    projectedTurnout > 0
-      ? Number((voterContactGoal / projectedTurnout).toFixed(1))
-      : 0
+  const votesNeededPctOfRegistered =
+    registeredVoters > 0 && winNumber > 0
+      ? Math.max(1, Math.round((winNumber / registeredVoters) * 100))
+      : null
+  const cellphoneCount =
+    input.uniqueCellphones && input.uniqueCellphones > 0
+      ? input.uniqueCellphones
+      : null
+  const landlineCount =
+    input.uniqueLandlines && input.uniqueLandlines > 0
+      ? input.uniqueLandlines
+      : null
+  const pctVotersWithCellphone =
+    cellphoneCount !== null && registeredVoters > 0
+      ? Math.min(
+          100,
+          Math.max(1, Math.round((cellphoneCount / registeredVoters) * 100)),
+        )
+      : null
 
   // Mirror the onboarding step's guard: without a contact goal and projected
   // turnout the plan's resourcing is degenerate (direct mail keys off
@@ -1174,27 +1319,23 @@ export const buildPlanData = (input: PlanInput): PlanData => {
 
   const weeksRemaining = resolveWeeksRemaining(electionDateValid)
   const campaignHours = computeCampaignHours(voterContactGoal, weeksRemaining)
-  const volunteerHourTarget = campaignHours.volunteerHours
-  const timeBreakdown: TimeRow[] = metricsReady
-    ? buildTimeBreakdown(campaignHours, voterContactGoal)
-    : []
-  const totalCampaignHours = campaignHours.totalHours
 
   // civicEvents must be computed before buildTimeline so the Section 6
-  // keyDates entry can substitute the actual event count instead of a
-  // raw `{N}` placeholder. pressOutlets has no such dependency but is
+  // events milestone can use the real event count and first event date
+  // instead of placeholders. pressOutlets has no such dependency but is
   // grouped here with civicEvents for clarity.
   const civicEvents = buildCivicEvents(input.communityEvents)
   const pressOutlets = buildPressOutlets(input.pressOutletsFromApi)
   const eventCount = civicEvents.length
   const mediaCount = pressOutlets.length
 
-  const { timeline, keyDates } = buildTimeline(
+  const { timelineStages, keyDates, ballotsGoOutDate } = buildTimeline(
     electionDateValid,
     filingDateStart,
     filingDateEnd,
     input.milestones,
     eventCount,
+    earliestEventDate(input.communityEvents),
     input.state,
   )
   const contactSchedule = buildContactSchedule(electionDateValid)
@@ -1210,12 +1351,23 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     winNumberLow,
     winNumberHigh,
   )
-  const planAtAGlance = buildPlanAtAGlance(
+  const campaignMath = buildCampaignMath(
+    winNumber,
     projectedTurnout,
-    contactWindowStart,
-    electionDate,
+    voterContactGoal,
+    totalBudget,
+  )
+  const opportunityRows = buildOpportunityRows(
+    registeredVoters,
+    winNumber,
+    votesNeededPctOfRegistered,
+    cellphoneCount,
+    pctVotersWithCellphone,
+    voterContactGoal,
+    mediaCount,
     eventCount,
   )
+  const challengeRows = buildChallengeRows(projectedTurnout, ballotsGoOutDate)
 
   const opponents = buildOpponents(
     input.strategicLandscape,
@@ -1233,64 +1385,46 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       input.voterIssuesFromApi,
     )
 
-  const keyCampaignTargets: KeyTarget[] = [
-    {
-      metric: 'Projected Votes Needed to Win',
-      target: winNumber.toLocaleString('en-US'),
-    },
-    {
-      metric: 'Projected Voter Turnout',
-      target: projectedTurnout.toLocaleString('en-US'),
-    },
-    {
-      metric: 'Targeted Voter Contact Goal',
-      target: voterContactGoal.toLocaleString('en-US'),
-    },
-    {
-      metric: 'Recommended Budget',
-      target: `$${totalBudget.toLocaleString('en-US')}`,
-    },
-    {
-      metric: 'Volunteer-Hour Goal',
-      target: `${volunteerHourTarget.toLocaleString('en-US')}+`,
-    },
-  ]
-
+  // Section 3 "Your Key Numbers" — Number | Target | How we got it.
   const metrics: MetricRow[] = [
     {
-      metric: 'Registered Voters',
-      target: `${registeredVoters.toLocaleString('en-US')} registered voters`,
+      metric: 'Registered voters',
+      target: registeredVoters.toLocaleString('en-US'),
       source:
-        'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
+        "Everyone who's eligible to vote in your race, from the latest voter file (L2 Voter Data).",
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: `${projectedTurnout.toLocaleString('en-US')} voters turnout`,
+      metric: 'People expected to vote',
+      target: projectedTurnout.toLocaleString('en-US'),
       source:
-        'The projected number of voters we expect to cast a ballot in your race, based on past voter turnout and our proprietary models.',
+        'How many of them we think will actually vote, based on the last three elections in your area and our model.',
     },
     {
-      metric: 'Projected Votes Needed to Win',
-      target: `${winNumber.toLocaleString('en-US')} votes needed to win`,
+      metric: 'Votes you need to win',
+      target: winNumber.toLocaleString('en-US'),
       source:
-        'Projecting a simple majority (50% + 1) of projected voter turnout.',
+        'A little more than half (50% + 1) of the people expected to vote.',
     },
     {
-      metric: 'Contacts Per Likely Voter',
-      target: '5 contacts per likely voter',
-      source: 'Industry standard number of contacts for winning campaigns.',
+      metric: 'Times to reach each voter',
+      target: `${contactsPerVoter}`,
+      source:
+        'About how many times winning campaigns reach out to each voter before the name sticks.',
     },
     {
-      metric: 'Voter Contact Target',
-      target: `${voterContactGoal.toLocaleString(
+      metric: 'People you need to reach',
+      target: voterContactGoal.toLocaleString('en-US'),
+      source: `${contactsPerVoter} times the votes you need to win.`,
+    },
+    {
+      metric: 'Volunteer help',
+      target: `About ${campaignHours.volunteerCount.toLocaleString(
         'en-US',
-      )} total voter contacts`,
-      source: 'Voter Contacts × Votes Needed to Win.',
-    },
-    {
-      metric: 'Volunteer-Hour Target',
-      target: `${volunteerHourTarget.toLocaleString('en-US')} volunteer hours`,
-      source: `Door-knocking goal ÷ ${CONTACTS_PER_VOLUNTEER_HOUR} contact attempts per volunteer hour.`,
+      )} volunteer${campaignHours.volunteerCount === 1 ? '' : 's'}, ~${
+        campaignHours.volunteerHoursPerWeek
+      } hrs/week`,
+      source:
+        'Enough hands to cover your events, knock doors, and help on Election Day.',
     },
   ]
 
@@ -1304,7 +1438,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     electionDate,
     electionDateRaw: electionDateValid,
     planGenerationDate,
-    contactWindowStart,
     winNumber,
     winNumberLow,
     winNumberHigh,
@@ -1315,32 +1448,34 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     registeredVotersLow,
     registeredVotersHigh,
     voterContactGoal,
+    contactsPerVoter,
+    votesNeededPctOfRegistered,
+    pctVotersWithCellphone,
+    cellphoneCount,
+    landlineCount,
     opponentCount,
-    volunteerHourTarget,
+    volunteerCount: campaignHours.volunteerCount,
+    volunteerHoursPerWeek: campaignHours.volunteerHoursPerWeek,
+    candidateHoursPerWeek: campaignHours.candidateHoursPerWeek,
     totalBudget,
-    averageTouchesPerVoter,
     eventCount,
     mediaCount,
     weeksRemaining,
     filingDateStart: formatDateMaybe(input.filingDateStartIso),
     filingDateEnd: formatDateMaybe(input.filingDateEndIso),
     filingDeadline: formatDateMaybe(input.filingDateEndIso),
-    planAtAGlance,
-    keyCampaignTargets,
+    campaignMath,
     keyDates,
     voterInsightsIssues,
     voterInsightsSource,
-    // Strategy data overrides — empty arrays while polling / on error, so
-    // Section 2 should suppress its render in those cases (see PlanSections).
-    opportunities: input.strategicLandscape?.opportunities ?? [],
-    challenges: input.strategicLandscape?.challenges ?? [],
+    opportunityRows,
+    challengeRows,
     opponents,
     incumbent,
     metrics,
-    timeline,
+    timelineStages,
+    ballotsGoOutDate,
     budgetLineItems,
-    timeBreakdown,
-    totalCampaignHours,
     fundraisingMix: FUNDRAISING_MIX,
     civicEvents,
     pressOutlets,

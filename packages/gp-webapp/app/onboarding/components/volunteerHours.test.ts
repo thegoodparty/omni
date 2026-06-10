@@ -51,6 +51,16 @@ describe('computeCampaignHours', () => {
     )
   })
 
+  it('sizes the volunteer headcount from hours, weeks, and hours per week', () => {
+    // 200 volunteer hours over 8 weeks at 4 hrs/week each = ceil(6.25) = 7.
+    expect(subject.volunteerCount).toBe(7)
+    expect(subject.volunteerHoursPerWeek).toBe(4)
+  })
+
+  it('never asks for fewer than one volunteer', () => {
+    expect(computeCampaignHours(0, 8).volunteerCount).toBe(1)
+  })
+
   it('rounds volunteer hours up so a partial hour still counts', () => {
     // 1,001 contacts -> 200 doors -> 20 hours; 1,005 -> 201 doors -> 21 hours.
     expect(computeCampaignHours(1_005, 8).volunteerHours).toBe(21)

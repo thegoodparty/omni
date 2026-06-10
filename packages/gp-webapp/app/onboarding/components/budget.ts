@@ -2,16 +2,16 @@
 // onboarding outreach step, the campaign plan, and the plan PDF. All three
 // surfaces must show the same dollar figures, so the math lives only here.
 
-// Channel split of the voter contact goal (win number × 5). Texts and
+// Channel split of the voter contact goal (win number × 10). Texts and
 // robocalls are paid per contact; door knocking is volunteer (no line cost)
 // but its share sizes the literature drop below.
 export const TEXTS_PERCENT = 0.6
 export const ROBOCALLS_PERCENT = 0.2
 export const DOORS_PERCENT = 0.2
 
-// The voter contact goal is the win number × 5. When a race-specific goal is
+// The voter contact goal is the win number × 10. When a race-specific goal is
 // missing or non-positive, derive it from the win number.
-export const VOTER_CONTACT_MULTIPLIER = 5
+export const VOTER_CONTACT_MULTIPLIER = 10
 
 export const resolveVoterContactGoal = (
   voterContactGoal: number | null | undefined,
@@ -63,7 +63,7 @@ export interface BudgetComputation {
   totalBudget: number
 }
 
-// contactGoal is the voter contact goal (win number × 5); projectedTurnout
+// contactGoal is the voter contact goal (win number × 10); projectedTurnout
 // sizes the direct-mail universe (40% of likely voters).
 export const computeBudget = (
   contactGoal: number,

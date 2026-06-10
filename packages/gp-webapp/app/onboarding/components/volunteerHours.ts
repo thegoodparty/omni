@@ -6,6 +6,9 @@ import { DOORS_PERCENT } from './budget'
 // Door knocking covers DOORS_PERCENT of the voter contact goal. A volunteer
 // is assumed to make this many door-knock attempts per hour.
 export const CONTACTS_PER_VOLUNTEER_HOUR = 10
+// Each volunteer is assumed to give about this many hours a week ("an
+// afternoon a week"). Sizes the volunteer headcount the plan asks for.
+export const VOLUNTEER_HOURS_PER_WEEK = 4
 // The candidate is assumed to put in this many hours every remaining week.
 export const CANDIDATE_HOURS_PER_WEEK = 14
 // Fallback when the election date is missing, invalid, or already passed.
@@ -30,6 +33,8 @@ export const resolveWeeksRemaining = (
 export interface CampaignHours {
   doorGoal: number
   volunteerHours: number
+  volunteerCount: number
+  volunteerHoursPerWeek: number
   candidateHoursPerWeek: number
   candidateHours: number
   weeksRemaining: number
@@ -38,16 +43,26 @@ export interface CampaignHours {
 
 // Volunteer hours cover the door-knocking goal (the candidate is assumed to
 // do none); candidate hours are a flat weekly commitment over the weeks left.
+// The volunteer headcount spreads those hours across the weeks left at
+// VOLUNTEER_HOURS_PER_WEEK each, so the plan can ask for people, not hours.
 export const computeCampaignHours = (
   contactGoal: number,
   weeksRemaining: number,
 ): CampaignHours => {
   const doorGoal = Math.round(contactGoal * DOORS_PERCENT)
   const volunteerHours = Math.ceil(doorGoal / CONTACTS_PER_VOLUNTEER_HOUR)
+  const volunteerCount = Math.max(
+    1,
+    Math.ceil(
+      volunteerHours / (Math.max(1, weeksRemaining) * VOLUNTEER_HOURS_PER_WEEK),
+    ),
+  )
   const candidateHours = CANDIDATE_HOURS_PER_WEEK * weeksRemaining
   return {
     doorGoal,
     volunteerHours,
+    volunteerCount,
+    volunteerHoursPerWeek: VOLUNTEER_HOURS_PER_WEEK,
     candidateHoursPerWeek: CANDIDATE_HOURS_PER_WEEK,
     candidateHours,
     weeksRemaining,

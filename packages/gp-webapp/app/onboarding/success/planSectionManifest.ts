@@ -21,23 +21,23 @@ export type PlanSectionKey =
 export interface PlanSectionDef {
   key: PlanSectionKey
   title: string
-  // Strategic Landscape is the only section that can be hidden — it drops
-  // out when the strategy agent fails or returns empty. Every other section
-  // always renders.
+  // No section is currently optional — Sizing Up Your Race (the old
+  // Strategic Landscape) is templated from race data, so it always has
+  // content. The mechanism stays in case a future section needs to hide.
   optional?: boolean
 }
 
 export const PLAN_SECTION_ORDER: readonly PlanSectionDef[] = [
-  { key: 'executiveSummary', title: 'Executive Summary' },
-  { key: 'strategicLandscape', title: 'Strategic Landscape', optional: true },
-  { key: 'electoralGoals', title: 'Electoral Goals & Key Metrics' },
-  { key: 'voterInsights', title: 'Voter Insights For Your District' },
-  { key: 'resources', title: 'Projected Minimum Resources Needed' },
-  { key: 'timeline', title: 'Campaign Timeline' },
-  { key: 'community', title: 'Community Engagement & Earned Media' },
-  { key: 'voterContact', title: 'Voter Contact Plan' },
-  { key: 'measurement', title: 'Measurement & Accountability' },
-  { key: 'methodology', title: 'Methodology & Data Sources' },
+  { key: 'executiveSummary', title: 'Welcome to Your Campaign' },
+  { key: 'strategicLandscape', title: 'Sizing Up Your Race' },
+  { key: 'electoralGoals', title: 'Your Key Numbers' },
+  { key: 'voterInsights', title: 'What Your Voters Care About' },
+  { key: 'resources', title: "What You'll Need: Money and Time" },
+  { key: 'timeline', title: 'Your Campaign Timeline' },
+  { key: 'community', title: 'Community Events and Local Press' },
+  { key: 'voterContact', title: 'Your Voter Contact Plan' },
+  { key: 'measurement', title: 'Tracking Your Progress' },
+  { key: 'methodology', title: 'Methodology and Data Sources' },
   { key: 'glossary', title: 'Glossary' },
 ]
 
