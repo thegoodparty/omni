@@ -21,7 +21,7 @@ const GATHER_STEPS = [
 ]
 
 const GuidanceStep = (): React.JSX.Element => {
-  const { goToStep } = useProUpgradeWizard()
+  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceViewed)
@@ -59,7 +59,10 @@ const GuidanceStep = (): React.JSX.Element => {
         ))}
       </ol>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button size="large" onClick={handleContinue}>
           Let&apos;s go!
         </Button>

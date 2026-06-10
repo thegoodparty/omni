@@ -70,6 +70,7 @@ vi.mock('app/shared/sentry', () => ({
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 const CHECKOUT_SESSION_ROUTE = 'POST /v1/payments/purchase/checkout-session'
 
@@ -81,8 +82,20 @@ describe('PaymentStep', () => {
       currentStep: 'payment',
       goToStep,
       goToNextStep: vi.fn(),
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    api.mock(CHECKOUT_SESSION_ROUTE, {
+      status: 200,
+      data: { clientSecret: 'cs_test_123' },
+    })
+
+    render(<PaymentStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
   })
 
   it('fetches the embedded subscription client secret and mounts the checkout with the order summary', async () => {

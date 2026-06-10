@@ -453,6 +453,19 @@ describe('UsersService', () => {
       expect(result?.id).toBe(existing.id)
     })
 
+    it('returns user when a concurrent provision already bound the same clerkId', async () => {
+      const existing = await createUser(
+        'race-same@test.goodparty.org',
+        'user_race_same',
+      )
+      vi.spyOn(usersService, 'findUser').mockResolvedValueOnce(null)
+      const result = await provision(
+        'user_race_same',
+        'race-same@test.goodparty.org',
+      )
+      expect(result?.id).toBe(existing.id)
+    })
+
     it('returns null and preserves clerkId when email matches a user that already has one', async () => {
       const victim = await createUser(
         'victim@test.goodparty.org',
@@ -505,6 +518,18 @@ describe('UsersService', () => {
         usersService.resolveAfterP2002({ clerkId, email }) as Promise<
           Awaited<ReturnType<typeof usersService.findUser>>
         >
+
+      it('returns the user found by clerkId (primary race recovery path)', async () => {
+        const existing = await createUser(
+          'p2002-same-clerk@test.goodparty.org',
+          'user_p2002_same',
+        )
+        const result = await resolveAfterP2002(
+          'user_p2002_same',
+          'p2002-same-clerk@test.goodparty.org',
+        )
+        expect(result?.id).toBe(existing.id)
+      })
 
       it('returns null when email match has different clerkId', async () => {
         await createUser('p2002-diff@test.goodparty.org', 'user_p2002_other')

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
-import { ProBadge } from '@styleguide'
+import { Button, ProBadge } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -94,7 +94,7 @@ const PaymentContent = ({
 }
 
 const PaymentStep = (): React.JSX.Element => {
-  const { goToStep } = useProUpgradeWizard()
+  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.PaymentViewed)
@@ -117,6 +117,12 @@ const PaymentStep = (): React.JSX.Element => {
       <CheckoutSessionProvider createSession={createSession}>
         <PaymentContent onConfirmed={handleConfirmed} />
       </CheckoutSessionProvider>
+
+      <div className="mt-8">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
+      </div>
     </div>
   )
 }

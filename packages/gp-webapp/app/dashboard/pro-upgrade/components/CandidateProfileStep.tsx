@@ -14,7 +14,7 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 // is intentionally not collected here — it comes from BallotReady via gp-api and
 // is never asked of the candidate (ENG-10332 product decision).
 const CandidateProfileStep = (): React.JSX.Element => {
-  const { goToNextStep } = useProUpgradeWizard()
+  const { goToNextStep, goToPreviousStep } = useProUpgradeWizard()
   const form = useCandidateProfileForm({
     onSaved: goToNextStep,
     trackViewEvent: true,
@@ -32,7 +32,10 @@ const CandidateProfileStep = (): React.JSX.Element => {
 
       <CandidateProfileFields form={form} />
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-between">
+        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+          Back
+        </Button>
         <Button
           size="large"
           onClick={() => void form.handleSubmit()}

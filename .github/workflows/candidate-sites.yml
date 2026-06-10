@@ -2,20 +2,9 @@ name: candidate-sites
 
 on:
   pull_request:
-    paths:
-      - "packages/candidate-sites/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/candidate-sites.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/candidate-sites/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/candidate-sites.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
