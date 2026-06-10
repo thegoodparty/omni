@@ -71,7 +71,7 @@ Denormalized ZIP → position rollup, sourced from a dbt mart in `gp-data-platfo
 - Add `@@map("...")` only when the table physical name diverges from the Prisma model name (e.g., `Projected_Turnout`).
 - Indexes for any field commonly used in `where` — see existing schemas for examples (`positionId`, `placeId`, `zipCode`).
 - `String[]` arrays are used liberally (party, urls, electionFrequency, positionNames). Don't normalize these into join tables without a real querying need; they're write-once from the upstream ETL.
-- **Never edit applied migrations under `prisma/migrations/<timestamp>/`** — they're immutable. Create a new migration with `npm run migrate:dev`.
+- **Never edit applied migrations under `prisma/schema/migrations/<timestamp>/`** — they're immutable. Create a new migration with `npm run migrate:dev`.
 
 ## Source of truth
 

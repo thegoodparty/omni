@@ -21,7 +21,7 @@ Splitting enums into `public` lets cross-schema casts and partition-pruning hint
 
 | Table | Purpose | Notes |
 |-------|---------|-------|
-| `Voter` | One row per registered voter. ~100+ L2 columns. | Natively **partitioned by `State`** at the Postgres level. Prisma sees one table; the planner prunes partitions by the `State` predicate. Migrations under `prisma/migrations/` add partition-aware indexes (e.g., `Voter_last_first_id_idx`). |
+| `Voter` | One row per registered voter. ~100+ L2 columns. | Natively **partitioned by `State`** at the Postgres level. Prisma sees one table; the planner prunes partitions by the `State` predicate. Migrations under `prisma/schema/migrations/` add partition-aware indexes (e.g., `Voter_last_first_id_idx`). |
 | `District` | Geographic / political districts. | Small lookup table; queried via Prisma ORM. |
 | `DistrictVoter` | Join: which voters belong to which district. | Composite PK `(districtId, voterId)`; `state` is denormalized for partition pruning on cascading deletes. |
 | `DistrictStats` | Pre-computed demographic rollups per district. | Has a `buckets` JSON column typed via `prisma-json-types-generator` (see `districtStats.jsonTypes.d.ts`). |
