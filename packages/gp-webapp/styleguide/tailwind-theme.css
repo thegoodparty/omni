@@ -452,7 +452,7 @@
   --color-components-input-foreground: #ffffff;
   --color-components-input-base: #ffffff;
   --color-components-input-border: #d4d4d4;
-  --color-components-input-focus: rgba(37, 99, 235, 0.3);
+  --color-components-input-focus: rgba(37, 99, 235, 0.4);
   --color-components-tooltip-base: #262626;
   --color-components-tooltip-foreground: #ffffff;
 
