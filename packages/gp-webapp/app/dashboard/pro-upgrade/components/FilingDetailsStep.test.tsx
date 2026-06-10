@@ -246,10 +246,10 @@ describe('FilingDetailsStep', () => {
   })
 
   it('names the EIN in the banner when a legacy bad EIN fails validation', () => {
-    // A placeholder EIN saved before the sanity rules: step derivation only
-    // checks presence, so the candidate skips the EIN step and lands here. The
-    // EIN has no input on this form — without the banner the Continue button
-    // would fail with nothing visible to fix.
+    // EIN is owned by the wizard's EIN step (entry derivation routes a
+    // sanity-failing EIN there), so this form never renders an EIN input. The
+    // banner still names a bad EIN as a defense for direct-URL arrivals —
+    // Back is the EIN step, where it's fixed.
     seedCampaign({
       einNumber: '00-0000000',
       ballotLevel: 'Local/Township/City',
@@ -260,6 +260,7 @@ describe('FilingDetailsStep', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(mockSubmit).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Campaign EIN')).not.toBeInTheDocument()
     expect(screen.getByText('EIN')).toBeInTheDocument()
     expect(
       screen.getByText(/placeholder values aren't accepted/i),

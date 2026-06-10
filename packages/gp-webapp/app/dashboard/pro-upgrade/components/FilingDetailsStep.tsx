@@ -122,10 +122,9 @@ const FilingDetailsForm = ({
 
   // `website` is validated but has no input in this form (the agentic flow
   // buys the domain after submit), so the banner must never name it. `ein`
-  // also has no input here but stays listed: a legacy EIN saved before the
-  // sanity rules skips the EIN step (step derivation only checks presence)
-  // and would otherwise fail this form's validation with no visible cause —
-  // Back leads to the EIN step where it can be fixed.
+  // has no input here either (EIN is owned by the wizard's EIN step, and entry
+  // derivation routes a sanity-failing EIN there) but stays listed as a
+  // defense for direct-URL arrivals — Back is the EIN step, where it's fixed.
   const failingFields = getFailingFields(validations).filter(
     (field) => field !== 'website',
   )
