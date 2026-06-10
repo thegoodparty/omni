@@ -225,7 +225,7 @@ describe('FilingDetailsStep', () => {
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 
-  it('does not submit or advance when the form is invalid', () => {
+  it('does not submit and lists the failing fields when the form is invalid', () => {
     // No fields filled (and no EIN on file) → invalid form.
     seedCampaign({ ballotLevel: 'Local/Township/City' })
     render(<FilingDetailsStep />)
@@ -234,6 +234,36 @@ describe('FilingDetailsStep', () => {
 
     expect(mockSubmit).not.toHaveBeenCalled()
     expect(goToNextStep).not.toHaveBeenCalled()
+    // The guiding banner must name what's wrong — a silent return reads as a
+    // dead Continue button.
+    expect(
+      screen.getByText('Please fix the following fields:'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+    // `website` has no input in this form and must never be listed.
+    expect(screen.queryByText('Website')).not.toBeInTheDocument()
+  })
+
+  it('names the EIN in the banner when a legacy bad EIN fails validation', () => {
+    // A placeholder EIN saved before the sanity rules: step derivation only
+    // checks presence, so the candidate skips the EIN step and lands here. The
+    // EIN has no input on this form — without the banner the Continue button
+    // would fail with nothing visible to fix.
+    seedCampaign({
+      einNumber: '00-0000000',
+      ballotLevel: 'Local/Township/City',
+    })
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(screen.getByText('EIN')).toBeInTheDocument()
+    expect(
+      screen.getByText(/placeholder values aren't accepted/i),
+    ).toBeInTheDocument()
   })
 
   it('surfaces an error and does not advance when the submit fails', async () => {

@@ -29,7 +29,11 @@ import {
   submitTcrCompliance,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
+import { StyledAlert } from '@shared/alerts/StyledAlert'
 import {
+  fieldDisplayNames,
+  getFailingFields,
+  getValidationMessage,
   validateRegistrationForm,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -116,6 +120,16 @@ const FilingDetailsForm = ({
     requireWebsite: false,
   })
 
+  // `website` is validated but has no input in this form (the agentic flow
+  // buys the domain after submit), so the banner must never name it. `ein`
+  // also has no input here but stays listed: a legacy EIN saved before the
+  // sanity rules skips the EIN step (step derivation only checks presence)
+  // and would otherwise fail this form's validation with no visible cause —
+  // Back leads to the EIN step where it can be fixed.
+  const failingFields = getFailingFields(validations).filter(
+    (field) => field !== 'website',
+  )
+
   // Always-enabled button so the candidate can attempt submit and get guiding
   // errors; field errors only surface after the first invalid attempt.
   const [attemptedSubmit, setAttemptedSubmit] = useState(false)
@@ -181,6 +195,27 @@ const FilingDetailsForm = ({
         or registration, it will take much longer before you can send text
         messages.
       </Body2>
+
+      {attemptedSubmit && !isValid && (
+        <StyledAlert severity="error" className="mb-6">
+          <Body2>
+            <span className="font-medium">
+              Please fix the following fields:
+            </span>
+            <ul className="mt-1 list-disc pl-5">
+              {failingFields.map((field) => (
+                <li key={field}>
+                  <span className="font-medium">
+                    {fieldDisplayNames[field]}
+                  </span>
+                  {' — '}
+                  {getValidationMessage(field, getStringValue(officeLevel))}
+                </li>
+              ))}
+            </ul>
+          </Body2>
+        </StyledAlert>
+      )}
 
       <div className="flex flex-col gap-6">
         <TextField

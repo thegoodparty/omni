@@ -155,12 +155,21 @@ const ProUpgradeWizard = ({
   }, [orderIndex, router])
 
   const goToPreviousStep = useCallback(() => {
-    if (orderIndex > 0) {
+    // The off-order routes (guidance, filing-instructions) are only ever
+    // entered from the filing-status step, so Back targets it explicitly:
+    // router.back() would leave the wizard entirely for a candidate who
+    // arrived via a direct URL (bookmark, emailed link).
+    if (
+      currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS ||
+      currentStep === PRO_UPGRADE_STEP.GUIDANCE
+    ) {
+      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
+    } else if (orderIndex > 0) {
       router.push(proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex - 1]!))
     } else {
       router.back()
     }
-  }, [orderIndex, router])
+  }, [currentStep, orderIndex, router])
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({ currentStep, goToStep, goToNextStep, goToPreviousStep }),
