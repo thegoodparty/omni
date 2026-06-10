@@ -63,8 +63,15 @@ export class PollResponsesDownloadService implements OnModuleDestroy {
     ) TO STDOUT WITH (FORMAT CSV, HEADER TRUE)`
 
     const output = new PassThrough()
-    const safePollName =
+    const cleanPollName =
       pollName.replace(/[\r\n]/g, ' ').trim() || 'Poll responses'
+    // Same formula-injection guard as message_content: the poll name is
+    // user-supplied (paid-poll purchase metadata) and is written as cell A1 of
+    // the export, so a name starting with =, +, -, or @ would execute when
+    // staff open the file.
+    const safePollName = /^[=+\-@]/.test(cleanPollName)
+      ? `'${cleanPollName}`
+      : cleanPollName
     output.write(UTF8_BOM + safePollName + '\n')
 
     let released = false

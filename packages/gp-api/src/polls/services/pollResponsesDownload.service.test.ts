@@ -94,6 +94,19 @@ describe('PollResponsesDownloadService', () => {
       expect(output.startsWith('\uFEFFPoll With Newlines\n')).toBe(true)
     })
 
+    it('neutralizes a formula-injection poll name in the header line', async () => {
+      const result = await service.streamPollResponses(
+        VALID_UUID,
+        '=HYPERLINK("http://evil","x")',
+        FILE_NAME,
+      )
+      copyStream.end()
+
+      const output = await drainStream(result.getStream())
+      const headerLine = output.split('\n')[0]
+      expect(headerLine.endsWith('\'=HYPERLINK("http://evil","x")')).toBe(true)
+    })
+
     it('uses fallback when poll name is empty or whitespace', async () => {
       const result = await service.streamPollResponses(
         VALID_UUID,
