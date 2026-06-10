@@ -315,9 +315,13 @@ const SuccessPage = ({
   useEffect(() => {
     if (campaignId === undefined) return
     fireOnce(planEvents.MediaRequested, { campaignId })
-    fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
-    fireOnce(planEvents.CommunityEventsRequested, { campaignId })
-  }, [planEvents, campaignId])
+    // In onboarding these fire from OnboardingFlow (pre-warm step), not here.
+    // In dashboard context this page is the origin, so fire them here.
+    if (inDashboard) {
+      fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
+      fireOnce(planEvents.CommunityEventsRequested, { campaignId })
+    }
+  }, [planEvents, campaignId, inDashboard])
 
   // Results Received — fire once when each resource's status first hits ready.
   useEffect(() => {
