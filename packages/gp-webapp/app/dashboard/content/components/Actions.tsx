@@ -126,7 +126,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
               }}
             />
 
-            <div className="absolute flex flex-col z-50 right-0 min-w-[270px] h-auto bg-primary-dark text-gray-300 rounded-xl shadow-md transition">
+            <div className="absolute flex flex-col z-50 right-0 min-w-[270px] h-auto bg-secondary text-gray-300 rounded-xl shadow-md transition">
               <Button
                 variant="ghost"
                 className="w-full h-auto p-0 rounded-xl border-none"
@@ -140,7 +140,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
                   setShowMenu(false)
                 }}
               >
-                <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case hover:bg-primary-dark-dark w-full rounded-xl p-3">
+                <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case w-full rounded-xl p-3">
                   <div className="whitespace-nowrap text-lg flex items-center w-full">
                     <FaPencilAlt className="text-[14px]" />
                     <div className="ml-3 text-[17px]">Rename</div>
@@ -157,7 +157,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
                     setShowMenu(false)
                   }}
                 >
-                  <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case hover:bg-primary-dark-dark w-full rounded-xl p-3">
+                  <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case w-full rounded-xl p-3">
                     <div className="whitespace-nowrap text-lg flex items-center w-full">
                       <FaGlobe className="text-[14px]" />
                       <div className="ml-3 text-[17px]">Translate</div>
@@ -172,7 +172,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
                   setShowMenu(false);
                 }}
               >
-                <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case hover:bg-primary-dark-dark w-full rounded-xl p-3">
+                <span className="text-gray-300 hover:text-slate-50 no-underline font-normal normal-case w-full rounded-xl p-3">
                   <div className="whitespace-nowrap text-lg flex items-center w-full">
                     <FaCopy className="text-[14px]" />
                     <div className="ml-3 text-[17px]">Duplicate</div>
@@ -195,7 +195,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
                   setShowMenu(false)
                 }}
               >
-                <span className="text-red-400 no-underline font-normal normal-case hover:bg-primary-dark-dark w-full rounded-xl p-3">
+                <span className="text-red-400 no-underline font-normal normal-case w-full rounded-xl p-3">
                   <div className="whitespace-nowrap text-lg flex items-center w-full">
                     <FaTrashAlt className="text-[14px]" />
                     <div className="ml-3 text-[17px]">Delete</div>

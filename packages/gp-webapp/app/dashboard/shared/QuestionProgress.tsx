@@ -79,7 +79,7 @@ const QuestionProgress = ({
         </div>
         <div className="mt-3 relative bg-white rounded-2xl h-2">
           <div
-            className="absolute top-0 left-0 bg-primary-dark rounded-2xl h-full"
+            className="absolute top-0 left-0 bg-secondary rounded-2xl h-full"
             style={{ width: `${progress}%` }}
           ></div>
         </div>

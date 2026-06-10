@@ -39,7 +39,7 @@ export default function TextComplianceStep({
             className={`w-8 h-8 rounded-full ${
               isActive
                 ? 'bg-blue-50 text-blue-600'
-                : 'bg-neutral-light text-gray-500'
+                : 'bg-grayscale-200 text-gray-500'
             } flex items-center justify-center shrink-0`}
           >
             <span className="text-base font-normal">{number}</span>

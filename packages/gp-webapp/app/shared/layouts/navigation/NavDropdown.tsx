@@ -59,7 +59,7 @@ const NavDropdown = ({
           onClick={toggleCallback}
         />
         <div
-          className={`absolute z-50 top-11 left-0 min-w-[270px] bg-primary-dark text-white rounded-xl shadow-md transition  ${
+          className={`absolute z-50 top-11 left-0 min-w-[270px] bg-secondary text-white rounded-xl shadow-md transition  ${
             open ? 'p-3 overflow-hidden' : 'p-0 opacity-0 overflow-visible'
           }`}
         >
@@ -68,7 +68,7 @@ const NavDropdown = ({
               href={link.href}
               id={`nav-${link.id}`}
               key={link.id}
-              className="no-underline font-medium block py-3 whitespace-nowrap text-base px-4 hover:bg-primary-dark-dark rounded flex items-center justify-between"
+              className="no-underline font-medium block py-3 whitespace-nowrap text-base px-4 rounded flex items-center justify-between"
               rel={link.external ? 'noopener noreferrer nofollow' : ''}
               target={link.external ? '_blank' : ''}
             >

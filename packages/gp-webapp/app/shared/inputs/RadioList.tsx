@@ -37,7 +37,7 @@ const RadioList = ({
               role="radio"
               tabIndex={0}
               key={option.key}
-              className="mb-4 flex items-center  py-4 px-6 rounded-lg  p-4 cursor-pointer bg-tertiary-main"
+              className="mb-4 flex items-center  py-4 px-6 rounded-lg  p-4 cursor-pointer bg-brand-halo-green-400"
               onClick={() => selectCallback(option.key)}
               onKeyDown={(e) => handleKeyPress(e, option)}
             >
