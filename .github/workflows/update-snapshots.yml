@@ -84,7 +84,7 @@ jobs:
         id: preview
         run: |
           URL="https://gp-ui-pr-${{ github.event.issue.number }}-good-party.vercel.app"
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" || echo "000")
+          code=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 15 "$URL" || echo "000")
           if [ "$code" = "000" ]; then
             echo "::error::No preview found at $URL. Make sure the gp-webapp deploy ran for this PR before /update-snapshots."
             exit 1
