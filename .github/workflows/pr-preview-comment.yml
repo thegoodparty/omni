@@ -12,7 +12,7 @@ name: PR preview comment
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [develop]
+    branches-ignore: [qa, master]
 
 permissions:
   contents: read
