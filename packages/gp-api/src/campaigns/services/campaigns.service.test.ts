@@ -1497,13 +1497,22 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
 describe('CampaignsService - hasCampaignStrategy', () => {
   const service = useTestService()
 
-  it('returns false when no campaign_strategy row exists', async () => {
-    const campaign = await service.prisma.campaign.findFirst()
-    if (!campaign) return
-
-    await service.prisma.campaignStrategy.deleteMany({
-      where: { campaignId: campaign.id },
+  const createCampaign = async (slug: string) => {
+    const org = await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
     })
+    return service.prisma.campaign.create({
+      data: {
+        organizationSlug: org.slug,
+        userId: service.user.id,
+        slug,
+        details: {},
+      },
+    })
+  }
+
+  it('returns false when no campaign_strategy row exists', async () => {
+    const campaign = await createCampaign('test-no-strategy')
 
     const result = await service.app
       .get(CampaignsService)
@@ -1513,13 +1522,10 @@ describe('CampaignsService - hasCampaignStrategy', () => {
   })
 
   it('returns true when a campaign_strategy row exists', async () => {
-    const campaign = await service.prisma.campaign.findFirst()
-    if (!campaign) return
+    const campaign = await createCampaign('test-with-strategy')
 
-    await service.prisma.campaignStrategy.upsert({
-      where: { campaignId: campaign.id },
-      create: { campaignId: campaign.id },
-      update: {},
+    await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id },
     })
 
     const result = await service.app
