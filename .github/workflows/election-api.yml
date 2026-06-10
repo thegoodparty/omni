@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-west-2

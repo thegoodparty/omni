@@ -72,6 +72,8 @@ declare global {
       electionId?: string | null
       tier?: string
       einNumber?: string | null
+      validatedEin?: boolean
+      hasFiledForRace?: boolean
       einSupportingDocument?: string | null
       wonGeneral?: boolean
     }
