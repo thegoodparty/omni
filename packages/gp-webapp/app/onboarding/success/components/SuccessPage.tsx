@@ -300,37 +300,36 @@ const SuccessPage = ({
   // not here. Media's request fires from this page's first poll. Wait for a
   // resolved campaignId so the once-fire isn't spent on an undefined id while
   // the invalidated campaign query is still refetching.
+  // All OnboardingV2 events are suppressed on dashboard revisits — this page
+  // is reused there and those visits are not onboarding sessions.
   useEffect(() => {
-    if (campaignId === undefined) return
+    if (inDashboard || campaignId === undefined) return
     fireOnce(EVENTS.OnboardingV2.MediaRequested, { campaignId })
-  }, [campaignId])
+  }, [inDashboard, campaignId])
 
   // Results Received — fire once when each resource's status first hits ready.
   useEffect(() => {
-    if (localNewsReady) {
-      fireOnce(EVENTS.OnboardingV2.MediaResultsReceived, {
-        campaignId,
-        outletCount: localNewsOutletCount,
-      })
-    }
-  }, [localNewsReady, localNewsOutletCount, campaignId])
+    if (inDashboard || !localNewsReady) return
+    fireOnce(EVENTS.OnboardingV2.MediaResultsReceived, {
+      campaignId,
+      outletCount: localNewsOutletCount,
+    })
+  }, [inDashboard, localNewsReady, localNewsOutletCount, campaignId])
 
   useEffect(() => {
-    if (communityEventsReady) {
-      fireOnce(EVENTS.OnboardingV2.CommunityEventsResultsReceived, {
-        campaignId,
-        eventCount: communityEventsCount,
-      })
-    }
-  }, [communityEventsReady, communityEventsCount, campaignId])
+    if (inDashboard || !communityEventsReady) return
+    fireOnce(EVENTS.OnboardingV2.CommunityEventsResultsReceived, {
+      campaignId,
+      eventCount: communityEventsCount,
+    })
+  }, [inDashboard, communityEventsReady, communityEventsCount, campaignId])
 
   useEffect(() => {
-    if (strategyReady) {
-      fireOnce(EVENTS.OnboardingV2.StrategicLandscapeResultsReceived, {
-        campaignId,
-      })
-    }
-  }, [strategyReady, campaignId])
+    if (inDashboard || !strategyReady) return
+    fireOnce(EVENTS.OnboardingV2.StrategicLandscapeResultsReceived, {
+      campaignId,
+    })
+  }, [inDashboard, strategyReady, campaignId])
 
   // Displayed — fire once when the corresponding plan section renders with
   // real (non-skeleton) data. The ready data above is what PlanSections
@@ -338,22 +337,19 @@ const SuccessPage = ({
   // skeleton for content. Kept as separate effects so each dedup key is
   // independent.
   useEffect(() => {
-    if (localNewsReady) {
-      fireOnce(EVENTS.OnboardingV2.MediaDisplayed, { campaignId })
-    }
-  }, [localNewsReady, campaignId])
+    if (inDashboard || !localNewsReady) return
+    fireOnce(EVENTS.OnboardingV2.MediaDisplayed, { campaignId })
+  }, [inDashboard, localNewsReady, campaignId])
 
   useEffect(() => {
-    if (communityEventsReady) {
-      fireOnce(EVENTS.OnboardingV2.CommunityEventsDisplayed, { campaignId })
-    }
-  }, [communityEventsReady, campaignId])
+    if (inDashboard || !communityEventsReady) return
+    fireOnce(EVENTS.OnboardingV2.CommunityEventsDisplayed, { campaignId })
+  }, [inDashboard, communityEventsReady, campaignId])
 
   useEffect(() => {
-    if (strategyReady) {
-      fireOnce(EVENTS.OnboardingV2.StrategicLandscapeDisplayed, { campaignId })
-    }
-  }, [strategyReady, campaignId])
+    if (inDashboard || !strategyReady) return
+    fireOnce(EVENTS.OnboardingV2.StrategicLandscapeDisplayed, { campaignId })
+  }, [inDashboard, strategyReady, campaignId])
 
   const handleShare = () => setShareOpen(true)
 
