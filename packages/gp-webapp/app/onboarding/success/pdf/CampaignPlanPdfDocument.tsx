@@ -1068,7 +1068,11 @@ export const CampaignPlanPdfDocument = ({
         )}. Voter Insights For Your District`}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="The issues voters in your district care about most right now."
+        intro={
+          plan.hasDistrict
+            ? `The issues voters in ${plan.districtName} care about most right now.`
+            : 'The issues voters in your district care about most right now.'
+        }
         transition="Voter insights sharpen as you fill in your platform and we layer in district-specific survey data. Update your issues in Campaign Manager and this section will re-frame around your priorities."
       >
         <DefinitionList
