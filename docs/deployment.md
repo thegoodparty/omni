@@ -82,7 +82,24 @@ gp-api, election-api, and people-api build a production Docker image, push to EC
 
 ## CI layout
 
-Workflows live in `.github/workflows/`, one per package, path-filtered so only
-affected apps run. The primary validate job is named **"Validate"** across all
+Workflows live in `.github/workflows/`, one per package; every package's
+workflow runs on every PR (no path filters, except the infra-diffs workflow).
+The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
+
+## Dependency updates (Dependabot)
+
+Policy: **security updates only** — no version-bump PRs. Version updates are
+disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
+PRs are driven by Dependabot alerts (enabled in repo settings) and target
+`develop`.
+
+Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
+30 minutes and squash-merges any Dependabot PR that is approved (delegate
+reviews every PR), has all checks green, and whose last commit is at least 24
+hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+from auto-merge. Merges authenticate as the `omni-automation` GitHub App
+(`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
+push triggers the dev deploy workflows like any other merge. Auto-merge stops
+at `develop`; security fixes reach qa/prod through the normal promotion flow.
