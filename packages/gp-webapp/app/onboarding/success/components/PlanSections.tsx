@@ -468,13 +468,17 @@ const PlanSections = ({
   }))
 
   return (
-    // [&_li]:list-item restores bullet markers inside the dashboard shell:
-    // globals.css applies `[data-slot] li { display: flex }` to every list
-    // under the sidebar's data-slot wrapper, and a flex li renders no
-    // ::marker. The utility wins over that base-layer rule and matches how
-    // the same content renders on the onboarding success page. The section
-    // nav's Select portals out of this subtree, so it is unaffected.
-    <div className="text-left [&_li]:list-item">
+    // The [&_li]/[&_ul] utilities restore bullet rendering inside the
+    // dashboard shell: globals.css applies `[data-slot] li { display: flex }`
+    // (a flex li renders no ::marker) and `[data-slot] ul { list-style-type:
+    // none; padding-inline-start: 0 }` to everything under the sidebar's
+    // data-slot wrapper. Plain plan lists (Campaign Plan at a Glance, Key
+    // Dates) rely on base-layer list defaults, so they need the explicit
+    // disc + padding here too. These utilities win over the base-layer reset
+    // and match how the same content renders on the onboarding success page.
+    // The section nav's Select portals out of this subtree, so it is
+    // unaffected, and no styleguide component renders a ul in this tree.
+    <div className="text-left [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5">
       <PlanSectionNav
         sections={navSections}
         onStuckChange={onStuckChange}
