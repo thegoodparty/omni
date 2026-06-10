@@ -44,6 +44,9 @@ const SuccessPage = ({
   inDashboard = false,
 }: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
+  const planEvents = inDashboard
+    ? EVENTS.Dashboard.CampaignPlan
+    : EVENTS.OnboardingV2
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
   const [campaign] = useCampaign()
@@ -304,44 +307,30 @@ const SuccessPage = ({
   // OnboardingV2 events so the two contexts stay in separate funnels.
   useEffect(() => {
     if (campaignId === undefined) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.MediaRequested
-        : EVENTS.OnboardingV2.MediaRequested,
-      { campaignId },
-    )
-  }, [inDashboard, campaignId])
+    fireOnce(planEvents.MediaRequested, { campaignId })
+  }, [planEvents, campaignId])
 
   // Results Received — fire once when each resource's status first hits ready.
   useEffect(() => {
     if (!localNewsReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.MediaResultsReceived
-        : EVENTS.OnboardingV2.MediaResultsReceived,
-      { campaignId, outletCount: localNewsOutletCount },
-    )
-  }, [inDashboard, localNewsReady, localNewsOutletCount, campaignId])
+    fireOnce(planEvents.MediaResultsReceived, {
+      campaignId,
+      outletCount: localNewsOutletCount,
+    })
+  }, [planEvents, localNewsReady, localNewsOutletCount, campaignId])
 
   useEffect(() => {
     if (!communityEventsReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.CommunityEventsResultsReceived
-        : EVENTS.OnboardingV2.CommunityEventsResultsReceived,
-      { campaignId, eventCount: communityEventsCount },
-    )
-  }, [inDashboard, communityEventsReady, communityEventsCount, campaignId])
+    fireOnce(planEvents.CommunityEventsResultsReceived, {
+      campaignId,
+      eventCount: communityEventsCount,
+    })
+  }, [planEvents, communityEventsReady, communityEventsCount, campaignId])
 
   useEffect(() => {
     if (!strategyReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.StrategicLandscapeResultsReceived
-        : EVENTS.OnboardingV2.StrategicLandscapeResultsReceived,
-      { campaignId },
-    )
-  }, [inDashboard, strategyReady, campaignId])
+    fireOnce(planEvents.StrategicLandscapeResultsReceived, { campaignId })
+  }, [planEvents, strategyReady, campaignId])
 
   // Displayed — fire once when the corresponding plan section renders with
   // real (non-skeleton) data. The ready data above is what PlanSections
@@ -350,33 +339,18 @@ const SuccessPage = ({
   // independent.
   useEffect(() => {
     if (!localNewsReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.MediaDisplayed
-        : EVENTS.OnboardingV2.MediaDisplayed,
-      { campaignId },
-    )
-  }, [inDashboard, localNewsReady, campaignId])
+    fireOnce(planEvents.MediaDisplayed, { campaignId })
+  }, [planEvents, localNewsReady, campaignId])
 
   useEffect(() => {
     if (!communityEventsReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.CommunityEventsDisplayed
-        : EVENTS.OnboardingV2.CommunityEventsDisplayed,
-      { campaignId },
-    )
-  }, [inDashboard, communityEventsReady, campaignId])
+    fireOnce(planEvents.CommunityEventsDisplayed, { campaignId })
+  }, [planEvents, communityEventsReady, campaignId])
 
   useEffect(() => {
     if (!strategyReady) return
-    fireOnce(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.StrategicLandscapeDisplayed
-        : EVENTS.OnboardingV2.StrategicLandscapeDisplayed,
-      { campaignId },
-    )
-  }, [inDashboard, strategyReady, campaignId])
+    fireOnce(planEvents.StrategicLandscapeDisplayed, { campaignId })
+  }, [planEvents, strategyReady, campaignId])
 
   const handleShare = () => setShareOpen(true)
 
@@ -386,12 +360,7 @@ const SuccessPage = ({
     source: 'download-button' | 'reminder-modal',
   ) => {
     if (downloading || !planReady) return
-    trackEvent(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.PlanDownloaded
-        : EVENTS.OnboardingV2.PlanDownloaded,
-      { campaignId, source },
-    )
+    trackEvent(planEvents.PlanDownloaded, { campaignId, source })
     setDownloading(true)
     try {
       await downloadCampaignPlanPdf(plan, { liveUrl: shareUrl || undefined })
@@ -402,12 +371,7 @@ const SuccessPage = ({
   }
 
   const goToCampaignManager = (source: 'button' | 'reminder-modal') => {
-    trackEvent(
-      inDashboard
-        ? EVENTS.Dashboard.CampaignPlan.CampaignManagerClicked
-        : EVENTS.OnboardingV2.CampaignManagerClicked,
-      { campaignId, source },
-    )
+    trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
   }
 
