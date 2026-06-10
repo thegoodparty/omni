@@ -115,7 +115,10 @@ export class CampaignPlanSharesRateLimitGuard implements CanActivate {
   private sweepIdleBuckets(now: number): void {
     let removed = 0
     for (const [ip, bucket] of this.buckets) {
-      if (now - bucket.lastRefillMs >= CampaignPlanSharesRateLimitGuard.IDLE_TTL_MS) {
+      if (
+        now - bucket.lastRefillMs >=
+        CampaignPlanSharesRateLimitGuard.IDLE_TTL_MS
+      ) {
         this.buckets.delete(ip)
         removed++
       }
