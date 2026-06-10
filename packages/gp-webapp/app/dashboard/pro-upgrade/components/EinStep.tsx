@@ -58,8 +58,11 @@ const EinStep = (): React.JSX.Element => {
   // neutral, but the candidate was routed here to fix it — the guidance must
   // not vanish before anything is fixed).
   useEffect(() => {
-    if (hasInteracted.current) return
-    setEinInputValue(persistedEin)
+    if (!hasInteracted.current) {
+      setEinInputValue(persistedEin)
+    }
+    // Not behind the interaction guard: a bad EIN resolving after the
+    // candidate already started typing still needs the guidance to show.
     if (einIndicatorState(persistedEin) === false) setAttemptedSubmit(true)
   }, [persistedEin])
 

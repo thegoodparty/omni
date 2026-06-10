@@ -257,4 +257,22 @@ describe('EinStep', () => {
       await screen.findByText('Please add your campaign EIN'),
     ).toBeInTheDocument()
   })
+
+  it('surfaces the error when a bad persisted EIN resolves after typing started', async () => {
+    // No SSR initialData: the candidate starts typing while the campaign query
+    // is still pending, then it resolves with a legacy bad EIN. Their partial
+    // input must not be clobbered, but the error guidance still has to show —
+    // they were routed here to fix that EIN.
+    seedCampaign(undefined)
+    const { rerender } = render(<EinStep />)
+    setEin('1')
+
+    seedCampaign('07-1234567')
+    rerender(<EinStep />)
+
+    expect(
+      await screen.findByText('Please add your campaign EIN'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign EIN')).toHaveValue('1')
+  })
 })
