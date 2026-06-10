@@ -668,6 +668,7 @@ const PlanSections = ({
             city={voterInsightsContext?.city}
             state={voterInsightsContext?.state}
             office={voterInsightsContext?.office}
+            districtName={plan.hasDistrict ? plan.districtName : undefined}
             showLocalNewsSources={false}
             headingsAsSubsections
           />
