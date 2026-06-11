@@ -263,10 +263,11 @@ This command takes no arguments — the release target is always the omni monore
     - If merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL
     - If merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - If there were no changes between qa and develop: note it and stop (no PRs opened)
-    - If Phase 2 was aborted or the step-6 merge failed: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
+    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
       - if its checks had already settled `green` before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
       - if checks settled with failures before the abort: list with URL and note "checks failed — do not merge without investigating the failures or applying a fix first"
       - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
+    - If the step-6 merge failed (step 5 completed `green` or `merge-anyway`): checks already passed — only the merge command itself failed. List the develop→qa PR with URL and note "merge failed — re-run from step 6 or merge manually, then re-run from step 8"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
