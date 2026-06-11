@@ -278,7 +278,11 @@ export class CampaignStrategyService
       if (!raw) throw new Error('artifact is missing or empty')
 
       if (run.experimentType === OPPOSITION) {
-        await this.persister.persistOpponents(plan.id, parseOpponents(raw))
+        await this.persister.persistOpponents(
+          plan.id,
+          plan.raceId,
+          parseOpponents(raw),
+        )
         if (userId !== null) {
           void this.analytics
             .track(
@@ -301,6 +305,7 @@ export class CampaignStrategyService
           parseOpportunitiesAndChallenges(raw)
         await this.persister.persistOpportunitiesAndChallenges(
           plan.id,
+          plan.raceId,
           opportunities,
           challenges,
         )
@@ -848,16 +853,12 @@ export class CampaignStrategyService
     // result: the persister's write is guarded on the row's race stamp.
     this.inFlightEvents.delete(plan.campaignId)
 
-    const [, , , updated] = await this.client.$transaction([
-      this.client.campaignStrategyOpportunity.deleteMany({
-        where: { campaignStrategyId: plan.id },
-      }),
-      this.client.campaignStrategyChallenge.deleteMany({
-        where: { campaignStrategyId: plan.id },
-      }),
-      this.client.campaignStrategyOpponent.deleteMany({
-        where: { campaignStrategyId: plan.id },
-      }),
+    // The plan update goes FIRST so this transaction takes the plan row's
+    // lock before touching children. A persist transaction claims the same
+    // row as its first statement, so the two serialize: whichever locks
+    // first wins, and a persist that loses sees the new stamp and drops its
+    // stale result instead of inserting children behind this delete.
+    const [updated] = await this.client.$transaction([
       this.model.update({
         where: { id: plan.id },
         data: {
@@ -870,6 +871,15 @@ export class CampaignStrategyService
           generationStartedAt: null,
           communityEvents: Prisma.DbNull,
         },
+      }),
+      this.client.campaignStrategyOpportunity.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      }),
+      this.client.campaignStrategyChallenge.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      }),
+      this.client.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
       }),
     ])
 

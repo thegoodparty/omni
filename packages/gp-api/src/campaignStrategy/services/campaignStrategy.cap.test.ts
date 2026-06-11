@@ -487,7 +487,7 @@ describe('CampaignStrategyService', () => {
       run({ runId: 'opp-run', experimentType: 'opposition_research' }),
     )
 
-    expect(persister.persistOpponents).toHaveBeenCalledWith(42, [
+    expect(persister.persistOpponents).toHaveBeenCalledWith(42, 'br-general', [
       { fullName: 'Rival', partyAffiliation: 'Nonpartisan', incumbent: true },
     ])
   })
@@ -503,6 +503,7 @@ describe('CampaignStrategyService', () => {
 
     expect(persister.persistOpportunitiesAndChallenges).toHaveBeenCalledWith(
       42,
+      'br-general',
       ['o1', 'o2'],
       ['c1'],
     )
@@ -543,7 +544,11 @@ describe('CampaignStrategyService', () => {
       run({ runId: 'opp-run', experimentType: 'opposition_research' }),
     )
 
-    expect(persister.persistOpponents).toHaveBeenCalledWith(42, [])
+    expect(persister.persistOpponents).toHaveBeenCalledWith(
+      42,
+      'br-general',
+      [],
+    )
     expect(experimentRuns.markFailed).not.toHaveBeenCalled()
   })
 
