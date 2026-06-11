@@ -103,6 +103,11 @@ describe('CampaignStrategyService — community events', () => {
       | 'updateMany',
       ReturnType<typeof vi.fn>
     >
+    campaignStrategyOpportunity: Record<'deleteMany', ReturnType<typeof vi.fn>>
+    campaignStrategyChallenge: Record<'deleteMany', ReturnType<typeof vi.fn>>
+    campaignStrategyOpponent: Record<'deleteMany', ReturnType<typeof vi.fn>>
+    campaign: Record<'findUnique', ReturnType<typeof vi.fn>>
+    $transaction: ReturnType<typeof vi.fn>
   }
   let mockEvents: { generate: ReturnType<typeof vi.fn> }
   let mockElectionApi: { getRaceContext: ReturnType<typeof vi.fn> }
@@ -111,7 +116,12 @@ describe('CampaignStrategyService — community events', () => {
   beforeEach(async () => {
     mockPrisma = {
       campaignStrategy: {
-        upsert: vi.fn().mockResolvedValue({ id: 42, campaignId: 99 }),
+        upsert: vi.fn().mockResolvedValue({
+          id: 42,
+          campaignId: 99,
+          raceId: 'hash-abc',
+          previousRaceIds: [],
+        }),
         findUnique: vi.fn(),
         findMany: vi.fn(),
         findFirst: vi.fn(),
@@ -121,6 +131,19 @@ describe('CampaignStrategyService — community events', () => {
         update: vi.fn(),
         updateMany: vi.fn(),
       },
+      campaignStrategyOpportunity: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      campaignStrategyChallenge: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      campaignStrategyOpponent: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
+      },
+      $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     }
     mockEvents = { generate: vi.fn() }
     mockElectionApi = { getRaceContext: vi.fn().mockResolvedValue(apiCtx) }
@@ -230,6 +253,42 @@ describe('CampaignStrategyService — community events', () => {
 
       expect(result).toEqual({ status: 'ready', data: { events: [] } })
       expect(mockEvents.generate).not.toHaveBeenCalled()
+    })
+
+    it('discards cached events and regenerates when the campaign race changed', async () => {
+      // The row was generated for a different race than the campaign now has.
+      mockPrisma.campaignStrategy.upsert.mockResolvedValue({
+        id: 42,
+        campaignId: 99,
+        raceId: 'hash-OLD',
+        previousRaceIds: [],
+        communityEvents: { events: [{ title: 'Stale event' }] },
+      })
+      mockPrisma.campaignStrategy.update.mockResolvedValue({
+        id: 42,
+        campaignId: 99,
+        raceId: 'hash-abc',
+        previousRaceIds: ['hash-OLD'],
+      })
+      // Post-reset cache read sees the wiped column.
+      mockPrisma.campaignStrategy.findUnique.mockResolvedValue({
+        communityEvents: null,
+      })
+
+      const result = await service.getOrGenerateCommunityEvents(
+        buildCampaign({ details: eventsDetails }),
+      )
+
+      expect(result).toEqual({ status: 'generating' })
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.campaignStrategy.update).toHaveBeenCalledWith({
+        where: { id: 42 },
+        data: expect.objectContaining({
+          raceId: 'hash-abc',
+          previousRaceIds: { push: 'hash-OLD' },
+        }),
+      })
+      await service.drainInFlight()
     })
 
     it('treats malformed JSON as cache miss and kicks off generation', async () => {
@@ -447,6 +506,51 @@ describe('CampaignStrategyService — community events', () => {
       expect(second).toEqual({ status: 'ready', data: { events: [] } })
       expect(mockElectionApi.getRaceContext).not.toHaveBeenCalled()
       expect(mockEvents.generate).not.toHaveBeenCalled()
+    })
+
+    it('a race change clears the short-circuit so the new race gets a fresh lookup', async () => {
+      mockPrisma.campaignStrategy.findUnique.mockResolvedValue({
+        communityEvents: null,
+      })
+      mockElectionApi.getRaceContext.mockRejectedValueOnce(
+        new ElectionApiRaceNotFoundError('hash-abc'),
+      )
+      const eventsDetails = {
+        party: 'Independent',
+        raceId: 'hash-abc',
+        electionDate: '2026-11-03',
+        state: 'CA',
+        city: 'Anytown',
+        zip: '94110',
+      }
+
+      // First call 404s and arms the short-circuit for the campaign.
+      await service.getOrGenerateCommunityEvents(
+        buildCampaign({ details: eventsDetails }),
+      )
+      await service.drainInFlight()
+
+      // The campaign switches to a new race; the upsert returns the row
+      // still stamped with the old one.
+      mockPrisma.campaignStrategy.update.mockResolvedValue({
+        id: 42,
+        campaignId: 99,
+        raceId: 'hash-NEW',
+        previousRaceIds: ['hash-abc'],
+      })
+      mockElectionApi.getRaceContext.mockClear()
+      mockElectionApi.getRaceContext.mockResolvedValue(apiCtx)
+
+      const result = await service.getOrGenerateCommunityEvents(
+        buildCampaign({
+          details: { ...eventsDetails, raceId: 'hash-NEW' },
+        }),
+      )
+
+      // Not short-circuited to ready+empty — the new race regenerates.
+      expect(result).toEqual({ status: 'generating' })
+      await service.drainInFlight()
+      expect(mockElectionApi.getRaceContext).toHaveBeenCalled()
     })
   })
 })

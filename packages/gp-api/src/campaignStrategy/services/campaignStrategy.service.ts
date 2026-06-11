@@ -10,6 +10,7 @@ import {
   CampaignStrategy,
   ExperimentRun,
   ExperimentRunStatus,
+  Prisma,
 } from '../../generated/prisma'
 import { format, isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
@@ -59,8 +60,10 @@ const PERSIST_GRACE_MINUTES = 5
 // transient error can just retry. The cap stops a deterministic failure — or a
 // client/attacker hammering the endpoint — from spawning unbounded Fargate
 // runs. Enforced with an atomic conditional increment, so even a concurrent
-// burst can claim at most this many slots.
-const MAX_SECTION_ATTEMPTS = 3
+// burst can claim at most this many slots. Deliberately NOT reset on a race
+// change (it bounds lifetime spend per campaign, not per race), so the cap is
+// sized to leave headroom for a few office changes.
+const MAX_SECTION_ATTEMPTS = 10
 
 // Per-section disposition that drives the endpoint status. 'redispatch' is the
 // only state that starts a new run; the others are read off existing state.
@@ -202,7 +205,10 @@ export class CampaignStrategyService
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const plan = await this.upsertForCampaign(campaign.id)
+    const plan = await this.alignPlanWithRace(
+      await this.upsertForCampaign(campaign.id, brHashId),
+      brHashId,
+    )
 
     const [opposition, opportunities] = await Promise.all([
       this.runFor(plan.oppositionRunId),
@@ -335,6 +341,13 @@ export class CampaignStrategyService
     const brHashId = resolveRaceId(campaign.details)
     const electionDate = resolveElectionDate(campaign.details)
 
+    // Align before consulting the 404 short-circuit: a race change clears
+    // the campaign's raceDataUnavailable entry, so the order matters.
+    const plan = await this.alignPlanWithRace(
+      await this.upsertForCampaign(campaign.id, brHashId),
+      brHashId,
+    )
+
     // See raceDataUnavailable definition. Both pipelines (community
     // events and strategic landscape) call electionApi.getRaceContext,
     // so a 404 affects both — the cache is shared and either pipeline
@@ -343,7 +356,6 @@ export class CampaignStrategyService
       return { status: 'ready', data: EMPTY_COMMUNITY_EVENTS }
     }
 
-    const plan = await this.upsertForCampaign(campaign.id)
     const cached = await this.readCommunityEvents(plan.id)
     if (cached) return { status: 'ready', data: cached }
 
@@ -766,6 +778,7 @@ export class CampaignStrategyService
 
   private async upsertForCampaign(
     campaignId: number,
+    raceId: string,
   ): Promise<CampaignStrategy> {
     // Prisma's `upsert` is not transactional in Postgres — it issues a
     // SELECT followed by an INSERT-or-UPDATE. Two requests landing in the
@@ -777,7 +790,7 @@ export class CampaignStrategyService
     try {
       return await this.client.campaignStrategy.upsert({
         where: { campaignId },
-        create: { campaignId },
+        create: { campaignId, raceId },
         update: {},
       })
     } catch (error) {
@@ -786,6 +799,80 @@ export class CampaignStrategyService
         where: { campaignId },
       })
     }
+  }
+
+  // Brings a plan row in line with the campaign's current race before any
+  // cached content is served. Three cases:
+  //   match    → no-op.
+  //   null     → legacy row from before the stamp existed; adopt the current
+  //              race without resetting (the backfill blessed its content).
+  //   mismatch → the office changed since generation. Every cached artifact
+  //              (CAP runs, persisted sections, community events) belongs to
+  //              the previous race, so wipe content in place and let the
+  //              caller regenerate. The row itself survives so the dashboard
+  //              gate (hasCampaignStrategy / the exists endpoint) stays open
+  //              and the user sees skeletons instead of a vanished plan.
+  //              Attempt counters deliberately survive — they bound lifetime
+  //              Fargate spend per campaign, not per race. Clearing the run
+  //              ids orphans any in-flight run for the old race:
+  //              onExperimentRunCompleted looks the plan up by run id and
+  //              finds nothing.
+  private async alignPlanWithRace(
+    plan: CampaignStrategy,
+    raceId: string,
+  ): Promise<CampaignStrategy> {
+    if (plan.raceId === raceId) return plan
+
+    if (plan.raceId === null) {
+      return this.model.update({
+        where: { id: plan.id },
+        data: { raceId },
+      })
+    }
+
+    // The 404 short-circuit was observed for the previous race; the new
+    // race deserves a fresh lookup.
+    this.raceDataUnavailable.delete(plan.campaignId)
+
+    const [, , , updated] = await this.client.$transaction([
+      this.client.campaignStrategyOpportunity.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      }),
+      this.client.campaignStrategyChallenge.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      }),
+      this.client.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      }),
+      this.model.update({
+        where: { id: plan.id },
+        data: {
+          raceId,
+          previousRaceIds: { push: plan.raceId },
+          oppositionRunId: null,
+          opportunitiesRunId: null,
+          oppositionPersistedAt: null,
+          opportunitiesPersistedAt: null,
+          generationStartedAt: null,
+          communityEvents: Prisma.DbNull,
+        },
+      }),
+    ])
+
+    const userId = await this.resolveCampaignUserId(plan.campaignId)
+    if (userId !== null) {
+      void this.analytics
+        .track(userId, EVENTS.CampaignPlanV2.StrategyRaceChanged, {
+          campaignId: plan.campaignId,
+          planId: plan.id,
+          previousRaceId: plan.raceId,
+          newRaceId: raceId,
+          raceChangeCount: updated.previousRaceIds.length,
+        })
+        .catch(() => undefined)
+    }
+
+    return updated
   }
 
   private async readStrategicLandscape(
