@@ -1,5 +1,7 @@
 'use client'
 import React, { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
   createCampaignWithOffice,
   onboardingStep,
@@ -48,6 +50,7 @@ export default function OfficeStep({
   organizationSlug,
 }: OfficeStepProps): React.JSX.Element {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const existingRaceId = campaign?.details?.raceId
   const existingElectionId = campaign?.details?.electionId
   const hasOrgPositionMetadata = Boolean(campaign?.organization?.positionId)
@@ -214,6 +217,11 @@ export default function OfficeStep({
     if (step) {
       router.push(`/onboarding/${campaign?.slug}/${step + 1}`)
     }
+    // The save re-pointed organization.position_id (and details.raceId);
+    // anything reading the cached campaign — Section 4's org-keyed stats,
+    // raceTargetMetrics, the plan's race fields — should see the new office
+    // without waiting out staleTime or reloading.
+    await queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
     if (updateCallback) {
       await updateCallback()
     }

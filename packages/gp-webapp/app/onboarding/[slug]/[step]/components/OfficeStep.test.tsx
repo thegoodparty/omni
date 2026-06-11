@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { render } from 'helpers/test-utils/render'
 import OfficeStep from './OfficeStep'
 import type { Campaign } from 'helpers/types'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
