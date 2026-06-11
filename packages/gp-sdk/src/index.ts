@@ -93,6 +93,8 @@ export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
 
 export type {
   BriefingAdminDateRange,
+  BriefingReviewStatusFilter,
+  BriefingAdminReview,
   BriefingAdminListQuery,
   BriefingAdminRow,
 } from './types/briefing'

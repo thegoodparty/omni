@@ -1,0 +1,33 @@
+enum ArtifactReviewVerdict {
+  passed
+  failed
+}
+
+enum ArtifactReviewResourceType {
+  briefing
+}
+
+// Polymorphic pass/fail verdict on a reviewable artifact. No FK to the
+// reviewed row (one column can't relate to many tables) — same accepted
+// tradeoff as Annotation.resourceId. One current verdict per artifact,
+// last-write-wins via upsert on the unique pair.
+model ArtifactReview {
+  id String @id @default(uuid(7))
+
+  resourceId   String                     @map("resource_id")
+  resourceType ArtifactReviewResourceType @map("resource_type")
+
+  verdict    ArtifactReviewVerdict
+  failReason String?               @map("fail_reason") @db.VarChar(2000)
+
+  // Reviewer identity as strings, not a User FK — gp-admin reviewers live
+  // in a different Clerk instance (same rationale as AnnotationReview).
+  reviewerClerkSub String  @map("reviewer_clerk_sub")
+  reviewerEmail    String? @map("reviewer_email")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([resourceType, resourceId])
+  @@map("artifact_review")
+}

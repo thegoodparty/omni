@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Table, Text } from '@radix-ui/themes'
+import { Badge, Table, Text } from '@radix-ui/themes'
 import { formatDate } from '@/lib/utils/date'
 import { ReviewBriefingButton } from './ReviewBriefingButton'
 import type { BriefingAdminRow } from '../types'
@@ -27,6 +27,7 @@ export function BriefingList({ briefings }: BriefingListProps) {
           <Table.ColumnHeaderCell>Meeting date</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Meeting name</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Updated</Table.ColumnHeaderCell>
+          <Table.ColumnHeaderCell>Review</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Action</Table.ColumnHeaderCell>
         </Table.Row>
       </Table.Header>
@@ -51,6 +52,30 @@ export function BriefingList({ briefings }: BriefingListProps) {
             <Table.Cell>{formatDate(briefing.meetingDate)}</Table.Cell>
             <Table.Cell>{briefing.meetingName ?? '—'}</Table.Cell>
             <Table.Cell>{formatDate(briefing.updatedAt)}</Table.Cell>
+            <Table.Cell>
+              {briefing.review ? (
+                <>
+                  <Badge
+                    color={
+                      briefing.review.verdict === 'passed' ? 'green' : 'red'
+                    }
+                    title={briefing.review.failReason ?? undefined}
+                  >
+                    {briefing.review.verdict === 'passed' ? 'Passed' : 'Failed'}
+                  </Badge>
+                  <Text as="div" size="1" color="gray">
+                    {[
+                      briefing.review.reviewerEmail,
+                      formatDate(briefing.review.reviewedAt),
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  </Text>
+                </>
+              ) : (
+                <Badge color="gray">Pending</Badge>
+              )}
+            </Table.Cell>
             <Table.Cell>
               <ReviewBriefingButton briefingId={briefing.briefingId} />
             </Table.Cell>
