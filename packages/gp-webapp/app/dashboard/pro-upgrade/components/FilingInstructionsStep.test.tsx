@@ -120,14 +120,10 @@ describe('FilingInstructionsStep', () => {
 
     render(<FilingInstructionsStep />)
 
-    // The shared test query client uses the prod retry policy (2 retries with
-    // backoff), so isError only flips after the attempts exhaust (~3s).
-    await waitFor(
-      () =>
-        expect(errorSnackbar).toHaveBeenCalledWith(
-          'Failed to load filing instructions. Please try again.',
-        ),
-      { timeout: 5000 },
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Failed to load filing instructions. Please try again.',
+      ),
     )
   })
 
