@@ -365,6 +365,109 @@ describe('TasksList revert completion flow', () => {
     expect(textTotal).toBe(5)
   })
 
+  it('updates the events voter-contact counter on successful completion', async () => {
+    const user = userEvent.setup()
+    const eventsTask = makeTask({
+      flowType: TASK_TYPES.events,
+      completed: false,
+    })
+    const completedEventsTask = { ...eventsTask, completed: true }
+
+    let eventsTotal = 0
+    mockUpdateVoterContactsLocal.mockImplementation((updater) => {
+      const prev = {
+        doorKnocking: 0,
+        calls: 0,
+        digital: 0,
+        directMail: 0,
+        digitalAds: 0,
+        text: 0,
+        events: eventsTotal,
+        yardSigns: 0,
+        robocall: 0,
+        phoneBanking: 0,
+        socialMedia: 0,
+      }
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      eventsTotal = next.events
+    })
+
+    mockClientFetch.mockImplementation(
+      (route: { method?: string; path?: string }) => {
+        if (
+          route.method === 'PUT' &&
+          route.path?.includes('/campaigns/tasks/complete/')
+        ) {
+          return Promise.resolve({ ok: true, data: completedEventsTask })
+        }
+        return Promise.resolve({ ok: true, data: [] })
+      },
+    )
+
+    render(<TasksList campaign={makeCampaign()} tasks={[eventsTask]} />)
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Save count' }))
+
+    await waitFor(() => {
+      expect(eventsTotal).toBe(5)
+    })
+  })
+
+  it('rolls back the events voter-contact counter when completion fails', async () => {
+    const user = userEvent.setup()
+    const eventsTask = makeTask({
+      flowType: TASK_TYPES.events,
+      completed: false,
+    })
+
+    let eventsTotal = 0
+    const eventsValues: number[] = []
+    mockUpdateVoterContactsLocal.mockImplementation((updater) => {
+      const prev = {
+        doorKnocking: 0,
+        calls: 0,
+        digital: 0,
+        directMail: 0,
+        digitalAds: 0,
+        text: 0,
+        events: eventsTotal,
+        yardSigns: 0,
+        robocall: 0,
+        phoneBanking: 0,
+        socialMedia: 0,
+      }
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      eventsTotal = next.events
+      eventsValues.push(eventsTotal)
+    })
+
+    mockClientFetch.mockImplementation(
+      (route: { method?: string; path?: string }) => {
+        if (
+          route.method === 'PUT' &&
+          route.path?.includes('/campaigns/tasks/complete/')
+        ) {
+          return Promise.resolve({ ok: false, status: 500 })
+        }
+        return Promise.resolve({ ok: true, data: [] })
+      },
+    )
+
+    render(<TasksList campaign={makeCampaign()} tasks={[eventsTask]} />)
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Save count' }))
+
+    await waitFor(() => {
+      expect(mockErrorSnackbar).toHaveBeenCalledWith('Failed to complete task')
+    })
+
+    // Optimistically added +5 to events, then rolled back to 0 on failure.
+    expect(eventsValues).toEqual([5, 0])
+    expect(eventsTotal).toBe(0)
+  })
+
   it('shows error snackbar when revert API fails', async () => {
     const user = userEvent.setup()
     const completedTask = makeTask({ completed: true })
