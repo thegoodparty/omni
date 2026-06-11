@@ -15,7 +15,7 @@ const slugify = (s: string): string =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'campaign-plan'
 
-export type Options = {
+export type CampaignPlanPdfOptions = {
   liveUrl?: string
 }
 
@@ -29,7 +29,7 @@ const buildQrDataUrl = (url: string): Promise<string> =>
 
 export const generateCampaignPlanPdfBlob = async (
   plan: PlanData,
-  options: Options = {},
+  options: CampaignPlanPdfOptions = {},
 ): Promise<Blob> => {
   const liveQrDataUrl = options.liveUrl
     ? await buildQrDataUrl(options.liveUrl)
@@ -69,7 +69,7 @@ export const generateCampaignPlanPdfBlob = async (
 
 export const downloadCampaignPlanPdf = async (
   plan: PlanData,
-  options: Options = {},
+  options: CampaignPlanPdfOptions = {},
 ): Promise<void> => {
   const blob = await generateCampaignPlanPdfBlob(plan, options)
 
