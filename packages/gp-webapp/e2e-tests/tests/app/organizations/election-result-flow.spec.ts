@@ -8,7 +8,7 @@ import {
   getSelectedOrgName,
   getOrgPickerOptions,
 } from 'src/helpers/organizations'
-import { wait } from 'tests/utils/eventually'
+import { eventually, wait } from 'tests/utils/eventually'
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -39,8 +39,20 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   await NavigationHelper.navigateToPage(page, '/dashboard/polls')
   await NavigationHelper.dismissOverlays(page)
 
-  const orgsAfter = await getOrgPickerOptions(page)
-  expect(orgsAfter).toHaveLength(2)
+  // EO org creation is async server-side — the picker may not reflect it
+  // immediately after the briefings redirect. Retry until it appears.
+  let orgsAfter: string[] = []
+  await eventually(
+    { that: 'org picker shows 2 organizations after EO org creation' },
+    async () => {
+      orgsAfter = await getOrgPickerOptions(page)
+      if (orgsAfter.length !== 2) {
+        throw new Error(
+          `Expected 2 orgs in picker, got ${orgsAfter.length}: ${orgsAfter.join(', ')}`,
+        )
+      }
+    },
+  )
 
   const selectedOrg = await getSelectedOrgName(page)
   expect(selectedOrg).toBeTruthy()
