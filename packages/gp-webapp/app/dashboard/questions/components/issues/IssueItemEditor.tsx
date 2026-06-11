@@ -105,7 +105,7 @@ const IssueItemEditor = ({
             p-4
             rounded-lg
             mt-2
-            bg-brand-halo-green-300
+            bg-muted
           "
       >
         <IssueItemLabel name={name || ''} numPositions={positions?.length} />

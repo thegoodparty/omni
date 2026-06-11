@@ -128,7 +128,7 @@ const EmailFormV2 = ({
               ) : (
                 <Button
                   variant="secondary"
-                  className="bg-secondary border-none"
+                  className="border-none"
                   onClick={submitForm}
                 >
                   {label}

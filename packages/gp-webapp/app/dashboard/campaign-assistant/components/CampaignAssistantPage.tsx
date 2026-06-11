@@ -25,7 +25,7 @@ const CampaignAssistantPage = (
           <CreateNewChat />
         </header>
 
-        <div className="grow overflow-hidden rounded-md bg-indigo-100 border border-black/[0.12] flex flex-col relative">
+        <div className="grow overflow-hidden rounded-md bg-muted border border-black/[0.12] flex flex-col relative">
           <Chat />
           <ChatInput />
         </div>

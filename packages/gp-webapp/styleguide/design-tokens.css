@@ -998,11 +998,7 @@
   --theme-info-light: var(--tw-blue-300);
   --theme-info-dark: var(--tw-blue-800);
   --theme-info-foreground: #ffffff;
-  --theme-info-focus: color-mix(
-    in srgb,
-    var(--tw-blue-600) 30%,
-    transparent
-  );
+  --theme-info-focus: color-mix(in srgb, var(--tw-blue-600) 30%, transparent);
   --theme-warning: var(--tw-orange-600);
   --theme-warning-light: var(--tw-orange-300);
   --theme-warning-dark: var(--tw-orange-800);
