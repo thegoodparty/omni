@@ -59,36 +59,6 @@ export const throttleRequestsWithRetry = (
     limiter.schedule({ weight: weight ?? 1 }, fn)
 }
 
-type GatewayError = Error & { response?: { status?: number } }
-
-const isGatewayError = (error: GatewayError): boolean => {
-  const status = error.response?.status
-  return status === 502 || status === 503 || status === 504
-}
-
-export const retryOnGatewayError = async <T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  baseDelayMs = 1000,
-): Promise<T> => {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn()
-    } catch (error) {
-      if (attempt < maxRetries && isGatewayError(error as GatewayError)) {
-        const delay = baseDelayMs * Math.pow(2, attempt - 1)
-        console.log(
-          `[api-retry] ${(error as GatewayError).response?.status} — attempt ${attempt}/${maxRetries}, waiting ${delay}ms`,
-        )
-        await new Promise((resolve) => setTimeout(resolve, delay))
-        continue
-      }
-      throw error
-    }
-  }
-  throw new Error('retryOnGatewayError: unreachable')
-}
-
 // https://clerk.com/docs/guides/how-clerk-works/system-limits#backend-api-requests
 const CLERK_DEV_RATE_LIMIT = 100
 const CLERK_RATE_WINDOW_MS = 10_000

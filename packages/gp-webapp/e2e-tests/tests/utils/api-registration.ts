@@ -4,10 +4,7 @@ import axios, { type AxiosInstance } from 'axios'
 import { createClerkClient } from '@clerk/backend'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from 'src/helpers/data.helper'
-import {
-  clerkThrottle,
-  retryOnGatewayError,
-} from './throttle-requests-with-retry'
+import { clerkThrottle } from './throttle-requests-with-retry'
 
 const baseURL = process.env.BASE_URL
 
@@ -196,10 +193,13 @@ const bootstrapTestUser = async (
     return result
   }
 
-  const { data: races } = await retryOnGatewayError(() =>
-    client.get<Race[]>('/v1/elections/races-by-year', {
-      params: { zipcode: zip },
-    }),
+  const { data: races } = await client.get<Race[]>(
+    '/v1/elections/races-by-year',
+    {
+      params: {
+        zipcode: zip,
+      },
+    },
   )
 
   const desiredRace = options?.race?.office ?? 'Cheyenne City Council - Ward 1'
@@ -215,8 +215,9 @@ const bootstrapTestUser = async (
     throw new Error('No race found for the specific office selector')
   }
 
-  const { data: campaign } = await retryOnGatewayError(() =>
-    client.post<{ id: number }>('/v1/campaigns', {
+  const { data: campaign } = await client.post<{ id: number }>(
+    '/v1/campaigns',
+    {
       ballotReadyPositionId: race.brPositionId,
       details: {
         // electionId: the /v1/elections/races-by-year response does not include
@@ -235,7 +236,7 @@ const bootstrapTestUser = async (
         filingPeriodsEnd: race.filingPeriods?.[0]?.endOn,
       },
       data: { currentStep: 'onboarding-1' },
-    }),
+    },
   )
 
   if (!campaign?.id) {
