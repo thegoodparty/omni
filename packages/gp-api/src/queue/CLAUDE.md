@@ -22,6 +22,7 @@ A short overview also lives in `README.md`.
 ## Patterns
 
 - **Adding a new async job** = three steps: (1) add a `QueueType` enum value + data shape in `queue.types.ts`, (2) call `queueProducer.enqueue({ type, data })` from the originating module, (3) add a case in `queueConsumer.service.ts` that calls a handler defined in the owning feature module (e.g. `CampaignsService.handleWeeklyTasksDigest`). The consumer should not contain business logic — it dispatches.
+- **Tracking a job's outcome** — if a job's success/failure is something a dashboard asks about, fire the Segment event from the handler (the server is the source of truth for completion, not the frontend) per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).
 - **`MessageGroupId` enforces FIFO ordering** per logical key (e.g. `agent-dispatch-{organizationSlug}`). Pick a group that gives you the ordering you actually need; over-broad groups serialize the queue.
 - **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern).
 - **Import `QueueProducerModule` wherever you enqueue.** Feature modules should depend on the producer side only; never import `QueueConsumerModule` from feature code.
