@@ -74,8 +74,10 @@ export const VoterDemographicsStep = ({
       context: 'onboarding.voterDemographics.fetchStats',
       ballotReadyPositionId,
       districtId,
+      // The only identifier present on the param-less (org-derived) path.
+      orgPositionId,
     })
-  }, [query.error, ballotReadyPositionId, districtId])
+  }, [query.error, ballotReadyPositionId, districtId, orgPositionId])
 
   const isLoading =
     query.isPending &&
