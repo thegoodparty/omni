@@ -11,7 +11,7 @@ const DashboardMobile: React.FC<DashboardMobileProps> = ({
   user,
   pathname,
 }) => (
-  <div className="w-[270px] bg-primary-dark text-white h-screen overflow-auto px-4 pt-24">
+  <div className="w-[270px] bg-secondary text-white h-screen overflow-auto px-4 pt-24">
     <H3 className="mb-8">
       {user.firstName} {user.lastName}
     </H3>

@@ -32,7 +32,7 @@ export const Footer = ({
   }
 
   return (
-    <footer className="bg-primary-dark px-8 py-6 border-solid border-t border-zinc-200 pt-10">
+    <footer className="bg-secondary px-8 py-6 border-solid border-t border-zinc-200 pt-10">
       <MaxWidth>
         <div className="grid grid-cols-12">
           {FOOTER_COLUMNS.map((column) => (

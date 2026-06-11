@@ -66,7 +66,7 @@ export default function BudgetStep({
         )}
         <div className="mt-4 grid grid-cols-12 gap-4">
           <div className="col-span-6">
-            <div className="p-4 rounded-2xl bg-neutral-background text-left ">
+            <div className="p-4 rounded-2xl bg-grayscale-50 text-left ">
               <Overline className=" text-gray-600 mb-3 tracking-widest">
                 AT
               </Overline>
@@ -77,7 +77,7 @@ export default function BudgetStep({
             </div>
           </div>
           <div className="col-span-6">
-            <div className="p-4 rounded-2xl bg-neutral-background text-left overflow-auto">
+            <div className="p-4 rounded-2xl bg-grayscale-50 text-left overflow-auto">
               <Overline className=" text-gray-600 mb-3 tracking-widest">
                 YOU CAN {isTel ? 'CALL' : 'SEND'}
               </Overline>
