@@ -113,7 +113,7 @@ This command takes no arguments — the release target is always the omni monore
    gh pr merge <pr_number> --merge
    ```
 
-   If `gh pr merge` fails (non-zero exit), **stop here** — do not proceed to step 7 or 8. Phase 3 and Phase 4 both assume the develop→qa merge landed; running them against a failed merge opens a `qa → master` PR with no new content. Report the error and point the user to the Troubleshooting table below.
+   If `gh pr merge` fails (non-zero exit), **stop here** — do not proceed to step 7 or 8. Phase 3 and Phase 4 both assume the develop→qa merge landed; running them against a failed merge opens a `qa → master` PR with no new content. Report the error and point the user to the Troubleshooting table below, then skip to the step 16 final report.
 
    `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes.
 
@@ -126,7 +126,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 3: qa → master (pending release)
 
-8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if step 5 ended in `abort` — nothing was merged, so there is no new state to release). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
+8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if step 5 ended in `abort`, or if step 6's merge failed — in either case nothing was merged, so there is no new state to release). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
@@ -263,7 +263,7 @@ This command takes no arguments — the release target is always the omni monore
     - If merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL
     - If merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - If there were no changes between qa and develop: note it and stop (no PRs opened)
-    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
+    - If Phase 2 was aborted or the step-6 merge failed: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
       - if its checks had already settled `green` before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
       - if checks settled with failures before the abort: list with URL and note "checks failed — do not merge without investigating the failures or applying a fix first"
       - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
