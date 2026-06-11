@@ -50,6 +50,31 @@ describe('onboardingDistrictStatsQueryOptions', () => {
     await waitFor(() => expect(result.current.data).toEqual(statsResponse))
   })
 
+  it('prefers server-side derivation over a provided BR position id', async () => {
+    // Post-race-edit, the BR id is the stale onboarding snapshot riding
+    // along for cache-key alignment — the request must NOT send it when
+    // the org pointer can derive the district server-side.
+    let capturedQuery: Record<string, unknown> | undefined
+    api.mock('GET /v1/onboarding/contacts/stats', (req) => {
+      capturedQuery = req.query as unknown as Record<string, unknown>
+      return { status: 200, data: statsResponse }
+    })
+
+    const { result } = renderHook(
+      () =>
+        useQuery(
+          onboardingDistrictStatsQueryOptions({
+            ballotReadyPositionId: 'br-stale-snapshot',
+            orgPositionId: 'gp-uuid-1',
+          }),
+        ),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(result.current.data).toEqual(statsResponse))
+    expect(capturedQuery?.ballotReadyPositionId).toBeUndefined()
+  })
+
   it('stays disabled when no identifier is available', () => {
     // Manual-office campaigns have neither a BR position id nor an org
     // position — firing would be a guaranteed 400.

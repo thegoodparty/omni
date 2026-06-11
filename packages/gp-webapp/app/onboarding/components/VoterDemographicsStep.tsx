@@ -29,7 +29,13 @@ const onboardingDistrictStatsQueryOptions = (params: {
     ),
     queryFn: () =>
       clientRequest('GET /v1/onboarding/contacts/stats', {
-        ballotReadyPositionId: params.ballotReadyPositionId,
+        // Prefer server-side derivation whenever the org pointer exists:
+        // it survives race edits, while a provided BR position id may be
+        // the stale onboarding snapshot. The id still participates in the
+        // cache key above for warm-cache alignment with onboarding.
+        ballotReadyPositionId: params.orgPositionId
+          ? undefined
+          : params.ballotReadyPositionId,
         districtId: params.districtId,
       }).then((res) => res.data),
   })

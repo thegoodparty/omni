@@ -35,6 +35,9 @@ const voterIssuesQueryOptions = (params: {
 }) =>
   queryOptions({
     queryKey: [VOTER_ISSUES_QUERY_KEY, params] as const,
+    // Without either identifier the org has no resolvable district (manual
+    // office entry) and the request is a guaranteed 404 — stay idle.
+    enabled: Boolean(params.ballotReadyPositionId || params.orgPositionId),
     queryFn: () =>
       clientRequest(VOTER_ISSUES_ROUTE, {}).then((res) => res.data),
   })
@@ -80,6 +83,12 @@ export const TopVoterIssuesSection = ({
 
   const issues = query.data?.issues ?? []
 
+  // Disabled queries stay isPending forever — without this, a campaign
+  // with no identifiers would render an eternal skeleton instead of
+  // nothing.
+  if (!ballotReadyPositionId && !orgPositionId) {
+    return null
+  }
   if (!query.isPending && issues.length === 0) {
     return null
   }

@@ -294,11 +294,13 @@ export const useCampaignPlanData = (
       isError: localNewsQuery.isError,
     },
     voterInsightsContext: {
-      // Deliberately NOT the snapshot's BR position id: that id describes
-      // the office picked at onboarding and goes stale when the user edits
-      // their race. The org's position pointer is maintained on race edits,
-      // and passing it lets the stats request go param-less so gp-api
-      // derives the district from the org server-side — always current.
+      // The snapshot's BR position id rides along for CACHE-KEY alignment
+      // with the queries onboarding warmed — but never decides what the
+      // stats request asks for: whenever orgPositionId is present the
+      // request goes param-less and gp-api derives the district from the
+      // org's position pointer, which (unlike the snapshot) is maintained
+      // on race edits.
+      ballotReadyPositionId,
       orgPositionId: campaign?.organization?.positionId ?? undefined,
       city: onboardingCity,
       state: onboardingState,
