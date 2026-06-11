@@ -3,12 +3,14 @@ import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { PrismaClient } from '../src/generated/prisma'
+import { PrismaClient, ExperimentRunStatus } from '../src/generated/prisma'
 import { createClerkClient } from '@clerk/backend'
 
 const BRIEFING_COST_USD = 3.9
 const TOKEN_TTL_SECONDS = 3600
 const DEFAULT_TARGET = 100
+const DEFAULT_MAX_IN_FLIGHT = 100
+const IN_FLIGHT_POLL_MS = 30_000
 
 type DispatchRecord = {
   electedOfficeId: string
@@ -67,14 +69,76 @@ async function main() {
   const dryRun = process.argv.includes('--dry-run')
   const targetArg = process.argv.find((a) => a.startsWith('--target='))
   const target = targetArg ? Number(targetArg.split('=')[1]) : DEFAULT_TARGET
+  const maxInFlightArg = process.argv.find((a) =>
+    a.startsWith('--max-in-flight='),
+  )
+  const maxInFlight = maxInFlightArg
+    ? Number(maxInFlightArg.split('=')[1])
+    : DEFAULT_MAX_IN_FLIGHT
+
+  const electionApiUrl =
+    process.env.PROD_ELECTION_API_URL ?? 'https://election-api.goodparty.org'
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl })
   const allOffices = await prisma.electedOffice.findMany({
     select: { id: true, organizationSlug: true },
   })
-  await prisma.$disconnect()
+  const orgs = await prisma.organization.findMany({
+    where: { slug: { in: allOffices.map((o) => o.organizationSlug) } },
+    select: { slug: true, positionId: true },
+  })
+  const positionIdBySlug = new Map(orgs.map((o) => [o.slug, o.positionId]))
+  const uniquePositionIds = [
+    ...new Set(
+      orgs.map((o) => o.positionId).filter((id): id is string => !!id),
+    ),
+  ]
 
-  const pool = shuffle(allOffices)
+  // Client-side serve-ICP pre-filter, mirroring the server-side gate in
+  // dispatchManual so a cohort is ICP-clean even against a prod build that
+  // predates that gate. Fail closed: a missing positionId, a failed lookup,
+  // or any non-true flag drops the office from the pool.
+  console.log(`Checking serve-ICP for ${uniquePositionIds.length} positions...`)
+  const icpByPositionId = new Map<string, boolean>()
+  let icpLookupFailures = 0
+  const lookupQueue = [...uniquePositionIds]
+  await Promise.all(
+    Array.from({ length: 10 }, () =>
+      (async () => {
+        for (
+          let positionId = lookupQueue.pop();
+          positionId;
+          positionId = lookupQueue.pop()
+        ) {
+          try {
+            const res = await fetch(
+              `${electionApiUrl}/v1/positions/${positionId}`,
+            )
+            if (!res.ok) {
+              icpLookupFailures++
+              continue
+            }
+            const body: unknown = await res.json()
+            icpByPositionId.set(
+              positionId,
+              typeof body === 'object' &&
+                body !== null &&
+                'isServeIcp' in body &&
+                body.isServeIcp === true,
+            )
+          } catch {
+            icpLookupFailures++
+          }
+        }
+      })(),
+    ),
+  )
+  const icpOffices = allOffices.filter((o) => {
+    const positionId = positionIdBySlug.get(o.organizationSlug)
+    return positionId ? icpByPositionId.get(positionId) === true : false
+  })
+
+  const pool = shuffle(icpOffices)
   const maxEstimate = target * BRIEFING_COST_USD
 
   if (dryRun) {
@@ -82,29 +146,37 @@ async function main() {
       [
         'DRY RUN — no token minted, no dispatches sent.',
         `Target:          ${apiUrl}`,
-        `Prod offices:    ${pool.length} (shuffled)`,
+        `Prod offices:    ${allOffices.length} total, ${pool.length} serve-ICP (shuffled pool)`,
+        `ICP lookups:     ${uniquePositionIds.length} positions, ${icpLookupFailures} failed (failures excluded)`,
         `Goal:            ${target} briefings actually dispatched`,
-        `Gate:            useImminenceGate=true (5-day window + dedupe)`,
+        `Gate:            useImminenceGate=true (serve-ICP + 3-day window + dedupe)`,
         `Concurrency:     ${concurrency}`,
+        `Max in-flight:   ${maxInFlight} agents running at once`,
         `Max est. cost:   ~$${maxEstimate.toFixed(2)} (at the target)`,
         '',
-        'The endpoint self-filters: offices with no meeting in the next 5 days',
-        '(or already covered by a future briefing) return dispatched:false and',
-        'cost nothing. We walk the shuffled pool until the target is reached.',
+        'The pool is pre-filtered to serve-ICP offices (fail closed), and the',
+        'endpoint self-filters the rest: offices with no meeting in the next',
+        '3 days, or already covered by a future briefing, return',
+        'dispatched:false and cost nothing. We walk the shuffled pool until',
+        'the target is reached, pausing dispatch whenever',
+        `${maxInFlight} meeting_briefing agents are already RUNNING.`,
         '',
         'Sample order:',
         ...pool.slice(0, 10).map((o) => `  ${o.id}  ${o.organizationSlug}`),
       ].join('\n'),
     )
+    await prisma.$disconnect()
     return
   }
 
   const proceed = await confirm(
     [
       `Target:        ${apiUrl}`,
-      `Prod offices:  ${pool.length} (shuffled)`,
-      `Goal:          ${target} briefings dispatched (5-day imminence gate)`,
+      `Prod offices:  ${allOffices.length} total, ${pool.length} serve-ICP (shuffled pool)`,
+      `ICP lookups:   ${uniquePositionIds.length} positions, ${icpLookupFailures} failed (failures excluded)`,
+      `Goal:          ${target} briefings dispatched (serve-ICP + 3-day gate)`,
       `Concurrency:   ${concurrency}`,
+      `Max in-flight: ${maxInFlight} agents running at once`,
       `Max est. cost: ~$${maxEstimate.toFixed(2)} (hard cap at the target)`,
       '',
       'Proceed? (y/N) ',
@@ -112,6 +184,7 @@ async function main() {
   )
   if (!proceed) {
     console.log('Aborted.')
+    await prisma.$disconnect()
     return
   }
 
@@ -122,9 +195,28 @@ async function main() {
     `dispatch-imminent-briefings.${new Date().toISOString()}.jsonl`,
   )
 
-  // A run that walks a few thousand offices at this concurrency finishes well
-  // inside the 1h token TTL, so mint once.
-  const token = await mintToken()
+  // Throttled runs wait on agent completions (~15 min each) and can outlast
+  // a single token TTL, so re-mint when the current one nears expiry.
+  let token = await mintToken()
+  let tokenMintedAt = Date.now()
+  let tokenRefresh: Promise<void> | null = null
+  const freshToken = async (): Promise<string> => {
+    if (Date.now() - tokenMintedAt > (TOKEN_TTL_SECONDS - 600) * 1000) {
+      if (!tokenRefresh) {
+        tokenRefresh = mintToken()
+          .then((minted) => {
+            token = minted
+            tokenMintedAt = Date.now()
+          })
+          .finally(() => {
+            tokenRefresh = null
+          })
+      }
+      await tokenRefresh
+    }
+    return token
+  }
+
   const records: DispatchRecord[] = []
   let dispatched = 0
   // Slots claimed by in-flight or completed dispatches. Workers claim a slot
@@ -132,6 +224,32 @@ async function main() {
   // `dispatched` past `target` and blow the cost cap. A skip releases its slot.
   let reserved = 0
   let index = 0
+
+  // Fleet cap: never let more than maxInFlight meeting_briefing agents run at
+  // once. dbRunning refreshes at most every IN_FLIGHT_POLL_MS; dispatches made
+  // since the last refresh (dispatched - dispatchedAtCheck) plus in-flight
+  // HTTP calls (reserved - dispatched) are stacked on top, so the estimate
+  // only ever overcounts — it can pause early, never overshoot the cap.
+  let dbRunning = 0
+  let dispatchedAtCheck = 0
+  let lastInFlightCheckAt = 0
+  const refreshInFlight = async (): Promise<void> => {
+    if (Date.now() - lastInFlightCheckAt < IN_FLIGHT_POLL_MS) return
+    lastInFlightCheckAt = Date.now()
+    dbRunning = await prisma.experimentRun.count({
+      where: {
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    dispatchedAtCheck = dispatched
+    if (dbRunning >= maxInFlight) {
+      console.log(
+        `  throttled: ${dbRunning} agents RUNNING >= ${maxInFlight} cap`,
+      )
+    }
+  }
+  await refreshInFlight()
 
   const callDispatch = async (office: Office): Promise<boolean> => {
     let httpStatus = 0
@@ -141,7 +259,7 @@ async function main() {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${token}`,
+          authorization: `Bearer ${await freshToken()}`,
         },
         body: JSON.stringify({
           electedOfficeId: office.id,
@@ -180,10 +298,16 @@ async function main() {
     () =>
       (async () => {
         while (dispatched < target && index < pool.length) {
-          // Claim a slot synchronously — no await between the check and the
-          // increment — so two workers can never both take the last one.
+          // Claim a slot synchronously — no await between the checks and the
+          // increment — so two workers can never both take the last one, and
+          // the in-flight estimate can never be raced past the cap.
           if (reserved >= target) {
             await new Promise((resolve) => setTimeout(resolve, 25))
+            continue
+          }
+          if (dbRunning + reserved - dispatchedAtCheck >= maxInFlight) {
+            await refreshInFlight()
+            await new Promise((resolve) => setTimeout(resolve, 5000))
             continue
           }
           reserved++
@@ -202,6 +326,7 @@ async function main() {
   )
   await Promise.all(workers)
   const runEnd = new Date().toISOString()
+  await prisma.$disconnect()
 
   const okCalls = records.filter((r) => r.ok).length
   const failures = records.filter((r) => !r.ok)

@@ -6,9 +6,15 @@ description: Use when manually triggering a bulk run of meeting briefings — di
 # Runbook: dispatch a cohort of meeting_briefing jobs in prod and analyze them
 
 You are running a one-shot bulk dispatch of `meeting_briefing` agent jobs against
-**prod**, using the product's 5-day imminence gate, then monitoring to completion
-and producing an outcome/cost/runtime analysis. Target for this run: **200
-dispatched briefings**.
+**prod**, using the product's gate (serve-ICP, fail closed + 3-day imminence
+window + future-briefing dedupe), then monitoring to completion and producing an
+outcome/cost/runtime analysis. Target for this run: **200 dispatched briefings**.
+
+The dispatch script enforces a fleet cap: at most **100 meeting_briefing agents
+RUNNING at once** (`--max-in-flight`, default 100). For targets above the cap it
+dispatches the first wave fast, then trickles the rest in as agents complete
+(~15 min each), so a 200-target dispatch phase takes roughly 30-60 min, not ~5.
+Do not "fix" the slowness by raising the cap or running a second copy.
 
 This is an irreversible, money-spending prod action (about $6 per dispatched
 briefing, so ~$1,200 at 200). Do the read-only pre-flight first, show the human
@@ -18,6 +24,7 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
 - This repo's `packages/gp-api` on `develop` or `master` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
+- **serve-ICP is enforced twice, fail closed.** The dispatch script pre-filters its office pool client-side (unauthenticated `GET /v1/positions/:id` against prod election-api, default `https://election-api.goodparty.org`, override via `PROD_ELECTION_API_URL`), so a cohort is ICP-clean even against a prod gp-api build that predates the server-side gate in `dispatchManual` (landed 2026-06-11). Offices with no position, failed lookups, and non-true flags are all excluded.
 - `psql` not required; everything goes through `npx tsx`.
 - The daily meetings cron is disabled in prod, so a time window cleanly identifies your cohort. Confirm no other meeting_briefing dispatch is running concurrently.
 
@@ -65,9 +72,14 @@ In the SAME shell (env does not persist across calls):
 npx tsx scripts/dispatch-imminent-briefings.ts --dry-run --target=200
 ```
 
-Show the human: pool size (~1,800 offices), target 200, max cost (~$1,200). Note
+Show the human: total offices (~1,800) vs the serve-ICP pool size, ICP lookup
+failures, target 200, max cost (~$1,200). The pool is already ICP-filtered;
 offices already covered by a future briefing (e.g. the prior cohort's
-`briefing_ready` ones) are skipped by the gate dedupe. Wait for explicit go.
+`briefing_ready` ones) are skipped by the gate dedupe. Until the Databricks
+`is_serve_icp` backfill is broadly populated the ICP pool may be much smaller
+than ~1,800 — if it's too small to plausibly reach the target (the script just
+exhausts the pool and reports fewer dispatched), flag that to the human before
+proceeding. Wait for explicit go.
 
 ## Step 3: real dispatch
 
@@ -77,7 +89,18 @@ echo y | npx tsx scripts/dispatch-imminent-briefings.ts --target=200
 
 It walks the shuffled pool calling the gated endpoint until 200 briefings
 dispatch (hard cap, no overshoot), logging one JSONL line per call to
-`scripts/output/`. SAVE the final summary JSON, especially `reconcile.runStart`
+`scripts/output/`.
+
+The script also enforces the fleet cap itself: before each dispatch it checks
+how many `meeting_briefing` runs are RUNNING in prod (DB count, refreshed every
+30s, plus its own un-reconciled dispatches counted conservatively) and pauses
+while that is >= `--max-in-flight` (default 100). Expect it to print
+`throttled: N agents RUNNING >= 100 cap` lines and sit idle for stretches —
+this is correct behavior, leave it running in the same shell (it re-mints its
+Clerk token automatically if the run outlasts the 1h TTL). A 200-target run
+takes ~30-60 min end to end.
+
+SAVE the final summary JSON, especially `reconcile.runStart`
 and `reconcile.runEnd` (UTC). Those two timestamps define your cohort.
 
 ## Step 4: monitor to completion (once a minute until all terminal)
@@ -144,3 +167,4 @@ Emit `scripts/output/meeting_briefing_cohort_<date>.csv` with columns:
 - Outcome mix of completed: ~51% briefing_ready, ~34% awaiting_agenda, ~15% no_meeting_found.
 - ~96% success; ~$6/dispatched briefing actual (not the $3.90 code estimate); ~15 min avg runtime.
 - 100 dispatches took 346 endpoint calls (the rest gate-skipped). For 200 expect to walk a larger slice of the pool, and note prior-cohort `briefing_ready` offices are deduped out.
+- That cohort predates both the serve-ICP gating and the in-flight cap: expect a smaller pool (ICP pre-filter) and a longer wall-clock dispatch phase (throttling) than those numbers suggest.
