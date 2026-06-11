@@ -86,25 +86,26 @@ type DispatchBase = {
 // are declared; everything else passes through silently. raceId is the
 // BallotReady race hash that election-api keys on.
 //
-// All string/number fields use `.nullable()` in addition to `.partial()`
-// because real campaign rows have explicit `null` values on these keys
-// (e.g. `zip: null` from manual entry, `raceId: null` for non-BR races).
-// `z.string().optional()` only accepts `string | undefined` — without
-// `.nullable()` a single `null` field anywhere in details causes the
-// whole `safeParse` to fail, which then makes raceId look empty even
-// when it's a perfectly valid string. Breaks
-// `getOrGenerateStrategicLandscape` (and events) on every campaign that
-// has any nullable detail field populated as null.
+// Every field is independently fault-tolerant (`.catch(null)`): a single
+// off-shape value anywhere in details must never fail the whole parse,
+// because a failed parse makes raceId look empty even when it's a
+// perfectly valid string — surfacing as a bogus "no raceId" 400 on both
+// strategy endpoints. That bit us twice: first with explicit `null`
+// values (hence `.nullable()` everywhere), then with
+// `officeTermLength: "4 years"` — the campaign-details editor writes a
+// string per the PrismaJson.CampaignDetails contract, while this schema
+// wrongly said number.
+const lenientString = z.string().nullable().optional().catch(null)
 const CampaignDetailsSchema = z
   .object({
-    party: z.string().nullable().optional(),
-    otherParty: z.string().nullable().optional(),
-    raceId: z.string().nullable().optional(),
-    zip: z.string().nullable().optional(),
-    city: z.string().nullable().optional(),
-    state: z.string().nullable().optional(),
-    electionDate: z.string().nullable().optional(),
-    officeTermLength: z.number().nullable().optional(),
+    party: lenientString,
+    otherParty: lenientString,
+    raceId: lenientString,
+    zip: lenientString,
+    city: lenientString,
+    state: lenientString,
+    electionDate: lenientString,
+    officeTermLength: lenientString,
   })
   .partial()
 

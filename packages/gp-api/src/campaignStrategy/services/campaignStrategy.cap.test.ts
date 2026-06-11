@@ -143,6 +143,24 @@ describe('CampaignStrategyService', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
+  it('resolves the raceId even when an unrelated details field is off-shape', async () => {
+    // Regression: officeTermLength is a string per the details contract
+    // ("4 years", written by the campaign-details editor), and a strict
+    // whole-object parse failure used to make a present raceId look
+    // missing — a bogus 400 that blocked regeneration after a race edit.
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    const res = await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: { raceId: 'br-general', officeTermLength: '4 years' },
+      }),
+    )
+
+    expect(res).toEqual({ status: 'generating' })
+  })
+
   it('dispatches both experiments and stores run ids when none exist', async () => {
     experimentRuns.dispatchRun
       .mockResolvedValueOnce({ runId: 'opp-run' })
