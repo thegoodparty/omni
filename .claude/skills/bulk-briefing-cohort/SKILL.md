@@ -92,10 +92,12 @@ dispatch (hard cap, no overshoot), logging one JSONL line per call to
 `scripts/output/`.
 
 The script also enforces the fleet cap itself: before each dispatch it checks
-how many `meeting_briefing` runs are RUNNING in prod (DB count, refreshed every
-30s, plus its own un-reconciled dispatches counted conservatively) and pauses
-while that is >= `--max-in-flight` (default 100). Expect it to print
-`throttled: N agents RUNNING >= 100 cap` lines and sit idle for stretches —
+how many `meeting_briefing` runs are active in prod (RUNNING or
+AWAITING_RESUME — paused runs respawn as new Fargate tasks, so they count; DB
+count refreshed every 30s, plus the script's own un-reconciled dispatches
+counted conservatively) and pauses while that is >= `--max-in-flight`
+(default 100). Expect it to print
+`throttled: N agents active >= 100 cap` lines and sit idle for stretches —
 this is correct behavior, leave it running in the same shell (it re-mints its
 Clerk token automatically if the run outlasts the 1h TTL). A 200-target run
 takes ~30-60 min end to end.

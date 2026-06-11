@@ -159,7 +159,8 @@ async function main() {
         '3 days, or already covered by a future briefing, return',
         'dispatched:false and cost nothing. We walk the shuffled pool until',
         'the target is reached, pausing dispatch whenever',
-        `${maxInFlight} meeting_briefing agents are already RUNNING.`,
+        `${maxInFlight} meeting_briefing agents are already active`,
+        '(RUNNING or AWAITING_RESUME).',
         '',
         'Sample order:',
         ...pool.slice(0, 10).map((o) => `  ${o.id}  ${o.organizationSlug}`),
@@ -239,13 +240,18 @@ async function main() {
     dbRunning = await prisma.experimentRun.count({
       where: {
         experimentType: 'meeting_briefing',
-        status: ExperimentRunStatus.RUNNING,
+        status: {
+          in: [
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
       },
     })
     dispatchedAtCheck = dispatched
     if (dbRunning >= maxInFlight) {
       console.log(
-        `  throttled: ${dbRunning} agents RUNNING >= ${maxInFlight} cap`,
+        `  throttled: ${dbRunning} agents active >= ${maxInFlight} cap`,
       )
     }
   }
