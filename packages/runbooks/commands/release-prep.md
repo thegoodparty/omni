@@ -267,8 +267,8 @@ This command takes no arguments — the release target is always the omni monore
       - if its checks had already settled `green` before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
       - if checks settled with failures before the abort: list with URL and note "checks failed — do not merge without investigating the failures or applying a fix first"
       - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
-    - If the step-6 merge failed (step 5 completed `green`): checks already passed — only the merge command itself failed. List the develop→qa PR with URL and note "merge failed — re-run from step 6 or merge manually, then re-run from step 8"
-    - If the step-6 merge failed (step 5 completed `merge-anyway`): checks did NOT all pass — the merge was attempted anyway and then failed. List the develop→qa PR with URL and note "merge failed — investigate the check failures before retrying, then re-run from step 6 or merge manually, then re-run from step 8"
+    - If the step-6 merge failed (step 5 completed `green`): checks already passed — only the merge command itself failed. List the develop→qa PR with URL and note "merge failed — re-run from step 6 or merge manually, then re-run from step 7"
+    - If the step-6 merge failed (step 5 completed `merge-anyway`): checks did NOT all pass — the merge was attempted anyway and then failed. List the develop→qa PR with URL and note "merge failed — investigate the check failures before retrying, then re-run from step 6 or merge manually, then re-run from step 7"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
