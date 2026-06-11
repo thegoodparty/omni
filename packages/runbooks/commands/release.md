@@ -209,7 +209,7 @@ This command takes no arguments — the release target is always the omni monore
     ```
 
 14. **Final report:**
-    - Released: the merged `qa → master` PR URL
+    - If the merge succeeded: Released — the merged `qa → master` PR URL
     - Aborted on snapshot mismatch in step 5 (qa moved between confirmation and merge) — user should re-run `/release` to review the updated contents
     - Any ENG-XXXX tags whose ClickUp lookup failed
     - Any PRs that had no ENG-XXXX tag (listed as fallback items in the message)

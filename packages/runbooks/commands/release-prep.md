@@ -124,7 +124,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 3: qa → master (pending release)
 
-8. **Open the `qa → master` PR — but do not merge it.** This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
+8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if step 5 ended in `abort` — nothing was merged, so there is no new state to release). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
@@ -262,7 +262,8 @@ This command takes no arguments — the release target is always the omni monore
     - If merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - If there were no changes between qa and develop: note it and stop (no PRs opened)
     - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
-      - if its checks had already settled `green` (or `merge-anyway`) before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
+      - if its checks had already settled `green` before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
+      - if checks settled with failures before the abort: list with URL and note "checks failed — do not merge without investigating the failures or applying a fix first"
       - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
