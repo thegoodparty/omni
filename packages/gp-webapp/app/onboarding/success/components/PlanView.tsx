@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
 import {
   Button,
@@ -17,9 +17,14 @@ import PlanSections, {
   type StrategyState,
   type VoterInsightsContext,
 } from './PlanSections'
+import SharePlanModal from './SharePlanModal'
 import DownloadReminderModal from './DownloadReminderModal'
 import type { PlanData } from './planContent'
-import { downloadCampaignPlanPdf } from '../pdf/downloadCampaignPlanPdf'
+import {
+  downloadCampaignPlanPdf,
+  generateCampaignPlanPdfBlob,
+} from '../pdf/downloadCampaignPlanPdf'
+import { uploadCampaignPlanPdf } from '../pdf/sharePlanPdf'
 
 export type PlanDownloadSource = 'download-button' | 'reminder-modal'
 export type PlanContinueSource = 'button' | 'reminder-modal'
@@ -62,6 +67,7 @@ const PlanView = ({
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
   navStuckClassName,
 }: PlanViewProps): React.JSX.Element => {
+  const [shareOpen, setShareOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
@@ -71,6 +77,21 @@ const PlanView = ({
   }, [])
 
   const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
+
+  // cache the uploaded link for the session so re-opening the modal doesn't
+  // re-render and re-upload an identical PDF
+  const sharePdfUrlRef = useRef<string | null>(null)
+  const getShareUrl = useCallback(async () => {
+    if (sharePdfUrlRef.current) {
+      return sharePdfUrlRef.current
+    }
+    const blob = await generateCampaignPlanPdfBlob(plan, {
+      liveUrl: liveUrl || undefined,
+    })
+    const url = await uploadCampaignPlanPdf(blob)
+    sharePdfUrlRef.current = url
+    return url
+  }, [plan, liveUrl])
 
   const handleDownload = async (source: PlanDownloadSource) => {
     if (downloading || !planReady) return
@@ -117,6 +138,7 @@ const PlanView = ({
           race={plan.race}
           state={state}
           electionDate={plan.electionDate}
+          onShare={() => setShareOpen(true)}
         />
 
         <div className="mt-8 sm:mt-14">
@@ -222,6 +244,13 @@ const PlanView = ({
           </Button>
         </div>
       </div>
+
+      <SharePlanModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        candidateName={plan.candidateName}
+        getShareUrl={getShareUrl}
+      />
 
       <DownloadReminderModal
         open={reminderOpen}
