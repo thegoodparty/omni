@@ -237,9 +237,18 @@ describe('FilingDetailsStep', () => {
     expect(goToNextStep).not.toHaveBeenCalled()
     // The guiding banner must name what's wrong — a silent return reads as a
     // dead Continue button.
-    expect(
-      screen.getByText('Please fix the following fields:'),
-    ).toBeInTheDocument()
+    const bannerHeading = screen.getByText('Please fix the following fields:')
+    expect(bannerHeading).toBeInTheDocument()
+    // The banner body must let long validation copy (the example fec.gov /
+    // filing URLs) wrap inside the alert instead of forcing horizontal overflow
+    // on narrow viewports (ENG-10358). `break-words` wraps the URL token,
+    // `min-w-0` lets the alert grid track shrink below it, `w-full` keeps the
+    // text filling the alert on desktop.
+    expect(bannerHeading.parentElement).toHaveClass(
+      'w-full',
+      'min-w-0',
+      'break-words',
+    )
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
     expect(screen.getByText('Filing Address')).toBeInTheDocument()
     // `website` has no input in this form and must never be listed.
