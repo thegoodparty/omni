@@ -76,69 +76,12 @@ async function main() {
     ? Number(maxInFlightArg.split('=')[1])
     : DEFAULT_MAX_IN_FLIGHT
 
-  const electionApiUrl =
-    process.env.PROD_ELECTION_API_URL ?? 'https://election-api.goodparty.org'
-
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl })
   const allOffices = await prisma.electedOffice.findMany({
     select: { id: true, organizationSlug: true },
   })
-  const orgs = await prisma.organization.findMany({
-    where: { slug: { in: allOffices.map((o) => o.organizationSlug) } },
-    select: { slug: true, positionId: true },
-  })
-  const positionIdBySlug = new Map(orgs.map((o) => [o.slug, o.positionId]))
-  const uniquePositionIds = [
-    ...new Set(
-      orgs.map((o) => o.positionId).filter((id): id is string => !!id),
-    ),
-  ]
 
-  // Client-side serve-ICP pre-filter, mirroring the server-side gate in
-  // dispatchManual so a cohort is ICP-clean even against a prod build that
-  // predates that gate. Fail closed: a missing positionId, a failed lookup,
-  // or any non-true flag drops the office from the pool.
-  console.log(`Checking serve-ICP for ${uniquePositionIds.length} positions...`)
-  const icpByPositionId = new Map<string, boolean>()
-  let icpLookupFailures = 0
-  const lookupQueue = [...uniquePositionIds]
-  await Promise.all(
-    Array.from({ length: 10 }, () =>
-      (async () => {
-        for (
-          let positionId = lookupQueue.pop();
-          positionId;
-          positionId = lookupQueue.pop()
-        ) {
-          try {
-            const res = await fetch(
-              `${electionApiUrl}/v1/positions/${positionId}`,
-            )
-            if (!res.ok) {
-              icpLookupFailures++
-              continue
-            }
-            const body: unknown = await res.json()
-            icpByPositionId.set(
-              positionId,
-              typeof body === 'object' &&
-                body !== null &&
-                'isServeIcp' in body &&
-                body.isServeIcp === true,
-            )
-          } catch {
-            icpLookupFailures++
-          }
-        }
-      })(),
-    ),
-  )
-  const icpOffices = allOffices.filter((o) => {
-    const positionId = positionIdBySlug.get(o.organizationSlug)
-    return positionId ? icpByPositionId.get(positionId) === true : false
-  })
-
-  const pool = shuffle(icpOffices)
+  const pool = shuffle(allOffices)
   const maxEstimate = target * BRIEFING_COST_USD
 
   if (dryRun) {
@@ -146,19 +89,17 @@ async function main() {
       [
         'DRY RUN — no token minted, no dispatches sent.',
         `Target:          ${apiUrl}`,
-        `Prod offices:    ${allOffices.length} total, ${pool.length} serve-ICP (shuffled pool)`,
-        `ICP lookups:     ${uniquePositionIds.length} positions, ${icpLookupFailures} failed (failures excluded)`,
+        `Prod offices:    ${pool.length} (shuffled)`,
         `Goal:            ${target} briefings actually dispatched`,
         `Gate:            useImminenceGate=true (serve-ICP + 3-day window + dedupe)`,
         `Concurrency:     ${concurrency}`,
         `Max in-flight:   ${maxInFlight} agents running at once`,
         `Max est. cost:   ~$${maxEstimate.toFixed(2)} (at the target)`,
         '',
-        'The pool is pre-filtered to serve-ICP offices (fail closed), and the',
-        'endpoint self-filters the rest: offices with no meeting in the next',
-        '3 days, or already covered by a future briefing, return',
-        'dispatched:false and cost nothing. We walk the shuffled pool until',
-        'the target is reached, pausing dispatch whenever',
+        'The endpoint self-filters: offices that are not serve-ICP, have no',
+        'meeting in the next 3 days, or are already covered by a future',
+        'briefing return dispatched:false and cost nothing. We walk the',
+        'shuffled pool until the target is reached, pausing dispatch whenever',
         `${maxInFlight} meeting_briefing agents are already active`,
         '(RUNNING or AWAITING_RESUME).',
         '',
@@ -173,8 +114,7 @@ async function main() {
   const proceed = await confirm(
     [
       `Target:        ${apiUrl}`,
-      `Prod offices:  ${allOffices.length} total, ${pool.length} serve-ICP (shuffled pool)`,
-      `ICP lookups:   ${uniquePositionIds.length} positions, ${icpLookupFailures} failed (failures excluded)`,
+      `Prod offices:  ${pool.length} (shuffled)`,
       `Goal:          ${target} briefings dispatched (serve-ICP + 3-day gate)`,
       `Concurrency:   ${concurrency}`,
       `Max in-flight: ${maxInFlight} agents running at once`,

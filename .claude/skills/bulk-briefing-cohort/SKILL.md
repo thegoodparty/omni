@@ -24,7 +24,7 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
 - This repo's `packages/gp-api` on `develop` or `master` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
-- **serve-ICP is enforced twice, fail closed.** The dispatch script pre-filters its office pool client-side (unauthenticated `GET /v1/positions/:id` against prod election-api, default `https://election-api.goodparty.org`, override via `PROD_ELECTION_API_URL`), so a cohort is ICP-clean even against a prod gp-api build that predates the server-side gate in `dispatchManual` (landed 2026-06-11). Offices with no position, failed lookups, and non-true flags are all excluded.
+- **Prod gp-api must be running a build where `dispatchManual` enforces the serve-ICP gate under `useImminenceGate`** (the same fail-closed check the daily cron uses; landed 2026-06-11). The script has no client-side ICP filter — the server gate is the only enforcement, so if prod predates it the cohort WILL include non-ICP offices. Verify before dispatching: `cd packages/gp-api && git log master --oneline -S 'skipping gated manual dispatch' -- src/meetings/services/meetingBriefings.service.ts` must show a commit, and prod must be deployed at or past it. Abort and tell the human if not.
 - `psql` not required; everything goes through `npx tsx`.
 - The daily meetings cron is disabled in prod, so a time window cleanly identifies your cohort. Confirm no other meeting_briefing dispatch is running concurrently.
 
@@ -72,14 +72,14 @@ In the SAME shell (env does not persist across calls):
 npx tsx scripts/dispatch-imminent-briefings.ts --dry-run --target=200
 ```
 
-Show the human: total offices (~1,800) vs the serve-ICP pool size, ICP lookup
-failures, target 200, max cost (~$1,200). The pool is already ICP-filtered;
-offices already covered by a future briefing (e.g. the prior cohort's
-`briefing_ready` ones) are skipped by the gate dedupe. Until the Databricks
-`is_serve_icp` backfill is broadly populated the ICP pool may be much smaller
-than ~1,800 — if it's too small to plausibly reach the target (the script just
-exhausts the pool and reports fewer dispatched), flag that to the human before
-proceeding. Wait for explicit go.
+Show the human: pool size (~1,800 offices), target 200, max cost (~$1,200).
+Note offices already covered by a future briefing (e.g. the prior cohort's
+`briefing_ready` ones) are skipped by the gate dedupe, and offices whose
+position is not serve-ICP are skipped fail-closed server-side. The pool count
+is NOT ICP-filtered — until the Databricks `is_serve_icp` backfill is broadly
+populated, expect far more gate-skips per dispatch than the reference run, and
+possibly an unreachable target (the script just exhausts the pool and reports
+fewer dispatched). Wait for explicit go.
 
 ## Step 3: real dispatch
 
@@ -169,4 +169,4 @@ Emit `scripts/output/meeting_briefing_cohort_<date>.csv` with columns:
 - Outcome mix of completed: ~51% briefing_ready, ~34% awaiting_agenda, ~15% no_meeting_found.
 - ~96% success; ~$6/dispatched briefing actual (not the $3.90 code estimate); ~15 min avg runtime.
 - 100 dispatches took 346 endpoint calls (the rest gate-skipped). For 200 expect to walk a larger slice of the pool, and note prior-cohort `briefing_ready` offices are deduped out.
-- That cohort predates both the serve-ICP gating and the in-flight cap: expect a smaller pool (ICP pre-filter) and a longer wall-clock dispatch phase (throttling) than those numbers suggest.
+- That cohort predates both the serve-ICP gating and the in-flight cap: expect a worse dispatched/calls ratio (server-side ICP skips) and a longer wall-clock dispatch phase (throttling) than those numbers suggest.
