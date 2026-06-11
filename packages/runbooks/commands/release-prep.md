@@ -64,7 +64,7 @@ This command takes no arguments — the release target is always the omni monore
    git log origin/qa..origin/develop --oneline --no-merges
    ```
 
-   If output is empty, print `omni: no changes between qa and develop — nothing to release`, and stop here (skip to the step 15 final report). There is nothing to prep.
+   If output is empty, print `omni: no changes between qa and develop — nothing to release`, and stop here (skip to the step 16 final report). There is nothing to prep.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -104,7 +104,7 @@ This command takes no arguments — the release target is always the omni monore
    > - **`merge-anyway`** — flaky test or known-good; merge it despite the red
    > - **`abort`** — stop the release prep; nothing gets merged
 
-   Record the outcome (`green` / `merge-anyway`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 15 final report needs them. On `abort`, stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 15 final report, which records the left-open develop→qa PR (and whether its checks had already settled before the abort) so it can be merged manually or by re-running the command.
+   Record the outcome (`green` / `merge-anyway`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 16 final report needs them. On `abort`, stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 16 final report, which records the left-open develop→qa PR (and whether its checks had already settled before the abort) so it can be merged manually or by re-running the command.
 
 6. **Merge the develop → qa PR with a merge commit** (unless step 5 ended in `abort` — then skip this entire step; the abort guarantee is that nothing gets merged):
 
@@ -149,7 +149,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 15 final report instead.
+> **Skip this entire phase if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
 
 9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 

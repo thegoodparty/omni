@@ -104,7 +104,7 @@ This command takes no arguments — the release target is always the omni monore
    git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
    ```
 
-   Diff this output against the step-3 snapshot. If they differ (any commits added or removed), **abort the merge** and tell the user:
+   Diff this output against the step-3 snapshot. If they differ (any commits added or removed), **abort the merge**, tell the user, and skip steps 6–13 straight to the step 14 final report (which records the abort — nothing was merged, so there is no release message to build):
 
    > `qa` moved between confirmation and merge (new commits arrived). Re-run `/release` to review the updated contents.
 
@@ -115,7 +115,7 @@ This command takes no arguments — the release target is always the omni monore
    gh pr merge <pr_number> --merge
    ```
 
-   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 3's `cd` carrying over. On merge failure (not the snapshot-mismatch abort), stop and report.
+   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 3's `cd` carrying over. On merge failure (not the snapshot-mismatch abort), skip steps 6–13 straight to the step 14 final report, which records the failure and the manual-recovery note.
 
 ### Phase 5: Wait 5 minutes
 
