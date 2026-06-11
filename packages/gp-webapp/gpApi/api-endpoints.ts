@@ -170,6 +170,21 @@ export type APIEndpoints = {
     Response: CampaignVersions
   }
 
+  // The pro-upgrade filing-instructions screen reads this fresh so it renders
+  // the same content the "email this to me" body composes (one server source —
+  // page and email can't drift). `filingWindow` is preformatted server-side.
+  'GET /v1/campaigns/mine/filing-instructions': {
+    Request: {}
+    Response: {
+      filingWindow: string
+      filingFee: number | null
+      filingRequirementsText: string | null
+      filingOfficeAddress: string | null
+      filingPhoneNumber: string | null
+      paperworkInstructions: string | null
+    }
+  }
+
   // Emails the caller their own race's filing instructions (window, fee,
   // requirements, office contact). No body: gp-api scopes the send to the
   // authenticated user's campaign + email via @UseCampaign()/@ReqUser().
