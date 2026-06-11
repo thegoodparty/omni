@@ -1,7 +1,9 @@
-<!-- v2 — 2026-06-05 -->
+<!-- v3 — 2026-06-10 -->
 # /release-prep
 
-Open every configured repo's `develop → qa` PR up front so their checks run concurrently, then watch and merge each, then open a `qa → master` PR per repo — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
+Open the omni monorepo's `develop → qa` PR, wait for its checks, merge it, then open the `qa → master` PR — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
+
+omni is one monorepo (`develop → qa → master`, mapping to `dev / qa / prod`), so a release prep is a single repo's branch promotion — there is no per-repo loop.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 > **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
@@ -11,33 +13,35 @@ Open every configured repo's `develop → qa` PR up front so their checks run co
 > 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
+<!-- BEGIN: resolve-omni-dir (keep in sync across commands/*.md) -->
+> **The release repo is `omni`** — one monorepo. Resolve its local path once:
+>
+> 1. If `$RELEASE_OMNI_DIR` is set, use it.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni`, `$HOME/code/omni`, `$HOME/omni`.
+> 3. Else ask the user where the omni repo is; suggest `export RELEASE_OMNI_DIR=<path>` in their shell profile.
+<!-- END: resolve-omni-dir -->
+
 ## Prerequisites
 
-**books/.env variables**: `$RELEASE_DEFAULT_REPOS`, `$RELEASE_REPOS_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
+**books/.env variables**: `$RELEASE_OMNI_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
 **scripts/.env variables**: none — this command builds ClickUp ticket links from the custom id (no API call); `CLICKUP_API_KEY` is not required here.
 **Tools**: `gh` (authenticated), `git`, `jq`
 
-Defaults if a `books/.env` value is unset: `$RELEASE_DEFAULT_REPOS=gp-webapp,gp-api`, `$RELEASE_REPOS_DIR=$HOME/Documents/gp/dev`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
+Defaults if a `books/.env` value is unset: `$RELEASE_OMNI_DIR=$HOME/Documents/gp/dev/omni`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
 
 **Never commit on the user's behalf.** This command opens and merges PRs through `gh pr merge` (which acts on the remote), but never runs `git commit` locally.
 
 ## Steps
 
-User input may be passed as a comma-separated repo list to override `$RELEASE_DEFAULT_REPOS` for one run (e.g., `gp-webapp,gp-api,election-api`). Treat that input as `$ARGUMENTS` below.
+This command takes no arguments — the release target is always the omni monorepo.
 
-### Phase 1: Resolve repos and config
+### Phase 1: Resolve repo and config
 
-1. **Determine the repo list.** If `$ARGUMENTS` is non-empty, use it; otherwise start with `$RELEASE_DEFAULT_REPOS`. Then prompt the user once:
+1. **Resolve the omni repo path** per the `resolve-omni-dir` block above. Confirm it back to the user before continuing:
 
-   > Release repos so far: `<repo1>, <repo2>`. Include any others this release? (comma-separated names like `election-api`, or Enter to skip).
+   > Will run release prep for omni (`<path>`). OK?
 
-   Append any additions; dedupe.
-
-2. **Resolve each repo to a local path.** For each name, check `$RELEASE_REPOS_DIR/<name>`. If missing, ask the user for the path. Confirm the full list back to the user before continuing:
-
-   > Will run for: `<repo1>` (`<path>`), `<repo2>` (`<path>`). OK?
-
-3. **Load the author map.** Read `$RELEASE_AUTHOR_MAP` if it exists — JSON of GitHub login → Slack display name:
+2. **Load the author map.** Read `$RELEASE_AUTHOR_MAP` if it exists — JSON of GitHub login → Slack display name:
 
    ```json
    {
@@ -50,33 +54,29 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
    If the file doesn't exist, warn the user that unmapped authors will appear as raw GitHub logins in the message, then continue.
 
-### Phase 2: develop → qa (open all PRs first, watch in parallel, then merge)
+### Phase 2: develop → qa
 
-4. **Open every repo's `develop → qa` PR before watching any checks.** The slow part of this phase is CI, and a PR's checks start the moment it's created. So the order is: **first pass** opens every repo's PR (steps 5–6, looped over all repos), **second pass** watches each PR's checks (step 7), **third pass** merges the green ones (steps 8–9). Watching the PRs one after another in the second pass does **not** serialize the wait — because all the PRs were opened in the first pass, their checks have been running concurrently the whole time; by the time the first repo's `--watch` returns, the others' checks are already well underway. This is the point of the rewrite: don't block on gp-webapp's checks before opening gp-api's PR.
-
-   Keep a per-repo record as you go: PR number, whether the repo had changes, and (after the second pass) its check outcome. Steps 5–6 below are non-blocking, so loop them over all repos before touching step 7.
-
-5. **First pass — for each repo, fetch and check the diff:**
+3. **Fetch and check the diff:**
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    git fetch origin --prune
    git log origin/qa..origin/develop --oneline --no-merges
    ```
 
-   If output is empty, print `<repo>: no changes between qa and develop — skipping`, record the repo as skipped, and don't open a PR for it.
+   If output is empty, print `omni: no changes between qa and develop — nothing to release`, and stop here (skip to the step 15 final report). There is nothing to prep.
 
-6. **First pass (cont.) — create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
+4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    gh pr list --base qa --head develop --state open --json number,url
    ```
 
    If the result is non-empty, capture the existing PR number and skip the create. Otherwise build the body inline with `mktemp` and create:
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    BODY_FILE=$(mktemp)
    printf '## Included PRs\n\n' > "$BODY_FILE"
    git log origin/qa..origin/develop --oneline --no-merges | sed 's/^/- /' >> "$BODY_FILE"
@@ -87,118 +87,117 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
    rm -f "$BODY_FILE"
    ```
 
-   Capture the PR number from `gh`'s output, then **move straight to the next repo — do not wait for checks here.** `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks. By the end of this pass every repo with changes has an open PR and CI running concurrently.
+   Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the omni repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks.
 
-7. **Second pass — for each repo with an open PR, wait for its checks to settle:**
+5. **Wait for the PR's checks to settle:**
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    gh pr checks <pr_number> --watch
    ```
 
-   This blocks until that repo's checks reach a terminal state, but the checks themselves were already running from the first pass, so the watches overlap in wall-clock time — you're collecting results in order, not adding up each repo's CI time. If any check is in `FAIL` / `CANCEL` / `TIMEOUT`, pause and present four options:
+   This blocks until the checks reach a terminal state. If any check is in `FAIL` / `CANCEL` / `TIMEOUT`, pause and present three options:
 
-   > `<repo>` PR #<n>: <which> check(s) failed.
+   > omni PR #<n>: <which> check(s) failed.
    >
    > - **`retry`** — re-trigger CI (re-run failed jobs from the GitHub UI, or push a no-op) and re-watch
-   > - **`merge-anyway`** — flaky test or known-good; merge it in the third pass despite the red
-   > - **`skip`** — record this repo `failed`, leave its develop→qa PR unmerged, and continue the second pass with the next repo; it gets no qa→master PR and is surfaced in the final report
+   > - **`merge-anyway`** — flaky test or known-good; merge it despite the red
    > - **`abort`** — stop the release prep; nothing gets merged
 
-   Record each repo's outcome (`green` / `merge-anyway` / `failed`). For `merge-anyway` repos, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — these are required by the step 18 final report and aren't recoverable later. On `abort`, stop here and skip the rest of the run — the third pass (step 8–9), Phase 3, and Phase 4 all assume merges happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 18 final report, which records the left-open develop→qa PRs (split by whether their checks already settled before the abort) so they can be merged manually or by re-running the command.
+   Record the outcome (`green` / `merge-anyway`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 15 final report needs them. On `abort`, stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 15 final report, which records the left-open develop→qa PR (and whether its checks had already settled before the abort) so it can be merged manually or by re-running the command.
 
-8. **Third pass — merge each repo whose checks passed (or that you chose `merge-anyway` for), with a merge commit.** If Phase 2 was aborted in step 7, skip this entire pass — the abort guarantee is that nothing gets merged, and this is the merge step. Otherwise:
+6. **Merge the develop → qa PR with a merge commit** (unless step 5 ended in `abort` — then skip this entire step; the abort guarantee is that nothing gets merged):
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    gh pr merge <pr_number> --merge
    ```
 
-   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes. Skip any repo whose outcome was `failed` (not chosen for merge-anyway); report it in step 18.
+   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes.
 
-9. **Re-fetch** each merged repo so local `qa` is current:
+7. **Re-fetch** so local `qa` is current:
 
    ```bash
-   cd "$RELEASE_REPOS_DIR/<repo>"
+   cd "$RELEASE_OMNI_DIR"
    git fetch origin --prune
    ```
 
-### Phase 3: qa → master per repo (pending release)
+### Phase 3: qa → master (pending release)
 
-10. **For each repo merged in Phase 2** (skip any that failed checks and weren't merge-anyway'd, and skip everything if Phase 2 was aborted), open the `qa → master` PR — but **do not merge it**. This is the pending production release. First check for an existing open one (same rerunnability concern as step 6):
+8. **Open the `qa → master` PR — but do not merge it.** This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
-    ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
-    gh pr list --base master --head qa --state open --json number,url
-    ```
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh pr list --base master --head qa --state open --json number,url
+   ```
 
-    If non-empty, reuse the existing PR. Otherwise build the body inline and create:
+   If non-empty, reuse the existing PR. Otherwise build the body inline and create:
 
-    ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
-    BODY_FILE=$(mktemp)
-    printf '## Included PRs (qa → master)\n\n' > "$BODY_FILE"
-    git log origin/master..origin/qa --oneline --no-merges | sed 's/^/- /' >> "$BODY_FILE"
-    gh pr create \
-      --base master --head qa \
-      --title "Release: qa → master ($(date +%F))" \
-      --body-file "$BODY_FILE"
-    rm -f "$BODY_FILE"
-    ```
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   BODY_FILE=$(mktemp)
+   printf '## Included PRs (qa → master)\n\n' > "$BODY_FILE"
+   git log origin/master..origin/qa --oneline --no-merges | sed 's/^/- /' >> "$BODY_FILE"
+   gh pr create \
+     --base master --head qa \
+     --title "Release: qa → master ($(date +%F))" \
+     --body-file "$BODY_FILE"
+   rm -f "$BODY_FILE"
+   ```
 
-    Capture each PR's URL. Same `cd`-per-block discipline as step 6.
+   Capture the PR's URL. Same `cd`-per-block discipline as step 4.
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase if Phase 2 was aborted, or if zero repos were successfully merged** (every repo either had an empty diff or its checks failed and it wasn't merge-anyway'd). Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 18 final report instead.
+> **Skip this entire phase if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 15 final report instead.
 
-11. **Per repo merged in Phase 2**, list the commits being released — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
+9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
+   ```
+
+   For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
+     --jq '.[0] | {number, title, author: .user.login, body, branch: .head.ref}'
+   ```
+
+   Capture `branch` (the PR's head branch) too — it's a primary source for the ENG-XXXX tag in step 11. Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
+
+   If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title. For the author, do **not** use `git log --pretty='%an'`: that returns the git-configured name (`Bryan McDonell`), but `$RELEASE_AUTHOR_MAP` is keyed on GitHub logins (`bryan-mcdonell`), so the lookup would always miss and the unmapped-authors report would surface a git name the user can't add to the map. Fetch the GitHub login instead:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh api repos/{owner}/{repo}/commits/<commit_hash> --jq '.author.login'
+   ```
+
+   If `.author.login` is `null` (the commit's git email isn't linked to any GitHub account), fall back to `git log -1 --pretty=format:'%ae' <commit_hash>` (the email) as a last resort. Mark either case in the final report so the user knows there's a commit without a clean GitHub-login attribution.
+
+10. **Fetch each PR's metadata** for the matched-by-regex cases (the hash-search cases above already returned metadata in the search response, so skip them here):
 
     ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
-    git log origin/master..origin/qa --no-merges --pretty=format:'%H %s'
-    ```
-
-    For each line, try the regex `\(#(\d+)\)$` on the subject. If it matches, you have the PR number. If it doesn't (older PRs, direct pushes, non-standard merge messages), recover the PR by commit hash via the commit-to-PRs association API:
-
-    ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
-    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls \
-      --jq '.[0] | {number, title, author: .user.login, body, branch: .head.ref}'
-    ```
-
-    Capture `branch` (the PR's head branch) too — it's a primary source for the ENG-XXXX tag in step 13. Use the commits-to-pulls endpoint, **not** `gh pr list --search '<hash>'` — `--search` is free-text against PR title/body/comments, so a bare hash only matches if someone manually pasted it into the PR text. The `commits/{sha}/pulls` endpoint uses the commit graph, which is what we actually want. `gh api` substitutes `{owner}` and `{repo}` from the cwd's git remote — that's why the defensive `cd` matters here.
-
-    If the endpoint returns an empty array (e.g., a direct push to develop with no PR ever opened), keep the commit as a "no-PR" entry — fall back to `%s` (subject) for the title. For the author, do **not** use `git log --pretty='%an'`: that returns the git-configured name (`Bryan McDonell`), but `$RELEASE_AUTHOR_MAP` is keyed on GitHub logins (`bryan-mcdonell`), so the lookup would always miss and the unmapped-authors report would surface a git name the user can't add to the map. Fetch the GitHub login instead:
-
-    ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
-    gh api repos/{owner}/{repo}/commits/<commit_hash> --jq '.author.login'
-    ```
-
-    If `.author.login` is `null` (the commit's git email isn't linked to any GitHub account), fall back to `git log -1 --pretty=format:'%ae' <commit_hash>` (the email) as a last resort. Mark either case in the final report so the user knows there's a commit without a clean GitHub-login attribution.
-
-12. **Fetch each PR's metadata** for the matched-by-regex cases (the hash-search cases above already returned metadata in the search response, so skip them here). Do this **inside the per-repo loop from step 11** — `gh pr view` resolves owner/repo from the cwd, so the cwd must still be in the relevant repo. If you process across repos in a flat list later, pass `--repo <owner>/<repo>` explicitly:
-
-    ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
+    cd "$RELEASE_OMNI_DIR"
     gh pr view <pr_number> --json number,title,author,body,headRefName
     ```
 
-    Capture `number`, `title`, `author.login`, `body`, and `headRefName` (the branch — a primary ENG-tag source). **Cache key must be repo-qualified** — `<repo>:<pr_number>`, not bare `<pr_number>`. GitHub PR numbers are per-repo, so `gp-webapp#1820` and `gp-api#1820` are distinct PRs that would collide on a bare-number key.
+    Capture `number`, `title`, `author.login`, `body`, and `headRefName` (the branch — a primary ENG-tag source).
 
-13. **Extract ENG-XXXX tags for each PR.** Scan the regex `ENG-\d+` (case-insensitive, uppercase the results, dedupe) across the **union of four sources**, not just title/body:
+11. **Extract ENG-XXXX tags for each PR.** Scan the regex `ENG-\d+` (case-insensitive, uppercase the results, dedupe) across the **union of four sources**, not just title/body:
     - PR `title`
     - PR `body`
-    - PR head branch name (`headRefName` / `branch` from step 11–12)
-    - the subjects of every commit in `master..qa` that maps to this PR (you already have these from step 11's `git log`)
+    - PR head branch name (`headRefName` / `branch` from step 9–10)
+    - the subjects of every commit in `master..qa` that maps to this PR (you already have these from step 9's `git log`)
 
     **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary with no tag. Scanning only title/body silently drops the ticket for the majority of PRs. A PR may legitimately yield **zero** tags (a chore/refactor with no ticket anywhere) or **more than one** (e.g., a PR that closed `ENG-10245` and `ENG-10246`) — both are fine.
 
-    Example, per commit, accumulating tags into the PR keyed by `<repo>:<pr_number>`:
+    Example, per commit, accumulating tags into the PR keyed by `<pr_number>`:
 
     ```bash
-    cd "$RELEASE_REPOS_DIR/<repo>"
+    cd "$RELEASE_OMNI_DIR"
     subj=$(git log -1 --pretty=%s "<commit_hash>")
     gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls | jq -r --arg subj "$subj" '
       (.[0] // empty)
@@ -206,7 +205,7 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
          | [scan("ENG-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
     ```
 
-14. **Build a ClickUp ticket link for each ENG-XXXX tag.** No API call is needed — ClickUp resolves the custom-id URL directly:
+12. **Build a ClickUp ticket link for each ENG-XXXX tag.** No API call is needed — ClickUp resolves the custom-id URL directly:
 
     ```
     $RELEASE_CLICKUP_TICKET_BASE/<ENG-XXXX>
@@ -216,11 +215,11 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
     Do **not** call `clickup_api.py` here — message 1 shows the PR title plus the ticket link, not the ticket's ClickUp title. (Fetching the ticket title is `/release`'s job for the `#product-releases` notes in message 2.) These links are paste-safe: pasted into Slack as raw URLs they auto-link.
 
-15. **Group PRs by author** using the map loaded in step 3:
+13. **Group PRs by author** using the map loaded in step 2:
     - `author.login` → Slack display name via the JSON map
     - Unmapped logins → use the raw login as-is, surface in the final report
 
-16. **Format the message** to match the exact layout used in `$RELEASE_DEVS_CHANNEL`:
+14. **Format the message** to match the exact layout used in `$RELEASE_DEVS_CHANNEL`:
 
     ```
     Here are the changes that are included in today's pending production release.
@@ -228,28 +227,28 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     If you're tagged in this message, please confirm that your changes are ready to go to prod by leaving a :white_check_mark: reaction on this message.
 
     @<Slack name>:
-      •  <repo> #<pr_number>: <pr_title> <ticket_link> [<ticket_link2> ...]
+      •  #<pr_number>: <pr_title> <ticket_link> [<ticket_link2> ...]
       •  ...
 
     @<Slack name>:
       •  ...
     ```
 
-    Each PR line ends with the ClickUp ticket link(s) from step 14 — one per ENG-XXXX tag, space-separated. A PR with no ENG tag (chore/refactor) gets no link, just the title. Example lines:
+    Each PR line ends with the ClickUp ticket link(s) from step 12 — one per ENG-XXXX tag, space-separated. A PR with no ENG tag (chore/refactor) gets no link, just the title. Example lines:
 
     ```
-      •  gp-api #1704: feat: update domain registrant to a vercel owner https://goodparty.clickup.com/t/90132012119/ENG-7506
-      •  gp-webapp #1913: fix(TextComplianceStep): update styling ... https://goodparty.clickup.com/t/90132012119/ENG-10245 https://goodparty.clickup.com/t/90132012119/ENG-10246
-      •  gp-webapp #1895: fix: rename useVerisons -> useVersions and add error handling
+      •  #1704: feat: update domain registrant to a vercel owner https://goodparty.clickup.com/t/90132012119/ENG-7506
+      •  #1913: fix(TextComplianceStep): update styling ... https://goodparty.clickup.com/t/90132012119/ENG-10245 https://goodparty.clickup.com/t/90132012119/ENG-10246
+      •  #1895: fix: rename useVerisons -> useVersions and add error handling
     ```
 
     Ordering: authors in the order they first appear in the diff (oldest merged PR's author first); PRs/commits under each author in merge order. Leave any ENG-XXXX already present in the PR title as-is — don't strip it; the appended link is the canonical reference.
 
-    For step-11 no-PR fallback entries (direct pushes, missing search match), use `<repo> <commit_hash[:7]>: <subject>` in place of `<repo> #<n>: <title>`; still scan the commit subject for an ENG tag and append its link if found. The user can decide whether to keep or strip these before pasting.
+    For step-9 no-PR fallback entries (direct pushes, missing search match), use `<commit_hash[:7]>: <subject>` in place of `#<n>: <title>`; still scan the commit subject for an ENG tag and append its link if found. The user can decide whether to keep or strip these before pasting.
 
 ### Phase 5: Print and report
 
-17. **Print the formatted message** between visible delimiters so it's easy to copy:
+15. **Print the formatted message** between visible delimiters so it's easy to copy:
 
     ```
     ──────── COPY BELOW INTO #devs-only ────────
@@ -258,15 +257,13 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
     ──────── END ────────
     ```
 
-18. **Final report:**
-    - Repos merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL for each
-    - Repos merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
-    - Repos skipped (empty diff between qa and develop)
-    - Repos whose develop→qa checks failed and were not merged — with the open develop→qa PR URL so the user can resolve and re-run (these have no qa→master PR yet)
-    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Split the left-open develop→qa PRs into three groups so the operator knows what's actually pending:
-      - PRs already watched and recorded `green` (or `merge-anyway`) before the abort: list with URLs and note "checks already settled — merge manually, or re-run the command from step 7 (re-watching settled checks is near-instant and repopulates the outcomes step 8 needs to know which repos to merge)"
-      - PRs watched before the abort whose checks failed (outcome `failed`, user chose `skip`): list with URLs and note "checks already settled with failures — resolve the failing checks, then merge manually or re-run"
-      - PRs never reached in the second pass (no outcome recorded): list with URLs and note "CI may still be running — watch before merging"
+16. **Final report:**
+    - If merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL
+    - If merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
+    - If there were no changes between qa and develop: note it and stop (no PRs opened)
+    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
+      - if its checks had already settled `green` (or `merge-anyway`) before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
+      - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
@@ -274,22 +271,22 @@ User input may be passed as a comma-separated repo list to override `$RELEASE_DE
 
 ## Important Notes
 
+- **One repo: omni.** It's a monorepo — `develop → qa → master`. There is no per-repo loop and no repo-list argument.
 - **Do not commit on the user's behalf.** All merges run through `gh pr merge` (acts on the remote PR). Never `git commit` locally.
 - **`--merge`, not `--squash`.** The merge style is load-bearing — `/release` parses the `qa..master` diff to find included ENG-XXXX tags. Squashing would collapse them into the parent PR's commit body, making the lookup more fragile.
-- **Open all PRs first, then watch.** Phase 2 opens every repo's develop→qa PR up front (first pass) so CI runs concurrently, then watches (second pass) and merges (third pass). Don't watch one repo's checks before opening the next repo's PR — that throws away the parallelism. Failures are still reacted to one repo at a time during the second pass.
-- **Skip silent on empty diff.** If `git log qa..develop` is empty for a repo, that's normal — note it in the final report and move on.
+- **Skip silent on empty diff.** If `git log qa..develop` is empty, that's normal — note it in the final report and stop.
 - **Don't merge the qa → master PR.** This command only opens it. The actual release merge is done by `/release` once the team has confirmed.
-- **`gh` cwd detection.** When `cd`'d into a repo, `gh` resolves owner/repo from the git remote. Don't pass `--repo` unless you're operating cross-repo from the runbooks directory.
+- **`gh` cwd detection.** When `cd`'d into the omni repo, `gh` resolves owner/repo from the git remote. Don't pass `--repo`.
 
 ## Troubleshooting
 
 | Failure | Fix |
 |---------|-----|
-| `gh pr create` returns "no commits between qa and develop" | Step 5 should have caught this — re-run step 5 to confirm the diff is empty, then skip the repo. |
-| `gh pr checks --watch` hangs | The repo's CI may never have started. Check the PR's Checks tab in the GitHub UI. Cancel with Ctrl-C; use `merge-anyway` if you know the build is healthy. |
+| `gh pr create` returns "no commits between qa and develop" | Step 3 should have caught this — re-run step 3 to confirm the diff is empty, then stop. |
+| `gh pr checks --watch` hangs | CI may never have started. Check the PR's Checks tab in the GitHub UI. Cancel with Ctrl-C; use `merge-anyway` if you know the build is healthy. |
 | A PR you expected to have a ticket shows no link | No `ENG-\d+` was found in its title, body, branch name, or any of its commit subjects. Either the ticket was never referenced (add it to the PR/branch and re-run) or it's a genuine no-ticket chore. The link is built from the custom id — there's no API call to fail here. |
 | Ticket link 404s when clicked | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<ENG-XXXX>`. Fix the var; no re-fetch needed. |
-| Two PRs reference the same ENG ticket | Expected (e.g., gp-webapp + gp-api work on the same feature). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
+| Two PRs reference the same ENG ticket | Expected (e.g., a gp-webapp and a gp-api package change for the same feature, now in one repo). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
 | Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
-| `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 8 for that repo only. |
-| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 11's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |
+| `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 6. |
+| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 9's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |
