@@ -147,6 +147,24 @@ describe('FilingInstructionsStep', () => {
     )
   })
 
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<FilingInstructionsStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const exit = screen.getByRole('button', { name: 'Continue to dashboard' })
+
+    // The shared footer stacks vertically on mobile, becomes a row at sm+ —
+    // this is what keeps the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(exit.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, exit]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('emails the filing instructions and confirms success', async () => {
     const onRequest = vi.fn()
     api.mock(EMAIL_ROUTE, () => {
