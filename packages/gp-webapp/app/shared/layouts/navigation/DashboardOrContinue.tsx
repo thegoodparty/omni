@@ -45,7 +45,7 @@ const DashboardOrContinue = ({
           onClick={closeAll}
           className="font-medium !text-base !py-2 border-none"
         >
-          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/dashboard">Campaign Manager</Link>
         </Button>
       ) : (
         <Button

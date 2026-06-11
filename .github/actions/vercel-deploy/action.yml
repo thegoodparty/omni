@@ -32,6 +32,22 @@ inputs:
       dev.goodparty.org). Leave empty to keep only the generated preview URL.
     required: false
     default: ""
+  pr-alias:
+    description: >-
+      Deterministic *.vercel.app subdomain to alias a PR preview deployment to
+      (e.g. gp-ui-pr-123-good-party.vercel.app). Must end in the team scope
+      slug. Leave empty for non-PR deploys. This is independent of alias-domain
+      so a single deploy can carry both a stable env domain and a PR alias.
+    required: false
+    default: ""
+  api-base:
+    description: >-
+      Override NEXT_PUBLIC_API_BASE for this build (full-stack PR previews point
+      it at the per-PR gp-api stack). NEXT_PUBLIC_* is baked at build time, so
+      this is written into the pulled Vercel env before `vercel build`. Leave
+      empty to use the project's configured value.
+    required: false
+    default: ""
 
 outputs:
   url:
@@ -55,6 +71,8 @@ runs:
         TARGET: ${{ inputs.target }}
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
+        PR_ALIAS: ${{ inputs.pr-alias }}
+        API_BASE: ${{ inputs.api-base }}
       run: |
         set -euo pipefail
 
@@ -66,14 +84,27 @@ runs:
           PULL_ARGS+=(--environment=production)
           BUILD_ARGS+=(--prod)
           DEPLOY_ARGS+=(--prod)
+          ENV_FILE=.vercel/.env.production.local
         else
           PULL_ARGS+=(--environment=preview)
           if [ -n "$GIT_BRANCH" ]; then
             PULL_ARGS+=(--git-branch="$GIT_BRANCH")
           fi
+          ENV_FILE=.vercel/.env.preview.local
         fi
 
         vercel pull "${PULL_ARGS[@]}"
+
+        # Override the baked backend URL when asked (full-stack PR previews).
+        # vercel build reads the pulled env file, so replace the line there.
+        if [ -n "$API_BASE" ]; then
+          touch "$ENV_FILE"
+          grep -v '^NEXT_PUBLIC_API_BASE=' "$ENV_FILE" > "$ENV_FILE.tmp" || true
+          echo "NEXT_PUBLIC_API_BASE=$API_BASE" >> "$ENV_FILE.tmp"
+          mv "$ENV_FILE.tmp" "$ENV_FILE"
+          echo "Building against NEXT_PUBLIC_API_BASE=$API_BASE" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
         vercel build "${BUILD_ARGS[@]}"
         DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
         case "$DEPLOY_URL" in
@@ -82,8 +113,13 @@ runs:
         esac
 
         if [ -n "$ALIAS_DOMAIN" ]; then
-          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --token "$VERCEL_TOKEN"
+          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
           echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        if [ -n "$PR_ALIAS" ]; then
+          vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
+          echo "PR alias: https://${PR_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
         echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"

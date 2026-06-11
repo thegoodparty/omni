@@ -2,6 +2,7 @@ name: gp-api infrastructure diffs
 
 on:
   pull_request:
+    branches-ignore: [qa, master]
     paths:
       - "packages/gp-api/deploy/**"
       - ".github/workflows/gp-api-infrastructure-diffs.yml"
@@ -11,6 +12,10 @@ permissions:
   id-token: write
   contents: read
   pull-requests: write
+
+concurrency:
+  group: gp-api-infrastructure-diffs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-west-2
@@ -34,8 +39,9 @@ jobs:
           route-types: "true"
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi

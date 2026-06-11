@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": "22.12.0",
+    "node": "22",
     "npm": ">=10.9.0"
   },
   "scripts": {
@@ -22,27 +22,5 @@
     "dev": "bash scripts/dev.sh",
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'"
-  },
-  "packageManager": "npm@10.9.2",
-  "overrides": {
-    "typescript": "5.9.3",
-    "react": "19.1.4",
-    "react-dom": "19.1.4",
-    "@types/react": "19.2.16",
-    "@types/react-dom": "19.2.3",
-    "csstype": "3.2.3",
-    "@opentelemetry/exporter-logs-otlp-http": "0.218.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "0.218.0",
-    "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
-    "@opentelemetry/instrumentation-http": "0.218.0",
-    "@opentelemetry/instrumentation-nestjs-core": "0.64.0",
-    "@opentelemetry/instrumentation-pino": "0.64.0",
-    "@opentelemetry/instrumentation-runtime-node": "0.31.0",
-    "@opentelemetry/resources": "2.7.1",
-    "@opentelemetry/sdk-logs": "0.218.0",
-    "@opentelemetry/sdk-metrics": "2.7.1",
-    "@opentelemetry/sdk-node": "0.218.0",
-    "@opentelemetry/sdk-trace-base": "2.7.1",
-    "@opentelemetry/semantic-conventions": "1.41.1"
   }
 }

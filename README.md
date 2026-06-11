@@ -1,74 +1,57 @@
-# Omni
+[<img src="./docs/goodparty-logo.svg" alt="GoodParty.org" width="500" />](https://www.goodparty.org)
 
-GoodParty's product monorepo (npm workspaces). See [`CLAUDE.md`](./CLAUDE.md) for the
-system overview and how the apps relate.
+The GoodParty.org product monorepo — the candidate web app, the API monolith, two
+data microservices, the admin console, the candidate sites, and the shared SDK and
+contracts, all in one npm-workspaces repo.
 
-> Status: MIGRATION IN PROGRESS. Until cutover, keep contributing to the existing
-> source repos as usual — `scripts/sync-all.sh` continuously imports their commits
-> here with full history. You'll be told when to switch over.
+**Working with an agent?** Start at [`CLAUDE.md`](./CLAUDE.md). It's the map: repo-wide
+conventions plus pointers to per-package `CLAUDE.md` files and the docs below.
 
 ## Packages
 
-All workspaces (apps and shared libs) live under a single `packages/` folder.
+All workspaces (apps and shared libs) live under `packages/`.
 
-| Path | What | Local port |
-|------|------|-----------|
-| `packages/gp-api` | NestJS API (Prisma/Postgres) | 3000 |
-| `packages/gp-webapp` | Next.js app (`good-party`) | 4000 |
-| `packages/election-api` | NestJS microservice | — |
-| `packages/people-api` | NestJS microservice | — |
-| `packages/gp-admin` | Next.js admin | — |
-| `packages/candidate-sites` | Next.js candidate sites | 4001 |
-| `packages/gp-sdk` | `@goodparty_org/sdk` typed client | — |
-| `packages/contracts` | `@goodparty_org/contracts` (post-cutover home) | — |
+| Path                       | What                                           | Port |
+| -------------------------- | ---------------------------------------------- | ---- |
+| `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)          | 3000 |
+| `packages/gp-webapp`       | Next.js product app (candidates & officials)   | 4000 |
+| `packages/election-api`    | NestJS microservice — election data            | 3001 |
+| `packages/people-api`      | NestJS microservice — voter data               | 3002 |
+| `packages/gp-admin`        | Next.js internal admin console                 | 3500 |
+| `packages/candidate-sites` | Next.js per-candidate sites                    | 4001 |
+| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client        | —    |
+| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types | —    |
 
-## Getting set up (post-cutover)
+## Quickstart
 
 ```bash
 git clone --recurse-submodules git@github.com:thegoodparty/omni.git
 cd omni
-nvm use                 # Node from .nvmrc
-npm install             # installs all workspaces
+nvm use          # Node from .nvmrc
+npm install      # installs all workspaces
+npm run dev      # Postgres + gp-api (:3000) + gp-webapp (:4000)
 ```
 
-Create each app's local env files (copy from each app's `.env.example` / `.env.local`),
-then start the core loop:
-
-```bash
-npm run dev             # Postgres + gp-api (:3000) + gp-webapp (:4000)
-```
-
-Run an individual app via its workspace name:
+Each app needs its own local env files (copy from each app's `.env.example` /
+`.env.local`). Run an individual app by workspace name:
 
 ```bash
 npm run start:dev -w gp-api
-npm run dev -w good-party        # gp-webapp's package name is "good-party"
-npm run start:dev -w election-api
+npm run dev -w packages/gp-webapp
 ```
 
-## Migration tooling
+More in [`docs/development.md`](./docs/development.md).
 
-- `npm run sync` — import/re-sync every repo in `scripts/repos.manifest`.
-- `npm run sync -- gp-api` — sync a single repo.
-- `npm run migrate:pr -- <app> <pr-number|branch>` — recreate an open PR here with
-  authorship preserved. See [`docs/pr-migration.md`](./docs/pr-migration.md).
+## Documentation
 
-Requires `git-filter-repo` (pinned 2.47.0):
+| Topic                      | Doc                                                |
+| -------------------------- | -------------------------------------------------- |
+| Repo map + conventions     | [`CLAUDE.md`](./CLAUDE.md)                         |
+| Architecture / service map | [`docs/architecture.md`](./docs/architecture.md)   |
+| Local development          | [`docs/development.md`](./docs/development.md)     |
+| Testing                    | [`docs/testing.md`](./docs/testing.md)             |
+| Deployment + CI            | [`docs/deployment.md`](./docs/deployment.md)       |
+| Observability / debugging  | [`docs/observability.md`](./docs/observability.md) |
+| MCP tools                  | [`docs/mcp.md`](./docs/mcp.md)                     |
 
-```bash
-pip3 install --user git-filter-repo==2.47.0
-```
-
-### Automated sync
-
-`.github/workflows/sync.yml` runs `sync-all` hourly (and on demand via
-**Actions → Sync source repos → Run workflow**), pushing new history to `develop`.
-
-Prerequisites:
-- The org GitHub App (`vars.APP_ID` / `secrets.APP_PRIVATE_KEY`) must be installed on
-  omni **and** every source repo (it needs read on sources, write on omni). To use a
-  PAT instead, set `secrets.SYNC_TOKEN` and swap the token step in the workflow.
-- If `develop` is a protected branch, allow the sync bot to bypass it (or repoint the
-  workflow at an unprotected branch).
-
-Controls: set repo variable `SYNC_DISABLED=true` to pause; delete the workflow at cutover.
+Each package also carries its own `CLAUDE.md` with detailed, area-specific guidance.

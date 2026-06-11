@@ -14,6 +14,12 @@ export interface BriefingAdminRow {
     positionName: string | null
   }
   updatedAt: string
+  review: {
+    verdict: 'passed' | 'failed'
+    failReason: string | null
+    reviewerEmail: string | null
+    reviewedAt: string
+  } | null
 }
 
 export const DATE_RANGES = [
@@ -29,11 +35,19 @@ export function isDateRange(value: string): value is DateRange {
   return (DATE_RANGES as readonly string[]).includes(value)
 }
 
+export const REVIEW_STATUSES = ['pending', 'passed', 'failed'] as const
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
+
+export function isReviewStatus(value: string): value is ReviewStatus {
+  return (REVIEW_STATUSES as readonly string[]).includes(value)
+}
+
 export interface ListBriefingsParams {
   offset?: number
   limit?: number
   q?: string
   dateRange?: DateRange
+  reviewStatus?: ReviewStatus
 }
 
 export interface ListBriefingsResult {
@@ -49,6 +63,7 @@ export const SEARCH_PARAMS = {
   PAGE: 'page',
   QUERY: 'q',
   DATE_RANGE: 'dateRange',
+  REVIEW_STATUS: 'reviewStatus',
 } as const
 
 export const DEFAULT_PER_PAGE = 20

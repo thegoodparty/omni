@@ -10,8 +10,8 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
 - **HTTP:** [`ofetch`](https://github.com/unjs/ofetch) — used directly, **never wrapped in custom logic**. See `.cursor/rules/use-library-features.mdc`.
 - **Auth:** Clerk M2M tokens via `@clerk/backend`. The SDK exchanges a long-lived M2M secret for a short-lived JWT and renews it on a timer.
 - **Types:** Pulled from `@goodparty_org/contracts` (a sibling package containing Zod schemas + inferred TS types) wherever a contract exists. Some types still defined locally in `src/types/` until contracts catches up.
-- **Versioning/release:** [Changesets](https://github.com/changesets/changesets) — see `docs/getting-started.md` § Releasing.
-- **CI:** `.github/workflows/ci.yml` runs typecheck → lint → format:check → build on every push to a non-master branch. `.github/workflows/publish.yml` runs the same on merges to `master`, then invokes `changesets/action` to open/publish the release PR.
+- **Workspace package:** consumed inside `omni` through npm workspace links, not published from this repo.
+- **CI:** `.github/workflows/gp-sdk.yml` builds contracts first, then runs typecheck → lint → format:check → build.
 - **No tests yet.** No vitest/jest config, no `npm test` script. If you add tests, also wire CI to run them.
 
 ## Module shape
@@ -78,10 +78,10 @@ SdkError(status, message, response?)
 
 ## Cross-service edges
 
-| Direction | Service | Protocol | Auth |
-|-----------|---------|----------|------|
-| outbound | `gp-api` | HTTP (ofetch) | Bearer M2M JWT (Clerk) |
-| inbound | `gp-admin`, `gp-api`, `gp-webapp`, and other server-side consumers | npm dep on `@goodparty_org/sdk` | (n/a — they import the package) |
+| Direction | Service                                                            | Protocol                        | Auth                            |
+| --------- | ------------------------------------------------------------------ | ------------------------------- | ------------------------------- |
+| outbound  | `gp-api`                                                           | HTTP (ofetch)                   | Bearer M2M JWT (Clerk)          |
+| inbound   | `gp-admin`, `gp-api`, `gp-webapp`, and other server-side consumers | npm dep on `@goodparty_org/sdk` | (n/a — they import the package) |
 
 Shared types flow: **Prisma models in `gp-api`** → `@goodparty_org/contracts` (Zod schemas + inferred TS types) → **this SDK** (re-exports) → `gp-admin` (consumes via this SDK). Locally-defined types under `src/types/` are stopgaps for entities not yet in `contracts` (`electedOffice`, parts of `district`/`organization`); they should migrate to contracts when their server-side schemas land there.
 

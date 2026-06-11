@@ -8,17 +8,17 @@ const PLEDGE_ITEMS = [
   {
     title: 'Independent',
     Icon: User,
-    body: 'I am on the ballot as a nonpartisan, independent, or third-party candidate. I don\u2019t serve on any boards or organizations affiliated with the Democratic or Republican parties.',
+    body: 'I will run and serve as a non-partisan, independent or third party candidate, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
   },
   {
-    title: 'People-Powered',
+    title: 'People-First',
     Icon: UsersRound,
-    body: 'I will focus on solving the problems facing my community, not serving myself or special interests. I will disclose donors and ensure that most of my funding comes from individual donors, not from corporations, unions or other special interests.',
+    body: 'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
   },
   {
     title: 'Anti-Corruption',
     Icon: Flag,
-    body: 'I will uphold the highest level of integrity by being open, transparent and accountable about my positions and progress on issues. This means staying connected to, informed by, and responsive to all my constituents using modern tools and data to inform decisions.',
+    body: 'I will always uphold the highest level of integrity by being open, transparent and accountable about my donors, positions and progress. I only serve the people, so I will use the best tools and data available to stay connected and responsive to my constituents.',
   },
 ] as const
 

@@ -11,6 +11,7 @@ import {
   DEFAULT_PER_PAGE,
   SEARCH_PARAMS,
   isDateRange,
+  isReviewStatus,
   type DateRange,
 } from './types'
 
@@ -46,6 +47,12 @@ export default async function Page({ searchParams }: PageProps) {
   const dateRange: DateRange =
     dateRangeParam && isDateRange(dateRangeParam) ? dateRangeParam : 'All time'
 
+  const reviewStatusParam = firstValue(params[SEARCH_PARAMS.REVIEW_STATUS])
+  const reviewStatus =
+    reviewStatusParam && isReviewStatus(reviewStatusParam)
+      ? reviewStatusParam
+      : undefined
+
   const offset = (currentPage - 1) * DEFAULT_PER_PAGE
 
   const result = await listBriefings({
@@ -53,6 +60,7 @@ export default async function Page({ searchParams }: PageProps) {
     limit: DEFAULT_PER_PAGE,
     q: query || undefined,
     dateRange: dateRange === 'All time' ? undefined : dateRange,
+    reviewStatus,
   })
 
   return (
@@ -62,7 +70,11 @@ export default async function Page({ searchParams }: PageProps) {
       </Heading>
 
       <Box mb="6">
-        <BriefingsToolbar query={query} dateRange={dateRange} />
+        <BriefingsToolbar
+          query={query}
+          dateRange={dateRange}
+          reviewStatus={reviewStatus}
+        />
       </Box>
 
       <BriefingList briefings={result.data} />

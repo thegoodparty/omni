@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PaginationOptionsSchema } from '../shared/Pagination.schema'
+import { ArtifactReviewSchema } from '../artifactReview/ArtifactReview.schema'
 
 // Mirrors the gp-api admin user-list DateRangeFilter values. Duplicated here
 // (not imported) because contracts cannot depend on gp-api src, and this filter
@@ -15,10 +16,24 @@ export type BriefingDateRangeFilter = z.infer<
   typeof BriefingDateRangeFilterSchema
 >
 
+// 'pending' is the absence of an ArtifactReview row, not a stored value.
+export const BRIEFING_REVIEW_STATUS_VALUES = [
+  'pending',
+  'passed',
+  'failed',
+] as const
+export const BriefingReviewStatusFilterSchema = z.enum(
+  BRIEFING_REVIEW_STATUS_VALUES,
+)
+export type BriefingReviewStatusFilter = z.infer<
+  typeof BriefingReviewStatusFilterSchema
+>
+
 export const BriefingAdminListQuerySchema = PaginationOptionsSchema.extend({
   // Fuzzy match across the owning user's first name, last name, and email.
   q: z.string().optional(),
   dateRange: BriefingDateRangeFilterSchema.optional(),
+  reviewStatus: BriefingReviewStatusFilterSchema.optional(),
 })
 export type BriefingAdminListQuery = z.infer<
   typeof BriefingAdminListQuerySchema
@@ -44,5 +59,6 @@ export const BriefingAdminRowSchema = z.object({
     positionName: z.string().nullable(),
   }),
   updatedAt: z.coerce.date(),
+  review: ArtifactReviewSchema.nullable(),
 })
 export type BriefingAdminRow = z.infer<typeof BriefingAdminRowSchema>

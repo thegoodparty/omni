@@ -45,7 +45,6 @@ async function completeOnboardingFlow(page: Page): Promise<void> {
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
   await completeVoterDemographicsStep(page)
-  await completeOutreachPlanStep(page)
   await completePledgeStep(page)
 }
 
@@ -131,21 +130,10 @@ async function completeVoterDemographicsStep(page: Page): Promise<void> {
   await clickContinue(page)
 }
 
-async function completeOutreachPlanStep(page: Page): Promise<void> {
-  console.log('Step: Outreach plan')
-  await expect(
-    page.getByRole('heading', {
-      level: 1,
-      name: /minimum resources needed/i,
-    }),
-  ).toBeVisible({ timeout: 30000 })
-  await clickContinue(page)
-}
-
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Step: Pledge')
   await expect(
-    page.getByRole('heading', { level: 1, name: /almost there/i }),
+    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })

@@ -20,20 +20,16 @@ if (!process.env.BASE_URL) {
 
 export default defineConfig({
   testDir: './tests',
+  // Run clerkSetup once before all tests, regardless of any path filter. (A
+  // project-dependency setup is skipped when the run is filtered to tests/.)
+  globalSetup: './global-setup.ts',
+  // The app's vitest unit tests are *.test.tsx/*.test.ts; never collect them as
+  // Playwright tests (they'd crash on `import { ... } from 'vitest'`).
+  testIgnore: ['**/*.test.ts', '**/*.test.tsx'],
   outputDir: './test-results',
-  snapshotPathTemplate:
-    '{testDir}/__visual_snapshots__/{testFileDir}/{testFileName}/{arg}{ext}',
   timeout: 120000,
   expect: {
     timeout: 15000,
-    toHaveScreenshot: {
-      // Full-viewport captures vary with layout/fonts; branch UI changes can exceed
-      // pixel-only caps. Ratio + high pixel cap keeps CI green while still catching big regressions.
-      maxDiffPixels: 25000,
-      maxDiffPixelRatio: 0.045,
-      animations: 'disabled', // freeze CSS animations for deterministic captures
-      scale: 'css', // use CSS pixels, consistent across machines
-    },
   },
 
   // Improved parallelization with better stability
@@ -51,13 +47,6 @@ export default defineConfig({
   projects: [
     {
       name: 'default',
-      use: devices['Desktop Chrome'],
-      dependencies: ['global setup'],
-    },
-    {
-      name: 'global setup',
-      testDir: './',
-      testMatch: /global-setup\.ts/,
     },
   ],
 

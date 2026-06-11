@@ -66,15 +66,6 @@ export const TopVoterIssuesSection = ({
     })
   }, [query.error])
 
-  let audienceLabel = ''
-  if (office) {
-    audienceLabel = office
-  } else if (city && state) {
-    audienceLabel = `${city}, ${state}`
-  } else if (state) {
-    audienceLabel = state
-  }
-
   const issues = query.data?.issues ?? []
 
   if (!query.isPending && issues.length === 0) {
@@ -98,17 +89,7 @@ export const TopVoterIssuesSection = ({
           Top issues for your voters
         </HeadingTag>
         <p className="text-sm leading-6 text-slate-500">
-          {audienceLabel ? (
-            <>
-              The issues voters in your race for{' '}
-              <span className="font-semibold text-slate-950">
-                {audienceLabel}
-              </span>{' '}
-              care about most right now.
-            </>
-          ) : (
-            <>The issues your voters care about most right now.</>
-          )}
+          The issues voters in your district care about most right now.
         </p>
       </div>
 

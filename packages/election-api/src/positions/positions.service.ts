@@ -4,7 +4,12 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
-import { District, Position, Prisma, ProjectedTurnout } from '../generated/prisma'
+import {
+  District,
+  Position,
+  Prisma,
+  ProjectedTurnout,
+} from '../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ProjectedTurnoutService } from 'src/projectedTurnout/projectedTurnout.service'
 import { PositionWithOptionalDistrict } from './positions.types'
@@ -30,6 +35,8 @@ type PositionWithOptionalDistrictAndTurnouts = {
   state: Position['state']
   name: Position['name']
   level: Position['level']
+  isWinIcp: Position['isWinIcp']
+  isServeIcp: Position['isServeIcp']
   placeId?: Position['placeId'] | null
   district?: {
     id: District['id']
@@ -114,6 +121,8 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       state: true,
       name: true,
       level: true,
+      isWinIcp: true,
+      isServeIcp: true,
       ...(includeFilingFee ? { placeId: true } : {}),
     }
 
@@ -174,8 +183,17 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
     electionDate?: string,
     filingFee?: FilingFeeResult,
   ): PositionWithOptionalDistrict {
-    const { id, brPositionId, brDatabaseId, state, level, name, district } =
-      position
+    const {
+      id,
+      brPositionId,
+      brDatabaseId,
+      state,
+      level,
+      name,
+      district,
+      isWinIcp,
+      isServeIcp,
+    } = position
     const filingFeeFields: Pick<
       PositionWithOptionalDistrict,
       'filingFee' | 'filingRequirementsText' | 'filingFeeExtractionSource'
@@ -195,6 +213,8 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
         state,
         name,
         level,
+        isWinIcp,
+        isServeIcp,
         ...filingFeeFields,
       }
     }
@@ -221,6 +241,8 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
         name,
         district: districtResponse,
         level,
+        isWinIcp,
+        isServeIcp,
         ...filingFeeFields,
       }
     }
@@ -249,6 +271,8 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       state,
       name,
       level,
+      isWinIcp,
+      isServeIcp,
       district: {
         ...districtResponse,
         projectedTurnout: projectedTurnout ?? null,

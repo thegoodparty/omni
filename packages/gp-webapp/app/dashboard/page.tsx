@@ -4,25 +4,9 @@ import candidateAccess from './shared/candidateAccess'
 import { apiRoutes } from 'gpApi/routes'
 import { serverFetch } from 'gpApi/serverFetch'
 import { fetchUserWebsite } from 'helpers/fetchUserWebsite'
+import { isWebsiteSunsetEligible } from './shared/websiteSunset'
 import { redirect } from 'next/navigation'
-import type { Task } from './components/tasks/TaskItem'
 import type { TcrCompliance } from 'helpers/types'
-
-const fetchTasks = async (): Promise<Task[]> => {
-  const currentDate = new Date().toISOString().split('T')[0]
-
-  try {
-    const resp = await serverFetch<Task[]>(
-      apiRoutes.campaign.legacyTasks.list,
-      {
-        date: currentDate,
-      },
-    )
-    return resp.ok ? resp.data : []
-  } catch {
-    return []
-  }
-}
 
 const meta = pageMetaData({
   title: 'Campaign Dashboard | GoodParty.org',
@@ -40,8 +24,7 @@ export default async function Page(): Promise<React.JSX.Element> {
     return redirect('/dashboard/briefings')
   }
 
-  const [tasks, tcrComplianceResponse, website] = await Promise.all([
-    fetchTasks(),
+  const [tcrComplianceResponse, website] = await Promise.all([
     serverFetch<TcrCompliance>(apiRoutes.campaign.tcrCompliance.fetch),
     fetchUserWebsite(),
   ])
@@ -53,9 +36,8 @@ export default async function Page(): Promise<React.JSX.Element> {
   return (
     <DashboardContent
       pathname="/dashboard"
-      tasks={tasks}
       tcrCompliance={tcrCompliance}
-      hasWebsite={!!website}
+      sunsetEligible={isWebsiteSunsetEligible(website)}
     />
   )
 }

@@ -1,15 +1,12 @@
 'use client'
 
 import Image from 'next/image'
-import { Share2 } from 'lucide-react'
-import { IconButton } from '@styleguide'
 
 interface HeroCardProps {
   candidateName: string
   race: string
   state: string
   electionDate: string
-  onShare?: () => void
 }
 
 const HeroCard = ({
@@ -17,25 +14,11 @@ const HeroCard = ({
   race,
   state,
   electionDate,
-  onShare,
 }: HeroCardProps): React.JSX.Element => {
   const raceLine = [race, state].filter(Boolean).join(' • ')
 
   return (
     <section className="relative flex flex-col items-center gap-6 rounded-3xl border border-base-border bg-brand-cream px-6 pt-8 pb-6 text-center sm:px-12 sm:pt-16 sm:pb-12">
-      {onShare ? (
-        <IconButton
-          type="button"
-          variant="outline"
-          size="medium"
-          onClick={onShare}
-          aria-label="Share campaign plan"
-          className="absolute! top-4 right-4 bg-base-surface sm:top-6 sm:right-6"
-        >
-          <Share2 className="size-4" />
-        </IconButton>
-      ) : null}
-
       <div className="flex flex-col items-center gap-3">
         <Image
           src="/images/heart.svg"
@@ -46,7 +29,7 @@ const HeroCard = ({
           className="h-12 w-auto sm:h-14"
         />
         <h1 className="text-3xl font-bold text-foreground sm:text-5xl">
-          Initial campaign plan
+          Campaign Plan
         </h1>
       </div>
 

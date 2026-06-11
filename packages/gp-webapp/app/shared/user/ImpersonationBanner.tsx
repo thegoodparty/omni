@@ -19,8 +19,7 @@ import {
 import { Button } from '@styleguide/components/ui/button'
 import { Input } from '@styleguide/components/ui/input'
 import { cn } from '@styleguide/lib/utils'
-
-const GP_ADMIN_URL = process.env.NEXT_PUBLIC_GP_ADMIN_URL ?? '/'
+import { stopImpersonatingAndReturnToAdmin } from '@shared/user/stopImpersonating'
 
 type SearchResult = { id: number; email: string; name: string | null }
 
@@ -94,15 +93,7 @@ export default function ImpersonationBanner() {
   }
 
   async function handleStopImpersonating() {
-    await signOut()
-    let returnPath = '/'
-    try {
-      returnPath = sessionStorage.getItem('gp_admin_return_to') ?? '/'
-      sessionStorage.removeItem('gp_admin_return_to')
-    } catch {
-      returnPath = '/'
-    }
-    window.location.href = GP_ADMIN_URL + returnPath
+    await stopImpersonatingAndReturnToAdmin(signOut)
   }
 
   function handleOpenChange(next: boolean) {

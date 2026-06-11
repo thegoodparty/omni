@@ -38,6 +38,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockUpdateCampaign = vi.mocked(updateCampaign)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed EIN with an IRS-issued prefix (12) that is not a placeholder.
 const CLEAN_EIN = '12-3456780'
@@ -58,7 +59,7 @@ describe('EinStep', () => {
       currentStep: 'ein',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: no EIN on file yet, persistence succeeds.
     seedCampaign(undefined)
@@ -72,6 +73,31 @@ describe('EinStep', () => {
     )
   })
 
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<EinStep />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<EinStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: 'Continue' })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('renders the EIN input and the IRS link', () => {
     render(<EinStep />)
     expect(screen.getByLabelText('Campaign EIN')).toBeInTheDocument()
@@ -79,14 +105,37 @@ describe('EinStep', () => {
     expect(link).toHaveAttribute('href', expect.stringContaining('irs.gov'))
   })
 
-  it('keeps Continue disabled for a format-invalid (incomplete) EIN', () => {
+  it('shows the add-your-EIN banner when Continue is clicked without a complete EIN', () => {
+    // Figma 7490:26881: Continue stays enabled and an attempt with a missing /
+    // incomplete EIN surfaces the error banner — a silently disabled button
+    // gives the candidate nothing to act on.
     render(<EinStep />)
-    setEin('12')
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    const continueButton = screen.getByRole('button', { name: 'Continue' })
+    expect(continueButton).toBeEnabled()
+    fireEvent.click(continueButton)
+
+    expect(screen.getByText('Please add your campaign EIN')).toBeInTheDocument()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
   })
 
-  it('disables Continue and shows the Phase 1 error copy for a non-IRS-prefix EIN', async () => {
+  it('clears the banner once the EIN becomes valid after a failed attempt', async () => {
+    render(<EinStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Please add your campaign EIN')).toBeInTheDocument()
+
+    setEin(CLEAN_EIN)
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Please add your campaign EIN'),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('shows the Phase 1 error copy and blocks Continue for a non-IRS-prefix EIN', async () => {
     render(<EinStep />)
 
     // 07 is not an IRS-issued prefix, but the value passes the shape-only check.
@@ -95,11 +144,14 @@ describe('EinStep', () => {
     expect(
       await screen.findByText(/prefix isn't one the IRS issues/i),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
   })
 
-  it('disables Continue and shows the placeholder error copy for a placeholder EIN', async () => {
+  it('shows the placeholder error copy and blocks Continue for a placeholder EIN', async () => {
     render(<EinStep />)
 
     // All-same-digit is a classic placeholder the sanity check rejects.
@@ -108,8 +160,11 @@ describe('EinStep', () => {
     expect(
       await screen.findByText(/looks like a placeholder/i),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
   })
 
   it('persists einNumber + validatedEin and advances for a clean EIN', async () => {
@@ -188,26 +243,54 @@ describe('EinStep', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('does not flash an error for a prefilled complete-but-bad EIN', async () => {
+  it('surfaces the error immediately for a prefilled complete-but-bad EIN', () => {
     // A legacy EIN saved before the sanity rules existed: format-valid but a
-    // non-IRS prefix. It must stay neutral on mount (no red error) until the
-    // candidate edits the untouched field, and Continue stays disabled.
+    // non-IRS prefix. Entry derivation (and the filing-details guard) routes
+    // these candidates here to fix it, so the reason must show on mount — a
+    // neutral field would give them nothing to act on.
     seedCampaign('07-1234567')
 
     render(<EinStep />)
 
     expect(screen.getByLabelText('Campaign EIN')).toHaveValue('07-1234567')
     expect(
-      screen.queryByText(/prefix isn't one the IRS issues/i),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-
-    // Once the candidate edits it, the sanity verdict (and error) surfaces.
-    fireEvent.change(screen.getByLabelText('Campaign EIN'), {
-      target: { value: '08-1234567' },
-    })
-    expect(
-      await screen.findByText(/prefix isn't one the IRS issues/i),
+      screen.getByText(/prefix isn't one the IRS issues/i),
     ).toBeInTheDocument()
+  })
+
+  it('keeps the error banner up while a routed-in bad EIN is being retyped', async () => {
+    // Editing makes the EIN incomplete (`validatedEin` goes neutral), but the
+    // candidate was routed here to fix a bad EIN — the guidance must not
+    // vanish mid-edit before anything is actually fixed.
+    seedCampaign('07-1234567')
+
+    render(<EinStep />)
+    expect(
+      screen.getByText(/prefix isn't one the IRS issues/i),
+    ).toBeInTheDocument()
+
+    setEin('0')
+
+    expect(
+      await screen.findByText('Please add your campaign EIN'),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces the error when a bad persisted EIN resolves after typing started', async () => {
+    // No SSR initialData: the candidate starts typing while the campaign query
+    // is still pending, then it resolves with a legacy bad EIN. Their partial
+    // input must not be clobbered, but the error guidance still has to show —
+    // they were routed here to fix that EIN.
+    seedCampaign(undefined)
+    const { rerender } = render(<EinStep />)
+    setEin('1')
+
+    seedCampaign('07-1234567')
+    rerender(<EinStep />)
+
+    expect(
+      await screen.findByText('Please add your campaign EIN'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign EIN')).toHaveValue('1')
   })
 })

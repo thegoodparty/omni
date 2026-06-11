@@ -224,6 +224,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
 
     const existingByEmail = await this.findUserByEmail(data.email)
     if (existingByEmail) {
+      // A concurrent provision of the same Clerk user may have created the
+      // row between our two lookups — same clerkId is a match, not a rebind.
+      if (existingByEmail.clerkId === data.clerkId) {
+        return existingByEmail
+      }
       if (existingByEmail.clerkId) {
         this.logger.warn(
           {

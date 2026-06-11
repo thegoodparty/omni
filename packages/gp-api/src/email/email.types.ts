@@ -14,6 +14,7 @@ export type SendEmailInput = {
   subject?: string
   message: string
   from?: string
+  html?: string
 }
 export type SendTemplateEmailInput = Omit<SendEmailInput, 'message'> & {
   template: EmailTemplateName

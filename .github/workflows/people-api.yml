@@ -2,20 +2,9 @@ name: people-api
 
 on:
   pull_request:
-    paths:
-      - "packages/people-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/people-api.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/people-api/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/people-api.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -23,11 +12,10 @@ permissions:
 
 concurrency:
   group: people-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-west-2
-  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
   IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/people-api:${{ github.sha }}
   WORKSPACE: packages/people-api
 
@@ -89,18 +77,33 @@ jobs:
           esac
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ECR tags are immutable, so a re-run of this job after a successful
+      # push would fail trying to overwrite the tag. Same SHA means same
+      # source; reuse the existing image and skip the build.
+      - name: Check for existing image
+        id: ecr-image
+        run: |
+          if aws ecr describe-images --repository-name people-api \
+            --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build application
+        if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w ${{ env.WORKSPACE }}
 
       - name: Build and push Docker image
+        if: steps.ecr-image.outputs.exists != 'true'
         run: |
           docker build -t "${IMAGE_URI}" -f packages/people-api/deploy/Dockerfile .
           docker push "${IMAGE_URI}"

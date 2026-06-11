@@ -2,34 +2,23 @@ name: contracts
 
 on:
   pull_request:
-    paths:
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/contracts.yml'
-      - '.github/actions/**'
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/contracts.yml'
-      - '.github/actions/**'
 
 permissions:
   contents: read
 
 concurrency:
   group: contracts-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   WORKSPACE: packages/contracts
 
 jobs:
   build:
-    name: Build
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

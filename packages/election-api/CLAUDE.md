@@ -25,14 +25,23 @@ npm run generate               # regenerate Prisma client
 
 `npm run lint` runs `eslint --fix` — it mutates files. Stage your work first.
 
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/election-api.yml`) before opening a PR. There is no `types` script, so run `tsc` via `npm exec`. CI does not run lint here. From the repo root:
+
+```bash
+npm exec -w packages/election-api -- tsc --noEmit   # typecheck
+npm run test -w packages/election-api               # vitest run
+```
+
 ## Pointer table — when in doubt
 
-| Doing | Read |
-|-------|------|
-| Adding an endpoint / module | `docs/architecture.md` § Module shape |
-| Querying data / adding a Prisma model | `docs/data-model.md` |
-| First-time setup | `docs/getting-started.md` |
-| AI rule-by-rule code review | `ai-rules/` (git submodule) |
+| Doing                                 | Read                                  |
+| ------------------------------------- | ------------------------------------- |
+| Adding an endpoint / module           | `docs/architecture.md` § Module shape |
+| Querying data / adding a Prisma model | `docs/data-model.md`                  |
+| First-time setup                      | `docs/getting-started.md`             |
+| AI rule-by-rule code review           | `ai-rules/` (git submodule)           |
 
 ## Code style
 
@@ -85,7 +94,7 @@ Never bypass the DTO and read `request` raw — the global pipe is what enforces
 
 ## Never
 
-- Never edit a file under `prisma/migrations/<timestamp>/` — applied migrations are immutable.
+- Never edit a file under `prisma/schema/migrations/<timestamp>/` — applied migrations are immutable.
 - Never expose this API to public traffic. It's an internal service consumed by `gp-api`; auth is network-level (VPC/SG).
 - Never bypass `createZodDto` for request validation — the global `ZodValidationPipe` is the only enforcement point.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.

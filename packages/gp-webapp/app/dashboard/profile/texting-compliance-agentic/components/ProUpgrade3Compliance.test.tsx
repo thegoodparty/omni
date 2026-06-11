@@ -55,12 +55,10 @@ const tcrWith = (status: TcrComplianceStatus | null): TcrCompliance => ({
   status,
 })
 
-const getDigitInputs = (): HTMLInputElement[] =>
-  screen
-    .queryAllByRole('textbox')
-    .filter((el) =>
-      (el.getAttribute('aria-label') ?? '').startsWith('Digit '),
-    ) as HTMLInputElement[]
+// InputOTP renders a single accessible input (not one per digit), so the PIN
+// entry is present iff that input is in the document.
+const getPinInput = (): HTMLInputElement | null =>
+  screen.queryByRole('textbox', { name: 'PIN' }) as HTMLInputElement | null
 
 beforeEach(() => {
   mockGetTcrCompliance.mockReset()
@@ -74,7 +72,7 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
     render(<ProUpgrade3Compliance />)
 
     await waitFor(() => {
-      expect(getDigitInputs()).toHaveLength(6)
+      expect(getPinInput()).not.toBeNull()
     })
     expect(screen.getByText('Enter your PIN')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /submit/i })).toBeInTheDocument()
@@ -135,7 +133,7 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
           screen.getByText(/your pro upgrade status will appear here/i),
         ).toBeInTheDocument()
       })
-      expect(getDigitInputs()).toHaveLength(0)
+      expect(getPinInput()).toBeNull()
       expect(
         screen.queryByText('Your profile needs updates before sending texts'),
       ).toBeNull()
@@ -149,13 +147,14 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
         /* never resolves */
       }),
     )
-    render(<ProUpgrade3Compliance />)
+    const { container } = render(<ProUpgrade3Compliance />)
 
-    expect(screen.getByText('Texting Compliance')).toBeInTheDocument()
+    // The skeleton shows animated placeholders, not the neutral fallback copy.
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
     expect(
       screen.queryByText(/your pro upgrade status will appear here/i),
     ).toBeNull()
-    expect(getDigitInputs()).toHaveLength(0)
+    expect(getPinInput()).toBeNull()
   })
 })
 
@@ -179,12 +178,9 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     )
 
     render(<ProUpgrade3Compliance />)
-    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
 
-    const inputs = getDigitInputs()
-    for (let i = 0; i < 6; i++) {
-      await user.type(inputs[i]!, String(i + 1))
-    }
+    await user.type(getPinInput()!, '123456')
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     await waitFor(() => {
@@ -202,7 +198,7 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
         screen.getByText('Your candidate profile is being reviewed'),
       ).toBeInTheDocument()
     })
-    expect(getDigitInputs()).toHaveLength(0)
+    expect(getPinInput()).toBeNull()
   })
 
   it('clears and re-enables the PIN form after success when the status has not yet left `submitted`', async () => {
@@ -218,12 +214,9 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     )
 
     render(<ProUpgrade3Compliance />)
-    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
 
-    const inputs = getDigitInputs()
-    for (let i = 0; i < 6; i++) {
-      await user.type(inputs[i]!, String(i + 1))
-    }
+    await user.type(getPinInput()!, '123456')
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     await waitFor(() => {
@@ -232,15 +225,14 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
       )
     })
 
-    // Form remounted: inputs back to empty (no submitted PIN lingering) and
-    // editable rather than frozen disabled in a loading state. The Submit button
-    // is correctly disabled again because the (now empty) form has no PIN.
+    // Input reset: empty (no submitted PIN lingering) and editable rather than
+    // frozen disabled in a loading state.
     await waitFor(() => {
-      const refreshed = getDigitInputs()
-      expect(refreshed).toHaveLength(6)
-      expect(refreshed.every((input) => input.value === '')).toBe(true)
+      const refreshed = getPinInput()
+      expect(refreshed).not.toBeNull()
+      expect(refreshed!.value).toBe('')
     })
-    expect(getDigitInputs()[0]).toBeEnabled()
+    expect(getPinInput()).toBeEnabled()
   })
 
   it('surfaces a mismatch error on a 400 without claiming success', async () => {
@@ -253,12 +245,9 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     )
 
     render(<ProUpgrade3Compliance />)
-    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
 
-    const inputs = getDigitInputs()
-    for (let i = 0; i < 6; i++) {
-      await user.type(inputs[i]!, String(i + 1))
-    }
+    await user.type(getPinInput()!, '123456')
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     await waitFor(() => {
@@ -269,5 +258,20 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     expect(mockSuccessSnackbar).not.toHaveBeenCalled()
     // Form re-enabled so the candidate can retry.
     expect(screen.getByRole('button', { name: /submit/i })).toBeEnabled()
+  })
+
+  it('rejects non-digit characters so a non-numeric PIN can never be submitted', async () => {
+    const user = userEvent.setup()
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+
+    render(<ProUpgrade3Compliance />)
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
+
+    await user.type(getPinInput()!, 'abcdef')
+
+    // The digit-only pattern drops the input, so nothing accumulates and Submit
+    // stays disabled — the API never receives a non-numeric PIN.
+    expect(getPinInput()!.value).toBe('')
+    expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled()
   })
 })

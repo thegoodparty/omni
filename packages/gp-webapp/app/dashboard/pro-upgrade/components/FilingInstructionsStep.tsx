@@ -10,13 +10,13 @@ import {
   MapPinIcon,
   SendIcon,
 } from '@styleguide/components/ui/icons'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { clientRequest } from 'gpApi/typed-request'
+import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Mirror gp-api's renderFilingInstructionsEmail window logic so the on-screen
 // window and the "email this to me" body can't drift: both → "start – end",
@@ -44,17 +44,20 @@ const InstructionRow = ({
   label,
   children,
 }: InstructionRowProps): React.JSX.Element => (
-  <div className="flex gap-3 border-t border-gray-200 p-4 first:border-t-0">
-    <span className="mt-0.5 shrink-0 text-primary">{icon}</span>
+  <div className="flex gap-3 border-t border-base-border p-4 first:border-t-0">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-400">
+      {icon}
+    </span>
     <div>
       <span className="block font-medium">{label}</span>
-      <Body2 className="text-secondary">{children}</Body2>
+      <Body2 className="text-base-muted-foreground">{children}</Body2>
     </div>
   </div>
 )
 
 const FilingInstructionsStep = (): React.JSX.Element => {
   const router = useRouter()
+  const { goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
@@ -109,17 +112,17 @@ const FilingInstructionsStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <H2 className="mb-2">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         You&apos;re not eligible for Pro yet, but here&apos;s how to file for
         this election
-      </H2>
-      <Body2 className="text-secondary mb-8">
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         Once done, you can come right back and we&apos;ll have everything ready
         to go. In the meantime, you still have access to our free campaign
         tools.
       </Body2>
 
-      <div className="rounded-xl border border-gray-200">
+      <div className="rounded-xl border border-base-border">
         <InstructionRow
           icon={<CalendarIcon className="h-5 w-5" />}
           label="Filing window"
@@ -162,10 +165,11 @@ const FilingInstructionsStep = (): React.JSX.Element => {
           </InstructionRow>
         )}
 
-        <div className="flex justify-center border-t border-gray-200 p-2">
+        <div className="flex justify-center border-t border-base-border p-2">
           <Button
             variant="ghost"
             size="small"
+            className="text-blue-400"
             onClick={() => void handleEmail()}
             loading={emailing}
             loadingText="Sending…"
@@ -177,8 +181,16 @@ const FilingInstructionsStep = (): React.JSX.Element => {
         </div>
       </div>
 
-      <div className="mt-8 flex justify-end">
-        <Button size="large" onClick={handleExit}>
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
+          Back
+        </Button>
+        <Button size="large" className="w-full sm:w-auto" onClick={handleExit}>
           Continue to dashboard
         </Button>
       </div>

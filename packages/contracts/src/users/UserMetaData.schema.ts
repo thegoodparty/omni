@@ -23,6 +23,7 @@ export const UserMetaDataObjectSchema = z.object({
   hubspotId: z.string().optional(),
   profile_updated_count: z.number().optional(),
   textNotifications: z.boolean().optional(),
+  websiteSunsetModalDismissed: z.boolean().optional(),
 })
 
 export const UserMetaDataSchema = UserMetaDataObjectSchema.nullish()

@@ -5,7 +5,6 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-import { visualSnapshot } from '../../../src/helpers/visual.helper'
 
 test.describe('Profile Management', () => {
   test.beforeEach(async ({ page }) => {
@@ -33,10 +32,5 @@ test.describe('Profile Management', () => {
       await expect(personalFields.first()).toBeVisible()
       console.log(`✅ Profile accessible with ${fieldCount} personal fields`)
     }
-
-    // Mask personal info fields — content varies per test user
-    await visualSnapshot(page, 'profile-page.png', {
-      mask: [page.locator('input, [data-testid*="personal"]')],
-    })
   })
 })

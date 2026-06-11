@@ -5,6 +5,12 @@ model Position {
     state        String
     name         String
 
+    // Office-level ICP eligibility from int__icp_offices, written by the
+    // m_election_api__position dbt mart (gp-data-platform#473). Null = the
+    // office's voter_count is unknown upstream.
+    isWinIcp   Boolean? @map("is_win_icp")
+    isServeIcp Boolean? @map("is_serve_icp")
+
     // Relations
     district   District? @relation(fields: [districtId], references: [id])
     districtId String?   @map("district_id") @db.Uuid()

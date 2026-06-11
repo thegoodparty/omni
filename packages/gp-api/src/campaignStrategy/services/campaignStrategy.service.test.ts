@@ -169,6 +169,20 @@ describe('CampaignStrategyService — community events', () => {
     service = module.get<CampaignStrategyService>(CampaignStrategyService)
   })
 
+  describe('existsForCampaign', () => {
+    it('returns true when a strategy row exists', async () => {
+      mockPrisma.campaignStrategy.count.mockResolvedValue(1)
+
+      expect(await service.existsForCampaign(99)).toBe(true)
+    })
+
+    it('returns false when no strategy row exists', async () => {
+      mockPrisma.campaignStrategy.count.mockResolvedValue(0)
+
+      expect(await service.existsForCampaign(99)).toBe(false)
+    })
+  })
+
   describe('getOrGenerateCommunityEvents', () => {
     const eventsDetails = {
       party: 'Independent',

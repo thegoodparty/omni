@@ -3,7 +3,7 @@ import type { FilingFeeExtractionSource } from './util/filingFee.util'
 
 export type PositionWithOptionalDistrict = Pick<
   Position,
-  'id' | 'brPositionId' | 'brDatabaseId' | 'state'
+  'id' | 'brPositionId' | 'brDatabaseId' | 'state' | 'isWinIcp' | 'isServeIcp'
 > & {
   name?: string | null
   level: Position['level']

@@ -19,11 +19,26 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
+if (typeof window !== 'undefined' && !window.ResizeObserver) {
+  const noop = (): void => undefined
+  window.ResizeObserver = class ResizeObserver {
+    observe = noop
+    unobserve = noop
+    disconnect = noop
+  }
+}
+
 if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   const noop = (): void => undefined
   Element.prototype.setPointerCapture = noop
   Element.prototype.releasePointerCapture = noop
   Element.prototype.hasPointerCapture = () => false
+}
+
+// jsdom doesn't implement elementFromPoint; input-otp calls it from a timer to
+// position its fake caret, which otherwise throws an async uncaught error.
+if (typeof document !== 'undefined' && !document.elementFromPoint) {
+  document.elementFromPoint = (): null => null
 }
 
 // jsdom's CSSStyleDeclaration returns `""` for `transform` and

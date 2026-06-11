@@ -7,6 +7,11 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { Campaign } from 'helpers/types'
 import FilingInstructionsStep from './FilingInstructionsStep'
+import { useProUpgradeWizard } from './ProUpgradeWizard'
+
+vi.mock('./ProUpgradeWizard', () => ({
+  useProUpgradeWizard: vi.fn(),
+}))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: vi.fn(),
@@ -26,6 +31,8 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 })
 
 const mockUseCampaign = vi.mocked(useCampaign)
+const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
+const goToPreviousStep = vi.fn()
 
 const EMAIL_ROUTE = 'POST /v1/campaigns/mine/filing-instructions/email' as const
 
@@ -55,6 +62,12 @@ const setCampaign = (campaign: Campaign | null): void => {
 describe('FilingInstructionsStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseProUpgradeWizard.mockReturnValue({
+      currentStep: 'filing-instructions',
+      goToStep: vi.fn(),
+      goToNextStep: vi.fn(),
+      goToPreviousStep,
+    })
     setCampaign(fullCampaign)
     api.mock(EMAIL_ROUTE, { status: 200, data: { success: true } })
   })
@@ -104,6 +117,13 @@ describe('FilingInstructionsStep', () => {
     expect(screen.queryByText('Filing office')).not.toBeInTheDocument()
   })
 
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<FilingInstructionsStep />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
   it('is a dead-end: offers a dashboard exit and no payment CTA', () => {
     render(<FilingInstructionsStep />)
 
@@ -125,6 +145,24 @@ describe('FilingInstructionsStep', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
     )
+  })
+
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<FilingInstructionsStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const exit = screen.getByRole('button', { name: 'Continue to dashboard' })
+
+    // The shared footer stacks vertically on mobile, becomes a row at sm+ —
+    // this is what keeps the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(exit.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, exit]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
   })
 
   it('emails the filing instructions and confirms success', async () => {

@@ -2,22 +2,9 @@ name: gp-api
 
 on:
   pull_request:
-    paths:
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-api.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-api.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -26,11 +13,10 @@ permissions:
 
 concurrency:
   group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-west-2
-  AWS_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
   IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ github.sha }}
   WORKSPACE: packages/gp-api
 
@@ -116,24 +102,45 @@ jobs:
           esac
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ECR tags are immutable, so a re-run of this job after a successful
+      # push would fail trying to overwrite the tag. Same SHA means same
+      # source; reuse the existing image and skip the build.
+      - name: Check for existing image
+        id: ecr-image
+        run: |
+          if aws ecr describe-images --repository-name gp-api \
+            --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build application
+        if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w ${{ env.WORKSPACE }}
 
+      - name: Set up Docker Buildx
+        if: steps.ecr-image.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Docker image
+        if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           file: packages/gp-api/deploy/Dockerfile
           push: true
           tags: ${{ env.IMAGE_URI }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=gp-api
           cache-to: type=gha,mode=max,scope=gp-api
 
@@ -154,9 +161,11 @@ jobs:
         if: steps.pulumi.outputs.service_url != ''
         run: echo "gp-api ${{ steps.ctx.outputs.environment }} deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # Intentionally no needs: validate — the preview deploy runs in parallel with
+  # validation so the webapp e2e (which waits on this job) starts sooner. A
+  # preview stack of code that fails validate is acceptable; the PR can't merge.
   preview:
     name: Deploy PR preview
-    needs: validate
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
@@ -176,24 +185,45 @@ jobs:
           route-types: "true"
 
       - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ECR tags are immutable, so a re-run of this job after a successful
+      # push would fail trying to overwrite the tag. Same SHA means same
+      # source; reuse the existing image and skip the build.
+      - name: Check for existing image
+        id: ecr-image
+        run: |
+          if aws ecr describe-images --repository-name gp-api \
+            --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build application
+        if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w ${{ env.WORKSPACE }}
 
+      - name: Set up Docker Buildx
+        if: steps.ecr-image.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Docker image
+        if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           file: packages/gp-api/deploy/Dockerfile
           push: true
           tags: ${{ env.IMAGE_URI }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=gp-api
           cache-to: type=gha,mode=max,scope=gp-api
 
@@ -215,41 +245,6 @@ jobs:
           CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
           CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
 
-      - name: Comment preview URL
+      - name: Add preview summary
         if: steps.pulumi.outputs.service_url != ''
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const url = '${{ steps.pulumi.outputs.service_url }}';
-            const body = [
-              '## gp-api preview environment',
-              '',
-              `| Resource | URL |`,
-              `|----------|-----|`,
-              `| **API** | ${url} |`,
-              `| **Health check** | ${url}/v1/health |`,
-              '',
-              '> Destroyed automatically within ~3h of this PR closing.',
-            ].join('\n');
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find((c) =>
-              c.body && c.body.includes('gp-api preview environment'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+        run: echo "gp-api preview deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"

@@ -91,18 +91,10 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     shouldSkip: ({ answers }) => answers.officePath === 'manual',
   },
   {
-    id: 'outreach-plan',
-    title: 'Projected minimum resources needed',
-    description:
-      'Commit at least this much money and time, and you’ll have a real shot at winning your race.',
-    whyThisMatters:
-      'These two minimums are the foundation of your campaign plan. Everything else — your weekly tasks, volunteer asks, outreach mix — is sized against what you can commit here.',
-    shouldSkip: ({ answers }) => answers.officePath === 'manual',
-  },
-  {
     id: 'pledge',
-    title: 'Almost there...',
-    description: 'Take our pledge to get your campaign plan.',
+    title: 'Take our pledge to get your campaign plan',
+    description:
+      'We only work with candidates who are independent of both major parties, and the corrupting influence of big money.',
   },
 ]
 

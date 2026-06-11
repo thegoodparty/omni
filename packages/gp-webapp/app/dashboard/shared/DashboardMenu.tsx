@@ -38,6 +38,7 @@ import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { Campaign } from 'helpers/types'
 import {
@@ -59,6 +60,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
+import { ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -104,7 +106,7 @@ const WEBSITE_MENU_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Dashboard',
+    label: 'Campaign Manager',
     icon: <MdFactCheck />,
     v2Icon: LayoutDashboard,
     link: '/dashboard',
@@ -222,10 +224,21 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
+  id: 'campaign-plan-dashboard',
+  label: 'Campaign Plan',
+  link: '/dashboard/campaign-plan',
+  icon: <MdFileOpen />,
+  v2Icon: ScrollTextIcon,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
+}
+
 const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  campaignStrategyExists: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -238,6 +251,13 @@ const getDashboardMenuItems = (
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
+  }
+
+  // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
+  // — the cached campaign object gets overwritten by responses that lack that
+  // computed field (see useCampaignStrategyExists).
+  if (campaignStrategyExists) {
+    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems
@@ -253,12 +273,14 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
+  const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
     const items = getDashboardMenuItems(
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      campaignStrategyExists,
     )
 
     if (ecanvasser) {
@@ -275,6 +297,7 @@ export default function DashboardMenu({
     electedOffice,
     proUpgradeReady,
     proUpgradeEnabled,
+    campaignStrategyExists,
   ])
 
   useEffect(() => {

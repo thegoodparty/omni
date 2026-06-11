@@ -1,0 +1,93 @@
+name: PR preview comment
+
+# Posts a single, upserted comment listing the deterministic preview URL for each
+# app. URLs are derived from the PR number (each Next app aliases its PR preview
+# to <slug>-pr-<N>-good-party.vercel.app; gp-api's Pulumi preview is
+# pr-<N>.preview.goodparty.org), so the comment can be posted immediately on
+# open/sync without waiting on the deploys and without racing to edit a shared
+# comment. Every app is always listed; the disclaimer notes a URL only resolves
+# if that app's deploy job actually runs for the PR. This is the sole owner of
+# the preview comment for every app, including gp-api.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches-ignore: [qa, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-comment-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    name: Upsert preview comment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upsert preview table
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.issue.number
+            const marker = '<!-- vercel-previews -->'
+
+            const apps = [
+              {
+                name: 'gp-api',
+                url: `https://pr-${pr}.preview.goodparty.org`,
+              },
+              {
+                name: 'gp-webapp',
+                url: `https://gp-ui-pr-${pr}-good-party.vercel.app`,
+              },
+              {
+                name: 'gp-admin',
+                url: `https://gp-admin-web-pr-${pr}-good-party.vercel.app`,
+              },
+              {
+                name: 'candidate-sites',
+                url: `https://candidate-sites-pr-${pr}-good-party.vercel.app`,
+              },
+            ]
+
+            const body = [
+              marker,
+              '## Preview deploys',
+              '',
+              '| App | Preview |',
+              '|-----|---------|',
+              ...apps.map((a) => `| ${a.name} | ${a.url} |`),
+              '',
+              '> if there is a deploy job for the app below, it will be available once complete',
+            ].join('\n')
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                per_page: 100,
+              },
+            )
+            const existing = comments.find(
+              (c) => c.body && c.body.includes(marker),
+            )
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                body,
+              })
+            }

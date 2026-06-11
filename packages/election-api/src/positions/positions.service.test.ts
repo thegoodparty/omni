@@ -75,6 +75,8 @@ describe('PositionsService', () => {
       state: 'CA',
       name: 'Mayor',
       level: 'Local',
+      isWinIcp: true,
+      isServeIcp: false,
     })
 
     const result = await service.getPositionById({ id: 'pos-1' })
@@ -88,6 +90,8 @@ describe('PositionsService', () => {
         state: true,
         name: true,
         level: true,
+        isWinIcp: true,
+        isServeIcp: true,
       },
     })
     expect(result).toEqual({
@@ -97,6 +101,8 @@ describe('PositionsService', () => {
       state: 'CA',
       name: 'Mayor',
       level: 'Local',
+      isWinIcp: true,
+      isServeIcp: false,
     })
   })
 

@@ -2,36 +2,23 @@ name: gp-sdk
 
 on:
   pull_request:
-    paths:
-      - 'packages/gp-sdk/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-sdk.yml'
-      - '.github/actions/**'
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - 'packages/gp-sdk/**'
-      - 'packages/contracts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/gp-sdk.yml'
-      - '.github/actions/**'
 
 permissions:
   contents: read
 
 concurrency:
   group: gp-sdk-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   WORKSPACE: packages/gp-sdk
 
 jobs:
   build:
-    name: Build & Validate
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -41,7 +28,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-sdk
-          build-contracts: 'true'
+          build-contracts: "true"
 
       - name: Typecheck
         run: npm run typecheck -w ${{ env.WORKSPACE }}

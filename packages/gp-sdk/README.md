@@ -117,9 +117,11 @@ const retriedRun = await client.adminAgentRuns.retry('run-uuid')
 const briefings = await client.admin.briefings.list({
   q: 'mayor',
   dateRange: 'last 30 days',
+  reviewStatus: 'pending', // filter by review status: 'pending' | 'passed' | 'failed'
   offset: 0,
   limit: 20,
 })
+// Each row includes a `review` field ({ verdict, failReason, reviewerEmail, reviewedAt } | null)
 
 const briefing = await client.admin.briefings.get('briefing-uuid')
 
@@ -164,15 +166,13 @@ npm install
 | `npm run format`       | Format code with Prettier         |
 | `npm run format:check` | Check code formatting             |
 
-### Publishing
+### Monorepo Usage
 
-This package uses [changesets](https://github.com/changesets/changesets) for versioning. **Don't bump `package.json` manually.**
+In `omni`, `@goodparty_org/sdk` is an internal workspace package. Consumers use the
+local workspace link, so SDK changes should be built and validated in the same PR
+as any consuming app changes.
 
-1. Run `npx changeset add` and describe the change (`patch` / `minor` / `major`). Commit the generated `.changeset/*.md` file with the rest of your PR.
-2. Open a PR to `master`. CI runs `typecheck → lint → format:check → build`.
-3. After merge, the publish workflow opens (and auto-merges) a release PR that bumps versions and updates `CHANGELOG.md`. The next workflow run publishes to npm and creates a `v<version>` GitHub Release with auto-generated notes.
-
-See [`docs/getting-started.md`](https://github.com/thegoodparty/gp-sdk/blob/master/docs/getting-started.md) for the full release flow + local-development tips (link / file: protocol).
+See [`docs/getting-started.md`](docs/getting-started.md) for local-development tips.
 
 ## License
 

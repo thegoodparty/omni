@@ -22,6 +22,16 @@ There is **no `npm test` script** and no test framework configured. Don't add a 
 
 There is **no `npm run typecheck` script.** Type errors surface during `next build` and through the editor's TS server. If you need a one-shot check, run `npx tsc --noEmit`.
 
+## Verify
+
+Reproduce the CI **Validate** job (`.github/workflows/candidate-sites.yml`) before opening a PR. There is no test step (no test framework here). From the repo root:
+
+```bash
+npm run lint -w packages/candidate-sites     # eslint . --max-warnings 0
+npm run format -w packages/candidate-sites   # prettier -c . (read-only check)
+npm run build -w packages/candidate-sites    # next build (build smoke + typecheck)
+```
+
 ## Pointer table — when in doubt
 
 | Doing                                                            | Read                        |

@@ -51,6 +51,12 @@ const CampaignDetailsSchema = z
     funFact: z.string(),
     campaignCommittee: z.string(),
     statementName: z.string(),
+    // Pro-upgrade wizard fields (ENG-10346). Shape-only EIN validation here;
+    // the client owns the sanity layer (placeholder / IRS-prefix checks) and
+    // Peerly is the downstream backstop for a truly bad EIN.
+    einNumber: z.string().regex(/^\d{2}-\d{7}$/),
+    validatedEin: z.boolean(),
+    hasFiledForRace: z.boolean(),
     filingPeriodsStart: z.string().nullish(),
     filingPeriodsEnd: z.string().nullish(),
     officeTermLength: z.string(),
