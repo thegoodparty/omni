@@ -35,7 +35,7 @@ describe('ValuePropStep', () => {
 
     for (const label of [
       'Campaign plan',
-      'Campaign advising',
+      'Dedicated campaign expert',
       'Voter data & list building',
       '10DLC compliance',
       'Texts and robocalls',

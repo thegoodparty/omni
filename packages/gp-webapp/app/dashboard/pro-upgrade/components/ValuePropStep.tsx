@@ -17,7 +17,7 @@ interface ComparisonRow {
 // the Free column varies.
 const COMPARISON_ROWS: ComparisonRow[] = [
   { label: 'Campaign plan', free: true },
-  { label: 'Campaign advising', free: false },
+  { label: 'Dedicated campaign expert', free: false },
   { label: 'Voter data & list building', free: false },
   { label: '10DLC compliance', free: false },
   { label: 'Texts and robocalls', free: false },
