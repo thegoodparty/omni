@@ -318,6 +318,7 @@ const FilingDetailsForm = ({
               placeholder="Address *"
               variant="outlined"
               error={showError('address')}
+              dropdownClassName="texting-compliance-address-dropdown"
             />
           </div>
         </div>
