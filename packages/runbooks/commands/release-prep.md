@@ -151,7 +151,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase and step 15 if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
+> **Skip this entire phase and step 15 if Phase 2 was aborted, if step 6's merge failed, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
 
 9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
