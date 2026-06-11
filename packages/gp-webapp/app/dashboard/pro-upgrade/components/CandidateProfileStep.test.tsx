@@ -101,6 +101,24 @@ describe('CandidateProfileStep', () => {
     expect(saveAboutFields).not.toHaveBeenCalled()
   })
 
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<CandidateProfileStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: 'Continue' })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('saves bio and issues and advances to payment on a valid submit', async () => {
     const user = userEvent.setup()
     render(<CandidateProfileStep />)

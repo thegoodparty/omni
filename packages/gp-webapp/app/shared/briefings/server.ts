@@ -1,7 +1,10 @@
 import { format, parseISO } from 'date-fns'
 import { FetchError } from 'ofetch'
 import { serverRequest } from 'gpApi/server-request'
-import type { MeetingsListItemDto } from 'gpApi/api-endpoints'
+import type {
+  ApiBriefingReviewVerdict,
+  MeetingsListItemDto,
+} from 'gpApi/api-endpoints'
 import type { MeetingBriefingFull } from 'gpApi/generated/agent-job-contracts'
 import type {
   AwaitingBriefing,
@@ -109,6 +112,27 @@ export const getBriefingBySlug = async (
     }
   } catch (e) {
     if (e instanceof FetchError && e.status === 404) return null
+    throw e
+  }
+}
+
+export type BriefingReviewVerdict = ApiBriefingReviewVerdict
+
+// 403 (not impersonating) and 404 (no briefing) both render as "no verdict";
+// the page-level gates handle those cases themselves.
+export const getBriefingReviewVerdict = async (
+  slug: string,
+): Promise<BriefingReviewVerdict | null> => {
+  try {
+    const { data } = await serverRequest(
+      'GET /v1/meetings/:date/briefing/review-verdict',
+      { date: slug },
+    )
+    return data.review
+  } catch (e) {
+    if (e instanceof FetchError && (e.status === 403 || e.status === 404)) {
+      return null
+    }
     throw e
   }
 }

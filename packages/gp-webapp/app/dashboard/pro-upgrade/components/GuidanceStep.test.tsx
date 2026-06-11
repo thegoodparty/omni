@@ -71,6 +71,24 @@ describe('GuidanceStep', () => {
     expect(goToStep).not.toHaveBeenCalled()
   })
 
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<GuidanceStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: /let's go/i })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('advances explicitly to the EIN step when "Let\'s go!" is clicked', () => {
     render(<GuidanceStep />)
 
