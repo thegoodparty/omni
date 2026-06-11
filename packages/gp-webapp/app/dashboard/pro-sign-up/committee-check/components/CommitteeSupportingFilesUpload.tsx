@@ -171,7 +171,7 @@ export const CommitteeSupportingFilesUpload = ({
       >
         <span>Upload</span>
         {loadingFileUpload && (
-          <LoaderCircleIcon className="text-blue-300 ml-2 size-4 animate-spin" />
+          <LoaderCircleIcon className="text-info-light ml-2 size-4 animate-spin" />
         )}
       </Button>
       <HiddenFileUploadInput
