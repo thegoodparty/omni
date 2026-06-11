@@ -1260,6 +1260,32 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
+  it('gated briefing dispatch proceeds for a serve-ICP position', async () => {
+    const orgSlug = `eo-manual-gate-icp-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-icp' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'manual-dispatch-run' } as ExperimentRun)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchManual(eo.id, 'briefing', true)
+
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
+  })
+
   it('gated briefing dispatch skips a position that is not serve-ICP', async () => {
     const orgSlug = `eo-manual-gate-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-non-icp' })

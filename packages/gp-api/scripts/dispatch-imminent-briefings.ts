@@ -149,6 +149,11 @@ async function main() {
             token = minted
             tokenMintedAt = Date.now()
           })
+          .catch(() => {
+            // On mint failure, reset the window so workers don't tight-loop
+            // against Clerk — the next attempt is allowed after ~60s.
+            tokenMintedAt = Date.now() - (TOKEN_TTL_SECONDS - 660) * 1000
+          })
           .finally(() => {
             tokenRefresh = null
           })
@@ -177,6 +182,10 @@ async function main() {
   const refreshInFlight = async (): Promise<void> => {
     if (Date.now() - lastInFlightCheckAt < IN_FLIGHT_POLL_MS) return
     lastInFlightCheckAt = Date.now()
+    // Snapshot before the query: dispatches landing while the count runs are
+    // then double-counted (in both dbRunning and the delta term), keeping the
+    // estimate on the overcount side. Snapshotting after would drop them.
+    const dispatchedBeforeQuery = dispatched
     dbRunning = await prisma.experimentRun.count({
       where: {
         experimentType: 'meeting_briefing',
@@ -188,7 +197,7 @@ async function main() {
         },
       },
     })
-    dispatchedAtCheck = dispatched
+    dispatchedAtCheck = dispatchedBeforeQuery
     if (dbRunning >= maxInFlight) {
       console.log(
         `  throttled: ${dbRunning} agents active >= ${maxInFlight} cap`,
@@ -251,7 +260,10 @@ async function main() {
             await new Promise((resolve) => setTimeout(resolve, 25))
             continue
           }
-          if (dbRunning + reserved - dispatchedAtCheck >= maxInFlight) {
+          if (
+            dbRunning + Math.max(reserved - dispatchedAtCheck, 0) >=
+            maxInFlight
+          ) {
             await refreshInFlight()
             await new Promise((resolve) => setTimeout(resolve, 5000))
             continue
