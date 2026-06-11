@@ -98,16 +98,21 @@ export const deriveProUpgradeStep = (
   if (isPro) return PRO_UPGRADE_STEP.SUCCESS
 
   // Brand-new candidate with nothing collected yet lands on the value-prop
-  // intro. Any persisted progress means they are past the intro.
+  // intro. A "not filed" answer is NOT progress: on its own it must restart a
+  // returning candidate at the value prop, never strand them on the
+  // filing-instructions dead-end (ENG-10372). An "already filed" answer counts
+  // as progress so a returning filed candidate resumes at the EIN step instead
+  // of being re-asked the filing-status question (task 07).
   const hasProgress =
-    filingStatus !== 'unanswered' || hasEin || filingComplete || profileComplete
+    filingStatus === 'has-filed' || hasEin || filingComplete || profileComplete
   if (!hasProgress) return PRO_UPGRADE_STEP.VALUE_PROP
 
-  // Filing-status gate (task 07). Unanswered → ask. "Not filed" → the
-  // filing-instructions dead-end (task 08); the candidate must file with their
-  // election authority before the flow can advance, so we do not skip ahead.
+  // Filing-status gate (task 07): ask if still unanswered. "Not filed" is never
+  // resumed here — filing-instructions is a dead-end branch reached only by
+  // explicit navigation from the status step (like guidance), so the router
+  // does not derive it. A not-filed candidate with real downstream progress
+  // resumes at that data step below.
   if (filingStatus === 'unanswered') return PRO_UPGRADE_STEP.STATUS
-  if (filingStatus === 'not-filed') return PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
 
   // Remaining pre-payment data steps, in canonical order; first incomplete wins.
   if (!hasEin) return PRO_UPGRADE_STEP.EIN
