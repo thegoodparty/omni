@@ -96,6 +96,29 @@ describe('PlanView share button', () => {
     await waitFor(() => expect(copyButton).toBeEnabled())
   })
 
+  it('does not open the share modal when planReady is false', async () => {
+    render(
+      <PlanView
+        plan={buildPlanData(makeInput())}
+        planReady={false}
+        state="CA"
+        strategyState={sectionState}
+        eventsState={sectionState}
+        pressOutletsState={sectionState}
+        voterInsightsContext={{}}
+        onDownload={vi.fn()}
+        onContinue={vi.fn()}
+        showConfetti={false}
+      />,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: /share campaign plan/i }),
+    )
+    expect(
+      screen.queryByText('Share your campaign plan'),
+    ).not.toBeInTheDocument()
+  })
+
   it('uploads the pdf once even across close and re-open', async () => {
     renderPlanView()
     const shareButton = screen.getByRole('button', {
@@ -116,6 +139,45 @@ describe('PlanView share button', () => {
     await screen.findByRole('button', { name: /copy link/i })
 
     expect(generateCampaignPlanPdfBlob).toHaveBeenCalledTimes(1)
+    expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire a second generate when closed and reopened while upload is in-flight', async () => {
+    // Use a deferred promise so we can control exactly when the blob resolves.
+    let resolveBlob!: (b: Blob) => void
+    const blobPromise = new Promise<Blob>((res) => {
+      resolveBlob = res
+    })
+    vi.mocked(generateCampaignPlanPdfBlob).mockReturnValueOnce(blobPromise)
+
+    renderPlanView()
+    const shareButton = screen.getByRole('button', {
+      name: /share campaign plan/i,
+    })
+
+    // Open — the modal appears in loading state.
+    await userEvent.click(shareButton)
+    await screen.findByText('Share your campaign plan')
+    expect(generateCampaignPlanPdfBlob).toHaveBeenCalledTimes(1)
+
+    // Close while the upload is still pending.
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Share your campaign plan'),
+      ).not.toBeInTheDocument(),
+    )
+
+    // Reopen — must NOT trigger a second generate call.
+    await userEvent.click(shareButton)
+    await screen.findByText('Share your campaign plan')
+    expect(generateCampaignPlanPdfBlob).toHaveBeenCalledTimes(1)
+
+    // Now let the blob (and upload) resolve — the modal should become ready.
+    resolveBlob(new Blob(['pdf'], { type: 'application/pdf' }))
+    const copyButton = await screen.findByRole('button', { name: /copy link/i })
+    await waitFor(() => expect(copyButton).toBeEnabled())
+
     expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(1)
   })
 })

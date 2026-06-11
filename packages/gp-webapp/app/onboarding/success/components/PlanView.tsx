@@ -78,19 +78,24 @@ const PlanView = ({
 
   const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
 
-  // cache the uploaded link for the session so re-opening the modal doesn't
-  // re-render and re-upload an identical PDF
-  const sharePdfUrlRef = useRef<string | null>(null)
-  const getShareUrl = useCallback(async () => {
-    if (sharePdfUrlRef.current) {
-      return sharePdfUrlRef.current
+  // Cache the in-flight promise so re-opening the modal while an upload is
+  // still in progress reuses the same request instead of firing a second one.
+  // A rejection clears the ref so the next open retries from scratch.
+  const sharePdfUrlRef = useRef<Promise<string> | null>(null)
+  const getShareUrl = useCallback(() => {
+    if (!sharePdfUrlRef.current) {
+      sharePdfUrlRef.current = (async () => {
+        const blob = await generateCampaignPlanPdfBlob(plan, {
+          liveUrl: liveUrl || undefined,
+        })
+        return uploadCampaignPlanPdf(blob)
+      })().catch((e) => {
+        // a failed attempt must not poison the session cache
+        sharePdfUrlRef.current = null
+        throw e
+      })
     }
-    const blob = await generateCampaignPlanPdfBlob(plan, {
-      liveUrl: liveUrl || undefined,
-    })
-    const url = await uploadCampaignPlanPdf(blob)
-    sharePdfUrlRef.current = url
-    return url
+    return sharePdfUrlRef.current
   }, [plan, liveUrl])
 
   const handleDownload = async (source: PlanDownloadSource) => {
@@ -138,7 +143,10 @@ const PlanView = ({
           race={plan.race}
           state={state}
           electionDate={plan.electionDate}
-          onShare={() => setShareOpen(true)}
+          onShare={() => {
+            if (!planReady) return
+            setShareOpen(true)
+          }}
         />
 
         <div className="mt-8 sm:mt-14">

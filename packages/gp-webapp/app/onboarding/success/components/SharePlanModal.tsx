@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Check, Copy, Mail } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { CheckIcon, CopyIcon, MailIcon } from '@styleguide/components/ui/icons'
 import { FetchError } from 'ofetch'
 import {
   Button,
@@ -82,7 +82,11 @@ const ShareBody = ({
         variant="outline"
         className="w-full justify-start"
         icon={
-          copied ? <Check className="size-5" /> : <Copy className="size-5" />
+          copied ? (
+            <CheckIcon className="size-5" />
+          ) : (
+            <CopyIcon className="size-5" />
+          )
         }
         disabled={isLoading}
         onClick={onCopy}
@@ -97,7 +101,7 @@ const ShareBody = ({
         type="button"
         variant="outline"
         className="w-full justify-start"
-        icon={<Mail className="size-5" />}
+        icon={<MailIcon className="size-5" />}
         disabled={isLoading}
         onClick={onEmail}
       >
@@ -116,6 +120,7 @@ const SharePlanModal = ({
   const isMobile = useIsMobile()
   const [state, setState] = useState<ShareState>({ status: 'loading' })
   const [copied, setCopied] = useState(false)
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const resolveShareUrl = async () => {
     setState({ status: 'loading' })
@@ -128,7 +133,11 @@ const SharePlanModal = ({
   }
 
   useEffect(() => {
-    if (!open || state.status === 'ready') return
+    if (!open) {
+      setCopied(false)
+      return
+    }
+    if (state.status === 'ready') return
     void resolveShareUrl()
   }, [open])
 
@@ -143,8 +152,9 @@ const SharePlanModal = ({
     if (state.status !== 'ready') return
     try {
       await navigator.clipboard.writeText(state.url)
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     } catch {
       // Clipboard unavailable; do nothing.
     }
