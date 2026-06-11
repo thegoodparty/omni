@@ -113,6 +113,8 @@ This command takes no arguments — the release target is always the omni monore
    gh pr merge <pr_number> --merge
    ```
 
+   If `gh pr merge` fails (non-zero exit), **stop here** — do not proceed to step 7 or 8. Phase 3 and Phase 4 both assume the develop→qa merge landed; running them against a failed merge opens a `qa → master` PR with no new content. Report the error and point the user to the Troubleshooting table below.
+
    `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes.
 
 7. **Re-fetch** so local `qa` is current:
@@ -149,7 +151,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
+> **Skip this entire phase and step 15 if Phase 2 was aborted, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
 
 9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
