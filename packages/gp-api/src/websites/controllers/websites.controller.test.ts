@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { DiscoveryModule, HttpAdapterHost, Reflector } from '@nestjs/core'
 import {
+  ForbiddenException,
   HttpStatus,
   ModuleMetadata,
   NotFoundException,
@@ -624,6 +625,53 @@ describe('WebsitesController', () => {
         `uploads/${mockCampaign.id}/${heroFile.filename}`,
         expect.objectContaining({ contentType: heroFile.mimetype }),
       )
+    })
+  })
+
+  describe('viewWebsite', () => {
+    const vanityPath = 'jane-for-mayor'
+
+    it('does not select campaign.details on the public query', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.published,
+        content: completeContent,
+        campaign: { user: null },
+      })
+
+      await controller.viewWebsite(vanityPath)
+
+      const { include } =
+        mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
+      expect(include.campaign.select.details).toBeUndefined()
+      expect(include.campaign.select.user).toBeDefined()
+    })
+
+    it('throws ForbiddenException when unpublished', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.unpublished,
+        content: completeContent,
+      })
+
+      await expect(controller.viewWebsite(vanityPath)).rejects.toThrow(
+        ForbiddenException,
+      )
+    })
+
+    it('returns published website and enriches user', async () => {
+      const user = { clerkId: 'clerk_1', firstName: 'Jane', lastName: 'Doe' }
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.published,
+        content: completeContent,
+        campaign: { user },
+      })
+
+      const result = await controller.viewWebsite(vanityPath)
+
+      expect(result.id).toBe(1)
+      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(user)
     })
   })
 
