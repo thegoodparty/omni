@@ -104,7 +104,7 @@ This command takes no arguments — the release target is always the omni monore
    > - **`merge-anyway`** — flaky test or known-good; merge it despite the red
    > - **`abort`** — stop the release prep; nothing gets merged
 
-   Record the outcome (`green` / `merge-anyway`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 16 final report needs them. On `abort`, stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 16 final report, which records the left-open develop→qa PR (and whether its checks had already settled before the abort) so it can be merged manually or by re-running the command.
+   Record the outcome (`green` / `merge-anyway` / `abort`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 16 final report needs them. On `abort`, also record which of three check states was current at abort time — `settled-green`, `settled-failed`, or `still-running` (step 16's abort branch reports each differently) — then stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 16 final report, which records the left-open develop→qa PR and that check state so it can be merged manually or by re-running the command.
 
 6. **Merge the develop → qa PR with a merge commit** (unless step 5 ended in `abort` — then skip this entire step; the abort guarantee is that nothing gets merged):
 
@@ -270,7 +270,7 @@ This command takes no arguments — the release target is always the omni monore
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
-    - Suggested next step: "After the team has confirmed (:white_check_mark: reactions in `$RELEASE_DEVS_CHANNEL`), run `/release` to merge qa → master and post the release notes."
+    - Suggested next step (only if a `qa → master` PR was opened this run): "After the team has confirmed (:white_check_mark: reactions in `$RELEASE_DEVS_CHANNEL`), run `/release` to merge qa → master and post the release notes."
 
 ## Important Notes
 
@@ -291,5 +291,5 @@ This command takes no arguments — the release target is always the omni monore
 | Ticket link 404s when clicked | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<ENG-XXXX>`. Fix the var; no re-fetch needed. |
 | Two PRs reference the same ENG ticket | Expected (e.g., a gp-webapp and a gp-api package change for the same feature, now in one repo). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
 | Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
-| `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 6. |
+| `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 6 — on this cold re-entry treat step 5's outcome as `green` (checks already passed; only the merge was blocked), so step 6's abort guard resolves cleanly. |
 | `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 9's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |
