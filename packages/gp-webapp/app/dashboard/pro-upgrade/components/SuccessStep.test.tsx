@@ -91,4 +91,39 @@ describe('SuccessStep', () => {
       { timeout: 5000 },
     )
   })
+
+  it('stops polling after the timeout cap when isPro never flips', async () => {
+    // The safety valve: if the webhook never lands, polling must not run
+    // forever. Drive fake time past the 30s cap and assert the fetch count
+    // stops climbing (the interval was cleared) while isPro stays false.
+    vi.useFakeTimers()
+    try {
+      testQueryClient.setQueryData(CAMPAIGN_QUERY_KEY, campaign(false))
+      let fetchCount = 0
+      api.mock('GET /v1/campaigns/mine', () => {
+        fetchCount += 1
+        return { status: 200, data: campaign(false) }
+      })
+
+      render(<SuccessStep />)
+
+      // Run through the full 30s cap (plus one interval of slack).
+      await vi.advanceTimersByTimeAsync(32_000)
+      const callsAtCap = fetchCount
+
+      // The interval must actually have polled before the cap — otherwise the
+      // "stops climbing" check below would pass vacuously.
+      expect(callsAtCap).toBeGreaterThan(1)
+
+      // Past the cap, the interval is cleared: no further fetches fire.
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      expect(fetchCount).toBe(callsAtCap)
+      expect(
+        testQueryClient.getQueryData<Campaign>(CAMPAIGN_QUERY_KEY)?.isPro,
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
