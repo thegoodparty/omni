@@ -214,14 +214,16 @@ export default function OfficeStep({
       return
     }
 
-    if (step) {
-      router.push(`/onboarding/${campaign?.slug}/${step + 1}`)
-    }
     // The save re-pointed organization.position_id (and details.raceId);
     // anything reading the cached campaign — Section 4's org-keyed stats,
     // raceTargetMetrics, the plan's race fields — should see the new office
-    // without waiting out staleTime or reloading.
+    // without waiting out staleTime or reloading. Invalidate BEFORE the
+    // push: router.push is void and starts the transition immediately, so
+    // the next route would otherwise mount against the stale cache.
     await queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
+    if (step) {
+      router.push(`/onboarding/${campaign?.slug}/${step + 1}`)
+    }
     if (updateCallback) {
       await updateCallback()
     }

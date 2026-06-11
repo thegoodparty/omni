@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import OfficeStep from './OfficeStep'
 import type { Campaign } from 'helpers/types'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
@@ -136,6 +137,23 @@ describe('OfficeStep', () => {
     await waitFor(() => {
       expect(mockUpdateCampaign).toHaveBeenCalled()
     })
+  })
+
+  it('invalidates the campaign cache when saving office selection', async () => {
+    // The save re-points organization.position_id and details.raceId; a
+    // stale cached campaign would keep the plan page (org-keyed stats,
+    // race fields) on the previous office until staleTime or a reload.
+    const invalidateSpy = vi.spyOn(testQueryClient, 'invalidateQueries')
+    render(<OfficeStep campaign={baseCampaign} />)
+
+    await selectOfficeAndSave()
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: CAMPAIGN_QUERY_KEY,
+      })
+    })
+    invalidateSpy.mockRestore()
   })
 
   it('passes campaign slug when saving in admin mode', async () => {
