@@ -115,6 +115,22 @@ describe('FilingInstructionsStep', () => {
     expect(screen.queryByText('Filing office')).not.toBeInTheDocument()
   })
 
+  it('surfaces an error snackbar when the content fetch fails', async () => {
+    api.mock(CONTENT_ROUTE, { status: 500, data: { message: 'boom' } })
+
+    render(<FilingInstructionsStep />)
+
+    // The shared test query client uses the prod retry policy (2 retries with
+    // backoff), so isError only flips after the attempts exhaust (~3s).
+    await waitFor(
+      () =>
+        expect(errorSnackbar).toHaveBeenCalledWith(
+          'Failed to load filing instructions. Please try again.',
+        ),
+      { timeout: 5000 },
+    )
+  })
+
   it('navigates to the previous step from the footer Back button', async () => {
     render(<FilingInstructionsStep />)
     await screen.findByText('June 1, 2026 – June 30, 2026')

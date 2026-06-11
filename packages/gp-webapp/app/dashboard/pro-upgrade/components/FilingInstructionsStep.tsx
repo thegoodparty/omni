@@ -53,7 +53,11 @@ const FilingInstructionsStep = (): React.JSX.Element => {
 
   // Read the content from the server (not the cached campaign) so the screen
   // shows exactly what "email this to me" sends — both come from one source.
-  const { data: content, isPending } = useQuery({
+  const {
+    data: content,
+    isPending,
+    isError,
+  } = useQuery({
     queryKey: FILING_INSTRUCTIONS_QUERY_KEY,
     queryFn: async () => {
       const res = await clientRequest(
@@ -63,6 +67,14 @@ const FilingInstructionsStep = (): React.JSX.Element => {
       return res.data
     },
   })
+
+  // On fetch failure every field falls back to null, which renders identically
+  // to a legitimate no-data race — tell the user it's an error, not the truth.
+  useEffect(() => {
+    if (isError) {
+      errorSnackbar('Failed to load filing instructions. Please try again.')
+    }
+  }, [isError, errorSnackbar])
 
   const filingWindow = content?.filingWindow ?? null
   const filingFee = content?.filingFee ?? null
