@@ -115,7 +115,7 @@ This command takes no arguments — the release target is always the omni monore
    gh pr merge <pr_number> --merge
    ```
 
-   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 3's `cd` carrying over. On merge failure (not the snapshot-mismatch abort), skip steps 6–13 straight to the step 14 final report, which records the failure and the manual-recovery note.
+   The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 3's `cd` carrying over. On merge failure (not the snapshot-mismatch abort), skip step 6 (the deploy-buffer wait — nothing deployed) but still run steps 7–13 to build and print the release message: unlike the snapshot-mismatch abort, the step-3 snapshot is valid here (only the merge command failed), so the message is accurate and the operator can paste it once they complete the merge manually. The printed message and the step 14 final report both carry the "do not post until the merge actually lands" warning. Then continue to the step 14 final report, which records the failure and the manual-recovery note.
 
 ### Phase 5: Wait 5 minutes
 
@@ -127,7 +127,7 @@ This command takes no arguments — the release target is always the omni monore
    ...
    ```
 
-   The wait is interruptible — if the user Ctrl-Cs, ask whether to skip the rest of the wait and proceed to Phase 6 or abort entirely.
+   The wait is interruptible — if the user Ctrl-Cs, ask whether to skip the rest of the wait and proceed to Phase 6, or abort entirely. The merge in step 5 has already succeeded, so "abort entirely" cannot undo the release — it only skips building and posting the release notes. On "abort entirely", jump to the step 14 final report and record that the merge succeeded but the wait and release-notes message were skipped — the notes were not posted, and can be generated later by re-running from step 7.
 
 ### Phase 6: Build the #product-releases message
 
