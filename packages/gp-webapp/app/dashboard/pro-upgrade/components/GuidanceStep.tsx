@@ -59,11 +59,20 @@ const GuidanceStep = (): React.JSX.Element => {
         ))}
       </ol>
 
-      <div className="mt-8 flex justify-between">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
           Back
         </Button>
-        <Button size="large" onClick={handleContinue}>
+        <Button
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={handleContinue}
+        >
           Let&apos;s go!
         </Button>
       </div>
