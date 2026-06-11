@@ -41,7 +41,10 @@ const RadioList = ({
               onClick={() => selectCallback(option.key)}
               onKeyDown={(e) => handleKeyPress(e, option)}
             >
-              <MdRadioButtonChecked className="text-primary-foreground" size={22} />
+              <MdRadioButtonChecked
+                className="text-primary-foreground"
+                size={22}
+              />
               <div className="ml-2 text-primary-foreground">{option.label}</div>
             </div>
           ) : (

@@ -83,13 +83,21 @@
   --color-error-main: var(--theme-destructive);
   --color-error-dark: var(--theme-destructive-dark);
   --color-error-light: var(--theme-destructive-light);
-  --color-error-background: color-mix(in srgb, var(--theme-destructive-light) 20%, transparent);
+  --color-error-background: color-mix(
+    in srgb,
+    var(--theme-destructive-light) 20%,
+    transparent
+  );
   --color-error-contrast: var(--theme-destructive-foreground);
   --color-success: var(--theme-success);
   --color-success-main: var(--theme-success);
   --color-success-dark: var(--theme-success-dark);
   --color-success-light: var(--theme-success-light);
-  --color-success-background: color-mix(in srgb, var(--theme-success-light) 20%, transparent);
+  --color-success-background: color-mix(
+    in srgb,
+    var(--theme-success-light) 20%,
+    transparent
+  );
   --color-success-contrast: var(--theme-success-foreground);
   --color-success-100: var(--tw-green-100);
   --color-success-600: var(--tw-green-600);
@@ -98,7 +106,11 @@
   --color-info-main: var(--theme-info);
   --color-info-dark: var(--theme-info-dark);
   --color-info-light: var(--theme-info-light);
-  --color-info-background: color-mix(in srgb, var(--theme-info-light) 20%, transparent);
+  --color-info-background: color-mix(
+    in srgb,
+    var(--theme-info-light) 20%,
+    transparent
+  );
   --color-info-contrast: var(--theme-info-foreground);
   --color-info-50: var(--tw-blue-50);
   --color-info-500: var(--tw-blue-500);
@@ -107,7 +119,11 @@
   --color-warning-main: var(--theme-warning);
   --color-warning-dark: var(--theme-warning-dark);
   --color-warning-light: var(--theme-warning-light);
-  --color-warning-background: color-mix(in srgb, var(--theme-warning-light) 20%, transparent);
+  --color-warning-background: color-mix(
+    in srgb,
+    var(--theme-warning-light) 20%,
+    transparent
+  );
   --color-warning-contrast: var(--theme-warning-foreground);
   --color-warning-600: var(--tw-orange-600);
 
