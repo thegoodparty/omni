@@ -181,11 +181,16 @@ const FilingInstructionsStep = (): React.JSX.Element => {
         </div>
       </div>
 
-      <div className="mt-8 flex justify-between">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
           Back
         </Button>
-        <Button size="large" onClick={handleExit}>
+        <Button size="large" className="w-full sm:w-auto" onClick={handleExit}>
           Continue to dashboard
         </Button>
       </div>

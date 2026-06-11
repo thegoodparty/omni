@@ -11,14 +11,25 @@ import {
   TextField,
 } from '@radix-ui/themes'
 import { HiSearch } from 'react-icons/hi'
-import { DATE_RANGES, SEARCH_PARAMS, type DateRange } from '../types'
+import {
+  DATE_RANGES,
+  REVIEW_STATUSES,
+  SEARCH_PARAMS,
+  type DateRange,
+  type ReviewStatus,
+} from '../types'
 
 interface BriefingsToolbarProps {
   query: string
   dateRange: DateRange
+  reviewStatus?: ReviewStatus
 }
 
-export function BriefingsToolbar({ query, dateRange }: BriefingsToolbarProps) {
+export function BriefingsToolbar({
+  query,
+  dateRange,
+  reviewStatus,
+}: BriefingsToolbarProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [queryInput, setQueryInput] = useState(query)
@@ -81,6 +92,28 @@ export function BriefingsToolbar({ query, dateRange }: BriefingsToolbarProps) {
               {DATE_RANGES.map((range) => (
                 <SegmentedControl.Item key={range} value={range}>
                   {range}
+                </SegmentedControl.Item>
+              ))}
+            </SegmentedControl.Root>
+          </Box>
+
+          <Box>
+            <Text as="label" size="2" weight="medium" mb="2" mr="2">
+              Review status
+            </Text>
+            <SegmentedControl.Root
+              value={reviewStatus ?? 'all'}
+              onValueChange={(value) =>
+                pushParams({
+                  [SEARCH_PARAMS.REVIEW_STATUS]:
+                    value === 'all' ? undefined : value,
+                })
+              }
+            >
+              <SegmentedControl.Item value="all">All</SegmentedControl.Item>
+              {REVIEW_STATUSES.map((status) => (
+                <SegmentedControl.Item key={status} value={status}>
+                  {status[0].toUpperCase() + status.slice(1)}
                 </SegmentedControl.Item>
               ))}
             </SegmentedControl.Root>

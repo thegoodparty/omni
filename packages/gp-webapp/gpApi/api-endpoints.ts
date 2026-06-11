@@ -437,6 +437,15 @@ export type APIEndpoints = {
     Response: ApiAttachmentDownloadUrlResponse
   }
 
+  'GET /v1/meetings/:date/briefing/review-verdict': {
+    Request: { date: string }
+    Response: { review: ApiBriefingReviewVerdict | null }
+  }
+  'PUT /v1/meetings/:date/briefing/review-verdict': {
+    Request: { date: string; verdict: 'passed' | 'failed'; failReason?: string }
+    Response: ApiBriefingReviewVerdict
+  }
+
   'GET /v1/meetings/:date/briefing/feedback': {
     Request: { date: string }
     Response: { feedback: ApiArtifactFeedback[] }
@@ -585,6 +594,13 @@ export interface ApiAnnotationReview {
   reviewer_email: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ApiBriefingReviewVerdict {
+  verdict: 'passed' | 'failed'
+  failReason: string | null
+  reviewerEmail: string | null
+  reviewedAt: string
 }
 
 export interface ApiAnnotation {

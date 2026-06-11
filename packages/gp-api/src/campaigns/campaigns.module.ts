@@ -26,8 +26,6 @@ import { CampaignPlanVersionsService } from './services/campaignPlanVersions.ser
 import { CampaignsService } from './services/campaigns.service'
 import { CrmCampaignsService } from './services/crmCampaigns.service'
 import { CampaignTasksController } from './tasks/campaignTasks.controller'
-import { LegacyCampaignTasksController } from './tasks/legacy/legacyCampaignTasks.controller'
-import { LegacyCampaignTasksService } from './tasks/legacy/services/legacyCampaignTasks.service'
 import { CampaignTasksService } from './tasks/services/campaignTasks.service'
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
@@ -68,7 +66,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignPositionsController,
     CampaignUpdateHistoryController,
     CampaignTasksController,
-    LegacyCampaignTasksController,
     CampaignTcrComplianceController,
     PublicCampaignsController,
   ],
@@ -80,7 +77,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignUpdateHistoryService,
     CrmCampaignsService,
     CampaignTasksService,
-    LegacyCampaignTasksService,
     AiGenerationService,
     CampaignTcrComplianceService,
     ComplianceStateService,

@@ -27,6 +27,7 @@ import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
+import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
@@ -92,6 +93,7 @@ import { loggerModule } from './observability/logging/logger-module'
     MeetingsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
+    ArtifactReviewModule,
     ElectedOfficeModule,
     OrganizationsModule,
     OnboardingModule,

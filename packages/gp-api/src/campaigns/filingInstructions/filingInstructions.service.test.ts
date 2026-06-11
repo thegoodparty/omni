@@ -55,6 +55,15 @@ describe('FilingInstructionsService.emailToCandidate', () => {
     expect(payload.message).toContain('Phone: (916) 555-0199')
   })
 
+  it('sends an HTML body with line breaks so it is not a wall of text', async () => {
+    await service.emailToCandidate(campaign, user)
+
+    const payload = sendEmail.mock.calls[0][0]
+    expect(payload.html).toContain('<br />')
+    expect(payload.html).not.toContain('\n')
+    expect(payload.html).toBe(payload.message.replace(/\n/g, '<br />'))
+  })
+
   it('still sends with just the window when live metrics are unavailable', async () => {
     fetchLiveRaceTargetMetrics.mockResolvedValue(null)
 

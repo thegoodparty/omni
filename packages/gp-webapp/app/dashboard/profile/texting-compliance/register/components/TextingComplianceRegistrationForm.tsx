@@ -316,7 +316,7 @@ const TextingComplianceRegistrationForm = ({
         )}
         {attemptedSubmit && !isValid && (
           <StyledAlert severity="error">
-            <Body2>
+            <Body2 className="w-full min-w-0 break-words">
               <span className="font-medium">
                 Please fix the following fields:
               </span>

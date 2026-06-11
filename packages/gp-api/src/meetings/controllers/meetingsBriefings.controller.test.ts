@@ -82,6 +82,7 @@ const seedBriefingTarget = async (orgSlug: string, rrule: string) => {
     brDatabaseId: 'br-db-g',
     state: 'MN',
     name: 'City Council',
+    isServeIcp: true,
   })
   const artifactKey = `schedule-${orgSlug}.json`
   await service.prisma.experimentRun.create({
