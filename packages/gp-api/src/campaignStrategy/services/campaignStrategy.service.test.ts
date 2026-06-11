@@ -559,4 +559,71 @@ describe('CampaignStrategyService — community events', () => {
       expect(mockElectionApi.getRaceContext).toHaveBeenCalled()
     })
   })
+
+  describe('in-flight slot ownership across race changes', () => {
+    it('an old job settling cannot evict the slot the new race claimed', async () => {
+      mockPrisma.campaignStrategy.findUnique.mockResolvedValue({
+        communityEvents: null,
+      })
+      const eventsDetails = {
+        party: 'Independent',
+        raceId: 'hash-abc',
+        electionDate: '2026-11-03',
+        state: 'CA',
+        city: 'Anytown',
+        zip: '94110',
+      }
+      let settleOldJob: () => void = () => undefined
+      mockEvents.generate
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              settleOldJob = () => resolve({ events: [] })
+            }),
+        )
+        // The new race's job stays in flight for the whole test.
+        .mockImplementation(() => new Promise(() => undefined))
+
+      // Poll 1 kicks generation for the old race.
+      await service.getOrGenerateCommunityEvents(
+        buildCampaign({ details: eventsDetails }),
+      )
+      await vi.waitFor(() =>
+        expect(mockEvents.generate).toHaveBeenCalledTimes(1),
+      )
+
+      // Race change: the reset frees the slot and poll 2 kicks the new race.
+      mockPrisma.campaignStrategy.update.mockResolvedValue({
+        id: 42,
+        campaignId: 99,
+        raceId: 'hash-NEW',
+        previousRaceIds: ['hash-abc'],
+      })
+      await service.getOrGenerateCommunityEvents(
+        buildCampaign({ details: { ...eventsDetails, raceId: 'hash-NEW' } }),
+      )
+      await vi.waitFor(() =>
+        expect(mockEvents.generate).toHaveBeenCalledTimes(2),
+      )
+
+      // The old race's job settles AFTER the new job claimed the slot.
+      settleOldJob()
+      await new Promise((resolve) => setImmediate(resolve))
+
+      // Poll 3 (row now stamped with the new race): the slot must still be
+      // held by the new job — no third kick.
+      mockPrisma.campaignStrategy.upsert.mockResolvedValue({
+        id: 42,
+        campaignId: 99,
+        raceId: 'hash-NEW',
+        previousRaceIds: ['hash-abc'],
+      })
+      const result = await service.getOrGenerateCommunityEvents(
+        buildCampaign({ details: { ...eventsDetails, raceId: 'hash-NEW' } }),
+      )
+
+      expect(result).toEqual({ status: 'generating' })
+      expect(mockEvents.generate).toHaveBeenCalledTimes(2)
+    })
+  })
 })

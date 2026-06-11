@@ -392,6 +392,15 @@ export class CampaignStrategyService
         electionDate,
       ).catch(() => undefined)
       this.inFlightEvents.set(campaign.id, work)
+      // Cleanup compares by reference: a race change frees the slot and a
+      // new job may claim it before this one settles — the old job's settle
+      // must not evict the new job's entry, or drainInFlight stops tracking
+      // it and a later poll double-kicks generation.
+      void work.finally(() => {
+        if (this.inFlightEvents.get(campaign.id) === work) {
+          this.inFlightEvents.delete(campaign.id)
+        }
+      })
     }
     return { status: 'generating' }
   }
@@ -434,9 +443,9 @@ export class CampaignStrategyService
         },
         'Community events generation failed; next poll will retry',
       )
-    } finally {
-      this.inFlightEvents.delete(campaign.id)
     }
+    // Slot cleanup lives at the call site (reference-compared) so a stale
+    // job can't evict a successor that claimed the slot after a race change.
   }
 
   // Add the campaign to the per-pod raceDataUnavailable cache so
