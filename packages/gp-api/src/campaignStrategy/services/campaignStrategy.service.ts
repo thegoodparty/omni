@@ -877,14 +877,14 @@ export class CampaignStrategyService
     // result: the persister's write is guarded on the row's race stamp.
     this.inFlightEvents.delete(plan.campaignId)
 
-    // The claim goes FIRST so this transaction takes the plan row's lock
-    // before touching children — a persist transaction claims the same row
-    // as its first statement, so the two serialize. The claim is also an
-    // optimistic lock on the snapshot's raceId: two concurrent requests
-    // that both read the old race can both reach this branch, and without
-    // the guard the loser's `push` would append the same old race a second
-    // time, corrupting previousRaceIds and doubling the analytics count.
-    // The loser matches zero rows and simply re-reads the winner's result.
+    // The claim goes FIRST: when it matches, it takes the plan row's lock
+    // before touching children, and a persist transaction claims the same
+    // row as its first statement, so winners serialize. When it matches
+    // zero rows no lock is taken — correctness there rests on the
+    // optimistic check itself: the loser does nothing and re-reads the
+    // winner's result. Without the guard, two concurrent requests that
+    // both read the old race would each `push` it, appending the same old
+    // race twice and doubling the analytics count.
     const won = await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
         where: { id: plan.id, raceId: previousRaceId },
