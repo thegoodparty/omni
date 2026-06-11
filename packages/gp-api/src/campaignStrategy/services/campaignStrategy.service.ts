@@ -399,7 +399,11 @@ export class CampaignStrategyService
       )
     } catch (error) {
       if (error instanceof ElectionApiRaceNotFoundError) {
-        this.markRaceUnavailable(campaign.id, brHashId, 'community-events')
+        await this.markRaceUnavailable(
+          campaign.id,
+          brHashId,
+          'community-events',
+        )
         return
       }
       this.logger.error(
@@ -419,11 +423,16 @@ export class CampaignStrategyService
   // instead of re-kicking generation that will 404 again. Logged at
   // warn (not error) because a missing Race row is usually a dev-env
   // data gap, not an outage worth paging on.
-  private markRaceUnavailable(
+  private async markRaceUnavailable(
     campaignId: number,
     brHashId: string,
     pipeline: 'strategic-landscape' | 'community-events',
-  ): void {
+  ): Promise<void> {
+    // A 404 from a job whose race the campaign has since left must not
+    // poison the new race's lookups — only arm the short-circuit if the
+    // row is still stamped with the race that 404'd.
+    const plan = await this.findFirst({ where: { campaignId } })
+    if (plan?.raceId !== brHashId) return
     this.raceDataUnavailable.add(campaignId)
     this.logger.warn(
       { campaignId, raceId: brHashId, pipeline },
@@ -442,6 +451,7 @@ export class CampaignStrategyService
       planId,
       campaign.id,
       campaign.userId,
+      brHashId,
       ctx,
     )
   }
@@ -833,6 +843,10 @@ export class CampaignStrategyService
     // The 404 short-circuit was observed for the previous race; the new
     // race deserves a fresh lookup.
     this.raceDataUnavailable.delete(plan.campaignId)
+    // Free the events slot so the next poll kicks generation for the new
+    // race instead of waiting out the old job. The old job can't land its
+    // result: the persister's write is guarded on the row's race stamp.
+    this.inFlightEvents.delete(plan.campaignId)
 
     const [, , , updated] = await this.client.$transaction([
       this.client.campaignStrategyOpportunity.deleteMany({

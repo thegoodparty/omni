@@ -124,7 +124,13 @@ describe('CampaignStrategyService — community events', () => {
         }),
         findUnique: vi.fn(),
         findMany: vi.fn(),
-        findFirst: vi.fn(),
+        // markRaceUnavailable re-reads the row to confirm the 404 belongs
+        // to the race the row is currently stamped with.
+        findFirst: vi.fn().mockResolvedValue({
+          id: 42,
+          campaignId: 99,
+          raceId: 'hash-abc',
+        }),
         findFirstOrThrow: vi.fn(),
         findUniqueOrThrow: vi.fn(),
         count: vi.fn(),
@@ -384,7 +390,7 @@ describe('CampaignStrategyService — community events', () => {
       await service.drainInFlight()
 
       expect(mockRaces.getZipCodesByRaceId).toHaveBeenCalledWith('hash-abc')
-      const ctx = mockEvents.generate.mock.calls[0]?.[3]
+      const ctx = mockEvents.generate.mock.calls[0]?.[4]
       // All resolver zips join into a single comma-separated value so the
       // LLM has full geographic coverage of the district.
       expect(ctx?.zip).toBe('10025, 10026')
@@ -403,7 +409,7 @@ describe('CampaignStrategyService — community events', () => {
       )
       await service.drainInFlight()
 
-      const ctx = mockEvents.generate.mock.calls[0]?.[3]
+      const ctx = mockEvents.generate.mock.calls[0]?.[4]
       expect(ctx?.zip).toBe('94110')
     })
 
@@ -427,7 +433,7 @@ describe('CampaignStrategyService — community events', () => {
       )
       await service.drainInFlight()
 
-      const ctx = mockEvents.generate.mock.calls[0]?.[3]
+      const ctx = mockEvents.generate.mock.calls[0]?.[4]
       expect(ctx?.zip).toBe('')
     })
 
@@ -444,7 +450,7 @@ describe('CampaignStrategyService — community events', () => {
       )
       await service.drainInFlight()
 
-      const ctx = mockEvents.generate.mock.calls[0]?.[3]
+      const ctx = mockEvents.generate.mock.calls[0]?.[4]
       expect(ctx?.zip).toBe('94110')
     })
 
@@ -464,7 +470,7 @@ describe('CampaignStrategyService — community events', () => {
       )
       await service.drainInFlight()
 
-      const ctx = mockEvents.generate.mock.calls[0]?.[3]
+      const ctx = mockEvents.generate.mock.calls[0]?.[4]
       expect(ctx?.zip).toBe(districtZips.join(', '))
     })
   })
