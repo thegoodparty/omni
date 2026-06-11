@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -90,6 +94,15 @@ describe('PollPurchaseHandlerService', () => {
       await expect(
         service.handlePollPostPurchase('sess_1', rawMetadata),
       ).rejects.toThrow(NotFoundException)
+      expect(pollsService.expandPoll).not.toHaveBeenCalled()
+    })
+
+    it('throws BadRequestException when the buyer has no elected office', async () => {
+      electedOfficeService.findFirst.mockResolvedValue(null)
+
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).rejects.toThrow(BadRequestException)
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
   })
