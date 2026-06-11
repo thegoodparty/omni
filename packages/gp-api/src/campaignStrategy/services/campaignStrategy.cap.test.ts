@@ -91,6 +91,7 @@ describe('CampaignStrategyService', () => {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn().mockResolvedValue(planRow()),
         update: vi.fn().mockResolvedValue(undefined),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn().mockResolvedValue(planRow()),
@@ -107,7 +108,13 @@ describe('CampaignStrategyService', () => {
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
       },
-      $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+      // Supports both the array form and the interactive (callback) form,
+      // handing the same mock delegates in as the tx client.
+      $transaction: vi.fn(
+        async (
+          arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>),
+        ) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg)),
+      ),
     }
     // The last three deps (communityEvents, electionApi, races) belong to the
     // community-events pipeline and are never touched by the CAP strategic-
@@ -617,8 +624,7 @@ describe('CampaignStrategyService', () => {
           opportunitiesAttempts: 2,
         }),
       )
-      // First update call is the reset; later calls stamp the new run ids.
-      prisma.campaignStrategy.update.mockResolvedValueOnce(
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
         planRow({ raceId: 'br-general', previousRaceIds: ['br-old'] }),
       )
       experimentRuns.dispatchRun
@@ -638,8 +644,10 @@ describe('CampaignStrategyService', () => {
           where: { campaignStrategyId: 42 },
         })
       }
-      expect(prisma.campaignStrategy.update).toHaveBeenNthCalledWith(1, {
-        where: { id: 42 },
+      // The reset is an optimistic claim on the snapshot's race — a
+      // concurrent reset that already committed makes it miss.
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 42, raceId: 'br-old' },
         data: expect.objectContaining({
           raceId: 'br-general',
           previousRaceIds: { push: 'br-old' },
@@ -651,7 +659,7 @@ describe('CampaignStrategyService', () => {
         }),
       })
       // Attempt counters survive the reset — they bound lifetime spend.
-      const resetData = prisma.campaignStrategy.update.mock.calls[0][0].data
+      const resetData = prisma.campaignStrategy.updateMany.mock.calls[0][0].data
       expect(resetData).not.toHaveProperty('oppositionAttempts')
       expect(resetData).not.toHaveProperty('opportunitiesAttempts')
       expect(analytics.track).toHaveBeenCalledWith(
@@ -663,6 +671,32 @@ describe('CampaignStrategyService', () => {
           newRaceId: 'br-general',
           raceChangeCount: 1,
         }),
+      )
+    })
+
+    it('a lost reset claim defers to the concurrent winner without re-appending', async () => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({ raceId: 'br-old' }),
+      )
+      // The concurrent reset committed first: this request's claim misses.
+      prisma.campaignStrategy.updateMany.mockResolvedValueOnce({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ raceId: 'br-general', previousRaceIds: ['br-old'] }),
+      )
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(analytics.track).not.toHaveBeenCalledWith(
+        7,
+        'Campaign Plan V2 - Strategy Race Changed',
+        expect.anything(),
       )
     })
 

@@ -867,6 +867,7 @@ export class CampaignStrategyService
         data: { raceId },
       })
     }
+    const previousRaceId = plan.raceId
 
     // The 404 short-circuit was observed for the previous race; the new
     // race deserves a fresh lookup.
@@ -876,17 +877,20 @@ export class CampaignStrategyService
     // result: the persister's write is guarded on the row's race stamp.
     this.inFlightEvents.delete(plan.campaignId)
 
-    // The plan update goes FIRST so this transaction takes the plan row's
-    // lock before touching children. A persist transaction claims the same
-    // row as its first statement, so the two serialize: whichever locks
-    // first wins, and a persist that loses sees the new stamp and drops its
-    // stale result instead of inserting children behind this delete.
-    const [updated] = await this.client.$transaction([
-      this.model.update({
-        where: { id: plan.id },
+    // The claim goes FIRST so this transaction takes the plan row's lock
+    // before touching children — a persist transaction claims the same row
+    // as its first statement, so the two serialize. The claim is also an
+    // optimistic lock on the snapshot's raceId: two concurrent requests
+    // that both read the old race can both reach this branch, and without
+    // the guard the loser's `push` would append the same old race a second
+    // time, corrupting previousRaceIds and doubling the analytics count.
+    // The loser matches zero rows and simply re-reads the winner's result.
+    const won = await this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignStrategy.updateMany({
+        where: { id: plan.id, raceId: previousRaceId },
         data: {
           raceId,
-          previousRaceIds: { push: plan.raceId },
+          previousRaceIds: { push: previousRaceId },
           oppositionRunId: null,
           opportunitiesRunId: null,
           oppositionPersistedAt: null,
@@ -894,17 +898,24 @@ export class CampaignStrategyService
           generationStartedAt: null,
           communityEvents: Prisma.DbNull,
         },
-      }),
-      this.client.campaignStrategyOpportunity.deleteMany({
+      })
+      if (count === 0) return false
+      await tx.campaignStrategyOpportunity.deleteMany({
         where: { campaignStrategyId: plan.id },
-      }),
-      this.client.campaignStrategyChallenge.deleteMany({
+      })
+      await tx.campaignStrategyChallenge.deleteMany({
         where: { campaignStrategyId: plan.id },
-      }),
-      this.client.campaignStrategyOpponent.deleteMany({
+      })
+      await tx.campaignStrategyOpponent.deleteMany({
         where: { campaignStrategyId: plan.id },
-      }),
-    ])
+      })
+      return true
+    })
+
+    const updated = await this.model.findUniqueOrThrow({
+      where: { id: plan.id },
+    })
+    if (!won) return updated
 
     const userId = await this.resolveCampaignUserId(plan.campaignId)
     if (userId !== null) {
@@ -912,7 +923,7 @@ export class CampaignStrategyService
         .track(userId, EVENTS.CampaignPlanV2.StrategyRaceChanged, {
           campaignId: plan.campaignId,
           planId: plan.id,
-          previousRaceId: plan.raceId,
+          previousRaceId,
           newRaceId: raceId,
           raceChangeCount: updated.previousRaceIds.length,
         })

@@ -132,10 +132,15 @@ describe('CampaignStrategyService — community events', () => {
           raceId: 'hash-abc',
         }),
         findFirstOrThrow: vi.fn(),
-        findUniqueOrThrow: vi.fn(),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          id: 42,
+          campaignId: 99,
+          raceId: 'hash-NEW',
+          previousRaceIds: ['hash-abc'],
+        }),
         count: vi.fn(),
         update: vi.fn(),
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       campaignStrategyOpportunity: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -149,7 +154,11 @@ describe('CampaignStrategyService — community events', () => {
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
       },
-      $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+      $transaction: vi.fn(
+        async (
+          arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>),
+        ) => (typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg)),
+      ),
     }
     mockEvents = { generate: vi.fn() }
     mockElectionApi = { getRaceContext: vi.fn().mockResolvedValue(apiCtx) }
@@ -270,12 +279,6 @@ describe('CampaignStrategyService — community events', () => {
         previousRaceIds: [],
         communityEvents: { events: [{ title: 'Stale event' }] },
       })
-      mockPrisma.campaignStrategy.update.mockResolvedValue({
-        id: 42,
-        campaignId: 99,
-        raceId: 'hash-abc',
-        previousRaceIds: ['hash-OLD'],
-      })
       // Post-reset cache read sees the wiped column.
       mockPrisma.campaignStrategy.findUnique.mockResolvedValue({
         communityEvents: null,
@@ -287,8 +290,8 @@ describe('CampaignStrategyService — community events', () => {
 
       expect(result).toEqual({ status: 'generating' })
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
-      expect(mockPrisma.campaignStrategy.update).toHaveBeenCalledWith({
-        where: { id: 42 },
+      expect(mockPrisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+        where: { id: 42, raceId: 'hash-OLD' },
         data: expect.objectContaining({
           raceId: 'hash-abc',
           previousRaceIds: { push: 'hash-OLD' },

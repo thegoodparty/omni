@@ -83,6 +83,25 @@ describe('StrategicLandscapePersister', () => {
     expect(warn).toHaveBeenCalled()
   })
 
+  it('persists opportunities and challenges after claiming the row on the generating race', async () => {
+    await persister.persistOpportunitiesAndChallenges(
+      42,
+      'br-general',
+      ['o1'],
+      ['c1'],
+    )
+
+    expect(tx.campaignStrategy.updateMany).toHaveBeenCalledWith({
+      where: { id: 42, OR: [{ raceId: 'br-general' }, { raceId: null }] },
+      data: { opportunitiesPersistedAt: expect.any(Date) },
+    })
+    expect(tx.campaignStrategyOpportunity.deleteMany).toHaveBeenCalled()
+    expect(tx.campaignStrategyChallenge.deleteMany).toHaveBeenCalled()
+    expect(tx.campaignStrategyOpportunity.createMany).toHaveBeenCalled()
+    expect(tx.campaignStrategyChallenge.createMany).toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('claims unconditionally when the run carries no race', async () => {
     await persister.persistOpportunitiesAndChallenges(42, null, ['o1'], ['c1'])
 
@@ -90,6 +109,10 @@ describe('StrategicLandscapePersister', () => {
       where: { id: 42 },
       data: { opportunitiesPersistedAt: expect.any(Date) },
     })
+    expect(tx.campaignStrategyOpportunity.deleteMany).toHaveBeenCalled()
+    expect(tx.campaignStrategyChallenge.deleteMany).toHaveBeenCalled()
     expect(tx.campaignStrategyOpportunity.createMany).toHaveBeenCalled()
+    expect(tx.campaignStrategyChallenge.createMany).toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
   })
 })
