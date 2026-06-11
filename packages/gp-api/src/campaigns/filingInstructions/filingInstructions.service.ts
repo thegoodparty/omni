@@ -22,6 +22,7 @@ export class FilingInstructionsService {
       to: user.email,
       subject: 'Your filing instructions - GoodParty.org',
       message,
+      html: message.replace(/\n/g, '<br />'),
     })
   }
 }
