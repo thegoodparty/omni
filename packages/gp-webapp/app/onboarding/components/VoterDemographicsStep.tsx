@@ -177,6 +177,7 @@ export const VoterDemographicsStep = ({
 
       <TopVoterIssuesSection
         ballotReadyPositionId={ballotReadyPositionId}
+        orgPositionId={orgPositionId}
         city={city}
         state={state}
         office={office}

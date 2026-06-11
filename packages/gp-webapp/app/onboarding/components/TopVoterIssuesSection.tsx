@@ -7,6 +7,7 @@ import { reportErrorToSentry } from '@shared/sentry'
 
 interface TopVoterIssuesSectionProps {
   ballotReadyPositionId?: string
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
@@ -22,8 +23,12 @@ const COLLAPSED_ISSUES_VISIBLE = 3
 // Endpoint derives district from the org cookie, so the request takes no
 // params. We still key the cache by office identity so navigating back and
 // changing zip/office refetches instead of returning the prior district.
+// orgPositionId covers the post-onboarding case: a campaign-details race
+// edit re-points the org's position, and keying on it turns that into a
+// fresh key (and refetch) the moment the invalidated campaign reloads.
 const voterIssuesQueryOptions = (params: {
   ballotReadyPositionId?: string
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
@@ -49,13 +54,20 @@ const VoterIssuesSkeleton = (): React.JSX.Element => (
 
 export const TopVoterIssuesSection = ({
   ballotReadyPositionId,
+  orgPositionId,
   city,
   state,
   office,
   headingsAsSubsections = false,
 }: TopVoterIssuesSectionProps): React.JSX.Element | null => {
   const query = useQuery(
-    voterIssuesQueryOptions({ ballotReadyPositionId, city, state, office }),
+    voterIssuesQueryOptions({
+      ballotReadyPositionId,
+      orgPositionId,
+      city,
+      state,
+      office,
+    }),
   )
   const [isExpanded, setIsExpanded] = useState(false)
 

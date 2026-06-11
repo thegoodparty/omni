@@ -192,6 +192,7 @@ export const useCampaignPlanData = (
   const voterIssuesQuery = useQuery(
     voterIssuesQueryOptions({
       ballotReadyPositionId,
+      orgPositionId: campaign?.organization?.positionId ?? undefined,
       city: onboardingCity,
       state: onboardingState,
       office: onboardingOffice,
