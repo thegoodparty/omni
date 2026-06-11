@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@styleguide'
 import {
   CalendarIcon,
@@ -11,27 +12,12 @@ import {
   SendIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { dateUsHelper } from 'helpers/dateHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
-// Mirror gp-api's renderFilingInstructionsEmail window logic so the on-screen
-// window and the "email this to me" body can't drift: both → "start – end",
-// else whichever single date exists, else a not-yet-available fallback.
-const formatFilingWindow = (
-  start: string | null | undefined,
-  end: string | null | undefined,
-): string => {
-  const formattedStart = start ? dateUsHelper(start, 'long') : ''
-  const formattedEnd = end ? dateUsHelper(end, 'long') : ''
-  if (formattedStart && formattedEnd) {
-    return `${formattedStart} – ${formattedEnd}`
-  }
-  return formattedStart || formattedEnd || 'Not yet available'
-}
+const FILING_INSTRUCTIONS_QUERY_KEY = ['filing-instructions']
 
 interface InstructionRowProps {
   icon: React.ReactNode
@@ -58,7 +44,6 @@ const InstructionRow = ({
 const FilingInstructionsStep = (): React.JSX.Element => {
   const router = useRouter()
   const { goToPreviousStep } = useProUpgradeWizard()
-  const [campaign] = useCampaign()
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
 
@@ -66,12 +51,37 @@ const FilingInstructionsStep = (): React.JSX.Element => {
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingInstructionsViewed)
   }, [])
 
-  const metrics = campaign?.raceTargetMetrics
-  const filingFee = metrics?.filingFee ?? null
-  const filingRequirementsText = metrics?.filingRequirementsText ?? null
-  const filingOfficeAddress = metrics?.filingOfficeAddress ?? null
-  const filingPhoneNumber = metrics?.filingPhoneNumber ?? null
-  const paperworkInstructions = metrics?.paperworkInstructions ?? null
+  // Read the content from the server (not the cached campaign) so the screen
+  // shows exactly what "email this to me" sends — both come from one source.
+  const {
+    data: content,
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: FILING_INSTRUCTIONS_QUERY_KEY,
+    queryFn: async () => {
+      const res = await clientRequest(
+        'GET /v1/campaigns/mine/filing-instructions',
+        {},
+      )
+      return res.data
+    },
+  })
+
+  // On fetch failure every field falls back to null, which renders identically
+  // to a legitimate no-data race — tell the user it's an error, not the truth.
+  useEffect(() => {
+    if (isError) {
+      errorSnackbar('Failed to load filing instructions. Please try again.')
+    }
+  }, [isError, errorSnackbar])
+
+  const filingWindow = content?.filingWindow ?? null
+  const filingFee = content?.filingFee ?? null
+  const filingRequirementsText = content?.filingRequirementsText ?? null
+  const filingOfficeAddress = content?.filingOfficeAddress ?? null
+  const filingPhoneNumber = content?.filingPhoneNumber ?? null
+  const paperworkInstructions = content?.paperworkInstructions ?? null
 
   // Compose fee + requirements into one "Filing requirements" detail, matching
   // the Figma ("Filing fee is $X. <requirements text>"). $-format matches
@@ -127,10 +137,7 @@ const FilingInstructionsStep = (): React.JSX.Element => {
           icon={<CalendarIcon className="h-5 w-5" />}
           label="Filing window"
         >
-          {formatFilingWindow(
-            campaign?.details?.filingPeriodsStart,
-            campaign?.details?.filingPeriodsEnd,
-          )}
+          {isPending ? 'Loading…' : (filingWindow ?? 'Not yet available')}
         </InstructionRow>
 
         {requirementsDetail && (
