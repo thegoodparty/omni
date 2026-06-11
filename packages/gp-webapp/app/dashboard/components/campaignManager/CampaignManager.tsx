@@ -169,7 +169,6 @@ export default function CampaignManager({
                         campaign={campaign}
                         tasks={tasks}
                         tcrCompliance={tcrCompliance}
-                        isLegacyList={false}
                       />
                     ) : (
                       <div className="mt-4">

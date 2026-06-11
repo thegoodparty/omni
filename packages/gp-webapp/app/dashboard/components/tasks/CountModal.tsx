@@ -3,7 +3,15 @@
 import { useState } from 'react'
 import { Button, Input } from '@styleguide'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
-import type { LogTaskFlowType } from './LogTaskModal'
+
+type LogTaskFlowType =
+  | 'text'
+  | 'p2pDisabledText'
+  | 'robocall'
+  | 'doorKnocking'
+  | 'phoneBanking'
+  | 'socialMedia'
+  | 'events'
 
 const COUNT_QUESTIONS: Record<LogTaskFlowType, string> = {
   text: 'How many texts did you schedule?',

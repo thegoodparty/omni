@@ -80,10 +80,6 @@ vi.mock(
   }),
 )
 
-vi.mock('app/dashboard/components/DashboardHeader', () => ({
-  DashboardHeader: () => null,
-}))
-
 vi.mock('helpers/analyticsHelper', () => ({
   trackEvent: vi.fn(),
   buildTrackingAttrs: vi.fn(() => ({})),
@@ -149,11 +145,6 @@ vi.mock('../../shared/ComplianceModal', () => ({
   ComplianceModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="compliance-modal">Compliance Modal</div> : null,
 }))
-vi.mock('./LogTaskModal', () => ({
-  default: () => null,
-  TASK_TYPE_HEADINGS: {},
-}))
-
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
   id: 'task-1',
   title: 'Test Task',
@@ -244,13 +235,7 @@ describe('TasksList non-legacy event tasks', () => {
 
       sessionStorage.setItem(TEST_SESSION_KEY, '30')
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       expect(screen.getByText('Apr 7-13')).toBeInTheDocument()
       expect(screen.getByText('Apr 13')).toBeInTheDocument()
@@ -269,13 +254,7 @@ describe('TasksList non-legacy event tasks', () => {
       completed: false,
     })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[eventTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[eventTask]} />)
 
     const taskItem = document.querySelector('[data-slot="task-item"]')
     expect(taskItem).toBeTruthy()
@@ -300,13 +279,7 @@ describe('TasksList revert completion flow', () => {
 
     mockClientFetch.mockResolvedValueOnce({ ok: true, data: revertedTask })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[completedTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[completedTask]} />)
 
     await user.click(screen.getByRole('checkbox'))
 
@@ -319,32 +292,6 @@ describe('TasksList revert completion flow', () => {
         { taskId: 'task-1' },
       )
     })
-  })
-
-  it('does NOT revert completed tasks in legacy lists', async () => {
-    const user = userEvent.setup()
-    const completedTask = makeTask({ completed: true })
-
-    mockClientFetch.mockResolvedValue({ ok: true, data: completedTask })
-
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[completedTask]}
-        isLegacyList={true}
-      />,
-    )
-
-    await user.click(screen.getByRole('checkbox'))
-
-    expect(mockClientFetch).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'PUT' }),
-      expect.anything(),
-    )
-    expect(mockClientFetch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'DELETE' }),
-      expect.anything(),
-    )
   })
 
   it('rolls back local voter contact count when revert fails after outreach complete', async () => {
@@ -398,13 +345,7 @@ describe('TasksList revert completion flow', () => {
       },
     )
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[textTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[textTask]} />)
 
     await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: 'Save count' }))
@@ -430,13 +371,7 @@ describe('TasksList revert completion flow', () => {
 
     mockClientFetch.mockResolvedValueOnce({ ok: false, status: 500 })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[completedTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[completedTask]} />)
 
     await user.click(screen.getByRole('checkbox'))
 
@@ -455,13 +390,7 @@ describe('TasksList revert completion flow', () => {
     mockClientFetch.mockRejectedValueOnce(new Error('network'))
 
     try {
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[completedTask]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[completedTask]} />)
 
       await user.click(screen.getByRole('checkbox'))
 
@@ -481,13 +410,7 @@ describe('TasksList revert completion flow', () => {
 
     mockClientFetch.mockResolvedValue({ ok: true, data: completedTask })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[completedTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[completedTask]} />)
 
     await user.click(screen.getByText('Test Task'))
 
@@ -510,13 +433,7 @@ describe('TasksList revert completion flow', () => {
         }),
     )
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[completedTask]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[completedTask]} />)
 
     await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('checkbox'))
@@ -547,13 +464,7 @@ describe('TasksList recurring task completion', () => {
 
     mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[task]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
     await user.click(screen.getByRole('checkbox'))
 
@@ -582,13 +493,7 @@ describe('TasksList recurring task completion', () => {
 
     mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[task]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
     await user.click(screen.getByRole('checkbox'))
 
@@ -611,13 +516,7 @@ describe('TasksList recurring task completion', () => {
       completed: false,
     })
 
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[task]}
-        isLegacyList={false}
-      />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
     await user.click(screen.getByRole('button', { name: /Weekly canvass/i }))
 
@@ -643,13 +542,7 @@ describe('TasksList tracking events', () => {
         makeTask({ id: 'task-3', week: 29, completed: true }),
       ]
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={tasks}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={tasks} />)
 
       expect(mockTrackEvent).toHaveBeenCalledWith(
         EVENTS.Dashboard.CampaignPlan.Viewed,
@@ -658,23 +551,6 @@ describe('TasksList tracking events', () => {
           tasksThisWeek: 2,
           tasksCompletedThisWeek: 1,
         },
-      )
-    })
-
-    it('does NOT fire Viewed event for legacy lists', () => {
-      const task = makeTask({ week: 30 })
-
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={true}
-        />,
-      )
-
-      expect(mockTrackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Dashboard.CampaignPlan.Viewed,
-        expect.anything(),
       )
     })
 
@@ -690,13 +566,7 @@ describe('TasksList tracking events', () => {
 
       mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       const viewedCallCount = mockTrackEvent.mock.calls.filter(
         ([event]) => event === EVENTS.Dashboard.CampaignPlan.Viewed,
@@ -720,11 +590,7 @@ describe('TasksList tracking events', () => {
 
       const task = makeTask({ week: 30 })
       const view = render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
+        <TasksList campaign={makeCampaign()} tasks={[task]} />,
       )
 
       expect(mockIdentifyUser).not.toHaveBeenCalledWith(
@@ -733,13 +599,7 @@ describe('TasksList tracking events', () => {
       )
 
       mockUseUser.mockReturnValue([{ id: 'user-1' }, vi.fn()])
-      view.rerender(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      view.rerender(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       await waitFor(() => {
         expect(mockIdentifyUser).toHaveBeenCalledWith('user-1', {
@@ -761,13 +621,7 @@ describe('TasksList tracking events', () => {
 
       mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       await user.click(screen.getByRole('checkbox'))
       await user.click(screen.getByRole('button', { name: 'Save count' }))
@@ -793,13 +647,7 @@ describe('TasksList tracking events', () => {
 
       mockClientFetch.mockResolvedValueOnce({ ok: true, data: revertedTask })
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       await user.click(screen.getByRole('checkbox'))
 
@@ -823,48 +671,12 @@ describe('TasksList tracking events', () => {
 
       mockClientFetch.mockResolvedValueOnce({ ok: false, status: 500 })
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       await user.click(screen.getByRole('checkbox'))
 
       await waitFor(() => {
         expect(mockErrorSnackbar).toHaveBeenCalled()
-      })
-
-      expect(mockTrackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
-        expect.anything(),
-      )
-    })
-
-    it('does NOT fire TaskStatusUpdated for legacy lists', async () => {
-      const user = userEvent.setup()
-      const task = makeTask({
-        flowType: TASK_TYPES.education,
-        completed: false,
-      })
-      const completedTask = { ...task, completed: true }
-
-      mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
-
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={true}
-        />,
-      )
-
-      await user.click(screen.getByRole('checkbox'))
-
-      await waitFor(() => {
-        expect(mockClientFetch).toHaveBeenCalled()
       })
 
       expect(mockTrackEvent).not.toHaveBeenCalledWith(
@@ -883,13 +695,7 @@ describe('TasksList tracking events', () => {
 
       mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={[task]} />)
 
       await user.click(screen.getByRole('checkbox'))
       await user.click(screen.getByRole('button', { name: 'Save count' }))
@@ -913,11 +719,7 @@ describe('TasksList tracking events', () => {
       mockClientFetch.mockResolvedValueOnce({ ok: true, data: completedTask })
 
       render(
-        <TasksList
-          campaign={makeCampaign({ isPro: true })}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
+        <TasksList campaign={makeCampaign({ isPro: true })} tasks={[task]} />,
       )
 
       await user.click(screen.getByRole('button', { name: /Test Task/i }))
@@ -945,11 +747,7 @@ describe('TasksList tracking events', () => {
       mockClientFetch.mockResolvedValueOnce({ ok: false, status: 500 })
 
       render(
-        <TasksList
-          campaign={makeCampaign({ isPro: true })}
-          tasks={[task]}
-          isLegacyList={false}
-        />,
+        <TasksList campaign={makeCampaign({ isPro: true })} tasks={[task]} />,
       )
 
       await user.click(screen.getByRole('button', { name: /Test Task/i }))
@@ -982,7 +780,6 @@ describe('TasksList tracking events', () => {
         <TasksList
           campaign={makeCampaign({ isPro: true })}
           tasks={[task]}
-          isLegacyList={false}
           tcrCompliance={makeTcrCompliance({ status: 'approved' })}
         />,
       )
@@ -992,31 +789,6 @@ describe('TasksList tracking events', () => {
       expect(mockTrackEvent).toHaveBeenCalledWith(
         EVENTS.Dashboard.CampaignPlan.TaskCTAClicked,
         { taskType: 'text' },
-      )
-    })
-
-    it('does NOT fire TaskCTAClicked for legacy lists', async () => {
-      const user = userEvent.setup()
-      const task = makeTask({
-        flowType: TASK_TYPES.education,
-        completed: false,
-      })
-
-      mockClientFetch.mockResolvedValue({ ok: true, data: task })
-
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={[task]}
-          isLegacyList={true}
-        />,
-      )
-
-      await user.click(screen.getByRole('button', { name: /Test Task/i }))
-
-      expect(mockTrackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Dashboard.CampaignPlan.TaskCTAClicked,
-        expect.anything(),
       )
     })
   })
@@ -1033,13 +805,7 @@ describe('TasksList tracking events', () => {
         makeTask({ id: 'task-2', week: currentWeek }),
       ]
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={tasks}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={tasks} />)
 
       const nextButton = screen.getByRole('button', { name: /next week/i })
       expect(nextButton).not.toBeDisabled()
@@ -1066,13 +832,7 @@ describe('TasksList tracking events', () => {
         makeTask({ id: 'task-2', week: currentWeek }),
       ]
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={tasks}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={tasks} />)
 
       const prevButton = screen.getByRole('button', {
         name: /previous week/i,
@@ -1097,11 +857,7 @@ describe('TasksList view mode toggle', () => {
 
   it('renders "View all" label when in weekly mode by default', () => {
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     expect(
@@ -1109,32 +865,11 @@ describe('TasksList view mode toggle', () => {
     ).toHaveTextContent('View all')
   })
 
-  it('does NOT render the toggle button for legacy lists', () => {
-    render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={true}
-      />,
-    )
-
-    expect(
-      screen.queryByRole('button', { name: /view all weeks/i }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /view current week only/i }),
-    ).not.toBeInTheDocument()
-  })
-
   it('shows "View weekly" label after toggling from weekly to full', async () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(screen.getByRole('button', { name: /view all weeks/i }))
@@ -1148,11 +883,7 @@ describe('TasksList view mode toggle', () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     expect(screen.getByLabelText('Previous week')).toBeInTheDocument()
@@ -1166,11 +897,7 @@ describe('TasksList view mode toggle', () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(screen.getByRole('button', { name: /view all weeks/i }))
@@ -1187,11 +914,7 @@ describe('TasksList view mode toggle', () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(screen.getByRole('button', { name: /view all weeks/i }))
@@ -1206,11 +929,7 @@ describe('TasksList view mode toggle', () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(screen.getByRole('button', { name: /view all weeks/i }))
@@ -1226,11 +945,7 @@ describe('TasksList view mode toggle', () => {
     sessionStorage.setItem(TEST_VIEW_MODE_KEY, 'full')
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(
@@ -1247,11 +962,7 @@ describe('TasksList view mode toggle', () => {
     const user = userEvent.setup()
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     await user.click(screen.getByRole('button', { name: /view all weeks/i }))
@@ -1269,11 +980,7 @@ describe('TasksList view mode toggle', () => {
     sessionStorage.setItem(TEST_VIEW_MODE_KEY, 'full')
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     expect(
@@ -1285,11 +992,7 @@ describe('TasksList view mode toggle', () => {
     sessionStorage.setItem(TEST_VIEW_MODE_KEY, 'garbage')
 
     render(
-      <TasksList
-        campaign={makeCampaign()}
-        tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
-      />,
+      <TasksList campaign={makeCampaign()} tasks={[makeTask({ week: 1 })]} />,
     )
 
     expect(
@@ -1305,7 +1008,6 @@ describe('TasksList view mode toggle', () => {
       <TasksList
         campaign={makeCampaign({ id: 1 })}
         tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
       />,
     )
 
@@ -1317,7 +1019,6 @@ describe('TasksList view mode toggle', () => {
       <TasksList
         campaign={makeCampaign({ id: 2 })}
         tasks={[makeTask({ week: 1 })]}
-        isLegacyList={false}
       />,
     )
 
@@ -1339,13 +1040,7 @@ describe('TasksList full view', () => {
         makeTask({ id: 'task-late', title: 'Late task', week: 20 }),
       ]
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={tasks}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={tasks} />)
 
       expect(screen.getByText('Early task')).toBeInTheDocument()
       expect(screen.getByText('Late task')).toBeInTheDocument()
@@ -1373,7 +1068,6 @@ describe('TasksList full view', () => {
         <TasksList
           campaign={makeCampaign()}
           tasks={[makeTask({ week: currentWeek })]}
-          isLegacyList={false}
         />,
       )
 
@@ -1393,13 +1087,7 @@ describe('TasksList full view', () => {
         makeTask({ id: 'task-week-30', title: 'Week 30 task', week: 30 }),
       ]
 
-      render(
-        <TasksList
-          campaign={makeCampaign()}
-          tasks={tasks}
-          isLegacyList={false}
-        />,
-      )
+      render(<TasksList campaign={makeCampaign()} tasks={tasks} />)
 
       expect(screen.getByText('Apr 7-13')).toBeInTheDocument()
     } finally {
@@ -1410,9 +1098,7 @@ describe('TasksList full view', () => {
   it('renders the empty state when there are no tasks', () => {
     sessionStorage.setItem(TEST_VIEW_MODE_KEY, 'full')
 
-    render(
-      <TasksList campaign={makeCampaign()} tasks={[]} isLegacyList={false} />,
-    )
+    render(<TasksList campaign={makeCampaign()} tasks={[]} />)
 
     expect(
       screen.getByText('No tasks in the campaign plan'),
@@ -1439,7 +1125,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1454,7 +1139,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.p2pDisabledText })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1469,7 +1153,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'approved' })}
       />,
     )
@@ -1484,7 +1167,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1499,7 +1181,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.robocall })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1515,7 +1196,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1532,7 +1212,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
       <TasksList
         campaign={makeCampaign({ isPro: true })}
         tasks={[makeTask({ flowType: TASK_TYPES.text, completed: true })]}
-        isLegacyList={false}
         tcrCompliance={makeTcrCompliance({ status: 'pending' })}
       />,
     )
@@ -1561,7 +1240,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
         <TasksList
           campaign={makeCampaign({ isPro: true })}
           tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-          isLegacyList={false}
           tcrCompliance={makeTcrCompliance({ status })}
         />,
       )
@@ -1600,7 +1278,6 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
       <TasksList
         campaign={makeCampaign({ isPro: false })}
         tasks={[makeTask({ flowType: TASK_TYPES.text, proRequired: true })]}
-        isLegacyList={false}
         tcrCompliance={null}
       />,
     )
@@ -1622,7 +1299,6 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
       <TasksList
         campaign={makeCampaign({ isPro: false })}
         tasks={[makeTask({ flowType: TASK_TYPES.text, proRequired: true })]}
-        isLegacyList={false}
         tcrCompliance={null}
       />,
     )
@@ -1640,7 +1316,6 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
       <TasksList
         campaign={makeCampaign({ isPro: false })}
         tasks={[makeTask({ flowType: TASK_TYPES.robocall, proRequired: true })]}
-        isLegacyList={false}
         tcrCompliance={null}
       />,
     )
@@ -1662,7 +1337,6 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
       <TasksList
         campaign={makeCampaign({ isPro: false })}
         tasks={[makeTask({ flowType: TASK_TYPES.robocall, proRequired: true })]}
-        isLegacyList={false}
         tcrCompliance={null}
       />,
     )
