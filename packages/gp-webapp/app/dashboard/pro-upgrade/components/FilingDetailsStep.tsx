@@ -200,7 +200,7 @@ const FilingDetailsForm = ({
 
       {attemptedSubmit && !isValid && (
         <StyledAlert severity="error" className="mb-6">
-          <Body2>
+          <Body2 className="w-full min-w-0 break-words">
             <span className="font-medium">
               Please fix the following fields:
             </span>
