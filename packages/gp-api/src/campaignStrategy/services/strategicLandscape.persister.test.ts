@@ -46,8 +46,10 @@ describe('StrategicLandscapePersister', () => {
       { fullName: 'Rival', partyAffiliation: 'Nonpartisan', incumbent: true },
     ])
 
+    // Accepts the run's race OR a still-unstamped legacy row — adoption
+    // mid-flight doesn't invalidate a result generated for the same race.
     expect(tx.campaignStrategy.updateMany).toHaveBeenCalledWith({
-      where: { id: 42, raceId: 'br-general' },
+      where: { id: 42, OR: [{ raceId: 'br-general' }, { raceId: null }] },
       data: { oppositionPersistedAt: expect.any(Date) },
     })
     expect(tx.campaignStrategyOpponent.createMany).toHaveBeenCalled()
@@ -81,11 +83,11 @@ describe('StrategicLandscapePersister', () => {
     expect(warn).toHaveBeenCalled()
   })
 
-  it('matches legacy unstamped rows with a null race', async () => {
+  it('claims unconditionally when the run carries no race', async () => {
     await persister.persistOpportunitiesAndChallenges(42, null, ['o1'], ['c1'])
 
     expect(tx.campaignStrategy.updateMany).toHaveBeenCalledWith({
-      where: { id: 42, raceId: null },
+      where: { id: 42 },
       data: { opportunitiesPersistedAt: expect.any(Date) },
     })
     expect(tx.campaignStrategyOpportunity.createMany).toHaveBeenCalled()

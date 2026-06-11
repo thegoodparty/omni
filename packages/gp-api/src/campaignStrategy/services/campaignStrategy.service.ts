@@ -154,17 +154,24 @@ export class CampaignStrategyService
   private readonly inFlightEvents = new Map<number, Promise<void>>()
 
   // Per-pod cache of campaigns whose race lookup against election-api
-  // returned 404. The next runEventsGeneration for the same campaign would
+  // returned 404, keyed by campaign id with the race hash that 404'd as
+  // the value. The next runEventsGeneration for the same campaign would
   // just 404 again, and the next browser poll would re-kick the loop.
   // Caching here short-circuits the loop so the polling endpoint returns
   // `{ status: 'ready', data: <empty> }` and the webapp falls through to
   // its existing empty-state UI.
   //
+  // Storing the race (not just membership) makes stale entries inert: the
+  // short-circuit only fires when the entry matches the campaign's CURRENT
+  // race, so a 404 recorded for a race the campaign has since left can
+  // never silence the new race — regardless of how the write interleaves
+  // with a concurrent race-change reset.
+  //
   // We don't persist this. The 404 is almost always a dev-env data gap
   // that resolves on the next election-api dbt run; a pod restart is the
   // natural "retry" point and that's an acceptable cadence for what's
   // ultimately a transient data-import issue.
-  private readonly raceDataUnavailable = new Set<number>()
+  private readonly raceDataUnavailable = new Map<number, string>()
 
   constructor(
     private readonly params: StrategicLandscapeParamsService,
@@ -267,6 +274,18 @@ export class CampaignStrategyService
     })
     if (!plan) return
 
+    // The race this run generated for, from its own dispatch params — NOT
+    // the plan's current stamp, which can change (race reset, or a legacy
+    // null row being adopted) between here and the persist. The persister
+    // compares against this value at write time. Zod-parsed because the
+    // params column is untyped Json at runtime.
+    const parsedParams = z
+      .object({ race_id: z.string().nullable().optional() })
+      .safeParse(run.params)
+    const runRace = parsedParams.success
+      ? (parsedParams.data.race_id ?? null)
+      : null
+
     const userId = await this.resolveCampaignUserId(plan.campaignId)
 
     // If loading, parsing, or persisting the artifact fails, the run was
@@ -280,7 +299,7 @@ export class CampaignStrategyService
       if (run.experimentType === OPPOSITION) {
         await this.persister.persistOpponents(
           plan.id,
-          plan.raceId,
+          runRace,
           parseOpponents(raw),
         )
         if (userId !== null) {
@@ -305,7 +324,7 @@ export class CampaignStrategyService
           parseOpportunitiesAndChallenges(raw)
         await this.persister.persistOpportunitiesAndChallenges(
           plan.id,
-          plan.raceId,
+          runRace,
           opportunities,
           challenges,
         )
@@ -356,8 +375,9 @@ export class CampaignStrategyService
     // See raceDataUnavailable definition. Both pipelines (community
     // events and strategic landscape) call electionApi.getRaceContext,
     // so a 404 affects both — the cache is shared and either pipeline
-    // hitting the 404 short-circuits the other too.
-    if (this.raceDataUnavailable.has(campaign.id)) {
+    // hitting the 404 short-circuits the other too. Value-compared so an
+    // entry recorded for a previous race never silences the current one.
+    if (this.raceDataUnavailable.get(campaign.id) === brHashId) {
       return { status: 'ready', data: EMPTY_COMMUNITY_EVENTS }
     }
 
@@ -404,11 +424,7 @@ export class CampaignStrategyService
       )
     } catch (error) {
       if (error instanceof ElectionApiRaceNotFoundError) {
-        await this.markRaceUnavailable(
-          campaign.id,
-          brHashId,
-          'community-events',
-        )
+        this.markRaceUnavailable(campaign.id, brHashId, 'community-events')
         return
       }
       this.logger.error(
@@ -428,17 +444,15 @@ export class CampaignStrategyService
   // instead of re-kicking generation that will 404 again. Logged at
   // warn (not error) because a missing Race row is usually a dev-env
   // data gap, not an outage worth paging on.
-  private async markRaceUnavailable(
+  private markRaceUnavailable(
     campaignId: number,
     brHashId: string,
     pipeline: 'strategic-landscape' | 'community-events',
-  ): Promise<void> {
-    // A 404 from a job whose race the campaign has since left must not
-    // poison the new race's lookups — only arm the short-circuit if the
-    // row is still stamped with the race that 404'd.
-    const plan = await this.findFirst({ where: { campaignId } })
-    if (plan?.raceId !== brHashId) return
-    this.raceDataUnavailable.add(campaignId)
+  ): void {
+    // Recorded against the race that 404'd; the read side only honors a
+    // matching entry, so a stale job's 404 can never poison a race the
+    // campaign has since moved to.
+    this.raceDataUnavailable.set(campaignId, brHashId)
     this.logger.warn(
       { campaignId, raceId: brHashId, pipeline },
       'election-api has no data for this race; marking campaign as race-data-unavailable so polling stops looping',

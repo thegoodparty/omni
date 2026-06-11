@@ -10,16 +10,26 @@ export class StrategicLandscapePersister extends createPrismaBase(
   // its own when its result lands. delete-then-insert makes a re-run (retry or
   // regeneration) overwrite cleanly rather than accumulate duplicate rows.
   //
-  // Each persist opens with a conditional claim on the plan row: the
-  // persistedAt stamp only lands if the row still holds the race the run was
-  // dispatched for (raceId null = legacy unstamped row, matched as IS NULL).
-  // A race change between onExperimentRunCompleted's plan lookup and this
-  // write resets the row, so the claim matches zero rows and the stale
-  // result is dropped without touching the new race's children. The claim
-  // also takes the plan row's lock first, serializing against the reset
-  // transaction (which locks the plan row as its first statement too).
-  // Stamping inside the same tx as the rows keeps the existing invariant:
-  // 'ready' can't observe rows mid-write.
+  // Each persist opens with a conditional claim on the plan row, compared
+  // against the race the RUN was dispatched for (from its params). The claim
+  // accepts a row still on that race, or a row that is still unstamped
+  // (legacy pre-backfill) — being adopted onto its campaign's race
+  // mid-flight doesn't invalidate a result generated for that same race.
+  // Only a genuine race change (row stamped with a different race) drops
+  // the result. The claim also takes the plan row's lock first, serializing
+  // against the reset transaction (which locks the plan row as its first
+  // statement too). Stamping inside the same tx as the rows keeps the
+  // existing invariant: 'ready' can't observe rows mid-write.
+  //
+  // raceId null = the run's params carried no race (shouldn't happen, but
+  // Json is untyped at runtime) — claim unconditionally, the pre-stamp
+  // behavior.
+  private claimWhere(campaignStrategyId: number, raceId: string | null) {
+    return raceId === null
+      ? { id: campaignStrategyId }
+      : { id: campaignStrategyId, OR: [{ raceId }, { raceId: null }] }
+  }
+
   async persistOpponents(
     campaignStrategyId: number,
     raceId: string | null,
@@ -27,7 +37,7 @@ export class StrategicLandscapePersister extends createPrismaBase(
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
-        where: { id: campaignStrategyId, raceId },
+        where: this.claimWhere(campaignStrategyId, raceId),
         // Set even for an uncontested race (zero opponents is a real result).
         data: { oppositionPersistedAt: new Date() },
       })
@@ -62,7 +72,7 @@ export class StrategicLandscapePersister extends createPrismaBase(
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
-        where: { id: campaignStrategyId, raceId },
+        where: this.claimWhere(campaignStrategyId, raceId),
         data: { opportunitiesPersistedAt: new Date() },
       })
       if (count === 0) {

@@ -28,7 +28,7 @@ const run = (overrides: Record<string, unknown> = {}) =>
     organizationSlug: 'org-99',
     experimentType: 'opposition_research',
     status: ExperimentRunStatus.COMPLETED,
-    params: {},
+    params: { race_id: 'br-general' },
     artifactBucket: 'bucket',
     artifactKey: 'key',
     durationSeconds: null,
