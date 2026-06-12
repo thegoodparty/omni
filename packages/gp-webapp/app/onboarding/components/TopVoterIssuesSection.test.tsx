@@ -31,7 +31,9 @@ describe('TopVoterIssuesSection', () => {
       () => new Promise(() => undefined),
     )
 
-    const { container } = render(<TopVoterIssuesSection office="Mayor" />)
+    const { container } = render(
+      <TopVoterIssuesSection ballotReadyPositionId="br-1" office="Mayor" />,
+    )
 
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(
       0,
@@ -44,7 +46,9 @@ describe('TopVoterIssuesSection', () => {
       data: { issues: [] },
     })
 
-    const { container } = render(<TopVoterIssuesSection office="Mayor" />)
+    const { container } = render(
+      <TopVoterIssuesSection ballotReadyPositionId="br-1" office="Mayor" />,
+    )
 
     await waitFor(() => {
       expect(container.firstChild).toBeNull()
@@ -62,7 +66,7 @@ describe('TopVoterIssuesSection', () => {
     })
     const { container } = rtlRender(
       <QueryClientProvider client={noRetryClient}>
-        <TopVoterIssuesSection office="Mayor" />
+        <TopVoterIssuesSection ballotReadyPositionId="br-1" office="Mayor" />
       </QueryClientProvider>,
     )
 
@@ -70,6 +74,16 @@ describe('TopVoterIssuesSection', () => {
       expect(mockReportErrorToSentry).toHaveBeenCalled()
     })
     expect(container.firstChild).toBeNull()
+  })
+
+  it('renders nothing and fires no request without an office identifier', () => {
+    // Manual-office campaigns have neither a BR position id nor an org
+    // position — the org has no resolvable district and the request would
+    // be a guaranteed 404.
+    const { container } = render(<TopVoterIssuesSection office="Mayor" />)
+
+    expect(container.firstChild).toBeNull()
+    expect(mockReportErrorToSentry).not.toHaveBeenCalled()
   })
 
   it('shows the static district copy and ignores office or location props', async () => {
@@ -80,6 +94,7 @@ describe('TopVoterIssuesSection', () => {
 
     render(
       <TopVoterIssuesSection
+        ballotReadyPositionId="br-1"
         office="Mayor of Springfield"
         city="Austin"
         state="TX"
@@ -139,7 +154,9 @@ describe('TopVoterIssuesSection', () => {
       data: { issues },
     })
 
-    render(<TopVoterIssuesSection office="Mayor" />)
+    render(
+      <TopVoterIssuesSection ballotReadyPositionId="br-1" office="Mayor" />,
+    )
 
     expect(await screen.findByText('Public Safety')).toBeInTheDocument()
     expect(screen.getByText('1')).toBeInTheDocument()
@@ -154,7 +171,9 @@ describe('TopVoterIssuesSection', () => {
       data: { issues },
     })
 
-    render(<TopVoterIssuesSection office="Mayor" />)
+    render(
+      <TopVoterIssuesSection ballotReadyPositionId="br-1" office="Mayor" />,
+    )
 
     expect(await screen.findByText('Public Safety')).toBeInTheDocument()
     expect(screen.getByText('Affordable Housing')).toBeInTheDocument()
