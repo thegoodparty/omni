@@ -267,6 +267,12 @@ describe('FilingDetailsStep', () => {
       'min-w-0',
       'break-words',
     )
+    // Each failing-field row must keep `list-item` so the global
+    // `[data-slot] ul li { display: flex }` rule (globals.css) can't split the
+    // bold label and message into two shrinking columns (ENG-10373).
+    for (const item of screen.getAllByRole('listitem')) {
+      expect(item).toHaveClass('list-item')
+    }
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
     expect(screen.getByText('Filing Address')).toBeInTheDocument()
     // `website` has no input in this form and must never be listed.

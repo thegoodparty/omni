@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -64,6 +64,17 @@ beforeEach(() => {
   mockGetTcrCompliance.mockReset()
   mockSuccessSnackbar.mockReset()
   mockErrorSnackbar.mockReset()
+})
+
+// The PIN form uses input-otp, whose selection-sync effect schedules
+// setTimeout(…, 0/10/50ms) on mount and on every value change but never clears
+// them on unmount. Under the full parallel suite a fast test can finish and
+// tear down jsdom before the 50ms timer fires, so its setState runs against a
+// gone `window` — surfacing as an unhandled "window is not defined" that fails
+// the whole run. Drain them here (a >50ms macrotask is dequeued after the
+// already-scheduled input-otp timers) while the window still exists.
+afterEach(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 60))
 })
 
 describe('ProUpgrade3Compliance — status → state mapping', () => {
