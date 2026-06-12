@@ -44,37 +44,48 @@
  * =============================================================================
  * WEBAPP DEFAULT CSS VARIABLES
  * =============================================================================
- * These define the default values for the webapp's color system.
- * Styleguide components will override these via [data-slot] scoping.
- * This enables the same Tailwind classes to resolve to different colors
- * based on whether they're used in legacy webapp code or styleguide components.
+ * Bridge aliases: legacy MUI-era vars now route to theme tokens defined in
+ * design-tokens.css. Raw palette scales have moved there too.
+ * Consumers should migrate off --primary/--secondary/--tertiary in the next PR.
  */
 :root {
-  /* Primary scale (webapp's dark indigo) */
-  --primary: #242d3d;
-  --primary-dark: #0d1528;
-  --primary-main: #242d3d;
-  --primary-light: #484e55;
-  --primary-background: #f7fafb;
-  --primary-contrast: #ffffff;
+  /* Primary → theme-primary (blue-600) */
+  --primary: var(--color-primary);
+  --primary-dark: var(--color-primary-dark);
+  --primary-main: var(--color-primary);
+  --primary-light: var(--color-primary-light);
+  --primary-background: color-mix(
+    in srgb,
+    var(--color-primary-light) 20%,
+    transparent
+  );
+  --primary-contrast: var(--color-primary-foreground);
 
-  /* Secondary scale (webapp's yellow) */
-  --secondary: #ffc523;
-  --secondary-dark: #dba219;
-  --secondary-main: #ffc523;
-  --secondary-light: #ffe291;
-  --secondary-background: #fffadf;
-  --secondary-contrast: #000000;
+  /* Secondary → theme-secondary (midnight-900) */
+  --secondary: var(--color-secondary);
+  --secondary-dark: var(--color-secondary-dark);
+  --secondary-main: var(--color-secondary);
+  --secondary-light: var(--color-secondary-light);
+  --secondary-background: color-mix(
+    in srgb,
+    var(--color-secondary-light) 20%,
+    transparent
+  );
+  --secondary-contrast: var(--color-secondary-foreground);
 
-  /* Tertiary scale (webapp's purple) */
-  --tertiary: #6e37ff;
-  --tertiary-dark: #3d1bb7;
-  --tertiary-main: #6e37ff;
-  --tertiary-light: #ae86ff;
-  --tertiary-background: #f8f3ff;
-  --tertiary-contrast: #ffffff;
+  /* Tertiary → theme-tertiary (cyan-500) */
+  --tertiary: var(--color-tertiary);
+  --tertiary-dark: var(--color-tertiary-dark);
+  --tertiary-main: var(--color-tertiary);
+  --tertiary-light: var(--color-tertiary-light);
+  --tertiary-background: color-mix(
+    in srgb,
+    var(--color-tertiary-light) 20%,
+    transparent
+  );
+  --tertiary-contrast: var(--color-tertiary-foreground);
 
-  /* Neutral scale (webapp's indigo-gray) */
+  /* Neutral (no theme token yet — raw values kept until migration) */
   --neutral: #b9c3cc;
   --neutral-dark: #484e55;
   --neutral-main: #b9c3cc;
@@ -82,108 +93,7 @@
   --neutral-background: #f7fafb;
   --neutral-contrast: #000000;
 
-  /* Gray scale */
-  --gray-100: #f8f8f8;
-  --gray-200: #e8e8e8;
-  --gray-300: #b2b2b2;
-  --gray-400: #999999;
-  --gray-500: #7f7f7f;
-  --gray-600: #666666;
-  --gray-700: #4d4d4d;
-  --gray-800: #333333;
-  --gray-900: #1a1a1a;
-
-  /* Indigo scale */
-  --indigo-50: #f7fafb;
-  --indigo-100: #eef3f6;
-  --indigo-200: #e0e6ec;
-  --indigo-300: #b9c3cc;
-  --indigo-400: #879099;
-  --indigo-500: #484e55;
-  --indigo-600: #343d49;
-  --indigo-700: #242d3d;
-  --indigo-800: #161f31;
-  --indigo-900: #0d1528;
-
-  /* Blue scale */
-  --blue-50: #e3f1ff;
-  --blue-100: #d1e7fe;
-  --blue-200: #a3cdfe;
-  --blue-300: #75affe;
-  --blue-400: #2563eb;
-  --blue-500: #1b6afc;
-  --blue-600: #1351d8;
-  --blue-700: #0d3cb5;
-  --blue-800: #082a92;
-  --blue-900: #051d78;
-
-  /* Green scale */
-  --green-50: #eeffe9;
-  --green-100: #dffad6;
-  --green-200: #b9f6b0;
-  --green-300: #86e382;
-  --green-400: #5ec963;
-  --green-500: #30a541;
-  --green-600: #187637;
-  --green-700: #0f5f31;
-  --green-800: #094f2d;
-  --green-900: #033a20;
-
-  /* Red/Error scale (aligned with Figma error tokens) */
-  --red-50: #ffe8e8;
-  --red-100: #fdcdcd;
-  --red-200: #ffaeae;
-  --red-300: #f56c6a;
-  --red-400: #ec4451;
-  --red-500: #e00c30;
-  --red-600: #b90a27;
-  --red-700: #93081f;
-  --red-800: #6c0617;
-  --red-900: #560311;
-  --red-950: #370009;
-
-  /* Yellow scale */
-  --yellow-50: #fffadf;
-  --yellow-100: #fff1c9;
-  --yellow-200: #ffedba;
-  --yellow-300: #ffe291;
-  --yellow-400: #ffe06c;
-  --yellow-500: #ffd759;
-  --yellow-600: #ffc523;
-  --yellow-700: #dba219;
-  --yellow-800: #b78211;
-  --yellow-900: #93640b;
-
-  /* Orange/Warning scale (aligned with Figma warning tokens) */
-  --orange-50: #fff5d5;
-  --orange-100: #ffeeb7;
-  --orange-200: #fde19a;
-  --orange-300: #ffcd66;
-  --orange-400: #ffb93f;
-  --orange-500: #ff9800;
-  --orange-600: #db7900;
-  --orange-700: #b75e00;
-  --orange-800: #934500;
-  --orange-900: #7a3400;
-  --orange-950: #471e00;
-
-  /* Purple scale */
-  --purple-50: #f8f3ff;
-  --purple-100: #e6d7ff;
-  --purple-200: #cbafff;
-  --purple-300: #ae86ff;
-  --purple-400: #9669ff;
-  --purple-500: #6e37ff;
-  --purple-600: #5428db;
-  --purple-700: #3d1bb7;
-  --purple-800: #2a1193;
-  --purple-900: #1c0a7a;
-
-  /* Misc */
-  --cream-500: #fcf8f3;
-  --cream: #fcf8f3;
-
-  /* Sidebar */
+  /* Sidebar aliases → component sidebar tokens */
   --sidebar-background: var(--component-sidebar-background);
   --sidebar-foreground: var(--component-sidebar-foreground);
   --sidebar-primary: var(--component-sidebar-primary);
@@ -193,12 +103,12 @@
   --sidebar-border: var(--component-sidebar-border);
   --sidebar-ring: var(--component-sidebar-ring);
 
-  /* Chart/Data visualization colors (from Figma) */
-  --chart-1: #5975a6;
-  --chart-2: #cda1ff;
-  --chart-3: #63d1a0;
-  --chart-4: #ffc523;
-  --chart-5: #ff9364;
+  /* Chart aliases → data tokens */
+  --chart-1: var(--data-chart-1);
+  --chart-2: var(--data-chart-2);
+  --chart-3: var(--data-chart-3);
+  --chart-4: var(--data-chart-4);
+  --chart-5: var(--data-chart-5);
 }
 
 /*
