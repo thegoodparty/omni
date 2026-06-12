@@ -213,7 +213,7 @@
   --base-background: var(--tw-neutral-950);
   --base-muted-foreground: var(--tw-neutral-400);
   --base-muted: var(--tw-neutral-800);
-  --base-inactive: var(--tw-neutral-600);
+  --base-inactive: var(--tw-neutral-700);
   --base-border: var(--tw-neutral-600);
   --base-accent: var(--tw-neutral-700);
   --base-accent-foreground: #ffffff;
@@ -232,13 +232,13 @@
    * Semantic: main = 300 | light = 800 | dark = 200
    * ==========================================================================
    */
-  --theme-primary: var(--tw-blue-300);
-  --theme-primary-light: var(--tw-blue-900);
-  --theme-primary-dark: var(--tw-blue-200);
+  --theme-primary: var(--goodparty-blue-300);
+  --theme-primary-light: var(--goodparty-blue-900);
+  --theme-primary-dark: var(--goodparty-blue-200);
   --theme-primary-foreground: var(--tw-neutral-950);
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--tw-blue-300) 50%,
+    var(--goodparty-blue-300) 50%,
     transparent
   );
   --theme-secondary: var(--goodparty-cream);
@@ -250,13 +250,13 @@
     var(--goodparty-cream) 50%,
     transparent
   );
-  --theme-tertiary: var(--tw-cyan-300);
-  --theme-tertiary-light: var(--tw-cyan-900);
-  --theme-tertiary-dark: var(--tw-cyan-200);
+  --theme-tertiary: var(--tw-slate-300);
+  --theme-tertiary-light: var(--tw-slate-900);
+  --theme-tertiary-dark: var(--tw-slate-200);
   --theme-tertiary-foreground: #0a0a0a;
   --theme-tertiary-focus: color-mix(
     in srgb,
-    var(--tw-cyan-300) 50%,
+    var(--tw-slate-300) 50%,
     transparent
   );
   --theme-destructive: var(--tw-red-300);
@@ -300,13 +300,16 @@
   --component-link: var(--tw-blue-300);
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
-  --component-input-border: var(--tw-neutral-600);
-  --component-input-base: var(--tw-neutral-950);
-  --component-input-active: var(--tw-blue-300);
-  --component-input-foreground: var(--tw-neutral-950);
-  --component-input-focus: color-mix(
+  --component-input-inactive: var(--tw-neutral-300);
+  --component-input-inactive-focus: color-mix(
     in srgb,
-    var(--tw-blue-300) 50%,
+    var(--tw-neutral-300) 50%,
+    transparent
+  );
+  --color-components-input-inactive: var(--tw-neutral-300);
+  --color-components-input-inactive-focus: color-mix(
+    in srgb,
+    var(--tw-neutral-300) 50%,
     transparent
   );
   --component-tooltip-base: var(--tw-neutral-100);

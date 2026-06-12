@@ -873,140 +873,6 @@
   --component-avatar-badge-border-width: 1px;
   --component-avatar-badge-size-width: 16px;
   --component-avatar-badge-size-height: 16px;
-  --component-button-primary-background-default: #2563eb;
-  --component-button-primary-background-hover: #0d3cb5;
-  --component-button-primary-background-disabled: #2563eb;
-  --component-button-primary-text-default: #ffffff;
-  --component-button-primary-text-hover: #ffffff;
-  --component-button-primary-text-disabled: #ffffff;
-  --component-button-primary-text-loading: #ffffff;
-  --component-button-primary-border-default: #2563eb;
-  --component-button-primary-border-hover: #0d3cb5;
-  --component-button-primary-border-focus: #1351d8;
-  --component-button-primary-border-disabled: #2563eb;
-  --component-button-primary-box-shadow-default: none;
-  --component-button-primary-box-shadow-hover: none;
-  --component-button-primary-box-shadow-focus: 0 0 0 2px #1351d8;
-  --component-button-primary-opacity-default: 1;
-  --component-button-primary-opacity-disabled: 0.5;
-  --component-button-primary-border-radius: 9999px;
-  --component-button-primary-border-width: 1px;
-  --component-button-primary-padding-x: 20px;
-  --component-button-primary-padding-y: 10px;
-  --component-button-primary-gap: 8px;
-  --component-button-primary-font-size: 14px;
-  --component-button-primary-font-weight: 500;
-  --component-button-primary-line-height: 1;
-  --component-button-secondary-background-default: #0b1529;
-  --component-button-secondary-background-hover: #14234d;
-  --component-button-secondary-background-disabled: #0b1529;
-  --component-button-secondary-text-default: #ffffff;
-  --component-button-secondary-text-hover: #ffffff;
-  --component-button-secondary-text-disabled: #ffffff;
-  --component-button-secondary-text-loading: #ffffff;
-  --component-button-secondary-border-default: #0b1529;
-  --component-button-secondary-border-hover: #14234d;
-  --component-button-secondary-border-focus: #1d305c;
-  --component-button-secondary-border-disabled: #0b1529;
-  --component-button-secondary-box-shadow-default: none;
-  --component-button-secondary-opacity-default: 1;
-  --component-button-secondary-opacity-disabled: 0.5;
-  --component-button-secondary-border-radius: 9999px;
-  --component-button-secondary-border-width: 1px;
-  --component-button-secondary-padding-x: 20px;
-  --component-button-secondary-padding-y: 10px;
-  --component-button-secondary-gap: 8px;
-  --component-button-secondary-font-size: 14px;
-  --component-button-secondary-font-weight: 500;
-  --component-button-secondary-line-height: 1;
-  --component-button-destructive-background-default: #dc2626;
-  --component-button-destructive-background-hover: #93081f;
-  --component-button-destructive-background-disabled: #dc2626;
-  --component-button-destructive-text-default: #ffffff;
-  --component-button-destructive-text-hover: #ffffff;
-  --component-button-destructive-text-disabled: #ffffff;
-  --component-button-destructive-text-loading: #ffffff;
-  --component-button-destructive-border-default: #dc2626;
-  --component-button-destructive-border-hover: #93081f;
-  --component-button-destructive-border-focus: #f87171;
-  --component-button-destructive-border-disabled: #dc2626;
-  --component-button-destructive-box-shadow-default: none;
-  --component-button-destructive-opacity-default: 1;
-  --component-button-destructive-opacity-disabled: 0.5;
-  --component-button-destructive-border-radius: 9999px;
-  --component-button-destructive-border-width: 1px;
-  --component-button-destructive-padding-x: 20px;
-  --component-button-destructive-padding-y: 10px;
-  --component-button-destructive-gap: 8px;
-  --component-button-destructive-font-size: 14px;
-  --component-button-destructive-font-weight: 500;
-  --component-button-destructive-line-height: 1;
-  --component-button-outline-background-default: transparent;
-  --component-button-outline-background-hover: #f7fafb;
-  --component-button-outline-background-disabled: transparent;
-  --component-button-outline-text-default: #1e1f20;
-  --component-button-outline-text-hover: #1e1f20;
-  --component-button-outline-text-disabled: #1e1f20;
-  --component-button-outline-text-loading: #1e1f20;
-  --component-button-outline-border-default: #d1d8df;
-  --component-button-outline-border-hover: #d1d8df;
-  --component-button-outline-border-focus: #1b6afc;
-  --component-button-outline-border-disabled: #d1d8df;
-  --component-button-outline-box-shadow-default: none;
-  --component-button-outline-opacity-default: 1;
-  --component-button-outline-opacity-disabled: 0.5;
-  --component-button-outline-border-radius: 9999px;
-  --component-button-outline-border-width: 1px;
-  --component-button-outline-padding-x: 20px;
-  --component-button-outline-padding-y: 10px;
-  --component-button-outline-gap: 8px;
-  --component-button-outline-font-size: 14px;
-  --component-button-outline-font-weight: 500;
-  --component-button-outline-line-height: 1;
-  --component-button-ghost-background-default: transparent;
-  --component-button-ghost-background-hover: #eef3f6;
-  --component-button-ghost-background-disabled: transparent;
-  --component-button-ghost-text-default: #1e1f20;
-  --component-button-ghost-text-hover: #1e1f20;
-  --component-button-ghost-text-disabled: #1e1f20;
-  --component-button-ghost-text-loading: #1e1f20;
-  --component-button-ghost-border-default: transparent;
-  --component-button-ghost-border-hover: transparent;
-  --component-button-ghost-border-focus: #1b6afc;
-  --component-button-ghost-border-disabled: transparent;
-  --component-button-ghost-box-shadow-default: none;
-  --component-button-ghost-opacity-default: 1;
-  --component-button-ghost-opacity-disabled: 0.5;
-  --component-button-ghost-border-radius: 9999px;
-  --component-button-ghost-border-width: 1px;
-  --component-button-ghost-padding-x: 20px;
-  --component-button-ghost-padding-y: 10px;
-  --component-button-ghost-gap: 8px;
-  --component-button-ghost-font-size: 14px;
-  --component-button-ghost-font-weight: 500;
-  --component-button-ghost-line-height: 1;
-  --component-button-link-background-default: transparent;
-  --component-button-link-background-hover: transparent;
-  --component-button-link-background-disabled: transparent;
-  --component-button-link-text-default: #2563eb;
-  --component-button-link-text-hover: #1d4ed8;
-  --component-button-link-text-disabled: #2563eb;
-  --component-button-link-text-loading: #2563eb;
-  --component-button-link-border-default: transparent;
-  --component-button-link-border-hover: transparent;
-  --component-button-link-border-focus: transparent;
-  --component-button-link-border-disabled: transparent;
-  --component-button-link-box-shadow-default: none;
-  --component-button-link-opacity-default: 1;
-  --component-button-link-opacity-disabled: 0.5;
-  --component-button-link-border-radius: 9999px;
-  --component-button-link-border-width: 1px;
-  --component-button-link-padding-x: 20px;
-  --component-button-link-padding-y: 10px;
-  --component-button-link-gap: 8px;
-  --component-button-link-font-size: 14px;
-  --component-button-link-font-weight: 500;
-  --component-button-link-line-height: 1;
   --component-card-default-background: #ffffff;
   --component-card-default-border: #d1d8df;
   --component-card-default-border-radius: 16px;
@@ -1095,13 +961,13 @@
    * THEME COLORS (from Figma theme tokens)
    * Semantic: main = 600 | light = 200 | dark = 900 (light mode)
    * ========================================================================== */
-  --theme-primary: var(--tw-blue-600);
-  --theme-primary-light: var(--tw-blue-200);
-  --theme-primary-dark: var(--tw-blue-900);
+  --theme-primary: var(--goodparty-blue-600);
+  --theme-primary-light: var(--goodparty-blue-200);
+  --theme-primary-dark: var(--goodparty-blue-900);
   --theme-primary-foreground: #ffffff;
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--tw-blue-600) 30%,
+    var(--goodparty-blue-600) 30%,
     transparent
   );
   --theme-secondary: var(--color-midnight-900);
@@ -1113,13 +979,13 @@
     var(--color-midnight-900) 30%,
     transparent
   );
-  --theme-tertiary: var(--tw-cyan-500);
-  --theme-tertiary-light: var(--tw-cyan-200);
-  --theme-tertiary-dark: var(--tw-cyan-900);
+  --theme-tertiary: var(--tw-slate-500);
+  --theme-tertiary-light: var(--tw-slate-200);
+  --theme-tertiary-dark: var(--tw-slate-900);
   --theme-tertiary-foreground: #ffffff;
   --theme-tertiary-focus: color-mix(
     in srgb,
-    var(--tw-cyan-500) 30%,
+    var(--tw-slate-500) 30%,
     transparent
   );
   --theme-destructive: var(--tw-red-600);
@@ -1183,12 +1049,18 @@
    * COMPONENT INPUT TOKENS (from Figma)
    * ========================================================================== */
   --component-input-active: #2563eb;
+  --component-input-inactive: var(--tw-neutral-500);
   --component-input-foreground: #ffffff;
   --component-input-base: #ffffff;
   --component-input-border: #d4d4d4;
   --component-input-focus: color-mix(
     in srgb,
     var(--tw-blue-600) 30%,
+    transparent
+  );
+  --component-input-inactive-focus: color-mix(
+    in srgb,
+    var(--tw-neutral-500) 30%,
     transparent
   );
 

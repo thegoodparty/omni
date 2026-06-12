@@ -393,7 +393,9 @@ const COMPONENT_TOKEN_NAMES = [
   'input-foreground',
   'input-border',
   'input-active',
+  'input-inactive',
   'input-focus',
+  'input-inactive-focus',
 ]
 
 const DATA_TOKEN_NAMES = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5']
@@ -488,6 +490,7 @@ const COMPONENT_GROUPS = [
     'input-active',
     'input-focus',
   ],
+  ['input-inactive', 'input-inactive-focus'],
 ]
 
 const TOKEN_GROUP_META = {
