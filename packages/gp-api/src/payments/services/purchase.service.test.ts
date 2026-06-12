@@ -426,6 +426,38 @@ describe('PurchaseService', () => {
       )
     })
 
+    it('uses the prefetched session and skips the Stripe re-fetch', async () => {
+      const sessionId = 'cs_prefetched'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      const prefetched = mockCheckoutSession({
+        id: sessionId,
+        status: 'complete',
+        payment_status: 'paid',
+        payment_intent: 'pi_prefetched',
+        metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
+      })
+
+      mockStripeService.retrievePaymentIntent.mockResolvedValue(
+        mockPaymentIntent({ id: 'pi_prefetched', metadata: {} }),
+      )
+      mockStripeService.updatePaymentIntentMetadata.mockResolvedValue(
+        mockPaymentIntent({}),
+      )
+
+      const result = await service.completeCheckoutSession(
+        { checkoutSessionId: sessionId },
+        prefetched,
+      )
+
+      expect(result.alreadyProcessed).toBe(false)
+      expect(mockStripeService.retrieveCheckoutSession).not.toHaveBeenCalled()
+      expect(mockCheckoutSessionPostPurchaseHandler).toHaveBeenCalled()
+    })
+
     it('defers fulfillment when payment is not yet confirmed', async () => {
       const sessionId = 'cs_test_unpaid'
       service.registerCheckoutSessionPostPurchaseHandler(

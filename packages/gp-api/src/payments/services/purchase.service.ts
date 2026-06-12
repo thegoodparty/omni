@@ -16,6 +16,7 @@ import {
 import { CustomCheckoutSessionPayload, PaymentType } from '../payments.types'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PinoLogger } from 'nestjs-pino'
+import Stripe from 'stripe'
 
 const { WEBAPP_ROOT_URL } = process.env
 
@@ -195,14 +196,21 @@ export class PurchaseService {
    * (e.g., checking for existing records before creating). A database-based
    * lock using a unique purchase record would eliminate this window entirely.
    */
-  async completeCheckoutSession(dto: CompleteCheckoutSessionDto): Promise<{
+  async completeCheckoutSession(
+    dto: CompleteCheckoutSessionDto,
+    // Callers with an already-confirmed session (the async_payment_succeeded
+    // webhook payload) pass it here so we don't re-fetch. The Stripe API object
+    // is only eventually consistent with the webhook, so a re-fetch could still
+    // read payment_status 'unpaid' and silently defer — dropping fulfillment.
+    prefetchedSession?: Stripe.Checkout.Session,
+  ): Promise<{
     alreadyProcessed: boolean
     deferred?: boolean
     result?: unknown
   }> {
-    const session = await this.stripeService.retrieveCheckoutSession(
-      dto.checkoutSessionId,
-    )
+    const session =
+      prefetchedSession ??
+      (await this.stripeService.retrieveCheckoutSession(dto.checkoutSessionId))
 
     if (session.status !== 'complete') {
       throw new Error(`Checkout session not completed: ${session.status}`)

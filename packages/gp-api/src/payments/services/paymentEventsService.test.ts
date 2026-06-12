@@ -174,12 +174,24 @@ describe('PaymentEventsService', () => {
   })
 
   describe('handleEvent — checkout.session.async_payment_succeeded', () => {
-    it('completes the deferred one-time purchase once the payment settles', async () => {
+    it('completes the deferred one-time purchase using the confirmed event session', async () => {
       await service.handleEvent(asyncPaymentEvent)
 
-      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith({
-        checkoutSessionId: 'cs_async_test',
-      })
+      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith(
+        { checkoutSessionId: 'cs_async_test' },
+        asyncPaymentEvent.data.object,
+      )
+    })
+
+    it('propagates errors from completeCheckoutSession so Stripe retries', async () => {
+      const fulfillmentError = new Error('DB unavailable')
+      purchaseService.completeCheckoutSession.mockRejectedValueOnce(
+        fulfillmentError,
+      )
+
+      await expect(service.handleEvent(asyncPaymentEvent)).rejects.toThrow(
+        fulfillmentError,
+      )
     })
   })
 })

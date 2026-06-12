@@ -223,7 +223,14 @@ export class PaymentEventsService {
   private async checkoutSessionAsyncPaymentSucceededHandler(
     event: Stripe.CheckoutSessionAsyncPaymentSucceededEvent,
   ) {
-    return this.handleOneTimePaymentCheckoutCompleted(event.data.object)
+    // Pass the event's session as the prefetched session: it already carries the
+    // confirmed payment_status 'paid'. Re-fetching from Stripe here could read a
+    // stale 'unpaid' (eventual consistency) and silently defer, dropping the
+    // fulfillment with no retry.
+    return this.handleOneTimePaymentCheckoutCompleted(
+      event.data.object,
+      event.data.object,
+    )
   }
 
   /**
@@ -356,6 +363,7 @@ export class PaymentEventsService {
    */
   private async handleOneTimePaymentCheckoutCompleted(
     session: Stripe.Checkout.Session,
+    prefetchedSession?: Stripe.Checkout.Session,
   ) {
     const { id: sessionId, metadata } = session
 
@@ -380,9 +388,10 @@ export class PaymentEventsService {
 
     // Delegate to purchase service for post-purchase processing
     try {
-      await this.purchaseService.completeCheckoutSession({
-        checkoutSessionId: sessionId,
-      })
+      await this.purchaseService.completeCheckoutSession(
+        { checkoutSessionId: sessionId },
+        prefetchedSession,
+      )
     } catch (error) {
       this.logger.error(
         { error },
