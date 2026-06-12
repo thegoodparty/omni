@@ -121,13 +121,20 @@ const SharePlanModal = ({
   const [state, setState] = useState<ShareState>({ status: 'loading' })
   const [copied, setCopied] = useState(false)
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Overlapping resolutions race when the plan changes mid-flight; only the
+  // newest attempt may write state, or a slow stale settle would clobber a
+  // fresher url (or a fresher error) last-write-wins.
+  const resolveAttemptRef = useRef(0)
 
   const resolveShareUrl = async () => {
+    const attempt = ++resolveAttemptRef.current
     setState({ status: 'loading' })
     try {
       const url = await getShareUrl()
+      if (attempt !== resolveAttemptRef.current) return
       setState({ status: 'ready', url })
     } catch (e) {
+      if (attempt !== resolveAttemptRef.current) return
       setState({ status: 'error', message: toShareErrorMessage(e) })
     }
   }
@@ -135,14 +142,18 @@ const SharePlanModal = ({
   useEffect(() => {
     if (!open) {
       setCopied(false)
+      // Drop any retained result so a reopen can't flash (or serve) a url
+      // from a plan snapshot the parent has since invalidated.
+      setState({ status: 'loading' })
       return
     }
-    // Re-resolve on every open: the parent invalidates its cache when the
-    // plan changes, and a retained 'ready' url here would keep serving the
-    // stale PDF. While the parent cache is warm this resolves from the same
-    // promise, so reopening stays effectively instant.
+    // Resolve on open AND whenever the parent hands us a new getShareUrl
+    // (its identity changes with the plan): a plan update while the modal
+    // is open must refresh the link, not wait for a reopen. While the
+    // parent cache is warm this resolves from the same promise, so
+    // reopening stays effectively instant.
     void resolveShareUrl()
-  }, [open])
+  }, [open, getShareUrl])
 
   const subject = candidateName
     ? `${candidateName}'s campaign plan`
@@ -170,7 +181,10 @@ const SharePlanModal = ({
     )}&body=${encodeURIComponent(message)}%0D%0A%0D%0A${encodeURIComponent(
       state.url,
     )}`
-    window.open(emailHref, '_blank', 'noopener,noreferrer')
+    // Plain navigation, matching the app's other share surfaces: mailto
+    // hands off to the mail client without navigating away, and window.open
+    // would leave a blank popup (or be silently popup-blocked).
+    window.location.href = emailHref
   }
 
   const body = (

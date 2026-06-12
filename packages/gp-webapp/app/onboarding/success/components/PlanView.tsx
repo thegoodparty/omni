@@ -78,29 +78,37 @@ const PlanView = ({
 
   const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
 
-  // Cache the in-flight promise so re-opening the modal while an upload is
-  // still in progress reuses the same request instead of firing a second one.
-  // A rejection clears the ref so the next open retries from scratch.
-  const sharePdfUrlRef = useRef<Promise<string> | null>(null)
-  // `plan` is rebuilt as async sources (strategy/events/press) settle — a
-  // cached upload from an earlier snapshot must not outlive its inputs.
-  useEffect(() => {
-    sharePdfUrlRef.current = null
-  }, [plan, liveUrl])
+  // Cache the generate+upload promise keyed by its inputs, compared inside
+  // the call (not via an invalidation effect — child effects run before
+  // parent effects, so the modal would re-resolve against a stale cache).
+  // Same inputs → same promise: reopening reuses the in-flight or finished
+  // upload. `plan` is rebuilt as async sources settle, so a cached upload
+  // from an earlier snapshot never outlives its inputs.
+  const shareCacheRef = useRef<{
+    plan: PlanData
+    liveUrl: string
+    promise: Promise<string>
+  } | null>(null)
   const getShareUrl = useCallback(() => {
-    if (!sharePdfUrlRef.current) {
-      sharePdfUrlRef.current = (async () => {
-        const blob = await generateCampaignPlanPdfBlob(plan, {
-          liveUrl: liveUrl || undefined,
-        })
-        return uploadCampaignPlanPdf(blob)
-      })().catch((e) => {
-        // a failed attempt must not poison the session cache
-        sharePdfUrlRef.current = null
-        throw e
-      })
+    const cached = shareCacheRef.current
+    if (cached && cached.plan === plan && cached.liveUrl === liveUrl) {
+      return cached.promise
     }
-    return sharePdfUrlRef.current
+    const promise: Promise<string> = (async () => {
+      const blob = await generateCampaignPlanPdfBlob(plan, {
+        liveUrl: liveUrl || undefined,
+      })
+      return uploadCampaignPlanPdf(blob)
+    })().catch((e) => {
+      // A failed attempt must not poison the session cache — but only
+      // clear it if a newer attempt hasn't already replaced it.
+      if (shareCacheRef.current?.promise === promise) {
+        shareCacheRef.current = null
+      }
+      throw e
+    })
+    shareCacheRef.current = { plan, liveUrl, promise }
+    return promise
   }, [plan, liveUrl])
 
   const handleDownload = async (source: PlanDownloadSource) => {

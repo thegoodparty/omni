@@ -164,6 +164,28 @@ describe('PlanView share button', () => {
     )
   })
 
+  it('refreshes the link when the plan changes while the modal is open', async () => {
+    const { rerender } = renderPlanView()
+    await userEvent.click(
+      screen.getByRole('button', { name: /share campaign plan/i }),
+    )
+    await screen.findByRole('button', { name: /copy link/i })
+    expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(1)
+
+    // Plan updates (e.g. background refetch) with the modal still open —
+    // the displayed link must refresh without a close/reopen.
+    const updatedPlan = buildPlanData({
+      ...makeInput(),
+      candidateName: 'Updated Candidate',
+    })
+    rerender(<PlanView {...planViewProps(updatedPlan)} />)
+
+    await waitFor(() => expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(generateCampaignPlanPdfBlob).mock.calls[1]?.[0]).toBe(
+      updatedPlan,
+    )
+  })
+
   it('does not fire a second generate when closed and reopened while upload is in-flight', async () => {
     // Use a deferred promise so we can control exactly when the blob resolves.
     let resolveBlob!: (b: Blob) => void
