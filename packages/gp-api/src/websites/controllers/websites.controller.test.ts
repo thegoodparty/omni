@@ -641,8 +641,7 @@ describe('WebsitesController', () => {
 
       await controller.viewWebsite(vanityPath)
 
-      const { include } =
-        mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
+      const { include } = mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
       expect(include.campaign.select.details).toBeUndefined()
       expect(include.campaign.select.user).toBeDefined()
     })
