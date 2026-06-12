@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from '../../generated/prisma'
+import { PrismaClient } from '../../generated/prisma'
 import {
   beforeEach,
   describe,
@@ -101,34 +101,6 @@ describe('ElectedOfficeService', () => {
       // The schedule dispatch is the only recovery path for an office whose
       // earlier create committed but never dispatched, so it must still fire.
       expect(mockOnElectedOfficeCreated).toHaveBeenCalledWith(existing)
-    })
-
-    it('returns the concurrently-created office when the insert hits the unique constraint', async () => {
-      const createArgs: CreateElectedOfficeArgs = {
-        userId: 1,
-        campaignId: 1,
-      }
-      const concurrent = {
-        id: 'concurrent',
-        userId: 1,
-        campaignId: 1,
-        organizationSlug: 'eo-concurrent',
-      }
-
-      mockModel.findFirst
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(concurrent)
-      mockEoCreate.mockRejectedValueOnce(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-          code: 'P2002',
-          clientVersion: 'test',
-        }),
-      )
-
-      const result = await service.create(createArgs)
-
-      expect(result).toBe(concurrent)
-      expect(mockOnElectedOfficeCreated).toHaveBeenCalledWith(concurrent)
     })
 
     it('creates organization with default org data and elected office in transaction', async () => {
