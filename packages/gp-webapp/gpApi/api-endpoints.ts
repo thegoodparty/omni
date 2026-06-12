@@ -195,6 +195,14 @@ export type APIEndpoints = {
     }
   }
 
+  // Accepts a multipart PDF upload and stores it as a public share link.
+  // The file part is sent as FormData — pass `{}` as the typed payload and
+  // supply `{ body: formData }` via the overrides argument of clientRequest.
+  'POST /v1/campaigns/mine/plan-pdf-share': {
+    Request: {}
+    Response: { url: string }
+  }
+
   'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin': {
     Request: {
       pin: string
