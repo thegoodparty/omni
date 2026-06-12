@@ -261,7 +261,7 @@ const PlanView = ({
             size="large"
             onClick={handleContinue}
           >
-            Campaign manager
+            Campaign Manager
           </Button>
         </div>
       </div>
