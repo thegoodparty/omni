@@ -158,7 +158,9 @@ describe('PollResponsesDownloadService', () => {
       copyStream.end()
 
       const sql = vi.mocked(copyTo).mock.calls[0][0] as string
-      expect(sql).toContain("left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])")
+      expect(sql).toContain(
+        "left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])",
+      )
       expect(sql).toContain("'''' || pim.content")
     })
 
