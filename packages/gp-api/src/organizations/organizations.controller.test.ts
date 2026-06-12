@@ -639,44 +639,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     expect(result.status).toBe(400)
   })
 
-  it('sets overrideDistrictId when it differs from position district', async () => {
-    const electionsService = service.app.get(ElectionsService)
-    vi.spyOn(electionsService, 'getPositionByBallotReadyId').mockResolvedValue({
-      id: 'pos-dist2',
-      brPositionId: 'br-pos-dist2',
-      brDatabaseId: 'br-db-dist2',
-      state: 'CA',
-      name: 'Mayor',
-      district: {
-        id: 'district-xyz',
-        state: 'CA',
-        L2DistrictType: 'City',
-        L2DistrictName: 'San Francisco',
-        projectedTurnout: null,
-      },
-    })
-    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
-      id: 'pos-dist2',
-      brPositionId: 'br-pos-dist2',
-      brDatabaseId: 'br-db-dist2',
-      state: 'CA',
-      name: 'Mayor',
-      district: {
-        id: 'district-xyz',
-        state: 'CA',
-        L2DistrictType: 'City',
-        L2DistrictName: 'San Francisco',
-        projectedTurnout: null,
-      },
-    })
-    vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
-      id: 'different-district',
-      state: 'CA',
-      L2DistrictType: 'City',
-      L2DistrictName: 'Los Angeles',
-      projectedTurnout: null,
-    })
-
+  it('ignores overrideDistrictId from a self-service caller (IDOR guard)', async () => {
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-204',
@@ -696,8 +659,8 @@ describe('PATCH /v1/organizations/:slug', () => {
     const result = await service.client.patch(
       '/v1/organizations/campaign-204',
       {
-        ballotReadyPositionId: 'br-pos-dist2',
-        overrideDistrictId: 'different-district',
+        overrideDistrictId: 'attacker-chosen-district',
+        customPositionName: 'Legit Name',
       },
     )
 
@@ -706,7 +669,8 @@ describe('PATCH /v1/organizations/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-204' },
     })
-    expect(updated?.overrideDistrictId).toBe('different-district')
+    expect(updated?.overrideDistrictId).toBeNull()
+    expect(updated?.customPositionName).toBe('Legit Name')
   })
 
   it('returns 404 for a non-existent slug', async () => {
@@ -738,7 +702,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     expect(result.status).toBe(404)
   })
 
-  it('clears overrideDistrictId when set to null', async () => {
+  it('ignores a null overrideDistrictId from a self-service caller', async () => {
     const electionsService = service.app.get(ElectionsService)
     vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
       id: 'existing-district',
@@ -777,7 +741,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-206' },
     })
-    expect(updated?.overrideDistrictId).toBeNull()
+    expect(updated?.overrideDistrictId).toBe('existing-district')
   })
 
   it('preserves overrideDistrictId when not included in update', async () => {
@@ -1137,6 +1101,94 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       where: { slug: 'campaign-503' },
     })
     expect(updated?.positionId).toBe('pos-admin-patch')
+  })
+
+  it('sets overrideDistrictId when caller is admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
+      id: 'admin-set-district',
+      state: 'CA',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Oakland',
+      projectedTurnout: null,
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-override-target@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-504',
+        ownerId: otherUser.id,
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: otherUser.id,
+        slug: 'admin-override-campaign',
+        details: {},
+        organizationSlug: 'campaign-504',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-504',
+      { overrideDistrictId: 'admin-set-district' },
+    )
+
+    expect(result.status).toBe(200)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-504' },
+    })
+    expect(updated?.overrideDistrictId).toBe('admin-set-district')
+  })
+
+  it('clears overrideDistrictId via null when caller is admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-clear-target@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-505',
+        ownerId: otherUser.id,
+        overrideDistrictId: 'to-be-cleared',
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: otherUser.id,
+        slug: 'admin-clear-campaign',
+        details: {},
+        organizationSlug: 'campaign-505',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-505',
+      { overrideDistrictId: null },
+    )
+
+    expect(result.status).toBe(200)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-505' },
+    })
+    expect(updated?.overrideDistrictId).toBeNull()
   })
 
   it('returns 404 for a non-existent slug when caller is admin', async () => {

@@ -93,7 +93,7 @@ const RightSideMobile = (): React.JSX.Element => {
             {user && isDashboardPath ? (
               <DashboardMobile user={user as User} pathname={pathname || ''} />
             ) : (
-              <div className="flex flex-col w-[270px] bg-primary-dark text-white h-screen relative">
+              <div className="flex flex-col w-[270px] bg-secondary text-white h-screen relative">
                 <div
                   className={`grow overflow-auto px-4 pt-24 ${
                     user ? 'pb-36' : 'pb-60'
@@ -115,7 +115,7 @@ const RightSideMobile = (): React.JSX.Element => {
                           href={link.href}
                           id={`mobile-nav-${link.id}`}
                           key={link.id}
-                          className="block no-underline font-medium py-3 whitespace-nowrap text-base px-2 hover:bg-primary-dark-dark rounded flex items-center justify-between"
+                          className="block no-underline font-medium py-3 whitespace-nowrap text-base px-2 rounded flex items-center justify-between"
                           target={link.external ? '_blank' : undefined}
                           rel={
                             link.external ? 'noopener noreferrer nofollow' : ''
@@ -133,7 +133,7 @@ const RightSideMobile = (): React.JSX.Element => {
                   ))}
                 </div>
                 <div className="w-full h-auto sticky bottom-0">
-                  <div className="p-6 bg-primary-dark h-auto">
+                  <div className="p-6 bg-secondary h-auto">
                     {user ? (
                       <>
                         {status === 'candidate' && !isDashboardPath && (

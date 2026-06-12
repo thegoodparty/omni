@@ -94,6 +94,19 @@ describe('PollResponsesDownloadService', () => {
       expect(output.startsWith('\uFEFFPoll With Newlines\n')).toBe(true)
     })
 
+    it('neutralizes a formula-injection poll name in the header line', async () => {
+      const result = await service.streamPollResponses(
+        VALID_UUID,
+        '=HYPERLINK("http://evil","x")',
+        FILE_NAME,
+      )
+      copyStream.end()
+
+      const output = await drainStream(result.getStream())
+      const headerLine = output.split('\n')[0]
+      expect(headerLine.endsWith('\'=HYPERLINK("http://evil","x")')).toBe(true)
+    })
+
     it('uses fallback when poll name is empty or whitespace', async () => {
       const result = await service.streamPollResponses(
         VALID_UUID,
@@ -136,6 +149,19 @@ describe('PollResponsesDownloadService', () => {
       expect(vi.mocked(copyTo)).toHaveBeenCalledWith(
         expect.stringContaining('TO STDOUT WITH (FORMAT CSV, HEADER TRUE)'),
       )
+    })
+
+    it('neutralizes leading CSV formula characters in message_content', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
+      copyStream.end()
+
+      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      expect(sql).toContain(
+        "left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])",
+      )
+      expect(sql).toContain("'''' || pim.content")
     })
 
     it('SQL includes string_agg with DISTINCT and alphabetical ordering', async () => {

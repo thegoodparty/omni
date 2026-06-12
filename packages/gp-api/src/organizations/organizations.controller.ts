@@ -17,6 +17,7 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { User } from '../generated/prisma'
 import {
   AdminListOrganizationsDto,
+  AdminPatchOrganizationDto,
   PatchOrganizationDto,
 } from './schemas/organization.schema'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
@@ -161,7 +162,7 @@ export class OrganizationsController {
   @UseGuards(AdminOrM2MGuard)
   async adminPatchOrganization(
     @Param('slug') slug: string,
-    @Body() updates: PatchOrganizationDto,
+    @Body() updates: AdminPatchOrganizationDto,
   ): Promise<APIOrganization> {
     const org = await this.organizationsService.adminPatchOrganization(
       slug,

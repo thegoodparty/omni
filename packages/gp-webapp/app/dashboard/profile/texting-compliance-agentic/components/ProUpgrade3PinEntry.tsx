@@ -78,7 +78,7 @@ export default function ProUpgrade3PinEntry({
             or address.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-2">
           <InputOTP
             maxLength={PIN_LENGTH}
             value={pin}

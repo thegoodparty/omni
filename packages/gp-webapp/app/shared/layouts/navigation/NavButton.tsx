@@ -24,7 +24,7 @@ const NavButton = ({
     ...(dataTestId ? { 'data-testid': dataTestId } : {}),
     ...(onClick ? { onClick } : {}),
     className:
-      '!py-2 !leading-6 hover:!bg-primary-dark focus-visible:hover:!bg-primary-dark hover:!text-white focus-visible:!bg-white focus-visible:!outline-primary-dark/30 ' +
+      '!py-2 !leading-6 hover:!bg-secondary focus-visible:hover:!bg-secondary hover:!text-white focus-visible:!bg-white focus-visible:!outline-secondary/30 ' +
       className,
   }
 

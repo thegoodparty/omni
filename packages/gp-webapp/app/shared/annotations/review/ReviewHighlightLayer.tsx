@@ -27,11 +27,11 @@ const STYLE_TAG_ID = 'briefing-review-highlight-style'
 // red bug highlights from the candidate-facing annotation layer.
 const STYLE_RULES = `
 ::highlight(${HIGHLIGHT_NAME}) {
-  background-color: color-mix(in srgb, var(--success, #0f9d8a) 24%, transparent);
+  background-color: color-mix(in srgb, var(--theme-success) 24%, transparent);
   color: inherit;
 }
 ::highlight(${HOVER_NAME}) {
-  background-color: color-mix(in srgb, var(--success, #0f9d8a) 38%, transparent);
+  background-color: color-mix(in srgb, var(--theme-success) 38%, transparent);
 }
 .${REVIEW_MARKER_CLASS} {
   display: inline-flex;
@@ -47,8 +47,8 @@ const STYLE_RULES = `
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
-  background-color: color-mix(in srgb, var(--success, #0f9d8a) 24%, transparent);
-  color: var(--success, #0f9d8a);
+  background-color: color-mix(in srgb, var(--theme-success) 24%, transparent);
+  color: var(--theme-success);
 }
 .${REVIEW_MARKER_CLASS} svg {
   display: block;
@@ -57,8 +57,8 @@ const STYLE_RULES = `
   pointer-events: none;
 }
 .${REVIEW_MARKER_CLASS}[data-hover='true'] {
-  background-color: color-mix(in srgb, var(--success, #0f9d8a) 34%, transparent);
-  color: color-mix(in srgb, var(--success, #0f9d8a) 80%, black);
+  background-color: color-mix(in srgb, var(--theme-success) 34%, transparent);
+  color: color-mix(in srgb, var(--theme-success) 80%, black);
 }
 `
 

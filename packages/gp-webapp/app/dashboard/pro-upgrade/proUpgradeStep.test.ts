@@ -97,12 +97,32 @@ describe('deriveProUpgradeStep', () => {
       ).toBe(PRO_UPGRADE_STEP.STATUS)
     })
 
-    it('routes "not filed" to the filing-instructions dead-end', () => {
-      // The dead-end is sticky: even with later prerequisites somehow present,
-      // an un-filed candidate must file before the flow advances.
+    it('restarts a "not filed" candidate with no other progress at the value-prop intro (ENG-10372)', () => {
+      // A "not filed" answer is a branch point, not progress. On its own it must
+      // not strand the returning candidate on the filing-instructions dead-end;
+      // they restart at the value prop and re-answer in the linear flow.
       expect(
-        deriveProUpgradeStep({ ...allComplete, filingStatus: 'not-filed' }),
-      ).toBe(PRO_UPGRADE_STEP.FILING_INSTRUCTIONS)
+        deriveProUpgradeStep({
+          isPro: false,
+          filingStatus: 'not-filed',
+          hasEin: false,
+          filingComplete: false,
+          profileComplete: false,
+          pinComplete: false,
+        }),
+      ).toBe(PRO_UPGRADE_STEP.VALUE_PROP)
+    })
+
+    it('never derives the filing-instructions dead-end, even for a "not filed" candidate with downstream progress', () => {
+      // filing-instructions is reached only by explicit navigation from the
+      // status step (like guidance); the router resumes real progress instead.
+      const step = deriveProUpgradeStep({
+        ...allComplete,
+        filingStatus: 'not-filed',
+        hasEin: false,
+      })
+      expect(step).toBe(PRO_UPGRADE_STEP.EIN)
+      expect(step).not.toBe(PRO_UPGRADE_STEP.FILING_INSTRUCTIONS)
     })
 
     // With the filing question answered "has-filed", each remaining

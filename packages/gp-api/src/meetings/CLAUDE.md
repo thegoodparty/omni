@@ -201,6 +201,7 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
 | Area                                          | Path                                                                                            |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Briefing dispatch + lifecycle                 | `src/meetings/services/meetingBriefings.service.ts`                                             |
+| Adding / changing analytics events            | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root)                                |
 | Briefing list + read endpoint                 | `src/meetings/controllers/meetingsBriefings.controller.ts`                                      |
 | Annotations service                           | `src/annotations/services/annotations.service.ts`                                               |
 | Attachment / presign / OCR trigger            | `src/annotations/services/annotationAttachment.service.ts`                                      |
