@@ -67,6 +67,17 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionAsyncPaymentSucceededEvent
 
+  const oneTimePaymentEvent = {
+    type: WebhookEventType.CheckoutSessionCompleted,
+    data: {
+      object: {
+        id: 'cs_paid_test',
+        mode: CheckoutSessionMode.PAYMENT,
+        metadata: { userId: '1', purchaseType: 'poll' },
+      },
+    },
+  } as unknown as Stripe.CheckoutSessionCompletedEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
     purchaseService.completeCheckoutSession.mockResolvedValue({
@@ -190,6 +201,39 @@ describe('PaymentEventsService', () => {
       )
 
       await expect(service.handleEvent(asyncPaymentEvent)).rejects.toThrow(
+        fulfillmentError,
+      )
+    })
+  })
+
+  describe('handleEvent — checkout.session.completed (one-time payment)', () => {
+    it('delegates to completeCheckoutSession without a prefetched session', async () => {
+      await service.handleEvent(oneTimePaymentEvent)
+
+      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith(
+        { checkoutSessionId: 'cs_paid_test' },
+        undefined,
+      )
+    })
+
+    it('does not throw when fulfillment is deferred (unpaid)', async () => {
+      purchaseService.completeCheckoutSession.mockResolvedValueOnce({
+        alreadyProcessed: false,
+        deferred: true,
+      })
+
+      await expect(
+        service.handleEvent(oneTimePaymentEvent),
+      ).resolves.not.toThrow()
+    })
+
+    it('propagates errors from completeCheckoutSession so Stripe retries', async () => {
+      const fulfillmentError = new Error('DB unavailable')
+      purchaseService.completeCheckoutSession.mockRejectedValueOnce(
+        fulfillmentError,
+      )
+
+      await expect(service.handleEvent(oneTimePaymentEvent)).rejects.toThrow(
         fulfillmentError,
       )
     })

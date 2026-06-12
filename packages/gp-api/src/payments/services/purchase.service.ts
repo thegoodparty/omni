@@ -220,12 +220,11 @@ export class PurchaseService {
     // delayed-notification methods (e.g. ACH bank debit) Stripe fires
     // checkout.session.completed with payment_status still 'unpaid'; the funds
     // settle later and emit checkout.session.async_payment_succeeded, which
-    // re-invokes this handler with payment_status 'paid'. 'no_payment_required'
-    // is a confirmed $0 terminal state and is also safe to fulfill.
-    if (
-      session.payment_status !== 'paid' &&
-      session.payment_status !== 'no_payment_required'
-    ) {
+    // re-invokes this handler with payment_status 'paid'. We require 'paid'
+    // specifically: these one-time checkouts always create a PaymentIntent, so a
+    // 'paid' session has the payment_intent the idempotency check below relies
+    // on — anything else is deferred.
+    if (session.payment_status !== 'paid') {
       this.logger.info({
         sessionId: dto.checkoutSessionId,
         paymentStatus: session.payment_status,
