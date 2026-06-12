@@ -195,9 +195,11 @@ export class PurchaseService {
    * (e.g., checking for existing records before creating). A database-based
    * lock using a unique purchase record would eliminate this window entirely.
    */
-  async completeCheckoutSession(
-    dto: CompleteCheckoutSessionDto,
-  ): Promise<{ alreadyProcessed: boolean; result?: unknown }> {
+  async completeCheckoutSession(dto: CompleteCheckoutSessionDto): Promise<{
+    alreadyProcessed: boolean
+    deferred?: boolean
+    result?: unknown
+  }> {
     const session = await this.stripeService.retrieveCheckoutSession(
       dto.checkoutSessionId,
     )
@@ -221,7 +223,11 @@ export class PurchaseService {
         paymentStatus: session.payment_status,
         msg: 'Checkout session payment not confirmed — deferring fulfillment',
       })
-      return { alreadyProcessed: false }
+      // `deferred` distinguishes this not-yet-paid case from a completed
+      // fulfillment (which also returns alreadyProcessed: false) so callers —
+      // e.g. the client redirect handler — can show a pending state instead of
+      // success.
+      return { alreadyProcessed: false, deferred: true }
     }
 
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions

@@ -451,6 +451,7 @@ describe('PurchaseService', () => {
       })
 
       expect(result.alreadyProcessed).toBe(false)
+      expect(result.deferred).toBe(true)
       expect(result.result).toBeUndefined()
       expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
       expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
