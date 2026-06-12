@@ -131,7 +131,7 @@ The response is gp-api's authoritative `ComplianceStateOutput`: a single canonic
 | `pending_website_live`           | Domain registered, website NOT published and live        | Steps 2 + 3   |
 | `awaiting_pin`                   | Website published and live; not yet submitted to Peerly  | Steps 2 to 5  |
 | `tcr_in_review` / `tcr_approved` | Already submitted to Peerly on a live site               | Steps 2 to 6  |
-| `tcr_rejected`                   | Peerly rejected; terminal, handle as the Step 6 rejection outcome and do not resubmit | Steps 2 to 6 |
+| `tcr_rejected`                   | Peerly rejected a prior submission; do not resubmit. Immediately set `stage: "failed"`, append blocker `{ step: "submit_tcr", code: "peerly_rejection", detail: <rejection_reason from ComplianceStateOutput if present, else "">, first_seen_at: <ISO now>, retry_count: 0, is_recoverable: false }`, add `submit_tcr` to `skipped_steps[]`, and go to Step 7. | Steps 2 to 5 |
 
 A published, verified-live website is a hard precondition for submitting to Peerly, so enforce it independently of `stage` (a stale or wrong upstream signal must never let you skip it). Before Step 6, and before treating the pipeline as complete, confirm the website-read tool reports `status == "published"`. If `stage` is `pending_website_live`, or the website read is not `published`, the site is not live: run Step 4 (publish, unless the website read already says `published`) and Step 5 (verify live) before Step 6, no matter what any other field says. Submission has happened only when `stage` is `tcr_in_review` or `tcr_approved`; treat no other stage or field as proof the pipeline is done.
 
@@ -215,9 +215,9 @@ Outcomes:
 
 ## STEP 6 — Submit TCR registration to Peerly
 
-Skip if `stage` is already `tcr_in_review` or `tcr_approved`, or `peerlyVerificationId` is already set (submission already happened on a live site).
+Do **not** pre-skip this step on `peerlyVerificationId` alone: a set verification id does not prove a completed, non-rejected submission. The authoritative "already submitted" signal is `stage` being `tcr_in_review` or `tcr_approved`, which Step 1 already handled by jumping to Step 7, so you only reach this step when submission has not yet succeeded. If an identity nonetheless already exists, gp-api's submit tool is idempotent and returns the cached `peerly_request_id` (the 409 outcome below) instead of double-submitting.
 
-**Precondition — never submit to Peerly for a site that is not live.** Before calling the tool, confirm Step 4 and Step 5 succeeded this run (or `stage` was `awaiting_pin` on read, which already proves the site is published and verified). If the website read reports `status != "published"`, or Step 5 did not return `verified: true`, do **not** call this tool: go back and run Steps 4 and 5 first. gp-api enforces the same gate and will reject a submission while the website is not published and live, so calling early only wastes a turn.
+**Precondition: never submit to Peerly for a site that is not live.** Before calling the tool, confirm Step 4 and Step 5 succeeded this run (or `stage` was `awaiting_pin` on read, which already proves the site is published and verified). If `stage` was **not** `awaiting_pin` on read and (the website read reports `status != "published"` or Step 5 did not return `verified: true`), do **not** call this tool: go back and run Steps 4 and 5 first. gp-api enforces the same gate and will reject a submission while the website is not published and live, so calling early only wastes a turn.
 
 Call the gp-api MCP tool **that submits the candidate's TCR / CV registration to Peerly** (its description references `peerlyIdentityService.submitCampaignVerifyRequest`). This is the new `@McpTool`-decorated controller method — **not** the legacy `POST /v1/campaigns/tcr-compliance` endpoint. The tool descriptions disambiguate; pick the one that talks about Peerly CV submission for the agentic flow.
 
