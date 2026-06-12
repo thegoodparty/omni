@@ -17,10 +17,34 @@
   /* ==========================================================================
    * GOODPARTY BRAND COLORS
    * ========================================================================== */
-  --goodparty-red: #dc1438;
-  --goodparty-red-light: #f7bac5;
-  --goodparty-blue: #0048c2;
-  --goodparty-blue-light: #a4c2f5;
+  /* Branding red scale — main brand color at 500 */
+  --goodparty-red-50: #fff1f2;
+  --goodparty-red-100: #ffd9dc;
+  --goodparty-red-200: #ffb3ba;
+  --goodparty-red-300: #ff8691;
+  --goodparty-red-400: #f5506a;
+  --goodparty-red-500: #dc1438;
+  --goodparty-red-600: #b80f2e;
+  --goodparty-red-700: #940c25;
+  --goodparty-red-800: #70091b;
+  --goodparty-red-900: #4d0612;
+  --goodparty-red-950: #2e030a;
+  --goodparty-red: var(--goodparty-red-500);
+
+  /* Branding blue scale — main brand color at 600 */
+  --goodparty-blue-50: #eff5ff;
+  --goodparty-blue-100: #d6e7ff;
+  --goodparty-blue-200: #adc9ff;
+  --goodparty-blue-300: #80a9ff;
+  --goodparty-blue-400: #4576f1;
+  --goodparty-blue-500: #1e63ec;
+  --goodparty-blue-600: #0048c2;
+  --goodparty-blue-700: #043d9d;
+  --goodparty-blue-800: #03307c;
+  --goodparty-blue-900: #02235a;
+  --goodparty-blue-950: #011639;
+  --goodparty-blue: var(--goodparty-blue-600);
+
   --goodparty-cream: #fcf8f3;
 
   /* ==========================================================================
@@ -386,6 +410,114 @@
   --color-waxflower-800: #ae3920;
   --color-waxflower-900: #932b1f;
   --color-waxflower-950: #511508;
+
+  /* ==========================================================================
+   * WEBAPP LEGACY PALETTE
+   * Custom scales from the pre-Figma era. Values differ from --tw-* equivalents.
+   * Consumers should migrate to --tw-* or theme tokens over time.
+   * ========================================================================== */
+
+  /* Gray */
+  --gray-100: #f8f8f8;
+  --gray-200: #e8e8e8;
+  --gray-300: #b2b2b2;
+  --gray-400: #999999;
+  --gray-500: #7f7f7f;
+  --gray-600: #666666;
+  --gray-700: #4d4d4d;
+  --gray-800: #333333;
+  --gray-900: #1a1a1a;
+
+  /* Indigo (webapp custom — gray-blue, not standard Tailwind indigo) */
+  --indigo-50: #f7fafb;
+  --indigo-100: #eef3f6;
+  --indigo-200: #e0e6ec;
+  --indigo-300: #b9c3cc;
+  --indigo-400: #879099;
+  --indigo-500: #484e55;
+  --indigo-600: #343d49;
+  --indigo-700: #242d3d;
+  --indigo-800: #161f31;
+  --indigo-900: #0d1528;
+
+  /* Blue (webapp custom) */
+  --blue-50: #e3f1ff;
+  --blue-100: #d1e7fe;
+  --blue-200: #a3cdfe;
+  --blue-300: #75affe;
+  --blue-400: #2563eb;
+  --blue-500: #1b6afc;
+  --blue-600: #1351d8;
+  --blue-700: #0d3cb5;
+  --blue-800: #082a92;
+  --blue-900: #051d78;
+
+  /* Green (webapp custom) */
+  --green-50: #eeffe9;
+  --green-100: #dffad6;
+  --green-200: #b9f6b0;
+  --green-300: #86e382;
+  --green-400: #5ec963;
+  --green-500: #30a541;
+  --green-600: #187637;
+  --green-700: #0f5f31;
+  --green-800: #094f2d;
+  --green-900: #033a20;
+
+  /* Red (webapp custom — aligned with Figma error tokens) */
+  --red-50: #ffe8e8;
+  --red-100: #fdcdcd;
+  --red-200: #ffaeae;
+  --red-300: #f56c6a;
+  --red-400: #ec4451;
+  --red-500: #e00c30;
+  --red-600: #b90a27;
+  --red-700: #93081f;
+  --red-800: #6c0617;
+  --red-900: #560311;
+  --red-950: #370009;
+
+  /* Yellow */
+  --yellow-50: #fffadf;
+  --yellow-100: #fff1c9;
+  --yellow-200: #ffedba;
+  --yellow-300: #ffe291;
+  --yellow-400: #ffe06c;
+  --yellow-500: #ffd759;
+  --yellow-600: #ffc523;
+  --yellow-700: #dba219;
+  --yellow-800: #b78211;
+  --yellow-900: #93640b;
+
+  /* Orange (webapp custom — aligned with Figma warning tokens) */
+  --orange-50: #fff5d5;
+  --orange-100: #ffeeb7;
+  --orange-200: #fde19a;
+  --orange-300: #ffcd66;
+  --orange-400: #ffb93f;
+  --orange-500: #ff9800;
+  --orange-600: #db7900;
+  --orange-700: #b75e00;
+  --orange-800: #934500;
+  --orange-900: #7a3400;
+  --orange-950: #471e00;
+
+  /* Purple (webapp custom — #6e37ff as main, differs from --tw-violet-* and --tw-purple-*) */
+  --purple-50: #f8f3ff;
+  --purple-100: #e6d7ff;
+  --purple-200: #cbafff;
+  --purple-300: #ae86ff;
+  --purple-400: #9669ff;
+  --purple-500: #6e37ff;
+  --purple-600: #5428db;
+  --purple-700: #3d1bb7;
+  --purple-800: #2a1193;
+  --purple-900: #1c0a7a;
+
+  /* Cream */
+  --cream-500: #fcf8f3;
+  --cream: #fcf8f3;
+
   --border-radius-none: 0px;
   --border-radius-sm: 4px;
   --border-radius-base: 8px;
@@ -938,6 +1070,7 @@
   --base-background: #ffffff;
   --base-muted-foreground: var(--tw-neutral-500);
   --base-muted: var(--tw-neutral-100);
+  --base-inactive: var(--tw-neutral-200);
   --base-border: var(--tw-neutral-300);
   --base-accent: var(--tw-neutral-100);
   --base-accent-foreground: var(--tw-neutral-950);
@@ -960,9 +1093,11 @@
 
   /* ==========================================================================
    * THEME COLORS (from Figma theme tokens)
-   * Semantic: main = 600 | light = 300 | dark = 800 (light mode)
+   * Semantic: main = 600 | light = 200 | dark = 900 (light mode)
    * ========================================================================== */
   --theme-primary: var(--tw-blue-600);
+  --theme-primary-light: var(--tw-blue-200);
+  --theme-primary-dark: var(--tw-blue-900);
   --theme-primary-foreground: #ffffff;
   --theme-primary-focus: color-mix(
     in srgb,
@@ -970,15 +1105,26 @@
     transparent
   );
   --theme-secondary: var(--color-midnight-900);
+  --theme-secondary-light: var(--color-midnight-200);
+  --theme-secondary-dark: var(--color-midnight-900);
   --theme-secondary-foreground: #ffffff;
   --theme-secondary-focus: color-mix(
     in srgb,
     var(--color-midnight-900) 30%,
     transparent
   );
+  --theme-tertiary: var(--tw-cyan-500);
+  --theme-tertiary-light: var(--tw-cyan-200);
+  --theme-tertiary-dark: var(--tw-cyan-900);
+  --theme-tertiary-foreground: #ffffff;
+  --theme-tertiary-focus: color-mix(
+    in srgb,
+    var(--tw-cyan-500) 30%,
+    transparent
+  );
   --theme-destructive: var(--tw-red-600);
-  --theme-destructive-light: var(--tw-red-300);
-  --theme-destructive-dark: var(--tw-red-800);
+  --theme-destructive-light: var(--tw-red-200);
+  --theme-destructive-dark: var(--tw-red-900);
   --theme-destructive-foreground: #ffffff;
   --theme-destructive-focus: color-mix(
     in srgb,
@@ -986,8 +1132,8 @@
     transparent
   );
   --theme-success: var(--tw-green-600);
-  --theme-success-light: var(--tw-green-300);
-  --theme-success-dark: var(--tw-green-800);
+  --theme-success-light: var(--tw-green-200);
+  --theme-success-dark: var(--tw-green-900);
   --theme-success-foreground: #ffffff;
   --theme-success-focus: color-mix(
     in srgb,
@@ -995,13 +1141,13 @@
     transparent
   );
   --theme-info: var(--tw-blue-600);
-  --theme-info-light: var(--tw-blue-300);
-  --theme-info-dark: var(--tw-blue-800);
+  --theme-info-light: var(--tw-blue-200);
+  --theme-info-dark: var(--tw-blue-900);
   --theme-info-foreground: #ffffff;
   --theme-info-focus: color-mix(in srgb, var(--tw-blue-600) 30%, transparent);
   --theme-warning: var(--tw-orange-600);
-  --theme-warning-light: var(--tw-orange-300);
-  --theme-warning-dark: var(--tw-orange-800);
+  --theme-warning-light: var(--tw-orange-200);
+  --theme-warning-dark: var(--tw-orange-900);
   --theme-warning-foreground: #000000;
   --theme-warning-focus: color-mix(
     in srgb,

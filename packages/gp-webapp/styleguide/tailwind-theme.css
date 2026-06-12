@@ -60,6 +60,7 @@
   --color-foreground: var(--foreground, #020817);
   --color-muted: var(--muted, #f8fafc);
   --color-muted-foreground: var(--muted-foreground, #64748b);
+  --color-inactive: var(--base-inactive);
   --color-accent: var(--accent, #f8fafc);
   --color-accent-foreground: var(--accent-foreground, #020817);
   --color-card: var(--card, #ffffff);
@@ -70,9 +71,17 @@
   --color-destructive-foreground: var(--destructive-foreground, #f8fafc);
 
   --color-primary: var(--theme-primary);
+  --color-primary-light: var(--theme-primary-light);
+  --color-primary-dark: var(--theme-primary-dark);
   --color-primary-foreground: var(--theme-primary-foreground);
   --color-secondary: var(--theme-secondary);
+  --color-secondary-light: var(--theme-secondary-light);
+  --color-secondary-dark: var(--theme-secondary-dark);
   --color-secondary-foreground: var(--theme-secondary-foreground);
+  --color-tertiary: var(--theme-tertiary);
+  --color-tertiary-foreground: var(--theme-tertiary-foreground);
+  --color-tertiary-light: var(--theme-tertiary-light);
+  --color-tertiary-dark: var(--theme-tertiary-dark);
   --color-link: var(--component-link);
 
   /* ==========================================================================
@@ -410,18 +419,40 @@
 
   /* ==========================================================================
    * FIGMA BRAND COLORS (static values - no scoping needed)
-   * Use: bg-brand-red, text-brand-blue, bg-brand-cream
+   * Use: bg-brand-cream
    * ========================================================================== */
-  --color-brand-red: #dc1438;
-  --color-brand-red-light: #f7bac5;
-  --color-brand-blue: #0048c2;
-  --color-brand-blue-light: #a4c2f5;
   --color-brand-cream: #fcf8f3;
 
   /* ==========================================================================
    * FIGMA BRAND SCALES (static values - no scoping needed)
-   * Use: bg-brand-midnight-500, text-brand-halo-green-400
+   * Use: bg-brand-red-500, bg-brand-blue-600, bg-brand-midnight-500
    * ========================================================================== */
+
+  /* brand-red (main brand color at 500) */
+  --color-brand-red-50: var(--goodparty-red-50);
+  --color-brand-red-100: var(--goodparty-red-100);
+  --color-brand-red-200: var(--goodparty-red-200);
+  --color-brand-red-300: var(--goodparty-red-300);
+  --color-brand-red-400: var(--goodparty-red-400);
+  --color-brand-red-500: var(--goodparty-red-500);
+  --color-brand-red-600: var(--goodparty-red-600);
+  --color-brand-red-700: var(--goodparty-red-700);
+  --color-brand-red-800: var(--goodparty-red-800);
+  --color-brand-red-900: var(--goodparty-red-900);
+  --color-brand-red-950: var(--goodparty-red-950);
+
+  /* brand-blue (main brand color at 600) */
+  --color-brand-blue-50: var(--goodparty-blue-50);
+  --color-brand-blue-100: var(--goodparty-blue-100);
+  --color-brand-blue-200: var(--goodparty-blue-200);
+  --color-brand-blue-300: var(--goodparty-blue-300);
+  --color-brand-blue-400: var(--goodparty-blue-400);
+  --color-brand-blue-500: var(--goodparty-blue-500);
+  --color-brand-blue-600: var(--goodparty-blue-600);
+  --color-brand-blue-700: var(--goodparty-blue-700);
+  --color-brand-blue-800: var(--goodparty-blue-800);
+  --color-brand-blue-900: var(--goodparty-blue-900);
+  --color-brand-blue-950: var(--goodparty-blue-950);
 
   /* brand-midnight (Figma: midnight/50-950) */
   --color-brand-midnight-50: #ecf5ff;
