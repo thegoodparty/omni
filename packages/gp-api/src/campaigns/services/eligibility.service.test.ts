@@ -133,6 +133,18 @@ describe('EligibilityService', () => {
     expect(result.holdsOffice).toBe(false)
   })
 
+  it('treats an active office with a null term end as held', async () => {
+    const service = await buildService(
+      [],
+      [buildOffice({ isActive: true, termEndAt: null })],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.holdsOffice).toBe(true)
+    expect(result.canGainOffice).toBe(false)
+  })
+
   it('returns the held office organizationSlug as reelectionOfficeSlug', async () => {
     const service = await buildService(
       [],

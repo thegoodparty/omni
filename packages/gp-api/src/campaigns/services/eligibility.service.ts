@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
-import { isAfter, parseISO } from 'date-fns'
+import { isAfter, isValid } from 'date-fns'
 import { Eligibility } from '@goodparty_org/contracts'
+import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { Campaign, ElectedOffice } from '../../generated/prisma'
 import { CampaignsService } from './campaigns.service'
@@ -42,11 +43,10 @@ export class EligibilityService {
 
   private isActiveCampaign(campaign: Campaign, now: Date): boolean {
     const electionDate = campaign.details?.electionDate
-    return (
-      campaign.didWin === null &&
-      electionDate != null &&
-      isAfter(parseISO(electionDate), now)
-    )
+    if (!electionDate) return false
+    const parsed = parseIsoDateAsUTC(electionDate)
+    if (!isValid(parsed)) return false
+    return campaign.didWin === null && isAfter(parsed, now)
   }
 
   private holdsOffice(office: ElectedOffice, now: Date): boolean {
