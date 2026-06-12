@@ -60,6 +60,8 @@ export class PaymentEventsService {
         return await this.customerSubscriptionCreatedHandler(event)
       case WebhookEventType.CheckoutSessionCompleted:
         return await this.checkoutSessionCompletedHandler(event)
+      case WebhookEventType.CheckoutSessionAsyncPaymentSucceeded:
+        return await this.checkoutSessionAsyncPaymentSucceededHandler(event)
       case WebhookEventType.CheckoutSessionExpired:
         return await this.checkoutSessionExpiredHandler(event)
       case WebhookEventType.CustomerSubscriptionDeleted:
@@ -208,6 +210,20 @@ export class PaymentEventsService {
     }
 
     this.logger.warn(`Unknown checkout session mode: ${session.mode}`)
+  }
+
+  /**
+   * Handles checkout.session.async_payment_succeeded — fired when a delayed
+   * payment method (e.g. ACH bank debit) settles, after the earlier
+   * checkout.session.completed where fulfillment was deferred because the
+   * payment was not yet confirmed. Async payments are always one-time
+   * payment-mode checkouts, and payment_status is now 'paid', so fulfillment
+   * proceeds (idempotently) via the same one-time-payment path.
+   */
+  private async checkoutSessionAsyncPaymentSucceededHandler(
+    event: Stripe.CheckoutSessionAsyncPaymentSucceededEvent,
+  ) {
+    return this.handleOneTimePaymentCheckoutCompleted(event.data.object)
   }
 
   /**

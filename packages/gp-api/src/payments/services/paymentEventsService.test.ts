@@ -31,6 +31,7 @@ describe('PaymentEventsService', () => {
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
+  const purchaseService = { completeCheckoutSession: vi.fn() }
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
   const mockCampaign = {
@@ -55,8 +56,22 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionCompletedEvent
 
+  const asyncPaymentEvent = {
+    type: WebhookEventType.CheckoutSessionAsyncPaymentSucceeded,
+    data: {
+      object: {
+        id: 'cs_async_test',
+        mode: CheckoutSessionMode.PAYMENT,
+        metadata: { userId: '1', purchaseType: 'poll' },
+      },
+    },
+  } as unknown as Stripe.CheckoutSessionAsyncPaymentSucceededEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
+    purchaseService.completeCheckoutSession.mockResolvedValue({
+      alreadyProcessed: false,
+    })
     usersService.findUser.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     campaignsService.findByUserId.mockResolvedValue(mockCampaign)
@@ -80,7 +95,7 @@ describe('PaymentEventsService', () => {
       organizationsService as never,
       {} as never,
       analytics as never,
-      {} as never,
+      purchaseService as never,
       tcrComplianceService as never,
       logger,
     )
@@ -155,6 +170,16 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('agentic compliance kickoff'),
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEvent — checkout.session.async_payment_succeeded', () => {
+    it('completes the deferred one-time purchase once the payment settles', async () => {
+      await service.handleEvent(asyncPaymentEvent)
+
+      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith({
+        checkoutSessionId: 'cs_async_test',
+      })
     })
   })
 })

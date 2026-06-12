@@ -1,6 +1,8 @@
 import { PurchaseType } from '@/payments/purchase.types'
 export const WebhookEventType = {
   CheckoutSessionCompleted: 'checkout.session.completed',
+  CheckoutSessionAsyncPaymentSucceeded:
+    'checkout.session.async_payment_succeeded',
   CheckoutSessionExpired: 'checkout.session.expired',
   CustomerSubscriptionCreated: 'customer.subscription.created',
   CustomerSubscriptionDeleted: 'customer.subscription.deleted',

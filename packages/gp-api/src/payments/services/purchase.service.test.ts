@@ -33,6 +33,7 @@ function mockCheckoutSession(
     id: 'cs_test',
     object: 'checkout.session',
     status: 'complete',
+    payment_status: 'paid',
     metadata: {},
     ...overrides,
     lastResponse: mockStripeLastResponse,
@@ -423,6 +424,39 @@ describe('PurchaseService', () => {
           postPurchaseCompletedAt: expect.any(String),
         }),
       )
+    })
+
+    it('defers fulfillment when payment is not yet confirmed', async () => {
+      const sessionId = 'cs_test_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_test_payment',
+          metadata: {
+            purchaseType: PurchaseType.TEXT,
+            userId: '1',
+          },
+        }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.alreadyProcessed).toBe(false)
+      expect(result.result).toBeUndefined()
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
+      expect(
+        mockStripeService.updatePaymentIntentMetadata,
+      ).not.toHaveBeenCalled()
     })
 
     it('should skip handler if already processed (idempotency)', async () => {
