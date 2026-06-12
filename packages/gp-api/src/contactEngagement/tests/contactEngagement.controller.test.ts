@@ -27,6 +27,11 @@ describe('ContactEngagementController', () => {
       campaignId: 1,
       organizationSlug: 'eo-office-1',
       swornInDate: null,
+      electedDate: null,
+      termStartAt: null,
+      termEndAt: null,
+      termLengthDays: null,
+      isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -90,6 +95,11 @@ describe('ContactEngagementController', () => {
         campaignId: 1,
         organizationSlug: 'eo-office-1',
         swornInDate: null,
+        electedDate: null,
+        termStartAt: null,
+        termEndAt: null,
+        termLengthDays: null,
+        isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       }
