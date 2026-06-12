@@ -21,6 +21,7 @@ export class CrmController {
   }
 
   @Get('companies/:companyId')
+  @Roles(UserRole.admin) // CRM company reads are admin-only, like the sibling routes
   async getCompany(@Param('companyId') companyId: string) {
     return await this.crmCampaignsService.getCrmCompanyById(companyId)
   }
