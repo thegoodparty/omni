@@ -300,17 +300,14 @@
   --component-link: var(--tw-blue-300);
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
-  --component-input-border: var(--tw-neutral-600);
-  --component-input-base: var(--tw-neutral-950);
-  --component-input-active: var(--tw-blue-300);
   --component-input-inactive: var(--tw-neutral-300);
-  --component-input-foreground: var(--tw-neutral-950);
-  --component-input-focus: color-mix(
+  --component-input-inactive-focus: color-mix(
     in srgb,
-    var(--tw-blue-300) 50%,
+    var(--tw-neutral-300) 50%,
     transparent
   );
-  --component-input-inactive-focus: color-mix(
+  --color-components-input-inactive: var(--tw-neutral-300);
+  --color-components-input-inactive-focus: color-mix(
     in srgb,
     var(--tw-neutral-300) 50%,
     transparent
