@@ -514,7 +514,7 @@ export default function OnboardingFlow({
     const city = answers.structuredOffice?.city
     const state = answers.structuredOffice?.state
     const office = answers.structuredOffice?.positionName
-    if (ballotReadyPositionId) {
+    if (ballotReadyPositionId || orgPositionId) {
       void queryClient.prefetchQuery(
         onboardingDistrictStatsQueryOptions({
           ballotReadyPositionId,

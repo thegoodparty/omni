@@ -41,7 +41,7 @@ export class UseOrganizationGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>
-      user: { id: number }
+      user?: { id: number }
       organization?: Organization
     }>()
 
