@@ -61,21 +61,21 @@ const makeInput = (): PlanInput => ({
 
 const sectionState = { isGenerating: false, isError: false }
 
-const renderPlanView = () =>
-  render(
-    <PlanView
-      plan={buildPlanData(makeInput())}
-      planReady
-      state="CA"
-      strategyState={sectionState}
-      eventsState={sectionState}
-      pressOutletsState={sectionState}
-      voterInsightsContext={{}}
-      onDownload={vi.fn()}
-      onContinue={vi.fn()}
-      showConfetti={false}
-    />,
-  )
+const planViewProps = (plan = buildPlanData(makeInput())) =>
+  ({
+    plan,
+    planReady: true,
+    state: 'CA',
+    strategyState: sectionState,
+    eventsState: sectionState,
+    pressOutletsState: sectionState,
+    voterInsightsContext: {},
+    onDownload: vi.fn(),
+    onContinue: vi.fn(),
+    showConfetti: false,
+  }) as const
+
+const renderPlanView = () => render(<PlanView {...planViewProps()} />)
 
 describe('PlanView share button', () => {
   beforeEach(() => {
@@ -97,20 +97,7 @@ describe('PlanView share button', () => {
   })
 
   it('does not open the share modal when planReady is false', async () => {
-    render(
-      <PlanView
-        plan={buildPlanData(makeInput())}
-        planReady={false}
-        state="CA"
-        strategyState={sectionState}
-        eventsState={sectionState}
-        pressOutletsState={sectionState}
-        voterInsightsContext={{}}
-        onDownload={vi.fn()}
-        onContinue={vi.fn()}
-        showConfetti={false}
-      />,
-    )
+    render(<PlanView {...planViewProps()} planReady={false} />)
     await userEvent.click(
       screen.getByRole('button', { name: /share campaign plan/i }),
     )
@@ -140,6 +127,41 @@ describe('PlanView share button', () => {
 
     expect(generateCampaignPlanPdfBlob).toHaveBeenCalledTimes(1)
     expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-uploads when the plan changes between shares', async () => {
+    const { rerender } = renderPlanView()
+    const shareButton = screen.getByRole('button', {
+      name: /share campaign plan/i,
+    })
+
+    await userEvent.click(shareButton)
+    await screen.findByRole('button', { name: /copy link/i })
+    expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(1)
+
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Share your campaign plan'),
+      ).not.toBeInTheDocument(),
+    )
+
+    // Async plan sections settling rebuilds `plan` with a new identity —
+    // the cached upload must not survive it.
+    const updatedPlan = buildPlanData({
+      ...makeInput(),
+      candidateName: 'Updated Candidate',
+    })
+    rerender(<PlanView {...planViewProps(updatedPlan)} />)
+
+    await userEvent.click(shareButton)
+    await screen.findByRole('button', { name: /copy link/i })
+
+    expect(generateCampaignPlanPdfBlob).toHaveBeenCalledTimes(2)
+    expect(uploadCampaignPlanPdf).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(generateCampaignPlanPdfBlob).mock.calls[1]?.[0]).toBe(
+      updatedPlan,
+    )
   })
 
   it('does not fire a second generate when closed and reopened while upload is in-flight', async () => {

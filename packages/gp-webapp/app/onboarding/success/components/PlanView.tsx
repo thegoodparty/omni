@@ -82,6 +82,11 @@ const PlanView = ({
   // still in progress reuses the same request instead of firing a second one.
   // A rejection clears the ref so the next open retries from scratch.
   const sharePdfUrlRef = useRef<Promise<string> | null>(null)
+  // `plan` is rebuilt as async sources (strategy/events/press) settle — a
+  // cached upload from an earlier snapshot must not outlive its inputs.
+  useEffect(() => {
+    sharePdfUrlRef.current = null
+  }, [plan, liveUrl])
   const getShareUrl = useCallback(() => {
     if (!sharePdfUrlRef.current) {
       sharePdfUrlRef.current = (async () => {

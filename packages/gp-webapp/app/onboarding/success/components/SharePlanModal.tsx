@@ -137,7 +137,10 @@ const SharePlanModal = ({
       setCopied(false)
       return
     }
-    if (state.status === 'ready') return
+    // Re-resolve on every open: the parent invalidates its cache when the
+    // plan changes, and a retained 'ready' url here would keep serving the
+    // stale PDF. While the parent cache is warm this resolves from the same
+    // promise, so reopening stays effectively instant.
     void resolveShareUrl()
   }, [open])
 
