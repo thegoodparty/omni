@@ -18,9 +18,7 @@ function Switch({ className, ...props }: SwitchProps) {
         'inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent',
         'transition-[color,box-shadow] outline-none',
         'data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted-foreground',
-        'focus-visible:ring-[3px]',
-        'data-[state=checked]:focus-visible:ring-components-input-focus',
-        'data-[state=unchecked]:focus-visible:ring-transparent',
+        'focus-visible:ring-[3px] focus-visible:ring-components-input-focus',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
@@ -28,7 +26,7 @@ function Switch({ className, ...props }: SwitchProps) {
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform data-[state=checked]:translate-x-[calc(100%-2px)]"
+        className="pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform data-[state=checked]:translate-x-full"
       />
     </SwitchPrimitive.Root>
   )
@@ -72,7 +70,7 @@ function SwitchLabel({
         disabled={disabled}
         {...props}
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-px">
         <Label
           htmlFor={id}
           className="cursor-pointer font-normal leading-5 text-foreground"

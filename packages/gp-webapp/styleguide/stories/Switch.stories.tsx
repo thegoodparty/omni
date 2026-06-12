@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
-import { Switch, SwitchLabel, SwitchBox } from '../components/ui/switch'
+import { Switch, SwitchLabel } from '../components/ui/switch'
 
 const meta: Meta<typeof Switch> = {
   title: 'Components/Switch',
@@ -18,25 +18,19 @@ const meta: Meta<typeof Switch> = {
     autoFocus: {
       table: { disable: true },
     },
-    showFocusRing: {
+    showLabel: {
+      control: 'boolean',
+      description: 'Story-only — show the switch with a label.',
+    },
+    showDescription: {
       control: 'boolean',
       description:
-        'Preview focus ring. Story-only — forces the focus ring visible so you can inspect it without keyboard navigation.',
-    },
-    label: {
-      control: 'text',
-      description: 'Label text (SwitchLabel and SwitchBox only).',
-    },
-    description: {
-      control: 'text',
-      description:
-        'Description text below the label (SwitchLabel and SwitchBox only).',
+        'Story-only — show secondary description text below the label. Only applies when label is shown.',
     },
     side: {
       control: { type: 'inline-radio' },
       options: ['left', 'right'],
-      description:
-        'Side the switch appears on (SwitchLabel and SwitchBox only).',
+      description: 'Side the switch appears on. Only applies when label is shown.',
     },
   },
 }
@@ -44,91 +38,81 @@ const meta: Meta<typeof Switch> = {
 export default meta
 type Story = StoryObj<typeof Switch>
 
-// ---------------------------------------------------------------------------
-// Switch (bare)
-// ---------------------------------------------------------------------------
+const LABEL = 'Notifications'
+const DESCRIPTION = 'Receive email notifications for important updates.'
 
 export const Playground: Story = {
   args: {
     checked: false,
     disabled: false,
-    showFocusRing: false,
-    label: 'Notifications',
-    description: 'Receive email notifications for important updates.',
+    showLabel: false,
+    showDescription: false,
     side: 'left',
   },
   render: ({
     checked,
     disabled,
-    showFocusRing,
-    label,
-    description,
+    showLabel,
+    showDescription,
     side,
   }: React.ComponentProps<typeof Switch> & {
-    showFocusRing?: boolean
-    label?: string
-    description?: string
+    showLabel?: boolean
+    showDescription?: boolean
     side?: 'left' | 'right'
   }) => {
     const [, updateArgs] = useArgs()
-    const focusClass = showFocusRing
-      ? checked
-        ? 'ring-[3px] ring-components-input-focus'
-        : 'ring-[3px] ring-transparent'
-      : undefined
+    if (showLabel) {
+      return (
+        <div className="max-w-sm">
+          <SwitchLabel
+            id="pg"
+            label={LABEL}
+            description={showDescription ? DESCRIPTION : undefined}
+            side={side}
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={(next) => updateArgs({ checked: next })}
+          />
+        </div>
+      )
+    }
     return (
-      <div className="flex max-w-sm flex-col gap-4">
-        <Switch
-          checked={checked}
-          disabled={disabled}
-          className={focusClass}
-          onCheckedChange={(next) => updateArgs({ checked: next })}
-        />
-        <SwitchLabel
-          id="pg-label"
-          label={label ?? 'Notifications'}
-          description={description}
-          side={side}
-          checked={checked}
-          disabled={disabled}
-          switchClassName={focusClass}
-          onCheckedChange={(next) => updateArgs({ checked: next })}
-        />
-        <SwitchBox
-          id="pg-box"
-          label={label ?? 'Notifications'}
-          description={description}
-          side={side}
-          checked={checked}
-          disabled={disabled}
-          switchClassName={focusClass}
-          onCheckedChange={(next) => updateArgs({ checked: next })}
-        />
-      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(next) => updateArgs({ checked: next })}
+      />
     )
   },
 }
 
-export const Focused: Story = {
+export const Default: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex max-w-sm flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
-        Focus ring only appears in the On state. SwitchBox focus is shown
-        natively via keyboard navigation.
-      </p>
-      <Switch
-        id="focus-bare"
-        defaultChecked
-        className="ring-[3px] ring-components-input-focus"
-      />
-      <SwitchLabel
-        id="focus-label"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        defaultChecked
-        switchClassName="ring-[3px] ring-components-input-focus"
-      />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Switch
+        </p>
+        <div className="flex items-center gap-4">
+          <Switch />
+          <Switch defaultChecked />
+        </div>
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label
+        </p>
+        <SwitchLabel id="d-label-off" label={LABEL} />
+        <SwitchLabel id="d-label-on" label={LABEL} defaultChecked />
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label and description
+        </p>
+        <SwitchLabel id="d-desc-off" label={LABEL} description={DESCRIPTION} />
+        <SwitchLabel id="d-desc-on" label={LABEL} description={DESCRIPTION} defaultChecked />
+      </section>
     </div>
   ),
 }
@@ -136,187 +120,87 @@ export const Focused: Story = {
 export const Disabled: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex max-w-sm flex-col gap-4">
-      <div className="flex gap-4">
-        <Switch id="disabled-off" disabled />
-        <Switch id="disabled-on" disabled defaultChecked />
-      </div>
-      <SwitchLabel
-        id="disabled-label-off"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        disabled
-      />
-      <SwitchLabel
-        id="disabled-label-on"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        disabled
-        defaultChecked
-      />
-      <SwitchBox
-        id="disabled-box-off"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        disabled
-      />
-      <SwitchBox
-        id="disabled-box-on"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        disabled
-        defaultChecked
-      />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Switch
+        </p>
+        <div className="flex items-center gap-4">
+          <Switch disabled />
+          <Switch disabled defaultChecked />
+        </div>
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label
+        </p>
+        <SwitchLabel id="dis-label-off" label={LABEL} disabled />
+        <SwitchLabel id="dis-label-on" label={LABEL} disabled defaultChecked />
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label and description
+        </p>
+        <SwitchLabel id="dis-desc-off" label={LABEL} description={DESCRIPTION} disabled />
+        <SwitchLabel
+          id="dis-desc-on"
+          label={LABEL}
+          description={DESCRIPTION}
+          disabled
+          defaultChecked
+        />
+      </section>
     </div>
   ),
 }
 
-// ---------------------------------------------------------------------------
-// SwitchLabel
-// ---------------------------------------------------------------------------
-
-export const WithLabel: Story = {
+export const Focused: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex max-w-sm flex-col gap-4">
-      <SwitchLabel
-        id="wl-with-desc-off"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-      />
-      <SwitchLabel
-        id="wl-with-desc-on"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        defaultChecked
-      />
-      <SwitchLabel id="wl-no-desc-off" label="Airplane mode" />
-      <SwitchLabel id="wl-no-desc-on" label="Airplane mode" defaultChecked />
-      <SwitchLabel
-        id="wl-no-desc-right-off"
-        label="Airplane mode"
-        side="right"
-      />
-      <SwitchLabel
-        id="wl-no-desc-right-on"
-        label="Airplane mode"
-        side="right"
-        defaultChecked
-      />
-      <SwitchLabel
-        id="wl-right-off"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        side="right"
-      />
-      <SwitchLabel
-        id="wl-right-on"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        side="right"
-        defaultChecked
-      />
-      <SwitchLabel
-        id="wl-disabled-off"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        disabled
-      />
-      <SwitchLabel
-        id="wl-disabled-on"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        disabled
-        defaultChecked
-      />
-      <SwitchLabel
-        id="wl-disabled-right-off"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        side="right"
-        disabled
-      />
-      <SwitchLabel
-        id="wl-disabled-right-on"
-        label="Notifications"
-        description="Receive email notifications for important updates."
-        side="right"
-        disabled
-        defaultChecked
-      />
-    </div>
-  ),
-}
-
-// ---------------------------------------------------------------------------
-// SwitchBox
-// ---------------------------------------------------------------------------
-
-export const WithBox: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <div className="flex max-w-sm flex-col gap-4">
-      <SwitchBox
-        id="wb-with-desc-off"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-      />
-      <SwitchBox
-        id="wb-with-desc-on"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        defaultChecked
-      />
-      <SwitchBox id="wb-no-desc-off" label="Dark mode" />
-      <SwitchBox id="wb-no-desc-on" label="Dark mode" defaultChecked />
-      <SwitchBox id="wb-no-desc-right-off" label="Dark mode" side="right" />
-      <SwitchBox
-        id="wb-no-desc-right-on"
-        label="Dark mode"
-        side="right"
-        defaultChecked
-      />
-      <SwitchBox
-        id="wb-right-off"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        side="right"
-      />
-      <SwitchBox
-        id="wb-right-on"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        side="right"
-        defaultChecked
-      />
-      <SwitchBox
-        id="wb-disabled-off"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        disabled
-      />
-      <SwitchBox
-        id="wb-disabled-on"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        disabled
-        defaultChecked
-      />
-      <SwitchBox
-        id="wb-disabled-right-off"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        side="right"
-        disabled
-      />
-      <SwitchBox
-        id="wb-disabled-right-on"
-        label="Dark mode"
-        description="Switch between light and dark themes."
-        side="right"
-        disabled
-        defaultChecked
-      />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Switch
+        </p>
+        <div className="flex items-center gap-4">
+          <Switch className="ring-[3px] ring-components-input-focus" />
+          <Switch defaultChecked className="ring-[3px] ring-components-input-focus" />
+        </div>
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label
+        </p>
+        <SwitchLabel
+          id="foc-label-off"
+          label={LABEL}
+          switchClassName="ring-[3px] ring-components-input-focus"
+        />
+        <SwitchLabel
+          id="foc-label-on"
+          label={LABEL}
+          defaultChecked
+          switchClassName="ring-[3px] ring-components-input-focus"
+        />
+      </section>
+      <section className="flex max-w-sm flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          With label and description
+        </p>
+        <SwitchLabel
+          id="foc-desc-off"
+          label={LABEL}
+          description={DESCRIPTION}
+          switchClassName="ring-[3px] ring-components-input-focus"
+        />
+        <SwitchLabel
+          id="foc-desc-on"
+          label={LABEL}
+          description={DESCRIPTION}
+          defaultChecked
+          switchClassName="ring-[3px] ring-components-input-focus"
+        />
+      </section>
     </div>
   ),
 }
