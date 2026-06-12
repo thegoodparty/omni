@@ -315,6 +315,11 @@ const StepBody = ({
     return (
       <VoterDemographicsStep
         ballotReadyPositionId={answers.structuredOffice?.positionId}
+        // Keys the stats query identically to the path-to-victory prefetch
+        // (which includes the org position) so the warmed entry is the one
+        // this step reads — and keeps the query enabled when the snapshot
+        // id is missing.
+        orgPositionId={liveCampaign?.organization?.positionId ?? undefined}
         city={answers.structuredOffice?.city}
         state={answers.structuredOffice?.state}
         office={answers.structuredOffice?.positionName}

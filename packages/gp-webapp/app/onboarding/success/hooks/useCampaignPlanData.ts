@@ -71,6 +71,17 @@ export const useCampaignPlanData = (
     campaign?.organization?.customPositionName ||
     campaign?.office ||
     ''
+  // Place-qualified position name ("Cook County Sheriff"), the same string
+  // family the onboarding snapshot froze — but resolved by gp-api from the
+  // org's CURRENT position pointer on every campaign fetch, so it tracks
+  // race edits. officialOfficeName is deliberately not in this chain: it's
+  // the bare ballot text ("County Sheriff"), wrong for the voter-insights
+  // headline.
+  const currentPositionName =
+    campaign?.positionName ||
+    campaign?.organization?.customPositionName ||
+    campaign?.office ||
+    ''
   const stateValue = campaign?.details?.state ?? campaign?.state ?? ''
   const city = campaign?.details?.city ?? campaign?.city ?? ''
   const district = campaign?.details?.district ?? ''
@@ -181,18 +192,18 @@ export const useCampaignPlanData = (
 
   // Same cache key as the on-screen TopVoterIssuesSection (Section 4) —
   // keeps the PDF's Section 3 in sync with what the user sees. The tuple
-  // uses the CURRENT office (`race`/`city`/`stateValue`, all maintained on
-  // race edits) rather than the frozen onboarding snapshot: the snapshot's
-  // name would label and key Section 4 with the pre-edit office forever.
-  // The ids are the real cache discriminators; the strings just need to
-  // match what PlanSections passes to the section components.
+  // uses the CURRENT office (all maintained on race edits) rather than the
+  // frozen onboarding snapshot: the snapshot's name would label and key
+  // Section 4 with the pre-edit office forever. The ids are the real cache
+  // discriminators; the strings just need to match what PlanSections
+  // passes to the section components.
   const voterIssuesQuery = useQuery(
     voterIssuesQueryOptions({
       ballotReadyPositionId,
       orgPositionId: campaign?.organization?.positionId ?? undefined,
       city: city || undefined,
       state: stateValue || undefined,
-      office: race || undefined,
+      office: currentPositionName || undefined,
     }),
   )
   const voterIssuesFromApi = voterIssuesQuery.data?.issues
@@ -299,16 +310,13 @@ export const useCampaignPlanData = (
       // on race edits.
       ballotReadyPositionId,
       orgPositionId: campaign?.organization?.positionId ?? undefined,
-      // Display + key fields use the SAME `race` value as the rest of
-      // the plan ("You are running for X"): officialOfficeName resolved
-      // from details.raceId, the ballot name. The onboarding snapshot's
-      // BR positionName is the generic position-type string ("Party
-      // Office - State Congressional District") and goes stale on race
-      // edits. Must stay identical to the voterIssuesQuery tuple above
-      // so Section 4's query shares its cache entry.
+      // Display + key fields track the CURRENT office via
+      // currentPositionName — same text the snapshot froze, minus the
+      // staleness. Must stay identical to the voterIssuesQuery tuple
+      // above so Section 4's query shares its cache entry.
       city: city || undefined,
       state: stateValue || undefined,
-      office: race || undefined,
+      office: currentPositionName || undefined,
     },
     strategy: {
       ready: strategy.data !== undefined,
