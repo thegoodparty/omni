@@ -122,18 +122,30 @@ failed                         ← unrecoverable blocker
 
 Call the gp-api MCP tool **that returns the candidate's current compliance state** (its description references `Campaign.details.pipelineStatus`). Pass `campaign_id` from params.
 
-The response tells you which downstream steps are already complete. Build a local skip-list:
+The response is gp-api's authoritative `ComplianceStateOutput`: a single canonical `stage` plus `domain` (`name`, `status`, `registrantVerifiedAt`), `websiteId`, and `peerlyVerificationId`. `stage` is the source of truth for how far the pipeline has progressed, and it already encodes the live-website precondition: gp-api will not report a submission-or-later stage unless the candidate's website is published and the domain registrant is verified. Build your skip-list from `stage`:
 
-| If state says…                          | Skip step      |
-| --------------------------------------- | -------------- |
-| `domain` row exists with a `name`       | Step 2 + 3     |
-| `website.status == "published"`         | Step 4         |
-| `website.verified_live_at` is non-null  | Step 5         |
-| `tcr_compliance.peerly_request_id` set  | Step 6         |
+| `stage` from gp-api              | Meaning                                                  | Skip          |
+| -------------------------------- | -------------------------------------------------------- | ------------- |
+| `needs_profile` / `needs_filing` | No usable compliance record yet; the candidate has not completed their profile or filing, so dispatch is premature. Append blocker `{ step: "compliance_state_read", code: "candidate_not_ready", detail: "stage is needs_profile or needs_filing; dispatch is premature", first_seen_at: <ISO now>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7. Do not proceed. | all           |
+| `pending_domain_purchase`        | No registered domain yet                                 | nothing       |
+| `pending_website_live`           | Domain registered, website NOT published and live        | Steps 2 + 3   |
+| `awaiting_pin`                   | Website published and live; not yet submitted to Peerly  | Steps 2 to 5  |
+| `tcr_in_review` / `tcr_approved` | Already submitted to Peerly on a live site               | Steps 2 to 6  |
+| `tcr_rejected`                   | Peerly rejected a prior submission; do not resubmit. Immediately set `stage: "failed"`, append blocker `{ step: "submit_tcr", code: "peerly_rejection", detail: <rejection_reason from ComplianceStateOutput if present, else "">, first_seen_at: <ISO now>, retry_count: 0, is_recoverable: false }`, and go to Step 7. | Steps 2 to 6 |
+| *(any other value)*              | Unknown stage; gp-api's schema may have changed. Do not run any step (re-running could re-purchase a domain or re-submit to Peerly). Append blocker `{ step: "compliance_state_read", code: "unknown_stage", detail: <the unexpected stage value>, first_seen_at: <ISO now>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7. | all           |
 
-If `trigger == "recovery_resume"` and `resume_from_stage` is set, treat it as an additional skip-list signal: any step at or before `resume_from_stage` is complete. Distrust nothing — `resume_from_stage` is a hint; the durable state is the truth.
+A published, verified-live website is a hard precondition for submitting to Peerly, so enforce it independently of `stage` (a stale or wrong upstream signal must never let you skip it). Before Step 6, and before treating the pipeline as complete, confirm the website-read tool reports `status == "published"`. If `stage` is `pending_website_live`, or the website read is not `published`, the site is not live: run Step 4 (publish, unless the website read already says `published`) and Step 5 (verify live) before Step 6, no matter what any other field says. Submission has happened only when `stage` is `tcr_in_review` or `tcr_approved`; treat no other stage or field as proof the pipeline is done.
 
-Update the artifact: set `stage` to the first stage you have not yet entered. If everything is already done, jump to Step 7 and write `stage: "tcr_submitted"`.
+If `trigger == "recovery_resume"` and `resume_from_stage` is set, treat it as an additional skip-list signal: any step at or before `resume_from_stage` is complete. Distrust nothing: `resume_from_stage` is a hint; the durable `stage` is the truth.
+
+Update the artifact: set `stage` to the first stage you have not yet entered, using the translations below. **Do not copy the gp-api stage label directly; several gp-api stage names mean something different in the artifact enum:**
+
+| gp-api `stage`                   | Artifact `stage` to write           | Rationale                                         |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------- |
+| `pending_domain_purchase`         | `pending_dispatch`                   | Step 1 done; Step 2 is next                       |
+| `pending_website_live`            | `domain_purchased`                   | Steps 2+3 done; Step 4 (publish website) is next  |
+| `awaiting_pin`                    | `website_verified_live`              | Steps 2-5 done; Step 6 (submit TCR) is next       |
+| `tcr_in_review` / `tcr_approved` | jump to Step 7, write `tcr_submitted` | Everything already done                           |
 
 **5xx / network errors on the compliance-state read** are transient — retry per Rule 8's bounded budget (3 attempts, `1s → 4s → 16s`). After 3 attempts, append blocker `{ step: "compliance_state_read", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `pending_dispatch` (the skeleton default — no work could be done without the state read). Go to Step 7 and exit — the recovery loop will re-dispatch. **Never proceed with an empty or assumed state**; the idempotency primitive in this step is what prevents re-purchasing a domain that already exists.
 
@@ -211,7 +223,9 @@ Outcomes:
 
 ## STEP 6 — Submit TCR registration to Peerly
 
-Skip if state says `tcr_compliance.peerly_request_id` is already set.
+Do **not** pre-skip this step on `peerlyVerificationId` alone: a set verification id does not prove a completed, non-rejected submission. The authoritative "already submitted" signal is `stage` being `tcr_in_review` or `tcr_approved`, which Step 1 already handled by jumping to Step 7, so you only reach this step when submission has not yet succeeded. If an identity nonetheless already exists, gp-api's submit tool is idempotent and returns the cached `peerly_request_id` (the 409 outcome below) instead of double-submitting.
+
+**Precondition: never submit to Peerly for a site that is not live.** Before calling the tool, call the website-read tool and confirm it reports `status == "published"`. This check is required regardless of `stage` (see Step 1: a stale or wrong upstream signal must never let you skip it). If it does not report `published`, do **not** call this tool: go back and run Steps 4 and 5 first. Additionally, confirm Step 5 succeeded this run, or that `stage` was `awaiting_pin` on read, which excuses the agent from having run Steps 4 and 5 this invocation but does NOT excuse the website-read check above. gp-api enforces the same gate and will reject a submission while the website is not published and live, so calling early only wastes a turn. **If the website-read tool returns a 5xx / network error**, retry per Rule 8's bounded budget (3 attempts, `1s → 4s → 16s`). After 3 attempts, append blocker `{ step: "submit_tcr", code: "gp_api_unavailable", detail: "website-read precondition check failed", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `website_verified_live`. Go to Step 7 and exit.
 
 Call the gp-api MCP tool **that submits the candidate's TCR / CV registration to Peerly** (its description references `peerlyIdentityService.submitCampaignVerifyRequest`). This is the new `@McpTool`-decorated controller method — **not** the legacy `POST /v1/campaigns/tcr-compliance` endpoint. The tool descriptions disambiguate; pick the one that talks about Peerly CV submission for the agentic flow.
 
