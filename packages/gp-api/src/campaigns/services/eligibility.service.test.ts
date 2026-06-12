@@ -239,6 +239,60 @@ describe('EligibilityService', () => {
     expect(result.reelectionOfficeSlug).toBe('newer-office')
   })
 
+  it('falls back to termEndAt when termStartAt is null', async () => {
+    const service = await buildService(
+      [],
+      [
+        buildOffice({
+          organizationSlug: 'earlier-end',
+          isActive: false,
+          termStartAt: null,
+          termEndAt: new Date('2019-06-01'),
+          createdAt: new Date('2022-01-01'),
+        }),
+        buildOffice({
+          organizationSlug: 'later-end',
+          isActive: false,
+          termStartAt: null,
+          termEndAt: new Date('2023-06-01'),
+          createdAt: new Date('2018-01-01'),
+        }),
+      ],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.holdsOffice).toBe(false)
+    expect(result.reelectionOfficeSlug).toBe('later-end')
+  })
+
+  it('falls back to createdAt when both term dates are null', async () => {
+    const service = await buildService(
+      [],
+      [
+        buildOffice({
+          organizationSlug: 'older-created',
+          isActive: false,
+          termStartAt: null,
+          termEndAt: null,
+          createdAt: new Date('2018-01-01'),
+        }),
+        buildOffice({
+          organizationSlug: 'newer-created',
+          isActive: false,
+          termStartAt: null,
+          termEndAt: null,
+          createdAt: new Date('2022-01-01'),
+        }),
+      ],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.holdsOffice).toBe(false)
+    expect(result.reelectionOfficeSlug).toBe('newer-created')
+  })
+
   it('returns a null reelectionOfficeSlug when the user has no offices', async () => {
     const service = await buildService([], [])
 
