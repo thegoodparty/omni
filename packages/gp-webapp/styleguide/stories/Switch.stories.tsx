@@ -30,7 +30,8 @@ const meta: Meta<typeof Switch> = {
     side: {
       control: { type: 'inline-radio' },
       options: ['left', 'right'],
-      description: 'Side the switch appears on. Only applies when label is shown.',
+      description:
+        'Side the switch appears on. Only applies when label is shown.',
     },
   },
 }
@@ -111,7 +112,12 @@ export const Default: Story = {
           With label and description
         </p>
         <SwitchLabel id="d-desc-off" label={LABEL} description={DESCRIPTION} />
-        <SwitchLabel id="d-desc-on" label={LABEL} description={DESCRIPTION} defaultChecked />
+        <SwitchLabel
+          id="d-desc-on"
+          label={LABEL}
+          description={DESCRIPTION}
+          defaultChecked
+        />
       </section>
     </div>
   ),
@@ -141,7 +147,12 @@ export const Disabled: Story = {
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           With label and description
         </p>
-        <SwitchLabel id="dis-desc-off" label={LABEL} description={DESCRIPTION} disabled />
+        <SwitchLabel
+          id="dis-desc-off"
+          label={LABEL}
+          description={DESCRIPTION}
+          disabled
+        />
         <SwitchLabel
           id="dis-desc-on"
           label={LABEL}
@@ -164,7 +175,10 @@ export const Focused: Story = {
         </p>
         <div className="flex items-center gap-4">
           <Switch className="ring-[3px] ring-components-input-focus" />
-          <Switch defaultChecked className="ring-[3px] ring-components-input-focus" />
+          <Switch
+            defaultChecked
+            className="ring-[3px] ring-components-input-focus"
+          />
         </div>
       </section>
       <section className="flex max-w-sm flex-col gap-2">
