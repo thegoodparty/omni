@@ -33,14 +33,6 @@ npm run lint -w packages/gp-webapp                                              
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 
-Run all five steps locally before opening a PR. The most common CI failure is Prettier — always run `lint` last and fix any formatting issues with:
-
-```bash
-cd packages/gp-webapp && npx prettier --write .
-```
-
-Then re-run `lint` to confirm it passes before pushing.
-
 ## Architecture
 
 Next.js 15 App Router deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
@@ -130,6 +122,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Reproducing a Sentry issue locally                           | `docs/debugging.md`                               |
 | State / providers / React Query patterns                     | `docs/state-management.md`                        |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                           |
+| Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`               |
 | Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                    |
 | Working with helpers                                         | `helpers/CLAUDE.md`                               |
