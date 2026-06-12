@@ -2,7 +2,6 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { Inject, Injectable, forwardRef } from '@nestjs/common'
 import { ElectedOffice, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import {
   DEFAULT_PAGINATION_LIMIT,
   DEFAULT_PAGINATION_OFFSET,
@@ -55,44 +54,27 @@ export class ElectedOfficeService extends createPrismaBase(
       overrideDistrictId: null,
     }
 
-    let created: ElectedOffice
-    try {
-      created = await this.client.$transaction(async (tx) => {
-        const id = uuidv7()
+    const created = await this.client.$transaction(async (tx) => {
+      const id = uuidv7()
 
-        await tx.organization.create({
-          data: {
-            slug: OrganizationsService.electedOfficeOrgSlug(id),
-            ownerId: args.userId,
-            ...orgData,
-          },
-        })
-
-        return tx.electedOffice.create({
-          data: {
-            id,
-            swornInDate: args.swornInDate,
-            userId: args.userId,
-            campaignId: args.campaignId,
-            organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
-          },
-        })
+      await tx.organization.create({
+        data: {
+          slug: OrganizationsService.electedOfficeOrgSlug(id),
+          ownerId: args.userId,
+          ...orgData,
+        },
       })
-    } catch (err) {
-      // A concurrent create that wins the race trips the userId unique
-      // constraint; the transaction rolls back (no orphan org) and we return
-      // the row the other caller committed, keeping the endpoint idempotent.
-      if (isUniqueConstraintError(err)) {
-        const concurrent = await this.model.findFirst({
-          where: { userId: args.userId },
-        })
-        if (concurrent) {
-          await this.dispatchScheduleAfterCreate(concurrent)
-          return concurrent
-        }
-      }
-      throw err
-    }
+
+      return tx.electedOffice.create({
+        data: {
+          id,
+          swornInDate: args.swornInDate,
+          userId: args.userId,
+          campaignId: args.campaignId,
+          organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
+        },
+      })
+    })
 
     await this.dispatchScheduleAfterCreate(created)
 
