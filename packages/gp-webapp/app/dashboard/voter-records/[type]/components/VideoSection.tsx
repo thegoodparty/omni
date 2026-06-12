@@ -62,8 +62,8 @@ export default function LearnAction({
   }
   return (
     <>
-      <div className=" bg-neutral-background border border-slate-300 h-[420px] rounded-2xl flex justify-center items-center">
-        <FaCirclePlay size={120} className="text-neutral" />
+      <div className=" bg-grayscale-50 border border-slate-300 h-[420px] rounded-2xl flex justify-center items-center">
+        <FaCirclePlay size={120} className="text-grayscale-400" />
       </div>
     </>
   )

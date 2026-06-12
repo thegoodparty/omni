@@ -41,14 +41,12 @@ describe('SuccessStep', () => {
     )
   })
 
-  it('routes to the post-payment compliance surface when Continue is clicked', () => {
+  it('routes to the dashboard when Continue is clicked', () => {
     render(<SuccessStep />)
 
     screen.getByRole('button', { name: /continue/i }).click()
 
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/profile#texting-compliance',
-    )
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.SuccessContinue,
     )

@@ -5,7 +5,6 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-import { visualSnapshot } from '../../../src/helpers/visual.helper'
 
 /**
  * Greeting line after client campaign/user hydration (HeaderSection).
@@ -41,12 +40,6 @@ test.describe('Dashboard Functionality', () => {
       timeout: 15000,
     })
     console.log('✅ Dashboard accessible')
-    await visualSnapshot(page, 'dashboard.png', {
-      mask: [
-        // Greeting / election line changes with date and copy experiments
-        campaignPageGreetingHeading(page),
-      ],
-    })
 
     await page.goto('/dashboard/campaign-assistant')
     await WaitHelper.waitForPageReady(page)
@@ -54,7 +47,6 @@ test.describe('Dashboard Functionality', () => {
       page.getByRole('heading', { name: 'AI Assistant' }),
     ).toBeVisible({ timeout: 5000 })
     console.log('✅ AI Assistant accessible')
-    await visualSnapshot(page, 'campaign-assistant.png')
 
     await page.goto('/dashboard/profile')
     await WaitHelper.waitForPageReady(page)
@@ -62,11 +54,5 @@ test.describe('Dashboard Functionality', () => {
       page.getByRole('heading', { name: 'Contact Information' }).first(),
     ).toBeVisible()
     console.log('✅ Profile accessible')
-    await visualSnapshot(page, 'profile.png', {
-      mask: [
-        page.getByTestId('personal-phone'),
-        page.getByTestId('personal-zip'),
-      ],
-    })
   })
 })

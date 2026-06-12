@@ -5,10 +5,12 @@ import { ArrowLeftIcon, Button, MessageSquareIcon } from '@styleguide'
 import { briefingsLandingHref } from '@shared/briefings/routes'
 import { formatBriefingMeetingDate } from '@shared/briefings/dateHelpers'
 import type { Briefing } from '@shared/briefings/types'
+import type { BriefingReviewVerdict } from '@shared/briefings/server'
 import { useReviewAnnotationsCtx } from '@shared/annotations/review/ReviewAnnotationsScope'
 
 type Props = {
   briefing: Briefing
+  review: BriefingReviewVerdict | null
 }
 
 /**
@@ -19,6 +21,7 @@ type Props = {
  */
 export default function ReviewDetailHeader({
   briefing,
+  review,
 }: Props): React.JSX.Element {
   const formattedDate = formatBriefingMeetingDate(briefing.meeting_date)
   const { openReviewsSurface, reviewsCount } = useReviewAnnotationsCtx()
@@ -39,6 +42,19 @@ export default function ReviewDetailHeader({
           <p className="text-sm text-muted-foreground">{formattedDate}</p>
           {briefing.location ? (
             <p className="text-sm text-muted-foreground">{briefing.location}</p>
+          ) : null}
+          {review ? (
+            <p
+              className={`text-sm ${
+                review.verdict === 'passed'
+                  ? 'text-success-700'
+                  : 'text-destructive'
+              }`}
+            >
+              {review.verdict === 'passed' ? 'Passed' : 'Failed'}
+              {review.reviewerEmail ? ` by ${review.reviewerEmail}` : ''}
+              {' — a new verdict will overwrite this one'}
+            </p>
           ) : null}
         </div>
         <div className="flex items-center gap-2 self-center">

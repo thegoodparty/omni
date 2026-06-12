@@ -30,7 +30,6 @@ interface TaskItemProps {
   daysUntilElection: number
   electionDate: string | undefined
   isPro: boolean
-  isLegacyList?: boolean
   tcrCompliance?: TcrCompliance | null
   onCheck: (task: Task) => void
   onAction: (task: Task) => void
@@ -41,7 +40,6 @@ export default function TaskItem({
   daysUntilElection,
   electionDate,
   isPro,
-  isLegacyList = true,
   tcrCompliance,
   onCheck,
   onAction,
@@ -114,13 +112,9 @@ export default function TaskItem({
     ? (DISPLAY_TASK_TYPES[flowType] ?? flowType)
     : ''
 
-  const linkForRow =
-    (isLegacyList && completed) ||
-    (!isLegacyList && flowType === TASK_TYPES.events)
-      ? undefined
-      : link
+  const linkForRow = flowType === TASK_TYPES.events ? undefined : link
 
-  const suppressRowAction = completed && !isLegacyList && !link
+  const suppressRowAction = completed && !link
 
   return (
     <li className="border-t border-black/12">

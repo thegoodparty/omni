@@ -39,9 +39,6 @@ import { getVisibleOnboardingSteps } from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
-import { OutreachPlanStep, computeWeeksRemaining } from './OutreachPlanStep'
-import { computeBudget, resolveVoterContactGoal } from './budget'
-import { computeCampaignHours } from './volunteerHours'
 import { PledgeStep } from './PledgeStep'
 import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { WhyThisMatters } from './WhyThisMatters'
@@ -325,10 +322,6 @@ const StepBody = ({
     )
   }
 
-  if (activeStep.id === 'outreach-plan') {
-    return <OutreachPlanStep campaign={liveCampaign} />
-  }
-
   if (activeStep.id === 'pledge') {
     return <PledgeStep />
   }
@@ -464,7 +457,6 @@ export default function OnboardingFlow({
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
       'voter-demographics': EVENTS.OnboardingV2.VoterInsightsViewed,
-      'outreach-plan': EVENTS.OnboardingV2.ResourcesViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -865,42 +857,6 @@ export default function OnboardingFlow({
         campaignId: campaign?.id,
       })
     }
-    if (activeStep.id === 'outreach-plan') {
-      const metrics = liveCampaign?.raceTargetMetrics ?? null
-      const winNumber = metrics?.winNumber ?? 0
-      const projectedTurnout = metrics?.projectedTurnout ?? 0
-      const voterContactGoal = resolveVoterContactGoal(
-        metrics?.voterContactGoal,
-        winNumber,
-      )
-      // Mirror OutreachPlanStep: resources only render when both inputs are
-      // positive. When they are not, the step shows "unavailable" and there
-      // are no figures to report — send the event with the values omitted.
-      if (voterContactGoal > 0 && projectedTurnout > 0) {
-        const weeksRemaining = computeWeeksRemaining(
-          liveCampaign?.details?.electionDate,
-        )
-        // minimumBudget is the total whole-dollar campaign budget (not
-        // monthly). minimumVolunteerHours is the volunteer (door-knocking)
-        // hours total over the remaining weeks (not per week), matching the
-        // "Volunteers" row OutreachPlanStep renders.
-        const budget = computeBudget(
-          voterContactGoal,
-          projectedTurnout,
-          metrics?.filingFee ?? null,
-        )
-        const hours = computeCampaignHours(voterContactGoal, weeksRemaining)
-        trackEvent(EVENTS.OnboardingV2.ResourcesCompleted, {
-          campaignId: liveCampaign?.id ?? campaign?.id,
-          minimumBudget: budget.totalBudget,
-          minimumVolunteerHours: hours.volunteerHours,
-        })
-      } else {
-        trackEvent(EVENTS.OnboardingV2.ResourcesCompleted, {
-          campaignId: liveCampaign?.id ?? campaign?.id,
-        })
-      }
-    }
     if (
       activeStep.id === 'office-selection' &&
       answers.structuredOffice &&
@@ -1067,12 +1023,6 @@ export default function OnboardingFlow({
                         </span>
                         .
                       </>
-                    ) : activeStep.id === 'outreach-plan' ? (
-                      `You need ${numberFormatter(
-                        liveCampaign?.raceTargetMetrics?.winNumber ?? 0,
-                      )} projected voters to win with at least ${computeWeeksRemaining(
-                        liveCampaign?.details?.electionDate ?? null,
-                      )} weeks to campaign before Election Day.`
                     ) : (
                       activeStep.description
                     )}

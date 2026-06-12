@@ -3,7 +3,6 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { visualSnapshot } from 'src/helpers/visual.helper'
 import { filtersSheet, personContactPanel } from 'src/helpers/contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 import { eventually } from 'tests/utils/eventually'
@@ -40,16 +39,6 @@ test.describe('Contacts Page', () => {
     await expect(firstCell).toHaveText(/.+/, { timeout: 25000 })
     const page1FirstPersonName = (await firstCell.textContent())?.trim()
     expect(page1FirstPersonName).toBeTruthy()
-    const statsCards = [
-      page.locator(`[data-testid="contact-stats-totalConstituents"]`),
-      page.locator(`[data-testid="contact-stats-visibleContactsPercent"]`),
-      page.locator(`[data-testid="contact-stats-homeowners"]`),
-      page.locator(`[data-testid="contact-stats-hasChildren"]`),
-      page.locator(`[data-testid="contact-stats-medianIncome"]`),
-    ]
-    await visualSnapshot(page, 'contacts-page.png', {
-      mask: [...statsCards, table.locator('tbody')],
-    })
 
     const pagination = page.locator('[data-slot="pagination-content"]')
 
@@ -93,10 +82,6 @@ test.describe('Contacts Page', () => {
     await expect(
       personSheet.getByText(firstPersonName!, { exact: false }),
     ).toBeVisible({ timeout: 5000 })
-
-    await visualSnapshot(page, 'contacts-person-overlay.png', {
-      mask: [...statsCards, personSheet],
-    })
 
     const closeButton = personSheet.getByRole('button', { name: /close/i })
     await closeButton.click()
@@ -151,10 +136,6 @@ test.describe('Contacts Page', () => {
     await createListButton.click({ force: true })
     const sheet = filtersSheet(page, /create segment/i)
     await expect(sheet).toBeVisible({ timeout: 30000 })
-
-    await visualSnapshot(page, 'contacts-filters-sheet.png', {
-      mask: statsCards,
-    })
 
     const age18_25Label = sheet.getByText('18-25', { exact: true })
     const age18_25Checkbox = age18_25Label

@@ -297,7 +297,6 @@ export interface PlanData {
   keyDates: KeyDate[]
 
   voterInsightsIssues: VoterInsightIssue[]
-  voterInsightsSource: 'district' | 'candidate' | 'stub'
 
   // Section 2 tables — templated from race data per the ClickUp template
   // (not LLM-generated).
@@ -1124,22 +1123,16 @@ const buildVoterInsights = (
   customIssues: PlanIssueInput[],
   stances: PlanStanceInput[],
   voterIssuesFromApi: ApiVoterIssue[] | undefined,
-): {
-  issues: VoterInsightIssue[]
-  source: 'district' | 'candidate' | 'stub'
-} => {
+): VoterInsightIssue[] => {
   // Prefer real district survey data when the cached query resolved. The
   // on-screen TopVoterIssuesSection in onboarding shows the same labels;
   // synthesizing a short description here keeps the PDF's title+body
   // DefinitionList shape intact without forcing the API to add copy.
   if (voterIssuesFromApi && voterIssuesFromApi.length > 0) {
-    return {
-      issues: voterIssuesFromApi.map((i) => ({
-        title: i.label,
-        description: describeApiIssue(i),
-      })),
-      source: 'district',
-    }
+    return voterIssuesFromApi.map((i) => ({
+      title: i.label,
+      description: describeApiIssue(i),
+    }))
   }
   const fromCustom = customIssues
     .filter((i) => (i.title ?? '').trim() !== '')
@@ -1148,7 +1141,7 @@ const buildVoterInsights = (
       description: (i.position ?? '').trim(),
     }))
   if (fromCustom.length > 0) {
-    return { issues: fromCustom, source: 'candidate' }
+    return fromCustom
   }
   const fromStances = stances
     .filter((s) => (s.issueName ?? '').trim() !== '')
@@ -1157,28 +1150,25 @@ const buildVoterInsights = (
       description: (s.statement ?? '').trim(),
     }))
   if (fromStances.length > 0) {
-    return { issues: fromStances, source: 'candidate' }
+    return fromStances
   }
-  return {
-    issues: [
-      {
-        title: 'Cost of living and local services',
-        description:
-          'Survey and voter data point to housing, services, and local tax pressure as the most common top concerns in this district.',
-      },
-      {
-        title: 'Public safety and community trust',
-        description:
-          'Voters consistently rank safety, response times, and the quality of community-police relationships among their top issues.',
-      },
-      {
-        title: 'Schools and youth programs',
-        description:
-          'Education funding, after-school programs, and youth services drive turnout among the most reliable voters in races at this level.',
-      },
-    ],
-    source: 'stub',
-  }
+  return [
+    {
+      title: 'Cost of living and local services',
+      description:
+        'Survey and voter data point to housing, services, and local tax pressure as the most common top concerns in this district.',
+    },
+    {
+      title: 'Public safety and community trust',
+      description:
+        'Voters consistently rank safety, response times, and the quality of community-police relationships among their top issues.',
+    },
+    {
+      title: 'Schools and youth programs',
+      description:
+        'Education funding, after-school programs, and youth services drive turnout among the most reliable voters in races at this level.',
+    },
+  ]
 }
 
 const DATA_SOURCES: DataSourceRow[] = [
@@ -1393,12 +1383,11 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const opponentCount = opponents.length
   const incumbent = opponents.find((o) => o.incumbent === true) ?? null
 
-  const { issues: voterInsightsIssues, source: voterInsightsSource } =
-    buildVoterInsights(
-      input.customIssues,
-      input.stances,
-      input.voterIssuesFromApi,
-    )
+  const voterInsightsIssues = buildVoterInsights(
+    input.customIssues,
+    input.stances,
+    input.voterIssuesFromApi,
+  )
 
   // Section 3 "Your Key Numbers" — Number | Target | How we got it.
   const metrics: MetricRow[] = [
@@ -1482,7 +1471,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     campaignMath,
     keyDates,
     voterInsightsIssues,
-    voterInsightsSource,
     opportunityRows,
     challengeRows,
     opponents,

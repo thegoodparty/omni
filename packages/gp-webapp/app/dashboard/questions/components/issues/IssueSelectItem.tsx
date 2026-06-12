@@ -29,7 +29,7 @@ export const IssueSelectItem = ({
       cursor-pointer 
       transition-colors 
       bg-indigo-50
-      hover:bg-tertiary-background
+      hover:bg-brand-halo-green-50
     `}
     onClick={() => {
       handleSelectIssue(issue)

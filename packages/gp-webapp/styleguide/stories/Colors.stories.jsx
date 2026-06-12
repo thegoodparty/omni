@@ -142,15 +142,13 @@ function readCSSTokenGroup(el, prefix, names) {
   return result
 }
 
-// Reads the Tailwind palette CSS variable for a given scale step. Tailwind v4
-// only emits --color-{scale}-{step} vars for utility classes the codebase
-// actually references — so a missing value here means nothing in the app uses
-// bg-{scale}-{step}. We filter those out rather than fabricating defaults,
-// keeping the displayed palette honest about what consumers can actually render.
+// Reads the Tailwind palette from --tw-{scale}-{step} vars, which are always
+// present on :root via design-tokens.css regardless of which utility classes
+// the codebase references.
 function readTailwindScale(scaleName, steps) {
   const el = document.documentElement
   return steps.flatMap((step) => {
-    const hex = readCSSVar(el, `--color-${scaleName}-${step}`)
+    const hex = readCSSVar(el, `--tw-${scaleName}-${step}`)
     return hex ? [{ step, hex }] : []
   })
 }
@@ -354,21 +352,29 @@ const THEME_TOKEN_NAMES = [
   'secondary-foreground',
   'secondary-focus',
   'destructive',
+  'destructive-light',
+  'destructive-dark',
   'destructive-foreground',
   'destructive-focus',
   'success',
+  'success-light',
+  'success-dark',
   'success-foreground',
   'success-focus',
   'info',
+  'info-light',
+  'info-dark',
   'info-foreground',
   'info-focus',
   'warning',
+  'warning-light',
+  'warning-dark',
   'warning-foreground',
   'warning-focus',
-  'link',
 ]
 
 const COMPONENT_TOKEN_NAMES = [
+  'link',
   'card-base',
   'card-foreground',
   'tooltip-base',
@@ -410,22 +416,33 @@ const THEME_GROUPS = [
   ],
   [
     'destructive',
+    'destructive-light',
+    'destructive-dark',
     'destructive-foreground',
     'destructive-focus',
+  ],
+  [
     'success',
+    'success-light',
+    'success-dark',
     'success-foreground',
     'success-focus',
   ],
+  ['info', 'info-light', 'info-dark', 'info-foreground', 'info-focus'],
   [
-    'info',
-    'info-foreground',
-    'info-focus',
     'warning',
+    'warning-light',
+    'warning-dark',
     'warning-foreground',
     'warning-focus',
   ],
-  ['link'],
 ]
+
+// Sub-section labels rendered above the group whose first key matches.
+const THEME_GROUP_SUB_LABELS = {
+  primary: 'Branding',
+  destructive: 'Semantic',
+}
 
 const BASE_GROUPS = [
   ['background', 'foreground', 'surface', 'surface-foreground', 'border'],
@@ -434,6 +451,7 @@ const BASE_GROUPS = [
 ]
 
 const COMPONENT_GROUPS = [
+  ['link'],
   ['card-base', 'card-foreground', 'tooltip-base', 'tooltip-foreground'],
   [
     'input-base',
@@ -448,7 +466,7 @@ const TOKEN_GROUP_META = {
   theme: {
     title: 'Theme',
     description:
-      'Semantic action colors — primary, secondary, destructive, success, info.',
+      'Branding tokens (primary, secondary) and semantic action colors (destructive, success, info, warning) with light/dark variants.',
   },
   base: {
     title: 'Base',
@@ -457,7 +475,7 @@ const TOKEN_GROUP_META = {
   },
   component: {
     title: 'Components',
-    description: 'Component-specific tokens — cards, inputs, tooltips.',
+    description: 'Component-specific tokens — link, cards, inputs, tooltips.',
   },
   sidebar: {
     title: 'Sidebar',
@@ -552,30 +570,47 @@ export const ThemeColors = ({ mode }) => {
                         ? BASE_GROUPS
                         : COMPONENT_GROUPS
                     ).map((keys) => (
-                      <SwatchRow key={keys[0]}>
-                        {keys.map((name) => {
-                          const token = tokens[groupKey]?.[name]
-                          if (!token) return null
-                          const baseRef = baseRefs[groupKey]?.[name]
-                          const alias = baseRef
-                            ? `${token.ref} → ${baseRef}`
-                            : token.ref
-                          return (
-                            <Swatch
-                              key={name}
-                              name={name}
-                              hex={token.hex}
-                              alias={alias}
-                              isDark={isDark}
-                              cardBg={cardBg}
-                              borderColor={borderColor}
-                              foregroundColor={foregroundColor}
-                              mutedForegroundColor={mutedForegroundColor}
-                              cardHeight={260}
-                            />
-                          )
-                        })}
-                      </SwatchRow>
+                      <div key={keys[0]}>
+                        {groupKey === 'theme' &&
+                          THEME_GROUP_SUB_LABELS[keys[0]] && (
+                            <p
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.08em',
+                                color: mutedForegroundColor,
+                                margin: '12px 0 6px',
+                              }}
+                            >
+                              {THEME_GROUP_SUB_LABELS[keys[0]]}
+                            </p>
+                          )}
+                        <SwatchRow>
+                          {keys.map((name) => {
+                            const token = tokens[groupKey]?.[name]
+                            if (!token) return null
+                            const baseRef = baseRefs[groupKey]?.[name]
+                            const alias = baseRef
+                              ? `${token.ref} → ${baseRef}`
+                              : token.ref
+                            return (
+                              <Swatch
+                                key={name}
+                                name={name}
+                                hex={token.hex}
+                                alias={alias}
+                                isDark={isDark}
+                                cardBg={cardBg}
+                                borderColor={borderColor}
+                                foregroundColor={foregroundColor}
+                                mutedForegroundColor={mutedForegroundColor}
+                                cardHeight={260}
+                              />
+                            )
+                          })}
+                        </SwatchRow>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -731,42 +766,6 @@ export const BrandingColors = () => {
 BrandingColors.parameters = STORY_PARAMS
 
 // =============================================================================
-// Semantic Colors
-// =============================================================================
-export const SemanticColors = () => {
-  const [data, setData] = useState(null)
-
-  useEffect(() => {
-    const el = document.documentElement
-    const readScale = (prefix) => readCSSScale(el, prefix, SCALE_STEPS)
-
-    setData({
-      error: readScale('color-red'),
-      success: readScale('color-green'),
-      info: readScale('color-blue'),
-      warning: readScale('color-warning'),
-    })
-  }, [])
-
-  if (!data) return null
-
-  return (
-    <div style={PAGE_STYLE} className="space-y-10">
-      <PageHeader
-        title="Semantic Colors"
-        description="Colors that define logic used when applied to digital interfaces. Each scale runs from 50 (lightest) to 950 (darkest). Read from CSS custom properties."
-      />
-
-      <ScaleRow scaleName="Error" prefix="bg-error" colors={data.error} />
-      <ScaleRow scaleName="Success" prefix="bg-success" colors={data.success} />
-      <ScaleRow scaleName="Info" prefix="bg-info" colors={data.info} />
-      <ScaleRow scaleName="Warning" prefix="bg-warning" colors={data.warning} />
-    </div>
-  )
-}
-SemanticColors.parameters = STORY_PARAMS
-
-// =============================================================================
 // Tailwind Colors
 // =============================================================================
 
@@ -795,7 +794,7 @@ const TW_SCALE_NAMES = [
   'rose',
 ]
 
-const TW_BASE_STEPS = ['black', 'white', 'transparent']
+const TW_BASE_STEPS = ['black', 'white']
 
 export const TailwindColors = () => {
   const [data, setData] = useState(null)
@@ -804,7 +803,7 @@ export const TailwindColors = () => {
     const el = document.documentElement
     setData({
       base: TW_BASE_STEPS.flatMap((step) => {
-        const hex = readCSSVar(el, `--color-${step}`)
+        const hex = readCSSVar(el, `--tw-${step}`)
         return hex ? [{ step, hex }] : []
       }),
       scales: TW_SCALE_NAMES.map((scaleName) => ({
@@ -820,11 +819,11 @@ export const TailwindColors = () => {
     <div style={PAGE_STYLE} className="space-y-10">
       <PageHeader
         title="Tailwind Colors"
-        description="The Tailwind palette steps this codebase actually compiles. Read live from --color-{scale}-{step} CSS variables — steps no utility class references aren't shown."
+        description="The complete standard Tailwind color palette — all 22 scales, 50–950. Read from --tw-{scale}-{step} CSS variables defined in design-tokens.css."
       />
 
       {data.base.length > 0 && (
-        <Section title="Base" description="Black, white, and transparent.">
+        <Section title="Base">
           <SwatchRow>
             {data.base.map(({ step, hex }) => (
               <Swatch

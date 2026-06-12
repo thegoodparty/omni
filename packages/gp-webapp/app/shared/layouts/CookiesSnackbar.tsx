@@ -25,7 +25,7 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
   return (
     <div className="fixed bottom-4 flex justify-center w-full">
       <div
-        className="bg-primary-dark text-white p-4 flex max-w-[440px] mx-8 rounded-lg"
+        className="bg-secondary text-white p-4 flex max-w-[440px] mx-8 rounded-lg"
         data-testid="cookie-snackbar"
       >
         <Body2>

@@ -1,6 +1,6 @@
 export const DEFAULT_SLANT_SECTION_COLORS = [
   'rgba(0,0,0,0)',
-  'var(--color-primary-dark)',
+  'var(--theme-secondary)',
   'rgba(0,0,0,0)',
 ]
 

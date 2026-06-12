@@ -7,6 +7,7 @@ import HeaderSection from './HeaderSection'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ProgressSection from './ProgressSection'
 import ProUpgradeBanner from './ProUpgradeBanner'
+import ProUpgrade3ComplianceCard from './ProUpgrade3ComplianceCard'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import { calculateContactGoalsFromCampaign } from '../voterGoalsHelpers'
@@ -150,6 +151,7 @@ export default function CampaignManager({
               <>
                 <HeaderSection />
                 <ProUpgradeBanner />
+                <ProUpgrade3ComplianceCard />
                 <ProgressSection />
                 {showLoadingState && (
                   <LoadingState
@@ -167,7 +169,6 @@ export default function CampaignManager({
                         campaign={campaign}
                         tasks={tasks}
                         tcrCompliance={tcrCompliance}
-                        isLegacyList={false}
                       />
                     ) : (
                       <div className="mt-4">

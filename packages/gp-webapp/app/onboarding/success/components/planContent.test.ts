@@ -358,3 +358,69 @@ describe('buildPlanData derived key numbers', () => {
     expect(plan.ballotsGoOutDate).toBe('Tuesday, September 22')
   })
 })
+
+describe('buildPlanData voter insights source precedence', () => {
+  it('uses district API issues with priority-phrased descriptions when present', () => {
+    const plan = buildPlanData(
+      makeInput({
+        voterIssuesFromApi: [
+          { label: 'Housing', score: 80, priority: 'high' },
+          { label: 'Transit', score: 50, priority: 'medium' },
+        ],
+        // Present but lower-precedence: API data must win.
+        customIssues: [{ title: 'Ignored', position: 'Ignored' }],
+      }),
+    )
+
+    expect(plan.voterInsightsIssues).toEqual([
+      {
+        title: 'Housing',
+        description:
+          'Ranks as a top-priority concern for voters in this district.',
+      },
+      {
+        title: 'Transit',
+        description:
+          'Ranks as a mid-priority concern for voters in this district.',
+      },
+    ])
+  })
+
+  it('falls back to candidate custom issues when there is no API data', () => {
+    const plan = buildPlanData(
+      makeInput({
+        customIssues: [
+          { title: '  Parks  ', position: '  Fund them  ' },
+          { title: '', position: 'dropped — blank title' },
+        ],
+        stances: [{ issueName: 'Ignored', statement: 'Ignored' }],
+      }),
+    )
+
+    expect(plan.voterInsightsIssues).toEqual([
+      { title: 'Parks', description: 'Fund them' },
+    ])
+  })
+
+  it('falls back to candidate stances when there is no API data or custom issues', () => {
+    const plan = buildPlanData(
+      makeInput({
+        stances: [{ issueName: 'Safety', statement: 'More patrols' }],
+      }),
+    )
+
+    expect(plan.voterInsightsIssues).toEqual([
+      { title: 'Safety', description: 'More patrols' },
+    ])
+  })
+
+  it('falls back to the generic stub issues when no source provides any', () => {
+    const plan = buildPlanData(makeInput())
+
+    expect(plan.voterInsightsIssues.map((i) => i.title)).toEqual([
+      'Cost of living and local services',
+      'Public safety and community trust',
+      'Schools and youth programs',
+    ])
+  })
+})

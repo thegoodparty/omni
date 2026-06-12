@@ -26,7 +26,7 @@ export class EmailService {
     this.logger.setContext(EmailService.name)
   }
 
-  async sendEmail({ to, subject, message, from }: SendEmailInput) {
+  async sendEmail({ to, subject, message, from, html }: SendEmailInput) {
     if (isTestEmail(to)) {
       return SKIPPED_EMAIL_STATUS
     }
@@ -35,7 +35,7 @@ export class EmailService {
       to,
       subject,
       text: message,
-      html: getBasicEmailContent(message, subject),
+      html: getBasicEmailContent(html ?? message, subject),
     })
   }
 
