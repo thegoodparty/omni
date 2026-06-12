@@ -288,8 +288,20 @@ export class DomainsService
       where: { id: validWebsiteId },
       select: {
         domain: true,
+        campaign: { select: { userId: true } },
       },
     })
+
+    // The checkout flow carries a client-supplied websiteId in the Stripe
+    // metadata. Confirm the website belongs to the purchasing user's campaign
+    // before registering a domain against it (and rewriting that campaign's
+    // contact email) — otherwise a paying user could attach a domain to another
+    // campaign's website (IDOR).
+    if (website.campaign?.userId !== user.id) {
+      throw new ForbiddenException(
+        'You do not have permission to register a domain for this website',
+      )
+    }
 
     let domain: Domain | null = website.domain || null
 

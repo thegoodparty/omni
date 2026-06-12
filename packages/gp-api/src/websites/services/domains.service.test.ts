@@ -154,6 +154,7 @@ describe('DomainsService', () => {
         findUniqueOrThrow: vi.fn().mockResolvedValue({
           content: { contact: {} },
           domain: mockDomain,
+          campaign: { userId: mockUser.id },
         }),
         findUnique: vi.fn().mockResolvedValue(null),
         update: vi.fn().mockResolvedValue(undefined),
@@ -236,6 +237,7 @@ describe('DomainsService', () => {
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
         content: { contact: {} },
         domain: { ...mockDomain, price: null },
+        campaign: { userId: mockUser.id },
       })
 
       vi.spyOn(service, 'completeDomainRegistration').mockResolvedValue({
@@ -254,6 +256,24 @@ describe('DomainsService', () => {
           priceOfSelectedDomain: null,
         },
       )
+    })
+
+    it('throws ForbiddenException when the website belongs to another user', async () => {
+      mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
+        content: { contact: {} },
+        domain: mockDomain,
+        campaign: { userId: mockUser.id + 1 },
+      })
+
+      const completeSpy = vi.spyOn(service, 'completeDomainRegistration')
+
+      await expect(
+        service.handleDomainPostPurchase(sessionId, metadata),
+      ).rejects.toThrow(ForbiddenException)
+
+      expect(completeSpy).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.update).not.toHaveBeenCalled()
     })
 
     it('should still return the result when analytics tracking fails', async () => {
