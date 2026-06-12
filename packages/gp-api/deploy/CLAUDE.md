@@ -4,21 +4,21 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 
 ## Key files
 
-| Path                                 | Purpose                                                                    |
-| ------------------------------------ | -------------------------------------------------------------------------- | --------------------------------- |
-| `index.ts`                           | Pulumi program entry — wires VPC, service, asset bucket, Grafana resources |
-| `Pulumi.yaml`                        | Stack metadata (`name: gp-api`, `runtime: nodejs`)                         |
-| `infra-cli.ts`                       | yargs-based CLI wrapping `pulumi`; `npm run infra <diff                    | deploy> <env>` shells out to this |
-| `Dockerfile`                         | Production image build (Node 22 Alpine, multi-copy with prebuilt `dist/`)  |
-| `docker-entrypoint.sh`               | Container bootstrap (env validation, migration check, app start)           |
-| `components/service.ts`              | ECS Fargate service + ALB target group                                     |
-| `components/vpc.ts`                  | VPC selection (existing VPC, hardcoded subnets/SGs)                        |
-| `components/assets-bucket.ts`        | S3 bucket for user uploads                                                 |
-| `components/assets-router.ts`        | CloudFront fronting the assets bucket                                      |
-| `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (dev-only rollout)     |
-| `components/grafana.ts`              | Grafana data sources, dashboards, contact points                           |
-| `components/alerting/` + `alerts.ts` | Grafana alert rules and routing                                            |
-| `pulumi/`                            | `node_modules` for Pulumi's runtime (separate dependency tree)             |
+| Path                                        | Purpose                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------- |
+| `index.ts`                                  | Pulumi program entry — wires VPC, service, asset bucket, Grafana resources |
+| `Pulumi.yaml`                               | Stack metadata (`name: gp-api`, `runtime: nodejs`)                         |
+| `infra-cli.ts`                              | yargs-based CLI wrapping `pulumi`; `npm run infra <diff                    | deploy> <env>` shells out to this |
+| `Dockerfile`                                | Production image build (Node 22 Alpine, multi-copy with prebuilt `dist/`)  |
+| `docker-entrypoint.sh`                      | Container bootstrap (env validation, migration check, app start)           |
+| `components/service.ts`                     | ECS Fargate service + ALB target group                                     |
+| `components/vpc.ts`                         | VPC selection (existing VPC, hardcoded subnets/SGs)                        |
+| `components/assets-bucket.ts`               | S3 bucket for user uploads                                                 |
+| `components/assets-router.ts`               | CloudFront fronting the assets bucket                                      |
+| `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (per env; preview reuses dev) |
+| `components/grafana.ts`                     | Grafana data sources, dashboards, contact points                           |
+| `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                            |
+| `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)             |
 
 ## Patterns
 

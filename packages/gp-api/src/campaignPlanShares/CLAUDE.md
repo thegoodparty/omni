@@ -24,12 +24,13 @@ revocation).
 
 ## Things that look like bugs but aren't
 
-- **503 in qa/prod is by design.** `CAMPAIGN_PLAN_SHARES_BUCKET` and
-  `API_PUBLIC_ROOT_URL` are only set for dev/preview (conditional spread in
-  `deploy/index.ts`) — their absence IS the rollout gate. The service reads
-  them per-call so missing vars 503 cleanly instead of crashing boot.
-  `API_PUBLIC_ROOT_URL` is deliberately distinct from the Secrets-Manager
-  `PUBLIC_API_URL` (speech) so the gate stays Pulumi-managed.
+- **503 when unconfigured is by design.** `CAMPAIGN_PLAN_SHARES_BUCKET` and
+  `API_PUBLIC_ROOT_URL` are Pulumi-managed task-def env vars (all envs;
+  preview reuses the dev bucket). The service reads them per-call, so an
+  environment without them (e.g. a local `.env` missing the vars) 503s
+  cleanly instead of crashing boot. `API_PUBLIC_ROOT_URL` is deliberately
+  distinct from the Secrets-Manager `PUBLIC_API_URL` (speech) so the config
+  stays Pulumi-managed.
 - **Bad links return HTML, not JSON.** The public GET 404s with a small
   branded HTML page because the consumer is a human clicking an email link.
 - **Rate limiting is an in-memory per-IP token bucket**
@@ -44,6 +45,8 @@ revocation).
 ## Infra
 
 Bucket component: `deploy/components/campaign-plan-shares-bucket.ts`
-(private, SSE, versioned, dev-only; preview reuses the dev bucket). The ECS
-task role already has `s3:*` so no IAM wiring. qa/prod enablement = extend
-the env gate in `deploy/index.ts` and let Pulumi create the buckets.
+(private, SSE, versioned; one bucket per env, preview reuses the dev
+bucket). The ECS task role already has `s3:*` so no IAM wiring. The dev
+bucket pre-dates Pulumi (created via CLI for local testing) — first dev
+deploy adopts it via one-time `pulumi import` if the create errors as
+"already owned"; qa/prod buckets are created fresh by their first deploy.

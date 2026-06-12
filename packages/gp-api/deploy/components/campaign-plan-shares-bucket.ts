@@ -13,8 +13,8 @@ export interface CampaignPlanSharesBucketConfig {
  *
  * The dev bucket is adopted from one created via CLI during development;
  * Pulumi takes it over on first deploy (one-time `pulumi import` if the
- * create errors out as "already owned"). qa/prod are intentionally NOT
- * created yet — dev-only rollout.
+ * create errors out as "already owned"). qa/prod buckets are created fresh
+ * on their first deploy.
  */
 export function createCampaignPlanSharesBucket({
   environment,
