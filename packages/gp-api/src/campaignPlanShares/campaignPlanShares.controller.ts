@@ -1,31 +1,18 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   HttpStatus,
   Param,
-  Post,
   Res,
   StreamableFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
-import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
-import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
-import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
-import { FileUpload } from '@/files/files.types'
-import { FilesInterceptor } from '@/files/interceptors/files.interceptor'
-import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
-import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { Campaign } from '../generated/prisma'
 import { CampaignPlanSharesRateLimitGuard } from './guards/campaignPlanSharesRateLimit.guard'
-import { CreateCampaignPlanShareOutputSchema } from './schemas/createCampaignPlanShare.schema'
 import { CampaignPlanSharesService } from './services/campaignPlanShares.service'
 
-const MAX_PDF_BYTES = 15_000_000
 const CAMPAIGN_ID_PATTERN = /^\d{1,10}$/
 const FILE_NAME_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/
@@ -58,34 +45,13 @@ const NOT_FOUND_HTML = `<!doctype html>
   </body>
 </html>`
 
-@Controller()
+@Controller('campaign-plan-shares')
 export class CampaignPlanSharesController {
   constructor(private readonly shares: CampaignPlanSharesService) {}
 
-  @Post('campaigns/mine/plan-pdf-share')
-  @UseCampaign()
-  @UseInterceptors(
-    ZodResponseInterceptor,
-    FilesInterceptor('file', {
-      mode: 'buffer',
-      sizeLimit: MAX_PDF_BYTES,
-      mimeTypes: [MimeTypes.APPLICATION_PDF],
-    }),
-  )
-  @ResponseSchema(CreateCampaignPlanShareOutputSchema)
-  async createShare(
-    @ReqCampaign() campaign: Campaign,
-    @ReqFile() file?: FileUpload,
-  ): Promise<{ url: string }> {
-    if (!file) {
-      throw new BadRequestException('No file found')
-    }
-    return this.shares.createShare(campaign.id, file)
-  }
-
   @PublicAccess()
   @UseGuards(CampaignPlanSharesRateLimitGuard)
-  @Get('campaign-plan-shares/:campaignId/:fileName')
+  @Get(':campaignId/:fileName')
   async getSharePdf(
     @Param('campaignId') campaignId: string,
     @Param('fileName') fileName: string,

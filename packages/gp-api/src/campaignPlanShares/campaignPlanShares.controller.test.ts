@@ -1,8 +1,7 @@
-import { HttpStatus } from '@nestjs/common'
+import { HttpStatus, StreamableFile } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { UseCampaignGuard } from '@/campaigns/guards/UseCampaign.guard'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignPlanSharesController } from './campaignPlanShares.controller'
 import { CampaignPlanSharesRateLimitGuard } from './guards/campaignPlanSharesRateLimit.guard'
@@ -14,7 +13,6 @@ const NOT_FOUND_COPY = 'no longer available'
 describe('CampaignPlanSharesController', () => {
   let controller: CampaignPlanSharesController
   const service = {
-    createShare: vi.fn(),
     getSharePdf: vi.fn(),
   }
 
@@ -39,8 +37,6 @@ describe('CampaignPlanSharesController', () => {
       ],
     })
       .overrideGuard(CampaignPlanSharesRateLimitGuard)
-      .useValue({ canActivate: () => true })
-      .overrideGuard(UseCampaignGuard)
       .useValue({ canActivate: () => true })
       .compile()
     controller = moduleRef.get(CampaignPlanSharesController)
@@ -103,26 +99,7 @@ describe('CampaignPlanSharesController', () => {
       )
       expect(service.getSharePdf).toHaveBeenCalledWith('7', VALID_UUID_PDF)
       expect(reply.status).not.toHaveBeenCalled()
-      expect(result.constructor.name).toBe('StreamableFile')
-    })
-  })
-
-  describe('createShare', () => {
-    it('400s when no file part was sent', async () => {
-      await expect(
-        controller.createShare({ id: 7 } as never, undefined),
-      ).rejects.toThrow('No file found')
-    })
-
-    it('delegates to the service with the campaign id', async () => {
-      service.createShare.mockResolvedValue({ url: 'https://x/1.pdf' })
-      const file = { data: Buffer.from('%PDF') }
-      const result = await controller.createShare(
-        { id: 7 } as never,
-        file as never,
-      )
-      expect(service.createShare).toHaveBeenCalledWith(7, file)
-      expect(result).toEqual({ url: 'https://x/1.pdf' })
+      expect(result).toBeInstanceOf(StreamableFile)
     })
   })
 })
