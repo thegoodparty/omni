@@ -273,6 +273,7 @@ describe('DomainsService', () => {
 
       expect(completeSpy).not.toHaveBeenCalled()
       expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.update).not.toHaveBeenCalled()
     })
 
     it('should still return the result when analytics tracking fails', async () => {
