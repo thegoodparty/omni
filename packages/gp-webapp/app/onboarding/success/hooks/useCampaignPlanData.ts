@@ -140,25 +140,19 @@ export const useCampaignPlanData = (
   )?.onboarding?.structuredOffice
   const ballotReadyPositionId = onboardingStructuredOffice?.positionId
 
-  // Cache-key alignment with onboarding: any query that was warmed by
-  // onboarding must use the SAME (office, city, state) tuple onboarding
-  // sent, otherwise React Query cold-misses and gp-api re-runs the
-  // upstream call. Two consumers below depend on this:
-  //
-  //   1. local-news query (Section 7 press outlets) — onboarding's
-  //      `LocalNewsSourcesSection` populated both React Query and
-  //      `campaign.data.onboarding.localMediaOutlets` using
-  //      `answers.structuredOffice.{positionName, city, state}`.
-  //   2. voter-issues query + `voterInsightsContext` (Section 3 + 4) —
-  //      onboarding's `TopVoterIssuesSection` populated React Query
-  //      with the same triple.
-  //
-  // The success page's polished `race` is election-api's
+  // Cache-key alignment with onboarding: the local-news query must use
+  // the SAME (office, city, state) tuple onboarding's
+  // `LocalNewsSourcesSection` sent (from
+  // `answers.structuredOffice.{positionName, city, state}`), otherwise
+  // React Query cold-misses and gp-api re-runs the expensive outlet
+  // generation. The success page's polished `race` is election-api's
   // `officialOfficeName` (e.g. "Anytown Council"), which differs from
-  // BR's `positionName` ("City Council Member") that onboarding used.
-  // Reading from `race` here would miss both warm caches. Pull from
-  // `onboardingStructuredOffice` first, fall back to the existing
-  // chain for manual-office-entry candidates who never populated it.
+  // BR's `positionName` ("City Council Member") that onboarding used —
+  // so pull from `onboardingStructuredOffice` first, falling back to
+  // the existing chain for manual-office-entry candidates.
+  //
+  // The voter-issues query and `voterInsightsContext` deliberately do
+  // NOT use this tuple — see the comment on `voterIssuesQuery`.
   //
   // The endpoints' Zod schemas reject empty-string fields (min 1
   // char). Pass `undefined` for empty values so the request shape
@@ -185,17 +179,20 @@ export const useCampaignPlanData = (
   const isLocalNewsGenerating =
     localNewsQuery.isPending || localNewsQuery.data?.status === 'pending'
 
-  // Same cache key as TopVoterIssuesSection in onboarding — keeps the PDF's
-  // Section 3 in sync with what the user already saw on screen. See the
-  // onboardingOffice/City/State derivation above for why we don't use
-  // `race`/`city`/`stateValue` directly.
+  // Same cache key as the on-screen TopVoterIssuesSection (Section 4) —
+  // keeps the PDF's Section 3 in sync with what the user sees. The tuple
+  // uses the CURRENT office (`race`/`city`/`stateValue`, all maintained on
+  // race edits) rather than the frozen onboarding snapshot: the snapshot's
+  // name would label and key Section 4 with the pre-edit office forever.
+  // The ids are the real cache discriminators; the strings just need to
+  // match what PlanSections passes to the section components.
   const voterIssuesQuery = useQuery(
     voterIssuesQueryOptions({
       ballotReadyPositionId,
       orgPositionId: campaign?.organization?.positionId ?? undefined,
-      city: onboardingCity,
-      state: onboardingState,
-      office: onboardingOffice,
+      city: city || undefined,
+      state: stateValue || undefined,
+      office: race || undefined,
     }),
   )
   const voterIssuesFromApi = voterIssuesQuery.data?.issues
@@ -302,9 +299,16 @@ export const useCampaignPlanData = (
       // on race edits.
       ballotReadyPositionId,
       orgPositionId: campaign?.organization?.positionId ?? undefined,
-      city: onboardingCity,
-      state: onboardingState,
-      office: onboardingOffice,
+      // Display + key fields use the SAME `race` value as the rest of
+      // the plan ("You are running for X"): officialOfficeName resolved
+      // from details.raceId, the ballot name. The onboarding snapshot's
+      // BR positionName is the generic position-type string ("Party
+      // Office - State Congressional District") and goes stale on race
+      // edits. Must stay identical to the voterIssuesQuery tuple above
+      // so Section 4's query shares its cache entry.
+      city: city || undefined,
+      state: stateValue || undefined,
+      office: race || undefined,
     },
     strategy: {
       ready: strategy.data !== undefined,
