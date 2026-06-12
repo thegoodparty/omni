@@ -69,17 +69,17 @@ const QuestionProgress = ({
   }
 
   return (
-    <div className="bg-purple-100 rounded-2xl p-6 grid grid-cols-12">
+    <div className="bg-muted rounded-2xl p-6 grid grid-cols-12">
       <div className=" col-span-12 md:col-span-8 lg:col-span-9">
         <div className="flex justify-between items-baseline">
           <H2>Finish your onboarding to generate content</H2>
-          <Subtitle1 className="text-purple-800">
+          <Subtitle1 className="text-muted-foreground">
             {answeredQuestions}/{totalQuestions} questions finished
           </Subtitle1>
         </div>
         <div className="mt-3 relative bg-white rounded-2xl h-2">
           <div
-            className="absolute top-0 left-0 bg-primary-dark rounded-2xl h-full"
+            className="absolute top-0 left-0 bg-secondary rounded-2xl h-full"
             style={{ width: `${progress}%` }}
           ></div>
         </div>

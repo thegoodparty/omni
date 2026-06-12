@@ -8,6 +8,7 @@ import { PaginatedResponseSchema } from '@/shared/schemas/PaginatedResponse.sche
 import {
   CampaignWithLiveContextSchema,
   CampaignWithPositionNameSchema,
+  FilingInstructionsContentSchema,
   ListCampaignsPaginationSchema,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
@@ -96,7 +97,11 @@ export class CampaignsController {
       this.campaigns.fetchLiveRaceTargetMetrics(campaign),
     ])
 
-    return { ...campaign, positionName, raceTargetMetrics: liveMetrics }
+    return {
+      ...campaign,
+      positionName,
+      raceTargetMetrics: liveMetrics,
+    }
   }
 
   @UseGuards(M2MOnly)
@@ -133,6 +138,17 @@ export class CampaignsController {
     if (!version) throw new NotFoundException('No plan version found')
 
     return version.data
+  }
+
+  // The filing-instructions screen reads this fresh instead of the live
+  // metrics carried on `GET mine` so the screen and the "email this to me"
+  // body render from one source (and can't drift). Not isPro-gated for the
+  // same reason as the email route below — see that comment.
+  @Get('mine/filing-instructions')
+  @ResponseSchema(FilingInstructionsContentSchema)
+  @UseCampaign()
+  async getFilingInstructions(@ReqCampaign() campaign: Campaign) {
+    return this.filingInstructions.getContent(campaign)
   }
 
   // Intentionally @UseCampaign()-only, no isPro guard: the filing-instructions

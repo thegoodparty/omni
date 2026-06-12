@@ -2,24 +2,9 @@ name: gp-admin
 
 on:
   pull_request:
-    paths:
-      - "packages/gp-admin/**"
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-admin.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-admin/**"
-      - "packages/gp-sdk/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-admin.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -27,7 +12,7 @@ permissions:
 
 concurrency:
   group: gp-admin-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   WORKSPACE: packages/gp-admin

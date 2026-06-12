@@ -22,7 +22,7 @@ import {
   MeetingResourceLocationType,
   Prisma,
 } from '../../generated/prisma'
-import { addDays } from 'date-fns'
+import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { chunk } from 'es-toolkit'
 import ms from 'ms'
@@ -123,6 +123,7 @@ type DispatchContext = {
   positionName: string
   l2DistrictType?: string
   l2DistrictName?: string
+  isServeIcp?: boolean | null
 }
 
 const CRON_CONFIG = {
@@ -134,7 +135,7 @@ const CRON_CONFIG = {
 // falls inside this window. Outside the window we skip — the agent's
 // run would either bail to a placeholder (no packet published yet) or
 // repeat work we'll redo when the meeting gets closer.
-const IMMINENCE_WINDOW_DAYS = 5
+const IMMINENCE_WINDOW_DAYS = 3
 
 type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
@@ -460,12 +461,20 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     // A briefing needs a meetingDate from the schedule. With the imminence
-    // gate on, match the daily cron exactly: skip if a future briefing already
-    // covers the official, and only dispatch when the next meeting falls inside
-    // the 5-day window. With the gate off (the UI "brief now" button) widen to
-    // 60 days so an operator can pre-brief a meeting that's still weeks away.
+    // gate on, match the daily cron exactly: require an affirmative serve-ICP
+    // flag (fail closed), skip if a future briefing already covers the
+    // official, and only dispatch when the next meeting falls inside the
+    // 3-day window. With the gate off (the UI "brief now" button) skip the
+    // ICP check and widen to 60 days so an operator can pre-brief any office.
     const now = new Date()
     if (useImminenceGate) {
+      if (ctx.isServeIcp !== true) {
+        this.logger.info(
+          { electedOfficeId, isServeIcp: ctx.isServeIcp },
+          'skipping gated manual dispatch: position is not serve-ICP',
+        )
+        return { dispatched: false }
+      }
       const futureBriefing = await this.model.findFirst({
         where: { electedOfficeId, meetingDate: { gte: now } },
         select: { id: true },
@@ -692,6 +701,19 @@ export class MeetingBriefingsService extends createPrismaBase(
     const ctx = await this.resolveDispatchContext(electedOffice)
     if (!ctx) return
 
+    // Fail closed: automated dispatches require an affirmative serve-ICP
+    // flag, so offices stay un-briefed until the Databricks backfill
+    // populates the column (gp-data-platform#473). dispatchManual applies
+    // the same check when useImminenceGate is set; only the ungated
+    // brief-now path skips it.
+    if (ctx.isServeIcp !== true) {
+      this.logger.info(
+        { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
+        'skipping dispatch: position is not serve-ICP',
+      )
+      return
+    }
+
     await this.dispatchBriefing(ctx, target)
   }
 
@@ -744,6 +766,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       positionName: serveCtx.positionName,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      isServeIcp: serveCtx.isServeIcp,
     }
   }
 
@@ -878,6 +901,12 @@ export class MeetingBriefingsService extends createPrismaBase(
         { runId: run.runId, briefingStatus },
         'meeting_briefing produced a placeholder; skipping row write so the next cron run retries',
       )
+      await this.trackAgendaNotCreated(
+        run,
+        electedOffice,
+        briefingStatus,
+        artifact,
+      )
       return
     }
 
@@ -934,6 +963,52 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingTime,
       meetingTimezone,
     })
+  }
+
+  // The lookup's target date comes from the dispatch params (the
+  // imminence-gate / next-occurrence date the run was asked to brief);
+  // the artifact's meeting_date is the fallback for runs dispatched
+  // without one. Both UTC midnights in the diff keep daysUntilMeeting
+  // independent of the server's local timezone.
+  private async trackAgendaNotCreated(
+    run: ExperimentRun,
+    electedOffice: { id: string; userId: number },
+    briefingStatus: 'awaiting_agenda' | 'no_meeting_found',
+    artifact: PrismaJson.MeetingBriefingArtifact,
+  ): Promise<void> {
+    const targetDate =
+      readStringField(run.params, 'meetingDate') ??
+      (typeof artifact.meeting_date === 'string' ? artifact.meeting_date : null)
+    const validDate =
+      targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : null
+
+    try {
+      await this.analytics.track(
+        electedOffice.userId,
+        'Briefing Assistant - Agenda Not Created',
+        {
+          electedOfficeId: electedOffice.id,
+          experimentRunId: run.runId,
+          briefingStatus,
+          ...(validDate
+            ? {
+                meetingDate: parseIsoDateAsUTC(validDate).getTime(),
+                daysUntilMeeting: differenceInCalendarDays(
+                  parseIsoDateAsUTC(validDate),
+                  parseIsoDateAsUTC(
+                    formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd'),
+                  ),
+                ),
+              }
+            : {}),
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, userId: electedOffice.userId },
+        '[SEGMENT] Failed to track Briefing Assistant - Agenda Not Created',
+      )
+    }
   }
 
   private async trackAgendaPickedUp({

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { apiRoutes } from 'gpApi/routes'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { submitTcrCompliance } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
@@ -68,6 +69,7 @@ const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
 const mockSubmit = vi.mocked(submitTcrCompliance)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 // A well-formed, non-placeholder EIN with an IRS-issued prefix.
 const CLEAN_EIN = '12-3456780'
@@ -149,7 +151,7 @@ describe('FilingDetailsStep', () => {
       currentStep: 'filing-details',
       goToStep: vi.fn(),
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
     // Default: a local candidate with EIN already collected at the prior step.
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })
@@ -185,6 +187,33 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByTestId('select-address')).toBeInTheDocument()
   })
 
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<FilingDetailsStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(mockSubmit).not.toHaveBeenCalled()
+  })
+
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<FilingDetailsStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: 'Continue' })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('submits the mapped payload to createAgentic and advances on success', async () => {
     render(<FilingDetailsStep />)
     fillValidNonFederalForm()
@@ -215,15 +244,65 @@ describe('FilingDetailsStep', () => {
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 
-  it('does not submit or advance when the form is invalid', () => {
-    // No fields filled (and no EIN on file) → invalid form.
-    seedCampaign({ ballotLevel: 'Local/Township/City' })
+  it('does not submit and lists the failing fields when the form is invalid', () => {
+    // EIN on file but nothing else filled → invalid form.
+    seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })
     render(<FilingDetailsStep />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(mockSubmit).not.toHaveBeenCalled()
     expect(goToNextStep).not.toHaveBeenCalled()
+    // The guiding banner must name what's wrong — a silent return reads as a
+    // dead Continue button.
+    const bannerHeading = screen.getByText('Please fix the following fields:')
+    expect(bannerHeading).toBeInTheDocument()
+    // The banner body must let long validation copy (the example fec.gov /
+    // filing URLs) wrap inside the alert instead of forcing horizontal overflow
+    // on narrow viewports (ENG-10358). `break-words` wraps the URL token,
+    // `min-w-0` lets the alert grid track shrink below it, `w-full` keeps the
+    // text filling the alert on desktop.
+    expect(bannerHeading.parentElement).toHaveClass(
+      'w-full',
+      'min-w-0',
+      'break-words',
+    )
+    // Each failing-field row must keep `list-item` so the global
+    // `[data-slot] ul li { display: flex }` rule (globals.css) can't split the
+    // bold label and message into two shrinking columns (ENG-10373).
+    for (const item of screen.getAllByRole('listitem')) {
+      expect(item).toHaveClass('list-item')
+    }
+    expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+    // `website` has no input in this form and must never be listed.
+    expect(screen.queryByText('Website')).not.toBeInTheDocument()
+  })
+
+  it('redirects to the EIN step instead of rendering when the persisted EIN fails sanity', () => {
+    // ENG-10346: this form has no EIN input, so an EIN error here is one the
+    // candidate cannot fix in place. A direct-URL arrival (stale tab, bookmark)
+    // with a legacy bad EIN is sent to the EIN step, which owns the field.
+    seedCampaign({
+      einNumber: '00-0000000',
+      ballotLevel: 'Local/Township/City',
+    })
+    render(<FilingDetailsStep />)
+
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
+    expect(
+      screen.queryByText('What are your campaign filing details?'),
+    ).not.toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.FilingDetailsViewed,
+    )
+  })
+
+  it('redirects to the EIN step when no EIN is on file', () => {
+    seedCampaign({ ballotLevel: 'Local/Township/City' })
+    render(<FilingDetailsStep />)
+
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
   it('surfaces an error and does not advance when the submit fails', async () => {

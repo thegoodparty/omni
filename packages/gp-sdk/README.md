@@ -117,9 +117,11 @@ const retriedRun = await client.adminAgentRuns.retry('run-uuid')
 const briefings = await client.admin.briefings.list({
   q: 'mayor',
   dateRange: 'last 30 days',
+  reviewStatus: 'pending', // filter by review status: 'pending' | 'passed' | 'failed'
   offset: 0,
   limit: 20,
 })
+// Each row includes a `review` field ({ verdict, failReason, reviewerEmail, reviewedAt } | null)
 
 const briefing = await client.admin.briefings.get('briefing-uuid')
 

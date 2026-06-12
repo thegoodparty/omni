@@ -5,7 +5,6 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-import { visualSnapshot } from '../../../src/helpers/visual.helper'
 
 test.describe('AI Assistant', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,7 +34,5 @@ test.describe('AI Assistant', () => {
     if (buttonCount > 0) {
       console.log(`✅ AI Assistant working - ${buttonCount} topics available`)
     }
-
-    await visualSnapshot(page, 'ai-assistant.png')
   })
 })

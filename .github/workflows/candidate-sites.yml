@@ -2,20 +2,9 @@ name: candidate-sites
 
 on:
   pull_request:
-    paths:
-      - "packages/candidate-sites/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/candidate-sites.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/candidate-sites/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/candidate-sites.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -23,7 +12,7 @@ permissions:
 
 concurrency:
   group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   WORKSPACE: packages/candidate-sites

@@ -28,6 +28,17 @@ model CampaignStrategy {
   // endpoint hit), this tracks the trigger that produced the current result.
   generationStartedAt DateTime? @map("generation_started_at")
 
+  // The BR race hash this row's content was generated for. Compared against
+  // campaign.details.raceId on every read; a mismatch (office change) resets
+  // the content in place and regenerates, instead of forever serving the
+  // first race that happened to trigger generation. Nullable only for the
+  // pre-stamp backfill window — new rows are stamped at creation.
+  raceId String? @map("race_id")
+
+  // Every race hash this row generated for before the current one, oldest
+  // first. Appended on each race-change reset; length = office-change count.
+  previousRaceIds String[] @default([]) @map("previous_race_ids")
+
   opportunities CampaignStrategyOpportunity[]
   challenges    CampaignStrategyChallenge[]
   opponents     CampaignStrategyOpponent[]

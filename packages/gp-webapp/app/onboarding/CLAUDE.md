@@ -32,3 +32,4 @@ Post-signup onboarding flow. New users land here after registration to pick the 
 
 - `app/post-auth-redirect/` — decides whether to send users into onboarding vs dashboard.
 - `helpers/resolvePostAuthRedirectPath.util.ts` — same logic, server side.
+- **Adding analytics to a step or the funnel** — fire events per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).

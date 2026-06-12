@@ -27,7 +27,7 @@ const Carousel = ({ sections }: CarouselProps): React.JSX.Element => {
     arrows: false,
   }
   return (
-    <div className="m-0 w-[450px] md:w-[700px] lg:w-[900px] h-full bg-primary-dark-dark rounded-2xl text-white">
+    <div className="m-0 w-[450px] md:w-[700px] lg:w-[900px] h-full bg-secondary rounded-2xl text-white">
       <Slider {...settings}>
         {sections.map((section) => (
           <div key={section.name}>

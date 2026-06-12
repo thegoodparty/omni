@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -11,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@styleguide'
-import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import TextField from '@shared/inputs/TextField'
 import AddressAutocomplete from '@shared/AddressAutocomplete'
@@ -30,7 +30,11 @@ import {
   submitTcrCompliance,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
+import { StyledAlert } from '@shared/alerts/StyledAlert'
 import {
+  fieldDisplayNames,
+  getFailingFields,
+  getValidationMessage,
   validateRegistrationForm,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -38,6 +42,8 @@ import {
   FecCommitteeIdInput,
   getFecCommitteeIdValidation,
 } from 'app/dashboard/profile/texting-compliance/register/components/FecCommitteeIdInput'
+import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // The backend createAgentic endpoint validates officeLevel against the
@@ -117,6 +123,15 @@ const FilingDetailsForm = ({
     requireWebsite: false,
   })
 
+  // `website` is validated but has no input in this form (the agentic flow
+  // buys the domain after submit), so the banner must never name it. `ein`
+  // has no input here either, but it can't fail: EIN is owned by the wizard's
+  // EIN step, and the step redirects a missing/bad persisted EIN there before
+  // rendering (ENG-10346).
+  const failingFields = getFailingFields(validations).filter(
+    (field) => field !== 'website',
+  )
+
   // Always-enabled button so the candidate can attempt submit and get guiding
   // errors; field errors only surface after the first invalid attempt.
   const [attemptedSubmit, setAttemptedSubmit] = useState(false)
@@ -150,6 +165,8 @@ const FilingDetailsForm = ({
     if (!loading) submittingRef.current = false
   }, [loading])
 
+  const { goToPreviousStep } = useProUpgradeWizard()
+
   const handleContinue = () => {
     if (!isValid) {
       setAttemptedSubmit(true)
@@ -172,12 +189,39 @@ const FilingDetailsForm = ({
 
   return (
     <div>
-      <H2 className="mb-2">What are your campaign filing details?</H2>
-      <Body2 className="text-secondary mb-8">
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        What are your campaign filing details?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
         If these do not match the details you submitted on your campaign filing
         or registration, it will take much longer before you can send text
         messages.
       </Body2>
+
+      {attemptedSubmit && !isValid && (
+        <StyledAlert severity="error" className="mb-6">
+          <Body2 className="w-full min-w-0 break-words">
+            <span className="font-medium">
+              Please fix the following fields:
+            </span>
+            <ul className="mt-1 list-disc pl-5">
+              {failingFields.map((field) => (
+                // `list-item` overrides the global `[data-slot] ul li` rule
+                // (globals.css) that forces `display: flex` for sidebar lists.
+                // Inside the alert's data-slot that flex splits the bold label
+                // and the message into two shrinking columns (ENG-10373).
+                <li key={field} className="list-item">
+                  <span className="font-medium">
+                    {fieldDisplayNames[field]}
+                  </span>
+                  {' — '}
+                  {getValidationMessage(field, getStringValue(officeLevel))}
+                </li>
+              ))}
+            </ul>
+          </Body2>
+        </StyledAlert>
+      )}
 
       <div className="flex flex-col gap-6">
         <TextField
@@ -236,7 +280,7 @@ const FilingDetailsForm = ({
           <div className="font-medium">
             Which of these appear on your campaign filing?
           </div>
-          <Body2 className="text-secondary mt-1 mb-4">
+          <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter them exactly as they appear on your campaign filing. You will
             receive a PIN within 7 business days to one of these to verify your
             campaign.
@@ -278,14 +322,24 @@ const FilingDetailsForm = ({
               placeholder="Address *"
               variant="outlined"
               error={showError('address')}
+              dropdownClassName="texting-compliance-address-dropdown"
             />
           </div>
         </div>
       </div>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
+          Back
+        </Button>
         <Button
           size="large"
+          className="w-full sm:w-auto"
           onClick={handleContinue}
           loading={loading}
           disabled={loading}
@@ -305,6 +359,7 @@ const FilingDetailsForm = ({
 // client-side; using createAgentic is enough.
 const FilingDetailsStep = (): React.JSX.Element => {
   const { goToNextStep } = useProUpgradeWizard()
+  const router = useRouter()
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -312,14 +367,27 @@ const FilingDetailsStep = (): React.JSX.Element => {
 
   const ready = Boolean(campaign)
 
+  // This form has no EIN input, so an EIN validation failure here is one the
+  // candidate cannot fix in place (ENG-10346). Entry derivation already keeps
+  // the normal flow out, but a direct-URL arrival (stale tab, bookmark) with a
+  // missing or sanity-failing persisted EIN must go to the EIN step, which
+  // owns the field — never see an error about a field this page doesn't have.
+  const mustFixEin =
+    ready && !checkEinSanity(campaign?.details?.einNumber ?? '').valid
+
+  useEffect(() => {
+    if (mustFixEin) router.replace(proUpgradeStepPath(PRO_UPGRADE_STEP.EIN))
+  }, [mustFixEin, router])
+
   // Fire the funnel view event once the form is actually shown (gated behind
-  // `ready`), not while the Loading… placeholder is up.
+  // `ready`), not while the Loading… placeholder is up or while redirecting
+  // away to the EIN step.
   const viewTrackedRef = useRef(false)
   useEffect(() => {
-    if (!ready || viewTrackedRef.current) return
+    if (!ready || mustFixEin || viewTrackedRef.current) return
     viewTrackedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingDetailsViewed)
-  }, [ready])
+  }, [ready, mustFixEin])
 
   const handleSubmit = async (formData: FormDataState) => {
     if (loading) return
@@ -348,7 +416,7 @@ const FilingDetailsStep = (): React.JSX.Element => {
     }
   }
 
-  if (!ready) {
+  if (!ready || mustFixEin) {
     return <div className="text-sm text-muted-foreground">Loading…</div>
   }
 

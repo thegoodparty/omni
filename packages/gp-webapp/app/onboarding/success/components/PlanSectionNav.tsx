@@ -17,15 +17,23 @@ export interface PlanSectionRef {
 interface PlanSectionNavProps {
   sections: PlanSectionRef[]
   onStuckChange?: (stuck: boolean) => void
+  stuckClassName?: string
 }
 
 // Activate a section when its top sits in the upper half of the viewport,
 // below the sticky nav.
 const OBSERVER_ROOT_MARGIN = '-120px 0px -55% 0px'
 
+// Default stuck style breaks out to the full viewport width. Callers that
+// render inside a constrained layout (e.g. the dashboard sidebar shell)
+// pass a contained variant instead.
+const DEFAULT_STUCK_CLASSNAME =
+  'sticky top-0 z-30 mx-[calc(50%-50vw)] w-screen border-b border-base-border bg-base-surface'
+
 const PlanSectionNav = ({
   sections,
   onStuckChange,
+  stuckClassName = DEFAULT_STUCK_CLASSNAME,
 }: PlanSectionNavProps): React.JSX.Element => {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
   const [isStuck, setIsStuck] = useState(false)
@@ -105,7 +113,7 @@ const PlanSectionNav = ({
       ref={wrapperRef}
       className={
         isStuck
-          ? 'sticky top-0 z-30 mx-[calc(50%-50vw)] w-screen border-b border-base-border bg-base-surface'
+          ? stuckClassName
           : 'sticky top-0 z-30 rounded-xl border border-base-border bg-base-surface px-3 py-2 shadow-sm'
       }
     >

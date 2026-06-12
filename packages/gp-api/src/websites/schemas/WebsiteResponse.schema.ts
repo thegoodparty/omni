@@ -65,3 +65,29 @@ export const MyWebsiteResponseSchema = z.object({
   content: WebsiteContentSchema,
   domain: DomainSchema,
 })
+
+// Response shape for the anonymous public website endpoints (/:vanityPath/view
+// and /by-domain/:domain). These serve published candidate sites to the open
+// internet, so the response MUST NOT carry the campaign's financial/tax data
+// (einNumber, subscriptionId, campaignCommittee, statementName, filing periods,
+// etc.). Only the candidate's display name and the website content are public;
+// this allowlist drops everything else, including the user's clerkId.
+export const PublicWebsiteResponseSchema = z.object({
+  id: z.number().int(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+  campaignId: z.number().int(),
+  status: z.nativeEnum(WebsiteStatus),
+  vanityPath: z.string(),
+  content: WebsiteContentSchema,
+  campaign: z
+    .object({
+      user: z
+        .object({
+          firstName: z.string().nullable(),
+          lastName: z.string().nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+})

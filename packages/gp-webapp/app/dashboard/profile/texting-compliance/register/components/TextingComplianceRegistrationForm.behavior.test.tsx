@@ -66,9 +66,24 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     expect(onSubmit).not.toHaveBeenCalled()
-    expect(
-      screen.getByText(/please fix the following fields/i),
-    ).toBeInTheDocument()
+    const bannerHeading = screen.getByText(/please fix the following fields/i)
+    expect(bannerHeading).toBeInTheDocument()
+    // The banner body must let long validation copy (the example fec.gov /
+    // filing URLs) wrap inside the alert instead of forcing horizontal overflow
+    // on narrow viewports (ENG-10358). `break-words` wraps the URL token,
+    // `min-w-0` lets the alert grid track shrink below it, `w-full` keeps the
+    // text filling the alert on desktop.
+    expect(bannerHeading.parentElement).toHaveClass(
+      'w-full',
+      'min-w-0',
+      'break-words',
+    )
+    // Each failing-field row must keep `list-item` so the global
+    // `[data-slot] ul li { display: flex }` rule (globals.css) can't split the
+    // bold label and message into two shrinking columns (ENG-10373).
+    for (const item of screen.getAllByRole('listitem')) {
+      expect(item).toHaveClass('list-item')
+    }
     // Field-specific guidance (only rendered in the error banner) is shown.
     expect(screen.getByText(/select an option/i)).toBeInTheDocument()
     // The invalid Office Level select (the only combobox in this state) is

@@ -22,6 +22,7 @@ import {
   submitAgendaFile,
   submitAgendaUrl,
 } from '@shared/briefings/agenda-upload-api'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 type Props = {
   open: boolean
@@ -119,6 +120,10 @@ export default function UploadAgendaModal({
 
   const openFilePicker = () => fileInputRef.current?.click()
 
+  // Backend briefing events emit meetingDate as a UTC-midnight epoch ms;
+  // Segment enforces one type per property name across events.
+  const meetingDateMs = new Date(`${meetingDate}T00:00:00Z`).getTime()
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (file) return submitAgendaFile(meetingDate, file)
@@ -126,18 +131,38 @@ export default function UploadAgendaModal({
       throw new Error('no_input_provided')
     },
     onSuccess: () => {
+      trackEvent(EVENTS.BriefingAssistant.AgendaSubmitted, {
+        meetingDate: meetingDateMs,
+        source: file ? 'upload' : 'url',
+        ...(file ? { fileSizeBytes: file.size } : {}),
+      })
       handleOpenChange(false)
       router.refresh()
     },
     onError: (err) => {
       if (err instanceof AgendaFileTooLargeError) {
+        trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
+          meetingDate: meetingDateMs,
+          source: 'upload',
+          reason: 'file_too_large',
+        })
         setErrorMessage(`File is too large. Max size is ${MAX_MB} MB.`)
         return
       }
       if (err instanceof AgendaFileWrongTypeError) {
+        trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
+          meetingDate: meetingDateMs,
+          source: 'upload',
+          reason: 'wrong_file_type',
+        })
         setErrorMessage('Only PDF files are supported.')
         return
       }
+      trackEvent(EVENTS.BriefingAssistant.AgendaSubmissionFailed, {
+        meetingDate: meetingDateMs,
+        source: file ? 'upload' : 'url',
+        reason: 'request_failed',
+      })
       setErrorMessage(
         'Something went wrong submitting your agenda. Please try again.',
       )

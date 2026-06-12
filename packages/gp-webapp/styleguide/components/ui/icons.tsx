@@ -50,6 +50,7 @@ export {
   Share2 as Share2Icon,
   Square as SquareIcon,
   Star as StarIcon,
+  Timer as TimerIcon,
   Trash2 as Trash2Icon,
   TriangleAlert as TriangleAlertIcon,
   Upload as UploadIcon,
@@ -70,4 +71,5 @@ export {
   Gift as GiftIcon,
   HandHeart as HandHeartIcon,
   Megaphone as MegaphoneIcon,
+  ScrollText as ScrollTextIcon,
 } from 'lucide-react'

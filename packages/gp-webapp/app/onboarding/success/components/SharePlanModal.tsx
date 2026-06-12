@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { Check, Copy, Facebook, Instagram, Mail, Twitter } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { CheckIcon, CopyIcon, MailIcon } from '@styleguide/components/ui/icons'
+import { FetchError } from 'ofetch'
 import {
   Button,
   Dialog,
@@ -18,77 +19,141 @@ import {
   DrawerTitle,
 } from '@styleguide'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 
 interface SharePlanModalProps {
   open: boolean
   onClose: () => void
-  url: string
   candidateName: string
+  // Generates (or returns the cached) public PDF link. Owned by the parent
+  // so the blob render + upload can be reused and cached across opens.
+  getShareUrl: () => Promise<string>
 }
 
-interface ShareLink {
-  label: string
-  icon: React.ReactNode
-  href: string
-  // Optional override for the click action. Defaults to opening `href`
-  // in a new tab; used by destinations like Instagram that have no
-  // web-share endpoint and need a side effect (copy URL to clipboard)
-  // before the user lands on the platform.
-  onClick?: () => void
-}
+type ShareState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; url: string }
+
+const SHARE_ERROR_FALLBACK =
+  "We couldn't create your share link. Please try again."
+
+const toShareErrorMessage = (e: unknown): string =>
+  (e instanceof FetchError && extractApiErrorInfo(e.data).message) ||
+  SHARE_ERROR_FALLBACK
 
 interface ShareBodyProps {
+  state: ShareState
   copied: boolean
   onCopy: () => void
-  links: ShareLink[]
+  onEmail: () => void
+  onRetry: () => void
 }
 
 const ShareBody = ({
+  state,
   copied,
   onCopy,
-  links,
-}: ShareBodyProps): React.JSX.Element => (
-  <div className="space-y-2">
-    <Button
-      type="button"
-      variant="outline"
-      className="w-full justify-start"
-      icon={copied ? <Check className="size-5" /> : <Copy className="size-5" />}
-      onClick={onCopy}
-    >
-      {copied ? 'Link copied' : 'Copy link'}
-    </Button>
-    <div className="grid grid-cols-2 gap-2">
-      {links.map((item) => (
+  onEmail,
+  onRetry,
+}: ShareBodyProps): React.JSX.Element => {
+  if (state.status === 'error') {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm">{state.message}</p>
         <Button
-          key={item.label}
           type="button"
           variant="outline"
           className="w-full justify-start"
-          icon={item.icon}
-          onClick={() => {
-            if (item.onClick) {
-              item.onClick()
-              return
-            }
-            window.open(item.href, '_blank', 'noopener,noreferrer')
-          }}
+          onClick={onRetry}
         >
-          {item.label}
+          Try again
         </Button>
-      ))}
+      </div>
+    )
+  }
+
+  const isLoading = state.status === 'loading'
+
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full justify-start"
+        icon={
+          copied ? (
+            <CheckIcon className="size-5" />
+          ) : (
+            <CopyIcon className="size-5" />
+          )
+        }
+        disabled={isLoading}
+        onClick={onCopy}
+      >
+        {isLoading
+          ? 'Preparing your link…'
+          : copied
+            ? 'Link copied'
+            : 'Copy link'}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full justify-start"
+        icon={<MailIcon className="size-5" />}
+        disabled={isLoading}
+        onClick={onEmail}
+      >
+        Email
+      </Button>
     </div>
-  </div>
-)
+  )
+}
 
 const SharePlanModal = ({
   open,
   onClose,
-  url,
   candidateName,
+  getShareUrl,
 }: SharePlanModalProps): React.JSX.Element => {
   const isMobile = useIsMobile()
+  const [state, setState] = useState<ShareState>({ status: 'loading' })
   const [copied, setCopied] = useState(false)
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Overlapping resolutions race when the plan changes mid-flight; only the
+  // newest attempt may write state, or a slow stale settle would clobber a
+  // fresher url (or a fresher error) last-write-wins.
+  const resolveAttemptRef = useRef(0)
+
+  const resolveShareUrl = async () => {
+    const attempt = ++resolveAttemptRef.current
+    setState({ status: 'loading' })
+    try {
+      const url = await getShareUrl()
+      if (attempt !== resolveAttemptRef.current) return
+      setState({ status: 'ready', url })
+    } catch (e) {
+      if (attempt !== resolveAttemptRef.current) return
+      setState({ status: 'error', message: toShareErrorMessage(e) })
+    }
+  }
+
+  useEffect(() => {
+    if (!open) {
+      setCopied(false)
+      // Drop any retained result so a reopen can't flash (or serve) a url
+      // from a plan snapshot the parent has since invalidated.
+      setState({ status: 'loading' })
+      return
+    }
+    // Resolve on open AND whenever the parent hands us a new getShareUrl
+    // (its identity changes with the plan): a plan update while the modal
+    // is open must refresh the link, not wait for a reopen. While the
+    // parent cache is warm this resolves from the same promise, so
+    // reopening stays effectively instant.
+    void resolveShareUrl()
+  }, [open, getShareUrl])
 
   const subject = candidateName
     ? `${candidateName}'s campaign plan`
@@ -97,60 +162,40 @@ const SharePlanModal = ({
     ? `${candidateName} just built a campaign plan with GoodParty.org. Take a look:`
     : 'I just built a campaign plan with GoodParty.org. Take a look:'
 
-  const encodedUrl = encodeURIComponent(url)
-  const encodedMessage = encodeURIComponent(message)
-
   const handleCopy = async () => {
+    if (state.status !== 'ready') return
     try {
-      await navigator.clipboard.writeText(url)
+      await navigator.clipboard.writeText(state.url)
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     } catch {
       // Clipboard unavailable; do nothing.
     }
   }
 
-  const links: ShareLink[] = [
-    {
-      label: 'Email',
-      icon: <Mail className="size-5" />,
-      href: `mailto:?subject=${encodeURIComponent(
-        subject,
-      )}&body=${encodedMessage}%0D%0A%0D%0A${encodedUrl}`,
-    },
-    {
-      label: 'Facebook',
-      icon: <Facebook className="size-5" />,
-      href: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-    },
-    {
-      label: 'X',
-      icon: <Twitter className="size-5" />,
-      href: `https://twitter.com/share?url=${encodedUrl}&text=${encodedMessage}`,
-    },
-    {
-      // Instagram has no web-share endpoint, so we copy the plan URL to
-      // the clipboard first (matching the Copy link button's behavior)
-      // and then open instagram.com — the user can paste into DMs,
-      // Stories, or a post caption. Without the copy step the button
-      // is a silent dead end.
-      //
-      // Fire-and-forget the copy + call window.open synchronously inside
-      // the click handler so the browser still treats it as a user
-      // gesture and doesn't pop-up-block the new tab.
-      label: 'Instagram',
-      icon: <Instagram className="size-5" />,
-      href: 'https://www.instagram.com/',
-      onClick: () => {
-        void handleCopy()
-        window.open(
-          'https://www.instagram.com/',
-          '_blank',
-          'noopener,noreferrer',
-        )
-      },
-    },
-  ]
+  const handleEmail = () => {
+    if (state.status !== 'ready') return
+    const emailHref = `mailto:?subject=${encodeURIComponent(
+      subject,
+    )}&body=${encodeURIComponent(message)}%0D%0A%0D%0A${encodeURIComponent(
+      state.url,
+    )}`
+    // Plain navigation, matching the app's other share surfaces: mailto
+    // hands off to the mail client without navigating away, and window.open
+    // would leave a blank popup (or be silently popup-blocked).
+    window.location.href = emailHref
+  }
+
+  const body = (
+    <ShareBody
+      state={state}
+      copied={copied}
+      onCopy={() => void handleCopy()}
+      onEmail={handleEmail}
+      onRetry={() => void resolveShareUrl()}
+    />
+  )
 
   const title = 'Share your campaign plan'
   const description =
@@ -164,9 +209,7 @@ const SharePlanModal = ({
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription>{description}</DrawerDescription>
           </DrawerHeader>
-          <div className="flex flex-col gap-4 p-4">
-            <ShareBody copied={copied} onCopy={handleCopy} links={links} />
-          </div>
+          <div className="flex flex-col gap-4 p-4">{body}</div>
           <DrawerFooter>
             <DrawerClose asChild>
               <Button type="button" variant="outline">
@@ -186,7 +229,7 @@ const SharePlanModal = ({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <ShareBody copied={copied} onCopy={handleCopy} links={links} />
+        {body}
       </DialogContent>
     </Dialog>
   )

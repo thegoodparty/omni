@@ -1,20 +1,37 @@
-import { BadgeCheck } from 'lucide-react'
-import { Card } from '@styleguide'
+import Link from 'next/link'
+import { Button, Card } from '@styleguide'
+import { BadgeCheckIcon } from '@styleguide/components/ui/icons'
+import ComplianceCardArt from './ComplianceCardArt'
 
 interface TextingComplianceApprovedProps {
   title?: string
+  description?: string
 }
 
 export default function TextingComplianceApproved({
   title = 'Your campaign is compliant',
+  description = 'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.',
 }: TextingComplianceApprovedProps = {}): React.JSX.Element {
   return (
-    <Card className="p-4 md:p-6 mt-4 gap-2" id="texting-compliance">
-      <h2 className="text-2xl font-semibold mb-4">Texting Compliance</h2>
-      <div className="flex items-center gap-2">
-        <BadgeCheck className="h-6 w-6 text-green-600" aria-hidden />
-        <p className="text-lg font-medium">{title}</p>
+    <Card
+      className="relative mt-4 overflow-hidden p-4 md:p-6"
+      id="texting-compliance"
+    >
+      <div className="relative z-10 flex flex-col items-start gap-3 pr-24">
+        <div className="flex flex-col gap-1">
+          <p className="text-lg font-semibold">{title}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <Button asChild>
+          <Link href="/dashboard/outreach">Schedule</Link>
+        </Button>
       </div>
+      <ComplianceCardArt
+        swooshColorClassName="bg-success-100"
+        icon={
+          <BadgeCheckIcon className="h-14 w-14 text-green-600" aria-hidden />
+        }
+      />
     </Card>
   )
 }

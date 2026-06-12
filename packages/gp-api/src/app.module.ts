@@ -8,6 +8,7 @@ import { AuthenticationModule } from '@/authentication/authentication.module'
 import { SessionGuard } from '@/authentication/guards/Session.guard'
 import { ImpersonationInterceptor } from '@/analytics/interceptors/Impersonation.interceptor'
 import { AdminAuditInterceptor } from '@/authentication/interceptors/AdminAudit.interceptor'
+import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShares.module'
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
@@ -27,6 +28,7 @@ import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
+import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
@@ -89,9 +91,11 @@ import { loggerModule } from './observability/logging/logger-module'
     ContactsModule,
     ContactEngagementModule,
     PollsModule,
+    CampaignPlanSharesModule,
     MeetingsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
+    ArtifactReviewModule,
     ElectedOfficeModule,
     OrganizationsModule,
     OnboardingModule,

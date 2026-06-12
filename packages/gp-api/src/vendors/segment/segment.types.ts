@@ -69,6 +69,7 @@ export const EVENTS = {
       'Campaign Plan V2 - Opportunities & Challenges Generation Started',
     OpportunitiesChallengesGenerationCompleted:
       'Campaign Plan V2 - Opportunities & Challenges Generation Completed',
+    StrategyRaceChanged: 'Campaign Plan V2 - Strategy Race Changed',
   },
 }
 

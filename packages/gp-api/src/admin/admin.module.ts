@@ -5,6 +5,7 @@ import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.module'
+import { ArtifactReviewModule } from 'src/artifactReview/artifactReview.module'
 import { AdminCampaignsController } from './campaigns/adminCampaigns.controller'
 import { AdminCampaignsService } from './campaigns/adminCampaigns.service'
 import { AdminUsersController } from './users/adminUsers.controller'
@@ -21,6 +22,7 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
     SlackModule,
     AwsModule,
     AgentExperimentsModule,
+    ArtifactReviewModule,
   ],
   controllers: [
     AdminCampaignsController,

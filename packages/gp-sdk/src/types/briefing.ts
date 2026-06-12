@@ -4,11 +4,21 @@ export type BriefingAdminDateRange =
   | 'last 30 days'
   | 'last week'
 
+export type BriefingReviewStatusFilter = 'pending' | 'passed' | 'failed'
+
+export type BriefingAdminReview = {
+  verdict: 'passed' | 'failed'
+  failReason: string | null
+  reviewerEmail: string | null
+  reviewedAt: string
+}
+
 export type BriefingAdminListQuery = {
   offset?: number
   limit?: number
   q?: string
   dateRange?: BriefingAdminDateRange
+  reviewStatus?: BriefingReviewStatusFilter
 }
 
 export type BriefingAdminRow = {
@@ -27,4 +37,5 @@ export type BriefingAdminRow = {
     positionName: string | null
   }
   updatedAt: string
+  review: BriefingAdminReview | null
 }

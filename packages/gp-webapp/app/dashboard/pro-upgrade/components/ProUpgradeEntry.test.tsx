@@ -96,6 +96,45 @@ describe('ProUpgradeEntry', () => {
     expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
+  it('restarts a returning "not filed" candidate at the value-prop intro, not the not-eligible dead-end (ENG-10372)', () => {
+    // Previously a persisted "no, not yet" answer routed every re-entry to the
+    // filing-instructions ("not eligible") dead-end. With no real progress the
+    // candidate must land on the value prop to begin the flow again.
+    setQueries(
+      queryResult({
+        data: { details: { hasFiledForRace: false } } as Campaign,
+      }),
+      queryResult(),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/value-prop',
+    )
+    expect(router.replace).not.toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/filing-instructions',
+    )
+  })
+
+  it('routes a persisted placeholder EIN to the EIN step instead of past it', () => {
+    // Older surfaces shape-check only, so a placeholder EIN can be on file.
+    // Presence-based derivation would skip the EIN step and strand the
+    // candidate on filing-details, which rejects the EIN it never displays.
+    setQueries(
+      queryResult({
+        data: {
+          details: { hasFiledForRace: true, einNumber: '00-0000000' },
+        } as Campaign,
+      }),
+      queryResult(),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
+  })
+
   it('shows a recoverable error and does not redirect when a query fails', () => {
     // A failed fetch leaves data undefined; redirecting would mis-derive a
     // returning candidate back to the intro as if they had zero progress.

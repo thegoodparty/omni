@@ -9,6 +9,19 @@
 | `master`  | prod        |                                   |
 
 PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
+PR-triggered workflows (validation and preview deploys) skip PRs targeting `qa`
+or `master` (`branches-ignore`) — promotion PRs don't re-run PR CI; those branches
+are covered by their push-triggered deploys.
+
+### Concurrency: never `cancel-in-progress: true`
+
+Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
+started run can kill `pulumi up` mid-deploy, which orphans the stack's S3 state
+lock and permanently fails every later deploy of that stack until someone runs
+`pulumi cancel` by hand. Queued (not yet started) runs are still superseded by
+newer ones within a concurrency group, so rapid pushes don't pile up — the
+trade-off is only that an in-flight stale run finishes before the newest one
+starts.
 
 ## Frontends (Vercel)
 
@@ -22,21 +35,25 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
   the URL is predictable per PR.
 - `prod` deploys to the production target.
+- The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
+  build` peaks near Node's default ~4GB heap and started OOMing intermittently
+  on the runners (2026-06-12). The cap is per process and propagates to every
+  worker the build spawns, so raise it cautiously — several workers at a
+  bigger cap can trip the kernel OOM killer instead.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
-  comment on the PR listing every app; a URL only resolves if that app's deploy
-  job runs for the PR.
+  comment on the PR listing every app; every app's deploy job runs on every PR,
+  so all the URLs resolve.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
-When a PR (or a develop push) touches `packages/gp-api` or `packages/contracts`,
-the gp-webapp build and its Playwright e2e run against that change's gp-api stack
-instead of shared dev, so the e2e exercises the full-stack version proposed in the
-PR. The gp-webapp workflow is path-triggered on gp-api/contracts too, and a
-`changes` job sets `gp_api`.
+CI workflows have no path filters: every PR runs every package's validate job,
+gp-api deploys a per-PR preview stack, gp-webapp deploys a per-PR preview, and
+the Playwright e2e always runs against that full-stack pair — so the e2e always
+exercises the exact full-stack version proposed in the PR.
 
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
-  `https://pr-<N>.preview.goodparty.org`. Webapp-only PRs keep the dev default.
+  `https://pr-<N>.preview.goodparty.org` on every PR.
 - Coordinating the two independent workflows: the e2e job polls gp-api's existing
   Deploy job (via the Actions API, scoped to the gp-api run for this commit) and
   waits for it to finish, proceeding on success and failing fast otherwise. This
@@ -57,6 +74,9 @@ PR. The gp-webapp workflow is path-triggered on gp-api/contracts too, and a
 gp-api, election-api, and people-api build a production Docker image, push to ECR
 (tagged with the commit SHA), and deploy to ECS Fargate via Pulumi.
 
+- ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
+  exists and skip the build/push if so — this is what makes re-running a deploy
+  job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
   (`gp-api-cleanup-preview.yml`).
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
@@ -67,7 +87,24 @@ gp-api, election-api, and people-api build a production Docker image, push to EC
 
 ## CI layout
 
-Workflows live in `.github/workflows/`, one per package, path-filtered so only
-affected apps run. The primary validate job is named **"Validate"** across all
+Workflows live in `.github/workflows/`, one per package; every package's
+workflow runs on every PR (no path filters, except the infra-diffs workflow).
+The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
+
+## Dependency updates (Dependabot)
+
+Policy: **security updates only** — no version-bump PRs. Version updates are
+disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
+PRs are driven by Dependabot alerts (enabled in repo settings) and target
+`develop`.
+
+Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
+30 minutes and squash-merges any Dependabot PR that is approved (delegate
+reviews every PR), has all checks green, and whose last commit is at least 24
+hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+from auto-merge. Merges authenticate as the `omni-automation` GitHub App
+(`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
+push triggers the dev deploy workflows like any other merge. Auto-merge stops
+at `develop`; security fixes reach qa/prod through the normal promotion flow.

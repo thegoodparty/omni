@@ -2,28 +2,9 @@ name: gp-webapp
 
 on:
   pull_request:
-    paths:
-      - "packages/gp-webapp/**"
-      # gp-api/contracts so a backend or contract change runs the webapp e2e
-      # against this PR's full-stack build (see the changes job + deploy/e2e).
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-webapp.yml"
-      - ".github/actions/**"
+    branches-ignore: [qa, master]
   push:
     branches: [develop, qa, master]
-    paths:
-      - "packages/gp-webapp/**"
-      # gp-api/contracts so a backend or contract change runs the webapp e2e
-      # against this PR's full-stack build (see the changes job + deploy/e2e).
-      - "packages/gp-api/**"
-      - "packages/contracts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/gp-webapp.yml"
-      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -31,31 +12,12 @@ permissions:
 
 concurrency:
   group: gp-webapp-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   WORKSPACE: packages/gp-webapp
 
 jobs:
-  # Did this PR/push touch gp-api or contracts? Drives full-stack mode: point the
-  # webapp build at the per-PR gp-api preview and gate the e2e on it.
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest
-    outputs:
-      gp_api: ${{ steps.filter.outputs.gp_api }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            gp_api:
-              - 'packages/gp-api/**'
-              - 'packages/contracts/**'
-
   ci:
     name: Validate
     runs-on: ubuntu-latest
@@ -88,7 +50,6 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: changes
     if: >-
       github.event_name == 'pull_request'
       || (github.event_name == 'push'
@@ -114,12 +75,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "target=preview" >> "$GITHUB_OUTPUT"
-            # Full-stack: when this PR touches gp-api, bake the per-PR backend so
-            # the preview + e2e exercise this PR's gp-api. Otherwise leave unset
-            # (the project default points at gp-api-dev).
-            if [ "${{ needs.changes.outputs.gp_api }}" = "true" ]; then
-              echo "api_base=https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org" >> "$GITHUB_OUTPUT"
-            fi
+            # Full-stack: gp-api deploys a per-PR preview stack on every PR, so
+            # always bake the per-PR backend into the webapp preview.
+            echo "api_base=https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org" >> "$GITHUB_OUTPUT"
           else
             case "${{ github.ref_name }}" in
               develop)
@@ -156,7 +114,7 @@ jobs:
   # publishes the HTML report to S3 so it's viewable via URL.
   e2e:
     name: E2E
-    needs: [deploy, changes]
+    needs: [deploy]
     if: >-
       needs.deploy.outputs.url != ''
       && (github.event_name == 'pull_request'
@@ -191,9 +149,9 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: npx playwright install --with-deps chromium
 
-      # Full-stack: when gp-api changed, the webapp was built against this PR's
-      # gp-api stack (or, on develop, gp-api-dev). Wait until that deploy of THIS
-      # commit is done before testing. gp-api's validate+build+ECS path is much
+      # Full-stack: the webapp is built against this PR's gp-api stack (or, on
+      # develop, gp-api-dev), and gp-api runs on every PR/push. Wait until that
+      # deploy of THIS commit is done before testing. gp-api's validate+build+ECS path is much
       # slower than the webapp deploy, so a blind timer off the (fast) webapp
       # deploy can't cover it. Instead wait on gp-api's existing Deploy job
       # finishing for this commit (terminal signal, fail fast), then confirm the
@@ -204,7 +162,6 @@ jobs:
       # commit) — distinct from github.sha, which on a PR is the merge commit.
       # gp-api tags its image with github.sha, so /v1/version reports that.
       - name: Wait for gp-api deploy
-        if: needs.changes.outputs.gp_api == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -260,7 +217,13 @@ jobs:
         # package.json dir, which here is packages/gp-webapp — one level above
         # e2e-tests — so it silently runs with NO config (no baseURL, no
         # globalSetup/clerkSetup) unless we point at the file explicitly.
-        run: npx playwright test --config="$PWD/playwright.config.ts" tests/
+        # @dev-only specs run only on the post-merge develop e2e (warm dev stack +
+        # live pipelines: SQS analyze round-trip, Stripe webhook). Exclude them on
+        # PRs, where an ephemeral per-PR preview can't drive those pipelines. See
+        # e2e-tests/CLAUDE.md.
+        run: >-
+          npx playwright test --config="$PWD/playwright.config.ts" tests/
+          ${{ github.event_name == 'pull_request' && '--grep-invert @dev-only' || '' }}
         env:
           TEST_RUN_NAME: "E2E Tests - PR Preview"
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}

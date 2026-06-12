@@ -19,7 +19,7 @@ export default function CantDownload(
   return (
     <div className="py-20 w-full">
       <div className="max-w-screen-md mx-auto">
-        <div className="p-6 md:p-16 rounded-2xl border border-indigo-200 bg-secondary-background">
+        <div className="p-6 md:p-16 rounded-2xl border border-indigo-200 bg-brand-midnight-50">
           <div className="text-center ">
             <div className="flex justify-center text-gray-800 mb-8">
               <RiFolderForbidLine size={80} />

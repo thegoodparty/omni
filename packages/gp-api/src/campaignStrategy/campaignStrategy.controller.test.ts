@@ -57,17 +57,38 @@ describe('CampaignStrategyController', () => {
   let service: {
     getOrGenerateStrategicLandscape: ReturnType<typeof vi.fn>
     getOrGenerateCommunityEvents: ReturnType<typeof vi.fn>
+    existsForCampaign: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
     service = {
       getOrGenerateStrategicLandscape: vi.fn(),
       getOrGenerateCommunityEvents: vi.fn(),
+      existsForCampaign: vi.fn(),
     }
     controller = new CampaignStrategyController(
       service as unknown as CampaignStrategyService,
       createMockLogger(),
     )
+  })
+
+  describe('strategyExists', () => {
+    it('returns exists: true when a strategy row exists', async () => {
+      service.existsForCampaign.mockResolvedValueOnce(true)
+
+      const result = await controller.strategyExists(sampleCampaign)
+
+      expect(service.existsForCampaign).toHaveBeenCalledWith(99)
+      expect(result).toEqual({ exists: true })
+    })
+
+    it('returns exists: false when no strategy row exists', async () => {
+      service.existsForCampaign.mockResolvedValueOnce(false)
+
+      const result = await controller.strategyExists(sampleCampaign)
+
+      expect(result).toEqual({ exists: false })
+    })
   })
 
   it('returns the ready body and leaves the default 200 status when cached', async () => {

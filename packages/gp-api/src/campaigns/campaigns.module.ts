@@ -26,8 +26,6 @@ import { CampaignPlanVersionsService } from './services/campaignPlanVersions.ser
 import { CampaignsService } from './services/campaigns.service'
 import { CrmCampaignsService } from './services/crmCampaigns.service'
 import { CampaignTasksController } from './tasks/campaignTasks.controller'
-import { LegacyCampaignTasksController } from './tasks/legacy/legacyCampaignTasks.controller'
-import { LegacyCampaignTasksService } from './tasks/legacy/services/legacyCampaignTasks.service'
 import { CampaignTasksService } from './tasks/services/campaignTasks.service'
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
@@ -37,6 +35,8 @@ import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.ser
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
 import { CampaignUpdateHistoryController } from './updateHistory/campaignUpdateHistory.controller'
 import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHistory.service'
+import { PublicCampaignsController } from './controllers/public-campaigns.controller'
+import { PublicCampaignsService } from './services/public-campaigns.service'
 
 @Global()
 @Module({
@@ -66,8 +66,8 @@ import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHist
     CampaignPositionsController,
     CampaignUpdateHistoryController,
     CampaignTasksController,
-    LegacyCampaignTasksController,
     CampaignTcrComplianceController,
+    PublicCampaignsController,
   ],
   providers: [
     CampaignsService,
@@ -77,12 +77,12 @@ import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHist
     CampaignUpdateHistoryService,
     CrmCampaignsService,
     CampaignTasksService,
-    LegacyCampaignTasksService,
     AiGenerationService,
     CampaignTcrComplianceService,
     ComplianceStateService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
+    PublicCampaignsService,
   ],
   exports: [
     CampaignsService,

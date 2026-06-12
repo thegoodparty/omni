@@ -17,6 +17,7 @@ import pmap from 'p-map'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   AdminListOrganizationsDto,
+  AdminPatchOrganizationDto,
   PatchOrganizationDto,
 } from '../schemas/organization.schema'
 
@@ -120,14 +121,17 @@ export class OrganizationsService extends createPrismaBase(
     return this.applyPatch(org, updates)
   }
 
-  async adminPatchOrganization(slug: string, updates: PatchOrganizationDto) {
+  async adminPatchOrganization(
+    slug: string,
+    updates: AdminPatchOrganizationDto,
+  ) {
     const org = await this.adminGetOrganization(slug)
     return this.applyPatch(org, updates)
   }
 
   private async applyPatch(
     org: FriendlyOrganization,
-    updates: PatchOrganizationDto,
+    updates: AdminPatchOrganizationDto,
   ) {
     let position: { id: string } | null = org.position
 
@@ -465,6 +469,8 @@ export class OrganizationsService extends createPrismaBase(
     positionName: string
     l2DistrictType?: string
     l2DistrictName?: string
+    isWinIcp?: boolean | null
+    isServeIcp?: boolean | null
   } | null> {
     const [position, overrideDistrict] = await Promise.all([
       org.positionId
@@ -485,6 +491,8 @@ export class OrganizationsService extends createPrismaBase(
       positionName,
       l2DistrictType: district?.L2DistrictType,
       l2DistrictName: district?.L2DistrictName,
+      isWinIcp: position?.isWinIcp,
+      isServeIcp: position?.isServeIcp,
     }
   }
 

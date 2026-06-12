@@ -21,6 +21,7 @@ import {
   getTcrComplianceStatusCompletions,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
+import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
 import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
@@ -81,7 +82,11 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     const step = deriveProUpgradeStep({
       isPro: Boolean(campaign?.isPro),
       filingStatus: filingStatusFromDetails(campaign?.details?.hasFiledForRace),
-      hasEin: Boolean(campaign?.details?.einNumber),
+      // Presence isn't enough: older surfaces persisted shape-valid
+      // placeholder EINs, which would skip the EIN step only to fail
+      // filing-details' sanity validation. A bad EIN routes back to the EIN
+      // step where it can be fixed.
+      hasEin: checkEinSanity(campaign?.details?.einNumber ?? '').valid,
       filingComplete,
       profileComplete: isCandidateProfileComplete(website),
       pinComplete,
@@ -99,7 +104,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     return (
       <div className="text-center">
         <H2 className="mb-2">Something went wrong</H2>
-        <Body2 className="mb-6 text-gray-600">
+        <Body2 className="mb-6 text-base-muted-foreground">
           We couldn&apos;t load your upgrade details. Please try again.
         </Body2>
         <Button

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
@@ -87,10 +92,10 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       `Poll checkout session completed: sessionId=${sessionId} metadata=`,
     )
 
-    if (metadata.pollPurchaseType === PollPurchaseType.expansion) {
-      return this.processExpansion(metadata)
-    }
-
+    // userId is set server-side from the authenticated purchaser by
+    // createCustomCheckoutSession / completeFreePurchase, so it is the trusted
+    // identity for this purchase. Both the new-poll and expansion paths scope to
+    // the buyer's own elected office through it.
     // Stripe metadata typed as Metadata (Record<string, string>) — no generic parameterization
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const userId = (rawMetadata as Record<string, string>)?.userId
@@ -103,6 +108,10 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       throw new BadRequestException(`User not found: ${userId}`)
     }
 
+    if (metadata.pollPurchaseType === PollPurchaseType.expansion) {
+      return this.processExpansion(metadata, user.id)
+    }
+
     return this.processNewPoll(metadata, user.id)
   }
 
@@ -113,7 +122,33 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     metadata: z.infer<typeof PollPurchaseMetadataSchema> & {
       pollPurchaseType: PollPurchaseType.expansion
     },
+    userId: number,
   ): Promise<void> {
+    // Verify the poll belongs to the paying user's elected office before
+    // mutating it. pollId comes from checkout metadata; without this check a
+    // user could expand (and schedule texts on) another office's poll (IDOR),
+    // matching the ensurePollAccess check the standard poll routes enforce.
+    const electedOffice = await this.electedOfficeService.findFirst({
+      where: { userId },
+    })
+    if (!electedOffice) {
+      throw new BadRequestException(
+        `Elected office not found for userId ${userId} poll ${metadata.pollId}`,
+      )
+    }
+
+    const poll = await this.pollsService.findUnique({
+      where: { id: metadata.pollId },
+    })
+    if (!poll) {
+      throw new NotFoundException(`Poll not found: ${metadata.pollId}`)
+    }
+    if (poll.electedOfficeId !== electedOffice.id) {
+      throw new ForbiddenException(
+        'You do not have permission to expand this poll',
+      )
+    }
+
     await this.pollsService.expandPoll({
       pollId: metadata.pollId,
       additionalRecipientCount: metadata.count,

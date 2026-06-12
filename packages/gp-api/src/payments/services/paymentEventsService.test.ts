@@ -31,6 +31,7 @@ describe('PaymentEventsService', () => {
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
+  const purchaseService = { completeCheckoutSession: vi.fn() }
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
   const mockCampaign = {
@@ -55,8 +56,33 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionCompletedEvent
 
+  const asyncPaymentEvent = {
+    type: WebhookEventType.CheckoutSessionAsyncPaymentSucceeded,
+    data: {
+      object: {
+        id: 'cs_async_test',
+        mode: CheckoutSessionMode.PAYMENT,
+        metadata: { userId: '1', purchaseType: 'poll' },
+      },
+    },
+  } as unknown as Stripe.CheckoutSessionAsyncPaymentSucceededEvent
+
+  const oneTimePaymentEvent = {
+    type: WebhookEventType.CheckoutSessionCompleted,
+    data: {
+      object: {
+        id: 'cs_paid_test',
+        mode: CheckoutSessionMode.PAYMENT,
+        metadata: { userId: '1', purchaseType: 'poll' },
+      },
+    },
+  } as unknown as Stripe.CheckoutSessionCompletedEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
+    purchaseService.completeCheckoutSession.mockResolvedValue({
+      alreadyProcessed: false,
+    })
     usersService.findUser.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     campaignsService.findByUserId.mockResolvedValue(mockCampaign)
@@ -80,7 +106,7 @@ describe('PaymentEventsService', () => {
       organizationsService as never,
       {} as never,
       analytics as never,
-      {} as never,
+      purchaseService as never,
       tcrComplianceService as never,
       logger,
     )
@@ -155,6 +181,61 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('agentic compliance kickoff'),
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEvent — checkout.session.async_payment_succeeded', () => {
+    it('completes the deferred one-time purchase using the confirmed event session', async () => {
+      await service.handleEvent(asyncPaymentEvent)
+
+      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith(
+        { checkoutSessionId: 'cs_async_test' },
+        asyncPaymentEvent.data.object,
+      )
+    })
+
+    it('propagates errors from completeCheckoutSession so Stripe retries', async () => {
+      const fulfillmentError = new Error('DB unavailable')
+      purchaseService.completeCheckoutSession.mockRejectedValueOnce(
+        fulfillmentError,
+      )
+
+      await expect(service.handleEvent(asyncPaymentEvent)).rejects.toThrow(
+        fulfillmentError,
+      )
+    })
+  })
+
+  describe('handleEvent — checkout.session.completed (one-time payment)', () => {
+    it('delegates to completeCheckoutSession without a prefetched session', async () => {
+      await service.handleEvent(oneTimePaymentEvent)
+
+      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith(
+        { checkoutSessionId: 'cs_paid_test' },
+        undefined,
+      )
+    })
+
+    it('does not throw when fulfillment is deferred (unpaid)', async () => {
+      purchaseService.completeCheckoutSession.mockResolvedValueOnce({
+        alreadyProcessed: false,
+        deferred: true,
+      })
+
+      await expect(
+        service.handleEvent(oneTimePaymentEvent),
+      ).resolves.not.toThrow()
+    })
+
+    it('propagates errors from completeCheckoutSession so Stripe retries', async () => {
+      const fulfillmentError = new Error('DB unavailable')
+      purchaseService.completeCheckoutSession.mockRejectedValueOnce(
+        fulfillmentError,
+      )
+
+      await expect(service.handleEvent(oneTimePaymentEvent)).rejects.toThrow(
+        fulfillmentError,
+      )
     })
   })
 })

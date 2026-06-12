@@ -41,12 +41,15 @@ jobs:
 
       - name: Find stale PR stacks
         id: find-stale
-        working-directory: ${{ env.WORKSPACE }}/deploy
+        # npx in an npm workspace chdirs to the package root before running,
+        # so this must run from the package root with a package-root-relative
+        # script path
+        working-directory: ${{ env.WORKSPACE }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           pulumi login s3://goodparty-iac-state
-          npx tsx ../scripts/find-stale-preview-stacks.ts /tmp/stale-stacks.json
+          npx tsx scripts/find-stale-preview-stacks.ts /tmp/stale-stacks.json
           echo "stacks=$(cat /tmp/stale-stacks.json)" >> $GITHUB_OUTPUT
 
   destroy:

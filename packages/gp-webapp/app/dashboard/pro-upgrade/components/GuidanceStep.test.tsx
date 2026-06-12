@@ -20,6 +20,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToStep = vi.fn()
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 describe('GuidanceStep', () => {
   beforeEach(() => {
@@ -28,7 +29,7 @@ describe('GuidanceStep', () => {
       currentStep: 'guidance',
       goToStep,
       goToNextStep,
-      goToPreviousStep: vi.fn(),
+      goToPreviousStep,
     })
   })
 
@@ -58,6 +59,33 @@ describe('GuidanceStep', () => {
     // The four ordinal markers, per the Figma numbered list.
     for (const ordinal of ['1', '2', '3', '4']) {
       expect(screen.getByText(ordinal)).toBeInTheDocument()
+    }
+  })
+
+  it('navigates to the previous step from the footer Back button', () => {
+    render(<GuidanceStep />)
+
+    screen.getByRole('button', { name: 'Back' }).click()
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(goToStep).not.toHaveBeenCalled()
+  })
+
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<GuidanceStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: /let's go/i })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
     }
   })
 

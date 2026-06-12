@@ -28,7 +28,7 @@ const run = (overrides: Record<string, unknown> = {}) =>
     organizationSlug: 'org-99',
     experimentType: 'opposition_research',
     status: ExperimentRunStatus.COMPLETED,
-    params: {},
+    params: { race_id: 'br-general' },
     artifactBucket: 'bucket',
     artifactKey: 'key',
     durationSeconds: null,
@@ -55,7 +55,11 @@ describe('CampaignStrategyService', () => {
   let analytics: { track: ReturnType<typeof vi.fn> }
   let prisma: {
     campaignStrategy: Record<string, ReturnType<typeof vi.fn>>
+    campaignStrategyOpportunity: Record<string, ReturnType<typeof vi.fn>>
+    campaignStrategyChallenge: Record<string, ReturnType<typeof vi.fn>>
+    campaignStrategyOpponent: Record<string, ReturnType<typeof vi.fn>>
     campaign: Record<string, ReturnType<typeof vi.fn>>
+    $transaction: ReturnType<typeof vi.fn>
   }
 
   const planRow = (overrides: Record<string, unknown> = {}) => ({
@@ -65,6 +69,8 @@ describe('CampaignStrategyService', () => {
     opportunitiesRunId: null,
     oppositionAttempts: 0,
     opportunitiesAttempts: 0,
+    raceId: 'br-general',
+    previousRaceIds: [],
     ...overrides,
   })
 
@@ -85,13 +91,30 @@ describe('CampaignStrategyService', () => {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn().mockResolvedValue(planRow()),
         update: vi.fn().mockResolvedValue(undefined),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn().mockResolvedValue(planRow()),
       },
+      campaignStrategyOpportunity: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      campaignStrategyChallenge: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      campaignStrategyOpponent: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
       },
+      // Supports both the array form and the interactive (callback) form,
+      // handing the same mock delegates in as the tx client.
+      $transaction: vi.fn(
+        async (
+          arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>),
+        ) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg)),
+      ),
     }
     // The last three deps (communityEvents, electionApi, races) belong to the
     // community-events pipeline and are never touched by the CAP strategic-
@@ -118,6 +141,24 @@ describe('CampaignStrategyService', () => {
     await expect(
       service.getOrGenerateStrategicLandscape(campaign({ details: {} })),
     ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('resolves the raceId even when an unrelated details field is off-shape', async () => {
+    // Regression: officeTermLength is a string per the details contract
+    // ("4 years", written by the campaign-details editor), and a strict
+    // whole-object parse failure used to make a present raceId look
+    // missing — a bogus 400 that blocked regeneration after a race edit.
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    const res = await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: { raceId: 'br-general', officeTermLength: '4 years' },
+      }),
+    )
+
+    expect(res).toEqual({ status: 'generating' })
   })
 
   it('dispatches both experiments and stores run ids when none exist', async () => {
@@ -427,7 +468,7 @@ describe('CampaignStrategyService', () => {
     await service.getOrGenerateStrategicLandscape(campaign())
 
     expect(prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
-      where: { id: 42, oppositionAttempts: { lt: 3 } },
+      where: { id: 42, oppositionAttempts: { lt: 10 } },
       data: { oppositionAttempts: { increment: 1 } },
     })
   })
@@ -471,7 +512,7 @@ describe('CampaignStrategyService', () => {
       run({ runId: 'opp-run', experimentType: 'opposition_research' }),
     )
 
-    expect(persister.persistOpponents).toHaveBeenCalledWith(42, [
+    expect(persister.persistOpponents).toHaveBeenCalledWith(42, 'br-general', [
       { fullName: 'Rival', partyAffiliation: 'Nonpartisan', incumbent: true },
     ])
   })
@@ -487,6 +528,7 @@ describe('CampaignStrategyService', () => {
 
     expect(persister.persistOpportunitiesAndChallenges).toHaveBeenCalledWith(
       42,
+      'br-general',
       ['o1', 'o2'],
       ['c1'],
     )
@@ -527,7 +569,11 @@ describe('CampaignStrategyService', () => {
       run({ runId: 'opp-run', experimentType: 'opposition_research' }),
     )
 
-    expect(persister.persistOpponents).toHaveBeenCalledWith(42, [])
+    expect(persister.persistOpponents).toHaveBeenCalledWith(
+      42,
+      'br-general',
+      [],
+    )
     expect(experimentRuns.markFailed).not.toHaveBeenCalled()
   })
 
@@ -581,5 +627,161 @@ describe('CampaignStrategyService', () => {
       'artifact is missing or empty',
     )
     expect(persister.persistOpponents).not.toHaveBeenCalled()
+  })
+
+  describe('race change alignment', () => {
+    it('resets content in place and regenerates when the campaign race changed', async () => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          raceId: 'br-old',
+          oppositionRunId: 'old-opp-run',
+          opportunitiesRunId: 'old-oc-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+          oppositionAttempts: 2,
+          opportunitiesAttempts: 2,
+        }),
+      )
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ raceId: 'br-general', previousRaceIds: ['br-old'] }),
+      )
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      // The previous race's ready content must not be served.
+      expect(res).toEqual({ status: 'generating' })
+      for (const delegate of [
+        prisma.campaignStrategyOpportunity,
+        prisma.campaignStrategyChallenge,
+        prisma.campaignStrategyOpponent,
+      ]) {
+        expect(delegate.deleteMany).toHaveBeenCalledWith({
+          where: { campaignStrategyId: 42 },
+        })
+      }
+      // The reset is an optimistic claim on the snapshot's race — a
+      // concurrent reset that already committed makes it miss.
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 42, raceId: 'br-old' },
+        data: expect.objectContaining({
+          raceId: 'br-general',
+          previousRaceIds: { push: 'br-old' },
+          oppositionRunId: null,
+          opportunitiesRunId: null,
+          oppositionPersistedAt: null,
+          opportunitiesPersistedAt: null,
+          generationStartedAt: null,
+        }),
+      })
+      // Attempt counters survive the reset — they bound lifetime spend.
+      const resetData = prisma.campaignStrategy.updateMany.mock.calls[0][0].data
+      expect(resetData).not.toHaveProperty('oppositionAttempts')
+      expect(resetData).not.toHaveProperty('opportunitiesAttempts')
+      expect(analytics.track).toHaveBeenCalledWith(
+        7,
+        'Campaign Plan V2 - Strategy Race Changed',
+        expect.objectContaining({
+          campaignId: 99,
+          previousRaceId: 'br-old',
+          newRaceId: 'br-general',
+          raceChangeCount: 1,
+        }),
+      )
+    })
+
+    it('a lost reset claim defers to the concurrent winner without re-appending', async () => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({ raceId: 'br-old' }),
+      )
+      // The concurrent reset committed first: this request's claim misses.
+      prisma.campaignStrategy.updateMany.mockResolvedValueOnce({ count: 0 })
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        planRow({ raceId: 'br-general', previousRaceIds: ['br-old'] }),
+      )
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(analytics.track).not.toHaveBeenCalledWith(
+        7,
+        'Campaign Plan V2 - Strategy Race Changed',
+        expect.anything(),
+      )
+    })
+
+    it('adopts the current race onto an unstamped legacy row without resetting', async () => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          raceId: null,
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.update.mockResolvedValueOnce(
+        planRow({
+          raceId: 'br-general',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [{ content: 'o1' }],
+        challenges: [{ content: 'c1' }],
+        opponents: [],
+      })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(prisma.campaignStrategy.update).toHaveBeenCalledWith({
+        where: { id: 42 },
+        data: { raceId: 'br-general' },
+      })
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
+    it('leaves a matching stamp untouched', async () => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [{ content: 'o1' }],
+        challenges: [{ content: 'c1' }],
+        opponents: [],
+      })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('stamps new rows with the campaign race at creation', async () => {
+      experimentRuns.dispatchRun
+        .mockResolvedValueOnce({ runId: 'opp-run' })
+        .mockResolvedValueOnce({ runId: 'oc-run' })
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(prisma.campaignStrategy.upsert).toHaveBeenCalledWith({
+        where: { campaignId: 99 },
+        create: { campaignId: 99, raceId: 'br-general' },
+        update: {},
+      })
+    })
   })
 })

@@ -44,6 +44,7 @@ vi.mock('helpers/useSnackbar', () => ({
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToNextStep = vi.fn()
+const goToPreviousStep = vi.fn()
 
 const websiteWith = (bio: string, issueCount: number): Website =>
   ({
@@ -66,7 +67,7 @@ beforeEach(() => {
     currentStep: 'candidate-profile',
     goToStep: vi.fn(),
     goToNextStep,
-    goToPreviousStep: vi.fn(),
+    goToPreviousStep,
   })
   // Default: a complete profile on file, save succeeds.
   getUserWebsite.mockResolvedValue(websiteWith(validBio, 1))
@@ -88,6 +89,34 @@ describe('CandidateProfileStep', () => {
     expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
     expect(screen.getByText('Your policy priorities')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  })
+
+  it('navigates to the previous step from the footer Back button', async () => {
+    const user = userEvent.setup()
+    render(<CandidateProfileStep />)
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+    expect(saveAboutFields).not.toHaveBeenCalled()
+  })
+
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<CandidateProfileStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: 'Continue' })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
   })
 
   it('saves bio and issues and advances to payment on a valid submit', async () => {

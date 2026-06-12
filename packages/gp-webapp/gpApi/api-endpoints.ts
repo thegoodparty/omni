@@ -170,6 +170,21 @@ export type APIEndpoints = {
     Response: CampaignVersions
   }
 
+  // The pro-upgrade filing-instructions screen reads this fresh so it renders
+  // the same content the "email this to me" body composes (one server source —
+  // page and email can't drift). `filingWindow` is preformatted server-side.
+  'GET /v1/campaigns/mine/filing-instructions': {
+    Request: {}
+    Response: {
+      filingWindow: string
+      filingFee: number | null
+      filingRequirementsText: string | null
+      filingOfficeAddress: string | null
+      filingPhoneNumber: string | null
+      paperworkInstructions: string | null
+    }
+  }
+
   // Emails the caller their own race's filing instructions (window, fee,
   // requirements, office contact). No body: gp-api scopes the send to the
   // authenticated user's campaign + email via @UseCampaign()/@ReqUser().
@@ -178,6 +193,14 @@ export type APIEndpoints = {
     Response: {
       success: boolean
     }
+  }
+
+  // Accepts a multipart PDF upload and stores it as a public share link.
+  // The file part is sent as FormData — pass `{}` as the typed payload and
+  // supply `{ body: formData }` via the overrides argument of clientRequest.
+  'POST /v1/campaigns/mine/plan-pdf-share': {
+    Request: {}
+    Response: { url: string }
   }
 
   'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin': {
@@ -203,6 +226,14 @@ export type APIEndpoints = {
   'POST /v1/campaignStrategy/mine/community-events': {
     Request: {}
     Response: CommunityEventsResponse
+  }
+
+  // Cheap existence probe used to gate the dashboard's Campaign Plan tab.
+  // Mirrors `StrategyExistsResponseSchema` in
+  // `gp-api/src/campaignStrategy/schemas/strategyExists.schema.ts`.
+  'GET /v1/campaignStrategy/mine/exists': {
+    Request: {}
+    Response: { exists: boolean }
   }
 
   'GET /v1/elected-office/current': {
@@ -429,6 +460,15 @@ export type APIEndpoints = {
     Response: ApiAttachmentDownloadUrlResponse
   }
 
+  'GET /v1/meetings/:date/briefing/review-verdict': {
+    Request: { date: string }
+    Response: { review: ApiBriefingReviewVerdict | null }
+  }
+  'PUT /v1/meetings/:date/briefing/review-verdict': {
+    Request: { date: string; verdict: 'passed' | 'failed'; failReason?: string }
+    Response: ApiBriefingReviewVerdict
+  }
+
   'GET /v1/meetings/:date/briefing/feedback': {
     Request: { date: string }
     Response: { feedback: ApiArtifactFeedback[] }
@@ -577,6 +617,13 @@ export interface ApiAnnotationReview {
   reviewer_email: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ApiBriefingReviewVerdict {
+  verdict: 'passed' | 'failed'
+  failReason: string | null
+  reviewerEmail: string | null
+  reviewedAt: string
 }
 
 export interface ApiAnnotation {
