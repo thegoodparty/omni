@@ -574,10 +574,14 @@
   --color-components-card-base: #ffffff;
   --color-components-card-foreground: #0a0a0a;
   --color-components-input-active: #2563eb;
+  --color-components-input-inactive: var(--component-input-inactive);
   --color-components-input-foreground: #ffffff;
   --color-components-input-base: #ffffff;
   --color-components-input-border: #d4d4d4;
   --color-components-input-focus: rgba(37, 99, 235, 0.3);
+  --color-components-input-inactive-focus: var(
+    --component-input-inactive-focus
+  );
   --color-components-tooltip-base: #262626;
   --color-components-tooltip-foreground: #ffffff;
 
