@@ -60,6 +60,8 @@ export class PaymentEventsService {
         return await this.customerSubscriptionCreatedHandler(event)
       case WebhookEventType.CheckoutSessionCompleted:
         return await this.checkoutSessionCompletedHandler(event)
+      case WebhookEventType.CheckoutSessionAsyncPaymentSucceeded:
+        return await this.checkoutSessionAsyncPaymentSucceededHandler(event)
       case WebhookEventType.CheckoutSessionExpired:
         return await this.checkoutSessionExpiredHandler(event)
       case WebhookEventType.CustomerSubscriptionDeleted:
@@ -211,6 +213,27 @@ export class PaymentEventsService {
   }
 
   /**
+   * Handles checkout.session.async_payment_succeeded — fired when a delayed
+   * payment method (e.g. ACH bank debit) settles, after the earlier
+   * checkout.session.completed where fulfillment was deferred because the
+   * payment was not yet confirmed. Async payments are always one-time
+   * payment-mode checkouts, and payment_status is now 'paid', so fulfillment
+   * proceeds (idempotently) via the same one-time-payment path.
+   */
+  private async checkoutSessionAsyncPaymentSucceededHandler(
+    event: Stripe.CheckoutSessionAsyncPaymentSucceededEvent,
+  ) {
+    // Pass the event's session as the prefetched session: it already carries the
+    // confirmed payment_status 'paid'. Re-fetching from Stripe here could read a
+    // stale 'unpaid' (eventual consistency) and silently defer, dropping the
+    // fulfillment with no retry.
+    return this.handleOneTimePaymentCheckoutCompleted(
+      event.data.object,
+      event.data.object,
+    )
+  }
+
+  /**
    * Handles checkout.session.completed events for subscription checkouts (Pro plan).
    */
   private async handleSubscriptionCheckoutCompleted(
@@ -340,6 +363,7 @@ export class PaymentEventsService {
    */
   private async handleOneTimePaymentCheckoutCompleted(
     session: Stripe.Checkout.Session,
+    prefetchedSession?: Stripe.Checkout.Session,
   ) {
     const { id: sessionId, metadata } = session
 
@@ -364,9 +388,10 @@ export class PaymentEventsService {
 
     // Delegate to purchase service for post-purchase processing
     try {
-      await this.purchaseService.completeCheckoutSession({
-        checkoutSessionId: sessionId,
-      })
+      await this.purchaseService.completeCheckoutSession(
+        { checkoutSessionId: sessionId },
+        prefetchedSession,
+      )
     } catch (error) {
       this.logger.error(
         { error },
