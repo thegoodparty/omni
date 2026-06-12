@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { isAfter, isValid } from 'date-fns'
 import { Eligibility } from '@goodparty_org/contracts'
-import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { getMidnightForDate, parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { Campaign, ElectedOffice } from '../../generated/prisma'
 import { CampaignsService } from './campaigns.service'
@@ -42,11 +42,16 @@ export class EligibilityService {
   }
 
   private isActiveCampaign(campaign: Campaign, now: Date): boolean {
+    if (campaign.isDemo) return false
     const electionDate = campaign.details?.electionDate
     if (!electionDate) return false
     const parsed = parseIsoDateAsUTC(electionDate)
     if (!isValid(parsed)) return false
-    return campaign.didWin === null && isAfter(parsed, now)
+    // electionDate is a calendar date (UTC midnight); the campaign stays
+    // active through the whole election day, so compare UTC calendar days
+    // rather than the parsed instant — date-fns endOfDay is local-time and
+    // would flip the boundary on non-UTC servers.
+    return campaign.didWin === null && !isAfter(getMidnightForDate(now), parsed)
   }
 
   private holdsOffice(office: ElectedOffice, now: Date): boolean {
@@ -61,10 +66,18 @@ export class EligibilityService {
   ): ElectedOffice | undefined {
     return offices.reduce<ElectedOffice | undefined>(
       (latest, office) =>
-        !latest || isAfter(office.createdAt, latest.createdAt)
+        !latest ||
+        isAfter(this.officeRecency(office), this.officeRecency(latest))
           ? office
           : latest,
       undefined,
     )
+  }
+
+  // termStartAt is the semantic "most recently held"; fall back to termEndAt
+  // then createdAt for rows where term dates were never populated (e.g.
+  // backfill / import) so createdAt order can't pick the wrong office.
+  private officeRecency(office: ElectedOffice): Date {
+    return office.termStartAt ?? office.termEndAt ?? office.createdAt
   }
 }

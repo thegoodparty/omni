@@ -71,6 +71,24 @@ describe('EligibilityService', () => {
     expect(result.canStartCampaign).toBe(false)
   })
 
+  it('does not count a demo campaign as active', async () => {
+    const service = await buildService(
+      [
+        buildCampaign({
+          isDemo: true,
+          didWin: null,
+          details: { electionDate: FUTURE_ELECTION_DATE },
+        }),
+      ],
+      [],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.hasActiveCampaign).toBe(false)
+    expect(result.canStartCampaign).toBe(true)
+  })
+
   it('treats a concluded campaign (didWin set) as not active', async () => {
     const service = await buildService([buildCampaign({ didWin: false })], [])
 
@@ -95,6 +113,44 @@ describe('EligibilityService', () => {
 
     expect(result.hasActiveCampaign).toBe(false)
     expect(result.canStartCampaign).toBe(true)
+  })
+
+  it('treats a campaign as active at midday on election day', async () => {
+    const today = '2026-11-03'
+    vi.setSystemTime(new Date(`${today}T14:00:00Z`))
+
+    const service = await buildService(
+      [buildCampaign({ didWin: null, details: { electionDate: today } })],
+      [],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.hasActiveCampaign).toBe(true)
+    expect(result.canStartCampaign).toBe(false)
+
+    vi.useRealTimers()
+  })
+
+  it('treats a campaign as concluded the day after its election', async () => {
+    vi.setSystemTime(new Date('2026-11-04T14:00:00Z'))
+
+    const service = await buildService(
+      [
+        buildCampaign({
+          didWin: null,
+          details: { electionDate: '2026-11-03' },
+        }),
+      ],
+      [],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.hasActiveCampaign).toBe(false)
+    expect(result.canStartCampaign).toBe(true)
+
+    vi.useRealTimers()
   })
 
   it('treats an active office with a future term end as held', async () => {
@@ -156,19 +212,23 @@ describe('EligibilityService', () => {
     expect(result.reelectionOfficeSlug).toBe('held-office-slug')
   })
 
-  it('falls back to the most-recent office slug when none is held', async () => {
+  it('falls back to the office with the latest term start, not createdAt', async () => {
     const service = await buildService(
       [],
       [
         buildOffice({
           organizationSlug: 'older-office',
           isActive: false,
-          createdAt: new Date('2018-01-01'),
+          termStartAt: new Date('2018-01-01'),
+          termEndAt: new Date('2019-01-01'),
+          createdAt: new Date('2022-06-01'),
         }),
         buildOffice({
           organizationSlug: 'newer-office',
           isActive: false,
-          createdAt: new Date('2022-01-01'),
+          termStartAt: new Date('2022-01-01'),
+          termEndAt: new Date('2023-01-01'),
+          createdAt: new Date('2018-06-01'),
         }),
       ],
     )
