@@ -32,7 +32,7 @@ const ListItem = ({
         {...restProps}
       >
         {variant === 'list' && (
-          <div className="mr-5 h-6 w-6 bg-primary-dark text-slate-50 flex items-center justify-center rounded-full font-semibold">
+          <div className="mr-5 h-6 w-6 bg-secondary text-slate-50 flex items-center justify-center rounded-full font-semibold">
             {number}
           </div>
         )}

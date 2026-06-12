@@ -37,19 +37,22 @@ const RadioList = ({
               role="radio"
               tabIndex={0}
               key={option.key}
-              className="mb-4 flex items-center  py-4 px-6 rounded-lg  p-4 cursor-pointer bg-tertiary-main"
+              className="mb-4 flex items-center py-4 px-6 rounded-lg p-4 cursor-pointer bg-primary"
               onClick={() => selectCallback(option.key)}
               onKeyDown={(e) => handleKeyPress(e, option)}
             >
-              <MdRadioButtonChecked className="text-white" size={22} />
-              <div className="ml-2 text-white">{option.label}</div>
+              <MdRadioButtonChecked
+                className="text-primary-foreground"
+                size={22}
+              />
+              <div className="ml-2 text-primary-foreground">{option.label}</div>
             </div>
           ) : (
             <div
               role="radio"
               tabIndex={0}
               key={option.key}
-              className="mb-4 flex items-center  py-4 px-6 rounded-lg  p-4 cursor-pointer border border-gray-300"
+              className="mb-4 flex items-center py-4 px-6 rounded-lg p-4 cursor-pointer border border-gray-300 hover:bg-muted"
               onClick={() => selectCallback(option.key)}
               onKeyDown={(e) => handleKeyPress(e, option)}
             >

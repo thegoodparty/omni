@@ -174,6 +174,7 @@ describe('CampaignsController', () => {
 
     const filingInstructionsServiceMock: Partial<FilingInstructionsService> = {
       emailToCandidate: vi.fn(),
+      getContent: vi.fn(),
     }
     filingInstructionsService =
       filingInstructionsServiceMock as FilingInstructionsService
@@ -343,6 +344,29 @@ describe('CampaignsController', () => {
         mockUser,
       )
       expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe('getFilingInstructions', () => {
+    it('returns the filing-instructions content for the caller campaign', async () => {
+      const content = {
+        filingWindow: 'June 1, 2026 – June 15, 2026',
+        filingFee: 100,
+        filingRequirementsText: 'Filing fee: $100.',
+        filingOfficeAddress: '500 Election Way, Sacramento, CA 95814',
+        filingPhoneNumber: '(916) 555-0199',
+        paperworkInstructions: 'Submit to the city clerk.',
+      }
+      vi.spyOn(filingInstructionsService, 'getContent').mockResolvedValue(
+        content,
+      )
+
+      const result = await controller.getFilingInstructions(mockCampaign)
+
+      expect(filingInstructionsService.getContent).toHaveBeenCalledWith(
+        mockCampaign,
+      )
+      expect(result).toEqual(content)
     })
   })
 

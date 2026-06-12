@@ -33,9 +33,19 @@ export class PollResponsesDownloadService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     const escapedPollId = client.escapeLiteral(pollId)
+    // Neutralize CSV/spreadsheet formula injection: a constituent reply stored
+    // verbatim in pim.content can begin with =, +, -, or @, which Excel/Sheets
+    // execute as a formula on the staff machine that opens the export. Prefix a
+    // single quote so the cell is forced to text. associated_clusters is
+    // system-generated poll-issue titles (not constituent input), so it is left
+    // as-is.
     const sql = `COPY (
       SELECT
-        pim.content AS message_content,
+        CASE
+          WHEN left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])
+          THEN '''' || pim.content
+          ELSE pim.content
+        END AS message_content,
         COALESCE(
           (
             SELECT string_agg(DISTINCT pi.title, '; ' ORDER BY pi.title)
@@ -53,8 +63,15 @@ export class PollResponsesDownloadService implements OnModuleDestroy {
     ) TO STDOUT WITH (FORMAT CSV, HEADER TRUE)`
 
     const output = new PassThrough()
-    const safePollName =
+    const cleanPollName =
       pollName.replace(/[\r\n]/g, ' ').trim() || 'Poll responses'
+    // Same formula-injection guard as message_content: the poll name is
+    // user-supplied (paid-poll purchase metadata) and is written as cell A1 of
+    // the export, so a name starting with =, +, -, or @ would execute when
+    // staff open the file.
+    const safePollName = /^[=+\-@]/.test(cleanPollName)
+      ? `'${cleanPollName}`
+      : cleanPollName
     output.write(UTF8_BOM + safePollName + '\n')
 
     let released = false

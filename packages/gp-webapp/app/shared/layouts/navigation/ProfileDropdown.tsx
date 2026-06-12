@@ -129,7 +129,7 @@ const ProfileDropdown = ({
             onClick={toggleCallback}
           />
           <div
-            className={`absolute z-50 top-11 right-0 min-w-[270px] bg-primary-dark text-white rounded-xl  shadow-md transition  ${
+            className={`absolute z-50 top-11 right-0 min-w-[270px] bg-secondary text-white rounded-xl  shadow-md transition  ${
               open ? 'p-3 overflow-hidden' : 'p-0 opacity-0 overflow-visible'
             }`}
           >
@@ -139,7 +139,7 @@ const ProfileDropdown = ({
                 id={`nav-${link.id}`}
                 key={link.id}
                 onClick={link.onClick}
-                className="no-underline font-medium block py-3 whitespace-nowrap text-base px-4 hover:bg-primary-dark-dark rounded flex items-center justify-between"
+                className="no-underline font-medium block py-3 whitespace-nowrap text-base px-4 rounded flex items-center justify-between"
                 rel={link.external ? 'noopener noreferrer nofollow' : ''}
               >
                 <div className="flex items-center">
@@ -153,7 +153,7 @@ const ProfileDropdown = ({
               role="link"
               tabIndex={0}
               data-cy="header-link"
-              className="block font-medium py-3 whitespace-nowrap text-base px-4 hover:bg-primary-dark-dark rounded flex items-center justify-between"
+              className="block font-medium py-3 whitespace-nowrap text-base px-4 rounded flex items-center justify-between"
               onClick={handleLogOutClick}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

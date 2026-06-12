@@ -201,6 +201,11 @@ export {
 } from './campaigns/CampaignWithLiveContext.schema'
 
 export {
+  FilingInstructionsContentSchema,
+  type FilingInstructionsContent,
+} from './campaigns/FilingInstructionsContent.schema'
+
+export {
   OrganizationSchema,
   type Organization,
 } from './campaigns/Organization.schema'

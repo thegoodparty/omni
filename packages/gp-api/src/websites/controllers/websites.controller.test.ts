@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { DiscoveryModule, HttpAdapterHost, Reflector } from '@nestjs/core'
 import {
+  ForbiddenException,
   HttpStatus,
   ModuleMetadata,
   NotFoundException,
@@ -33,7 +34,10 @@ import { REQUIRE_CAMPAIGN_META_KEY } from 'src/campaigns/decorators/UseCampaign.
 import { MCP_TOOL_KEY } from '@/mcp/decorators/McpTool.decorator'
 import { McpServerService } from '@/mcp/services/mcpServer.service'
 import { AgentMcpMarker } from '@/authentication/agentMcpMarker'
-import { MyWebsiteResponseSchema } from '../schemas/WebsiteResponse.schema'
+import {
+  MyWebsiteResponseSchema,
+  PublicWebsiteResponseSchema,
+} from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 
 const mockUser = createMockUser()
@@ -624,6 +628,52 @@ describe('WebsitesController', () => {
     })
   })
 
+  describe('viewWebsite', () => {
+    const vanityPath = 'jane-for-mayor'
+
+    it('does not select campaign.details on the public query', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.published,
+        content: completeContent,
+        campaign: { user: null },
+      })
+
+      await controller.viewWebsite(vanityPath)
+
+      const { include } = mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
+      expect(include.campaign.select.details).toBeUndefined()
+      expect(include.campaign.select.user).toBeDefined()
+    })
+
+    it('throws ForbiddenException when unpublished', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.unpublished,
+        content: completeContent,
+      })
+
+      await expect(controller.viewWebsite(vanityPath)).rejects.toThrow(
+        ForbiddenException,
+      )
+    })
+
+    it('returns published website and enriches user', async () => {
+      const user = { clerkId: 'clerk_1', firstName: 'Jane', lastName: 'Doe' }
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        status: WebsiteStatus.published,
+        content: completeContent,
+        campaign: { user },
+      })
+
+      const result = await controller.viewWebsite(vanityPath)
+
+      expect(result.id).toBe(1)
+      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(user)
+    })
+  })
+
   describe('getWebsiteByDomain', () => {
     const domain = 'example-candidate.com'
     const websiteId = 42
@@ -683,6 +733,47 @@ describe('WebsitesController', () => {
 
       expect(result.id).toBe(websiteId)
       expect(mockClerkEnricher.enrichUser).not.toHaveBeenCalled()
+    })
+
+    it('does not select campaign.details on the public query', async () => {
+      mockWebsitesService.findUnique.mockResolvedValue({
+        id: websiteId,
+        status: WebsiteStatus.published,
+        content: completeContent,
+        campaign: { user: null },
+      })
+
+      await controller.getWebsiteByDomain(domain)
+
+      const { include } = mockWebsitesService.findUnique.mock.calls[0][0]
+      expect(include.campaign.select.details).toBeUndefined()
+      expect(include.campaign.select.user).toBeDefined()
+    })
+  })
+
+  describe('PublicWebsiteResponseSchema', () => {
+    it('strips campaign financial/tax data and the user clerkId', () => {
+      const parsed = PublicWebsiteResponseSchema.parse({
+        id: 42,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        campaignId: 7,
+        status: WebsiteStatus.published,
+        vanityPath: 'jane',
+        hasEverBeenPublished: true,
+        content: completeContent,
+        campaign: {
+          details: { einNumber: '12-3456789', subscriptionId: 'sub_x' },
+          user: { clerkId: 'clerk_123', firstName: 'Jane', lastName: 'Doe' },
+        },
+      })
+
+      expect(parsed.campaign).not.toHaveProperty('details')
+      expect(parsed.campaign?.user).toEqual({
+        firstName: 'Jane',
+        lastName: 'Doe',
+      })
+      expect(parsed).not.toHaveProperty('hasEverBeenPublished')
     })
   })
 

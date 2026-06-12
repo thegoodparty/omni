@@ -40,7 +40,7 @@ const COMPARISON_ROWS: ComparisonRow[] = [
       'Get a personalized, data-driven campaign plan that maps out exactly how many voters you need to reach.',
   },
   {
-    label: 'Campaign advising',
+    label: 'Dedicated campaign expert',
     free: false,
     icon: HandHeartIcon,
     description:

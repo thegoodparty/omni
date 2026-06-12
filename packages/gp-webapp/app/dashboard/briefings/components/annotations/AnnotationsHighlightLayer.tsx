@@ -54,21 +54,21 @@ const STYLE_RULES = `
   -webkit-touch-callout: none;
 }
 ::highlight(${HIGHLIGHT_NAMES.note}) {
-  background-color: color-mix(in srgb, var(--info, #1b6afc) 22%, transparent);
+  background-color: color-mix(in srgb, var(--theme-info) 22%, transparent);
   color: inherit;
 }
 ::highlight(${HIGHLIGHT_NAMES.chat}) {
   /* Ask AI annotations render as hyperlinks rather than highlighted text. */
-  color: var(--info, #1b6afc);
+  color: var(--theme-info);
   text-decoration: underline dotted;
-  text-decoration-color: color-mix(in srgb, var(--info, #1b6afc) 60%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--theme-info) 60%, transparent);
   text-underline-offset: 0.15em;
 }
 ::highlight(${HIGHLIGHT_NAMES.bug_report}) {
-  background-color: color-mix(in srgb, var(--error, #e00c30) 20%, transparent);
+  background-color: color-mix(in srgb, var(--theme-destructive) 20%, transparent);
   color: inherit;
   text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--error, #e00c30) 75%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--theme-destructive) 75%, transparent);
 }
 ::highlight(${HOVER_NAME}) {
   background-color: color-mix(in srgb, var(--foreground, #161f31) 12%, transparent);
@@ -98,19 +98,19 @@ const STYLE_RULES = `
   -moz-user-select: none;
 }
 .${NOTE_MARKER_CLASS} {
-  background-color: color-mix(in srgb, var(--info, #1b6afc) 22%, transparent);
-  color: var(--info, #1b6afc);
+  background-color: color-mix(in srgb, var(--theme-info) 22%, transparent);
+  color: var(--theme-info);
 }
 .${CHAT_MARKER_CLASS} {
   /* Chat annotations render as hyperlinks, not highlighted spans — so the
      marker matches: no background pill, just the Sparkles icon in the same
      info color as the underlined text. */
   background-color: transparent;
-  color: var(--info, #1b6afc);
+  color: var(--theme-info);
 }
 .${BUG_MARKER_CLASS} {
-  background-color: color-mix(in srgb, var(--error, #e00c30) 20%, transparent);
-  color: var(--error, #e00c30);
+  background-color: color-mix(in srgb, var(--theme-destructive) 20%, transparent);
+  color: var(--theme-destructive);
 }
 .${NOTE_MARKER_CLASS} svg,
 .${CHAT_MARKER_CLASS} svg,
@@ -121,15 +121,15 @@ const STYLE_RULES = `
   pointer-events: none;
 }
 .${NOTE_MARKER_CLASS}[data-hover='true'] {
-  background-color: color-mix(in srgb, var(--info, #1b6afc) 32%, transparent);
-  color: color-mix(in srgb, var(--info, #1b6afc) 80%, black);
+  background-color: color-mix(in srgb, var(--theme-info) 32%, transparent);
+  color: color-mix(in srgb, var(--theme-info) 80%, black);
 }
 .${CHAT_MARKER_CLASS}[data-hover='true'] {
-  color: color-mix(in srgb, var(--info, #1b6afc) 80%, black);
+  color: color-mix(in srgb, var(--theme-info) 80%, black);
 }
 .${BUG_MARKER_CLASS}[data-hover='true'] {
-  background-color: color-mix(in srgb, var(--error, #e00c30) 30%, transparent);
-  color: color-mix(in srgb, var(--error, #e00c30) 80%, black);
+  background-color: color-mix(in srgb, var(--theme-destructive) 30%, transparent);
+  color: color-mix(in srgb, var(--theme-destructive) 80%, black);
 }
 `
 

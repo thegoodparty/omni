@@ -45,6 +45,7 @@ CI additionally runs `prisma migrate diff ... --exit-code` against a shadow DB t
 | ---------------------------- | -------------------------------------------------- |
 | **Writing or editing code**  | **`.cursor/rules/*.mdc` — read first, every time** |
 | Adding an endpoint           | `docs/architecture.md` § Module shape              |
+| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Touching contracts           | `docs/contracts.md`                                |
 | Writing or fixing a test     | `docs/writing-tests.md`                            |
 | Adding/debugging an alert    | `docs/observability.md`                            |

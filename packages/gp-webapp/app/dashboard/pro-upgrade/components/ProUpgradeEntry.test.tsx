@@ -96,6 +96,27 @@ describe('ProUpgradeEntry', () => {
     expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
+  it('restarts a returning "not filed" candidate at the value-prop intro, not the not-eligible dead-end (ENG-10372)', () => {
+    // Previously a persisted "no, not yet" answer routed every re-entry to the
+    // filing-instructions ("not eligible") dead-end. With no real progress the
+    // candidate must land on the value prop to begin the flow again.
+    setQueries(
+      queryResult({
+        data: { details: { hasFiledForRace: false } } as Campaign,
+      }),
+      queryResult(),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/value-prop',
+    )
+    expect(router.replace).not.toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/filing-instructions',
+    )
+  })
+
   it('routes a persisted placeholder EIN to the EIN step instead of past it', () => {
     // Older surfaces shape-check only, so a placeholder EIN can be on file.
     // Presence-based derivation would skip the EIN step and strand the
