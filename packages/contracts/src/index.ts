@@ -134,6 +134,9 @@ export {
   COMPLIANCE_STAGE_VALUES,
   ComplianceStage,
   ComplianceStageSchema,
+  ORGANIZATION_STATUS_VALUES,
+  OrganizationStatus,
+  OrganizationStatusSchema,
 } from './campaigns/enums'
 
 export type {
@@ -208,7 +211,19 @@ export {
 export {
   OrganizationSchema,
   type Organization,
+  OrganizationWithStatusSchema,
+  type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
+
+export {
+  ElectedOfficeSchema,
+  type ElectedOffice,
+} from './campaigns/ElectedOffice.schema'
+
+export {
+  EligibilitySchema,
+  type Eligibility,
+} from './campaigns/Eligibility.schema'
 
 export {
   CAMPAIGN_SORT_KEYS,
