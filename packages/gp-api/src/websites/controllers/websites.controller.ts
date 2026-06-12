@@ -48,9 +48,13 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { GP_DOMAIN_CONTACT } from '@/vendors/vercel/vercel.const'
-import { MyWebsiteResponseSchema } from '../schemas/WebsiteResponse.schema'
+import {
+  MyWebsiteResponseSchema,
+  PublicWebsiteResponseSchema,
+} from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
 
@@ -62,10 +66,13 @@ const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
 
 const LOGO_FIELDNAME = 'logoFile'
 const HERO_FIELDNAME = 'heroFile'
+// Public endpoints: do NOT select campaign.details — it carries the campaign's
+// EIN, filing, and subscription data, which must never reach an anonymous
+// caller. clerkId is selected only so the user can be enriched from Clerk; the
+// PublicWebsiteResponseSchema strips it from the serialized response.
 const WEBSITE_CONTENT_INCLUDES = {
   campaign: {
     select: {
-      details: true,
       user: {
         select: {
           clerkId: true,
@@ -429,8 +436,15 @@ export class WebsitesController {
     }
   }
 
+  // ZodResponseInterceptor is applied per-handler (not class-wide) on purpose:
+  // this controller is not registered with the interceptor globally, so the
+  // @ResponseSchema on the campaign-owner handlers (getMyWebsite, updateWebsite,
+  // verifyLive) is currently inert. Scoping it here enforces the public schema
+  // without silently changing those other handlers' responses.
   @Get(':vanityPath/view')
   @PublicAccess()
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PublicWebsiteResponseSchema)
   async viewWebsite(@Param('vanityPath') vanityPath: string) {
     const website = await this.websites.findUniqueOrThrow({
       where: { vanityPath },
@@ -483,6 +497,8 @@ export class WebsitesController {
   // this is used from candidates.goodparty.org
   @Get('by-domain/:domain')
   @PublicAccess()
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PublicWebsiteResponseSchema)
   async getWebsiteByDomain(@Param('domain') domain: string) {
     const websiteId = await this.websites.getWebsiteIdByDomain(domain)
     const website = await this.websites.findUnique({
