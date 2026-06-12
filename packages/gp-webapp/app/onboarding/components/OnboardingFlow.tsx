@@ -508,12 +508,18 @@ export default function OnboardingFlow({
   useEffect(() => {
     if (activeStepId !== 'path-to-victory') return
     const ballotReadyPositionId = answers.structuredOffice?.positionId
+    // The plan page keys this query by orgPositionId too — the prefetch
+    // must match or it warms a key the plan page never reads.
+    const orgPositionId = liveCampaign?.organization?.positionId ?? undefined
     const city = answers.structuredOffice?.city
     const state = answers.structuredOffice?.state
     const office = answers.structuredOffice?.positionName
     if (ballotReadyPositionId) {
       void queryClient.prefetchQuery(
-        onboardingDistrictStatsQueryOptions({ ballotReadyPositionId }),
+        onboardingDistrictStatsQueryOptions({
+          ballotReadyPositionId,
+          orgPositionId,
+        }),
       )
     }
     if (state && office) {
@@ -527,6 +533,7 @@ export default function OnboardingFlow({
     answers.structuredOffice?.city,
     answers.structuredOffice?.state,
     answers.structuredOffice?.positionName,
+    liveCampaign?.organization?.positionId,
     queryClient,
   ])
 
