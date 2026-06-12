@@ -52,6 +52,17 @@ describe('CampaignPlanSharesService', () => {
       expect(s3.uploadFile).not.toHaveBeenCalled()
     })
 
+    it('rejects content that is not actually a pdf', async () => {
+      const fakePdf = {
+        ...file,
+        data: Buffer.from('<html>not a pdf</html>'),
+      } as unknown as FileUpload
+      await expect(service.createShare(7, fakePdf)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(s3.uploadFile).not.toHaveBeenCalled()
+    })
+
     it('rejects when the campaign is at the share cap', async () => {
       s3.listKeys.mockResolvedValue(
         Array.from({ length: MAX_SHARES_PER_CAMPAIGN }, (_, i) => `7/${i}.pdf`),

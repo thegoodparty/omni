@@ -12,6 +12,11 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 
 export const MAX_SHARES_PER_CAMPAIGN = 100
 
+// The interceptor's mimeTypes option only checks the client-declared part
+// header; this checks the actual bytes so non-PDF content can't be stored
+// and served back as application/pdf.
+const PDF_MAGIC = '%PDF-'
+
 @Injectable()
 export class CampaignPlanSharesService {
   constructor(
@@ -40,6 +45,13 @@ export class CampaignPlanSharesService {
     file: FileUpload,
   ): Promise<{ url: string }> {
     const { bucket, apiRootUrl } = this.requireConfig()
+
+    if (
+      !Buffer.isBuffer(file.data) ||
+      !file.data.subarray(0, PDF_MAGIC.length).toString().startsWith(PDF_MAGIC)
+    ) {
+      throw new BadRequestException('File is not a PDF')
+    }
 
     const existingKeys = await this.s3.listKeys(bucket, `${campaignId}/`)
     if (existingKeys.length >= MAX_SHARES_PER_CAMPAIGN) {

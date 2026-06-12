@@ -101,6 +101,7 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                        | Read                                        |
 | --------------------------------- | ------------------------------------------- |
 | Campaigns / plans / tasks         | `src/campaigns/CLAUDE.md`                   |
+| Campaign plan PDF sharing         | `src/campaignPlanShares/CLAUDE.md`          |
 | Voter file / L2 lookups           | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades    | `src/payments/CLAUDE.md`                    |
 | Campaign websites / domains       | `src/websites/CLAUDE.md`                    |

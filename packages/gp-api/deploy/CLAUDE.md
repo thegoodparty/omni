@@ -15,6 +15,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/vpc.ts`                  | VPC selection (existing VPC, hardcoded subnets/SGs)                        |
 | `components/assets-bucket.ts`        | S3 bucket for user uploads                                                 |
 | `components/assets-router.ts`        | CloudFront fronting the assets bucket                                      |
+| `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (dev-only rollout)     |
 | `components/grafana.ts`              | Grafana data sources, dashboards, contact points                           |
 | `components/alerting/` + `alerts.ts` | Grafana alert rules and routing                                            |
 | `pulumi/`                            | `node_modules` for Pulumi's runtime (separate dependency tree)             |
