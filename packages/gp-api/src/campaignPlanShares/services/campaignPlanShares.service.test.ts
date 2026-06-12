@@ -52,6 +52,20 @@ describe('CampaignPlanSharesService', () => {
       expect(s3.uploadFile).not.toHaveBeenCalled()
     })
 
+    it('throws 503 when the root url var is unset', async () => {
+      delete process.env.API_PUBLIC_ROOT_URL
+      await expect(service.createShare(7, file)).rejects.toThrow(
+        ServiceUnavailableException,
+      )
+      expect(s3.uploadFile).not.toHaveBeenCalled()
+    })
+
+    it('normalizes a trailing slash in the root url', async () => {
+      process.env.API_PUBLIC_ROOT_URL = 'https://api.test/'
+      const { url } = await service.createShare(7, file)
+      expect(url).toMatch(/^https:\/\/api\.test\/v1\/campaign-plan-shares\//)
+    })
+
     it('rejects content that is not actually a pdf', async () => {
       const fakePdf = {
         ...file,
@@ -101,11 +115,18 @@ describe('CampaignPlanSharesService', () => {
       expect(await service.getSharePdf('7', 'abc.pdf')).toBeNull()
     })
 
-    it('throws 503 when unprovisioned', async () => {
-      delete process.env.API_PUBLIC_ROOT_URL
+    it('throws 503 when the bucket is unconfigured', async () => {
+      delete process.env.CAMPAIGN_PLAN_SHARES_BUCKET
       await expect(service.getSharePdf('7', 'abc.pdf')).rejects.toThrow(
         ServiceUnavailableException,
       )
+    })
+
+    it('keeps serving issued links when only the root url var is missing', async () => {
+      delete process.env.API_PUBLIC_ROOT_URL
+      const pdf = Buffer.from('%PDF-1.7 stored')
+      s3.getFileBytes.mockResolvedValue(pdf)
+      expect(await service.getSharePdf('7', 'abc.pdf')).toBe(pdf)
     })
   })
 })

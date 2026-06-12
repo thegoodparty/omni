@@ -26,25 +26,37 @@ export class CampaignPlanSharesService {
     this.logger.setContext(CampaignPlanSharesService.name)
   }
 
-  // Read per-call (not import-time) so qa/prod — which deliberately have no
-  // bucket yet — fail with a clean 503 instead of crashing at boot, and so
-  // tests can toggle the vars.
-  private requireConfig(): { bucket: string; apiRootUrl: string } {
+  // Read per-call (not import-time) so an unconfigured environment (e.g. a
+  // local .env without the vars) fails with a clean 503 instead of crashing
+  // at boot, and so tests can toggle the vars.
+  private requireBucket(): string {
     const bucket = getEnv('CAMPAIGN_PLAN_SHARES_BUCKET')
-    const apiRootUrl = getEnv('API_PUBLIC_ROOT_URL')
-    if (!bucket || !apiRootUrl) {
+    if (!bucket) {
       throw new ServiceUnavailableException(
         'Campaign plan sharing is not enabled in this environment',
       )
     }
-    return { bucket, apiRootUrl }
+    return bucket
+  }
+
+  // Only link creation needs the public root URL — serving must keep working
+  // for already-issued links even if this var is lost in a config refactor.
+  private requireApiRootUrl(): string {
+    const apiRootUrl = getEnv('API_PUBLIC_ROOT_URL')
+    if (!apiRootUrl) {
+      throw new ServiceUnavailableException(
+        'Campaign plan sharing is not enabled in this environment',
+      )
+    }
+    return apiRootUrl.replace(/\/+$/, '')
   }
 
   async createShare(
     campaignId: number,
     file: FileUpload,
   ): Promise<{ url: string }> {
-    const { bucket, apiRootUrl } = this.requireConfig()
+    const bucket = this.requireBucket()
+    const apiRootUrl = this.requireApiRootUrl()
 
     if (
       !Buffer.isBuffer(file.data) ||
@@ -70,7 +82,7 @@ export class CampaignPlanSharesService {
     campaignId: string,
     fileName: string,
   ): Promise<Buffer | null> {
-    const { bucket } = this.requireConfig()
+    const bucket = this.requireBucket()
     const bytes = await this.s3.getFileBytes(
       bucket,
       `${campaignId}/${fileName}`,
