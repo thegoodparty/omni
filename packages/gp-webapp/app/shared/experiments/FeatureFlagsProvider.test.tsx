@@ -413,4 +413,42 @@ describe('useFlagOn', () => {
     expect(result.current.ready).toBe(false)
     expect(result.current.on).toBe(false)
   })
+
+  it('reads via variant (the exposing path) by default', async () => {
+    mockExperimentClient.variant.mockReturnValue({ value: 'on' })
+
+    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.ready).toBe(true)
+    })
+
+    expect(result.current.on).toBe(true)
+    expect(mockExperimentClient.variant).toHaveBeenCalledWith('my-feature', {
+      value: 'off',
+    })
+    expect(mockExperimentClient.all).not.toHaveBeenCalled()
+  })
+
+  it('reads via all (not variant) when trackExposure is false, so no exposure fires', async () => {
+    mockExperimentClient.all.mockReturnValue({ 'my-feature': { value: 'on' } })
+
+    const { result } = renderHook(
+      () => useFlagOn('my-feature', { trackExposure: false }),
+      { wrapper },
+    )
+
+    await waitFor(() => {
+      expect(result.current.ready).toBe(true)
+    })
+
+    expect(result.current.on).toBe(true)
+    // variant() is the call that emits an Amplitude exposure under
+    // automaticExposureTracking; the non-exposing read must avoid it.
+    expect(mockExperimentClient.variant).not.toHaveBeenCalledWith(
+      'my-feature',
+      expect.anything(),
+    )
+    expect(mockExperimentClient.all).toHaveBeenCalled()
+  })
 })
