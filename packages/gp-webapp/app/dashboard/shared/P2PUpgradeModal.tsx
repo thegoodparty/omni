@@ -46,9 +46,11 @@ export function P2PUpgradeModal({
     variant === P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
 
   // pro-upgrade3 cohort enters the new wizard; off-cohort keeps the legacy
-  // upgrade splash.
+  // upgrade splash. The compliance variant never uses this href, so don't
+  // expose those users to the pro-upgrade3 experiment.
   const { href: upgradeHref } = useProUpgradeEntryHref(
     '/dashboard/upgrade-to-pro',
+    !isProFreeTextsNonCompliant,
   )
 
   const content: ModalContent = isProFreeTextsNonCompliant

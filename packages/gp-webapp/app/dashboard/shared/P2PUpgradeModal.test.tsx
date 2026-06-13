@@ -49,7 +49,7 @@ describe('P2PUpgradeModal', () => {
     )
   })
 
-  it('feeds the legacy splash path to the fork as the off-cohort destination', () => {
+  it('feeds the legacy splash path to the fork and exposes the upgrade variant', () => {
     mockUseProUpgradeEntryHref.mockReturnValue({
       ready: true,
       href: '/dashboard/pro-upgrade',
@@ -59,6 +59,29 @@ describe('P2PUpgradeModal', () => {
 
     expect(mockUseProUpgradeEntryHref).toHaveBeenCalledWith(
       '/dashboard/upgrade-to-pro',
+      true,
+    )
+  })
+
+  it('does not expose the compliance variant to the pro-upgrade3 experiment', () => {
+    mockUseProUpgradeEntryHref.mockReturnValue({
+      ready: true,
+      href: '/dashboard/pro-upgrade',
+    })
+
+    render(
+      <P2PUpgradeModal
+        open
+        variant="ProFreeTextsNonCompliant"
+        onClose={vi.fn()}
+      />,
+    )
+
+    // The compliance modal never uses the upgrade href, so reading the flag
+    // here must not enroll the user in the experiment's exposed population.
+    expect(mockUseProUpgradeEntryHref).toHaveBeenCalledWith(
+      '/dashboard/upgrade-to-pro',
+      false,
     )
   })
 })

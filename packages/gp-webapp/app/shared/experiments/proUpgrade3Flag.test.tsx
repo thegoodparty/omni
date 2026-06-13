@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useFlagOn } from './FeatureFlagsProvider'
 import {
+  PRO_UPGRADE3_FLAG_KEY,
   PRO_UPGRADE_ENTRY_PATH,
   useProUpgradeEntryHref,
 } from './proUpgrade3Flag'
@@ -48,6 +49,26 @@ describe('useProUpgradeEntryHref', () => {
     expect(result.current).toEqual({
       ready: false,
       href: PRO_UPGRADE_ENTRY_PATH,
+    })
+  })
+
+  it('tracks exposure by default', () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
+
+    renderHook(() => useProUpgradeEntryHref(LEGACY_HREF))
+
+    expect(mockUseFlagOn).toHaveBeenCalledWith(PRO_UPGRADE3_FLAG_KEY, {
+      trackExposure: true,
+    })
+  })
+
+  it('forwards trackExposure=false so the read does not expose the user', () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
+
+    renderHook(() => useProUpgradeEntryHref(LEGACY_HREF, false))
+
+    expect(mockUseFlagOn).toHaveBeenCalledWith(PRO_UPGRADE3_FLAG_KEY, {
+      trackExposure: false,
     })
   })
 })
