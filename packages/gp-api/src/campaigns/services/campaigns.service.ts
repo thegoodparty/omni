@@ -286,6 +286,16 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         throw new NotFoundException('Source organization not found')
       }
 
+      // A same-office run inherits the held office; the source must be an
+      // elected-office org. Any other owned org (e.g. a campaign-* org) would
+      // pass the ownership guard but inherit the wrong position and silently
+      // strip isPro (no electedOffice.campaign to read it from).
+      if (!sourceOrg.electedOffice) {
+        throw new BadRequestException(
+          'fromOrganizationSlug must reference an elected-office organization',
+        )
+      }
+
       return this.createForUser(
         user,
         initialData,
@@ -294,7 +304,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           overrideDistrictId: sourceOrg.overrideDistrictId ?? undefined,
           customPositionName: sourceOrg.customPositionName ?? undefined,
         },
-        { isPro: sourceOrg.electedOffice?.campaign?.isPro ?? false },
+        { isPro: sourceOrg.electedOffice.campaign?.isPro ?? false },
       )
     }
 

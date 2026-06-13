@@ -138,6 +138,43 @@ describe('POST /v1/campaigns/follow-on', () => {
     expect(campaignCount).toBe(0)
   })
 
+  it('returns 400 when same-office fromOrganizationSlug is not an elected-office org', async () => {
+    // An owned campaign-* org passes the ownership guard but has no
+    // electedOffice, so inheriting from it would strip isPro and pull the
+    // wrong position.
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-70',
+        ownerId: service.user.id,
+        positionId: 'pos-old',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'won-run',
+        isPro: true,
+        didWin: true,
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-70',
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'campaign-70',
+      details: { electionDate: '2099-11-03', state: 'CA' },
+    })
+
+    expect(result.status).toBe(400)
+
+    // Only the pre-existing won campaign should remain; no follow-on created.
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(1)
+  })
+
   it('creates a campaign from the body position on a new-office run', async () => {
     const electionsService = service.app.get(ElectionsService)
     vi.spyOn(electionsService, 'getPositionByBallotReadyId').mockResolvedValue({
