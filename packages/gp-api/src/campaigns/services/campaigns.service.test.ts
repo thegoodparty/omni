@@ -1492,3 +1492,44 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
     })
   })
 })
+
+describe('CampaignsService - findActiveByUserId', () => {
+  const buildCampaign = (overrides: Partial<Campaign>): Campaign =>
+    ({
+      id: 1,
+      userId: 7,
+      didWin: null,
+      isDemo: false,
+      details: { electionDate: '2999-11-04' },
+      ...overrides,
+    }) as unknown as Campaign
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns the active campaign, never a concluded one', async () => {
+    const { service } = await buildOrgSyncModule()
+    const concluded = buildCampaign({ id: 10, didWin: true })
+    const active = buildCampaign({ id: 11 })
+    service.findMany = vi.fn().mockResolvedValue([concluded, active]) as never
+
+    const result = await service.findActiveByUserId(7)
+
+    expect(result?.id).toBe(11)
+  })
+
+  it('returns null when the user has only concluded campaigns', async () => {
+    const { service } = await buildOrgSyncModule()
+    service.findMany = vi
+      .fn()
+      .mockResolvedValue([
+        buildCampaign({ id: 10, didWin: true }),
+        buildCampaign({ id: 12, didWin: false }),
+      ]) as never
+
+    const result = await service.findActiveByUserId(7)
+
+    expect(result).toBeNull()
+  })
+})
