@@ -170,10 +170,19 @@ export class AdminCampaignsService {
     )
 
     return campaigns.filter((campaign, i) => {
-      const resolved =
-        districtResults[i].status === 'fulfilled'
-          ? districtResults[i].value
-          : null
+      const result = districtResults[i]
+      if (result.status === 'rejected') {
+        // Fail closed: if we can't resolve the authoritative level, don't let
+        // canDownload fall back to the user-editable details.ballotLevel — that
+        // would drop a spoofed-local FEDERAL campaign off this audit list.
+        const err: unknown = result.reason
+        this.logger.warn(
+          { campaignId: campaign.id, err },
+          'Failed to resolve district/ballotLevel for campaign — treating as blocked',
+        )
+        return true
+      }
+      const resolved = result.value
       return !this.voterFileDownloadAccess.canDownload(
         campaign,
         resolved?.district ?? null,
