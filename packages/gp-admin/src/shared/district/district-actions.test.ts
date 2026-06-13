@@ -78,6 +78,14 @@ describe('fetchDistrictNames', () => {
     )
     expect(mockListNames).not.toHaveBeenCalled()
   })
+
+  it('checks READ_CAMPAIGNS and forwards to the SDK', async () => {
+    await fetchDistrictNames('CA', 2026, 'City')
+    expect(mockHas).toHaveBeenCalledWith({
+      permission: PERMISSIONS.READ_CAMPAIGNS,
+    })
+    expect(mockListNames).toHaveBeenCalled()
+  })
 })
 
 describe('updateCampaignDistrict', () => {
