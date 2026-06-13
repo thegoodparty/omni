@@ -7,6 +7,7 @@ import { Button } from '@styleguide'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useEffect } from 'react'
+import { useProUpgradeEntryHref } from '@shared/experiments/proUpgrade3Flag'
 import { trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 
 export type P2PModalVariant = 'ProFreeTextsNonCompliant' | 'NonProUpgrade'
@@ -44,6 +45,12 @@ export function P2PUpgradeModal({
   const isProFreeTextsNonCompliant =
     variant === P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
 
+  // pro-upgrade3 cohort enters the new wizard; off-cohort keeps the legacy
+  // upgrade splash.
+  const { href: upgradeHref } = useProUpgradeEntryHref(
+    '/dashboard/upgrade-to-pro',
+  )
+
   const content: ModalContent = isProFreeTextsNonCompliant
     ? {
         title: 'Text voters. Win your race.',
@@ -69,7 +76,7 @@ export function P2PUpgradeModal({
         ],
         highlight: 'Join today for just $10/month.',
         cta: 'Upgrade now',
-        href: '/dashboard/upgrade-to-pro',
+        href: upgradeHref,
       }
 
   useEffect(() => {
