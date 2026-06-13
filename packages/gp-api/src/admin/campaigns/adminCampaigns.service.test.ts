@@ -27,7 +27,11 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
       logger,
     )
 
-  const campaign = (overrides: Partial<Campaign>): Campaign =>
+  const campaign = (
+    overrides: Omit<Partial<Campaign>, 'organizationSlug'> & {
+      organizationSlug?: string | null
+    },
+  ): Campaign =>
     ({ id: 1, organizationSlug: 'org-a', ...overrides }) as Campaign
 
   beforeEach(() => {
@@ -56,6 +60,37 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ campaignId: 1 }),
       expect.stringContaining('treating as blocked'),
+    )
+  })
+
+  it('keeps a campaign with no organizationSlug on the blocked list (fail closed)', async () => {
+    findMany.mockResolvedValue([
+      campaign({ id: 5, organizationSlug: null }),
+      campaign({ id: 6, organizationSlug: 'resolves' }),
+    ])
+    getDistrictAndBallotLevelForOrgSlug.mockResolvedValue({
+      district: null,
+      ballotLevel: 'CITY',
+    })
+
+    const result = await buildService().proNoVoterFile()
+
+    // id:5 has no org -> no authoritative level -> fail closed (included)
+    // without ever consulting canDownload (which would trust details).
+    expect(result.map((c) => c.id)).toEqual([5])
+    expect(getDistrictAndBallotLevelForOrgSlug).not.toHaveBeenCalledWith(null)
+    expect(canDownload).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 5 }),
+      expect.anything(),
+      expect.anything(),
+    )
+    // id:6 resolved -> it IS routed through canDownload (and excluded because
+    // the mock returns true), proving id:5's exclusion-skip is the fail-closed
+    // branch, not a blanket skip.
+    expect(canDownload).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 6 }),
+      null,
+      'CITY',
     )
   })
 })

@@ -183,10 +183,16 @@ export class AdminCampaignsService {
         return true
       }
       const resolved = result.value
+      if (resolved === null) {
+        // No organizationSlug — no authoritative ballot level available, so we
+        // can't confirm eligibility without trusting details.ballotLevel. Fail
+        // closed, same as the rejected case above.
+        return true
+      }
       return !this.voterFileDownloadAccess.canDownload(
         campaign,
-        resolved?.district ?? null,
-        resolved?.ballotLevel ?? null,
+        resolved.district ?? null,
+        resolved.ballotLevel ?? null,
       )
     })
   }

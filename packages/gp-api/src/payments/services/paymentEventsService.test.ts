@@ -124,6 +124,33 @@ describe('PaymentEventsService', () => {
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
     })
 
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // The alert must judge eligibility by the server-determined level, not the
+      // user-editable details.ballotLevel.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
+    })
+
     it('swallows analytics.track errors and continues the flow', async () => {
       const trackError = new Error('segment down')
       analytics.track.mockRejectedValueOnce(trackError)
