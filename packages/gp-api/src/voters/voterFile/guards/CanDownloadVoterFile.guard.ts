@@ -17,13 +17,17 @@ export class CanDownloadVoterFileGuard implements CanActivate {
 
     const campaign = await this.campaignsService.findByUserId(user.id)
 
-    const district = campaign?.organizationSlug
-      ? await this.organizationsService.getDistrictForOrgSlug(
+    const { district, ballotLevel } = campaign?.organizationSlug
+      ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
           campaign.organizationSlug,
         )
-      : null
+      : { district: null, ballotLevel: null }
 
-    const result = this.voterFileDownloadAccess.canDownload(campaign, district)
+    const result = this.voterFileDownloadAccess.canDownload(
+      campaign,
+      district,
+      ballotLevel,
+    )
     return Boolean(result)
   }
 }

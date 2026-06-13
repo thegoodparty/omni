@@ -5,6 +5,7 @@ import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { Inject, OnModuleInit } from '@nestjs/common'
 import { Campaign, User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
+import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 
 export class VoterFileDownloadAccessService implements OnModuleInit {
   @Inject()
@@ -16,10 +17,21 @@ export class VoterFileDownloadAccessService implements OnModuleInit {
     this.logger.setContext(VoterFileDownloadAccessService.name)
   }
 
-  canDownload(campaign?: Campaign, district?: OrgDistrict | null) {
+  canDownload(
+    campaign?: Campaign,
+    district?: OrgDistrict | null,
+    // The server-determined race level (the election-api position level). It is
+    // authoritative because — unlike campaign.details.ballotLevel — the user
+    // cannot edit it. The download gate MUST use it: otherwise a FEDERAL/STATE
+    // candidate could set details.ballotLevel to a local level to unlock the
+    // voter file. Falls back to the declared level only when there is no
+    // position (manual-entry campaigns have no authoritative race level).
+    authoritativeBallotLevel?: BallotReadyPositionLevel | null,
+  ) {
     if (!campaign) return false
 
-    const ballotLevel = campaign.details?.ballotLevel
+    const ballotLevel =
+      authoritativeBallotLevel ?? campaign.details?.ballotLevel
     const hasElectionData = district?.l2Type && district?.l2Name
 
     const canDownload = Boolean(

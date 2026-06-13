@@ -345,6 +345,42 @@ describe('VoterFileDownloadAccessService - canDownload', () => {
       expect(service.canDownload(campaign)).toBe(true)
     })
   })
+
+  describe('Server-authoritative ballot level (download-gate bypass fix)', () => {
+    it('denies a FEDERAL race even when the user set details.ballotLevel to CITY', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+        canDownloadFederal: false,
+      })
+
+      expect(
+        service.canDownload(campaign, null, BallotReadyPositionLevel.FEDERAL),
+      ).toBe(false)
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { id: campaign.id },
+        'Campaign is not eligible for download.',
+      )
+    })
+
+    it('allows a genuinely local authoritative level over a stale FEDERAL in details', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        canDownloadFederal: false,
+      })
+
+      expect(
+        service.canDownload(campaign, null, BallotReadyPositionLevel.CITY),
+      ).toBe(true)
+    })
+
+    it('falls back to the declared level when there is no authoritative level', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+      })
+
+      expect(service.canDownload(campaign, null, null)).toBe(true)
+    })
+  })
 })
 
 // Helper to create mock campaign
