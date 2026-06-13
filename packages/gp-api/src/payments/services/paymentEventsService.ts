@@ -21,7 +21,6 @@ import { IS_PROD_DEPLOY } from 'src/shared/util/appEnvironment.util'
 import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { parseCampaignElectionDate } from '../../campaigns/util/parseCampaignElectionDate.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WrapperType } from 'src/shared/types/utility.types'
@@ -265,13 +264,12 @@ export class PaymentEventsService {
       return
     }
 
+    // findActiveByUserId already guaranteed, via isActiveCampaign, a present and
+    // valid electionDate that has not passed by UTC calendar day. The previous
+    // instant `electionDate < new Date()` re-check wrongly 500'd an election-day
+    // checkout (the run is active through the whole day), and re-deriving the
+    // date here would duplicate the shared predicate.
     const { id: campaignId } = campaign
-    const electionDate = parseCampaignElectionDate(campaign)
-    if (!electionDate || electionDate < new Date()) {
-      throw new BadGatewayException(
-        'No electionDate or electionDate is in the past',
-      )
-    }
 
     // These have to happen in serial since setIsPro also mutates the JSONP details column
     await this.campaignsService.patchCampaignDetails(campaignId, {

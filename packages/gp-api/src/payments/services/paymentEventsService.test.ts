@@ -266,6 +266,25 @@ describe('PaymentEventsService', () => {
       expect(campaignsService.setIsPro).toHaveBeenCalledWith(activeCampaign.id)
     })
 
+    it('completes an election-day checkout for the active campaign', async () => {
+      const today = new Date()
+      const electionDayCampaign = {
+        id: 333,
+        organizationSlug: null,
+        details: { electionDate: today.toISOString() },
+        data: {},
+      } as unknown as Campaign
+      campaignsService.findActiveByUserId.mockResolvedValue(electionDayCampaign)
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        electionDayCampaign.id,
+      )
+    })
+
     it('no-ops and warns on checkout when the user has no active campaign', async () => {
       campaignsService.findActiveByUserId.mockResolvedValue(null)
 
