@@ -201,9 +201,11 @@ export class CampaignsController {
 
   @Post()
   async create(@ReqUser() user: User, @Body() body: CreateCampaignSchema) {
-    const existing = await this.campaigns.findByUserId(user.id)
-    if (existing) {
-      throw new ConflictException('User campaign already exists.')
+    const { canStartCampaign } = await this.eligibility.evaluate(user.id)
+    if (!canStartCampaign) {
+      throw new ConflictException(
+        'User is not eligible to start a new campaign',
+      )
     }
     return this.campaigns.createForUser(
       user,

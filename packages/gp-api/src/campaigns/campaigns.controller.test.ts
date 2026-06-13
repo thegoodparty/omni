@@ -508,16 +508,28 @@ describe('CampaignsController', () => {
       ballotReadyPositionId: 'br-pos-1',
     } as CreateCampaignSchema
 
-    it('throws ConflictException when campaign already exists', async () => {
-      vi.spyOn(campaignsService, 'findByUserId').mockResolvedValue(mockCampaign)
+    it('throws ConflictException when not eligible to start a campaign', async () => {
+      vi.spyOn(eligibilityService, 'evaluate').mockResolvedValue({
+        hasActiveCampaign: true,
+        holdsOffice: false,
+        canStartCampaign: false,
+        canGainOffice: true,
+        reelectionOfficeSlug: null,
+      })
 
       await expect(controller.create(mockUser, mockCreateBody)).rejects.toThrow(
         ConflictException,
       )
     })
 
-    it('creates campaign for user when none exists', async () => {
-      vi.spyOn(campaignsService, 'findByUserId').mockResolvedValue(null!)
+    it('creates campaign for user when eligible to start one', async () => {
+      vi.spyOn(eligibilityService, 'evaluate').mockResolvedValue({
+        hasActiveCampaign: false,
+        holdsOffice: false,
+        canStartCampaign: true,
+        canGainOffice: true,
+        reelectionOfficeSlug: null,
+      })
       vi.spyOn(campaignsService, 'createForUser').mockResolvedValue(
         mockCampaign,
       )

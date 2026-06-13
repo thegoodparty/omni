@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Body,
+  NotFoundException,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { CampaignsService } from '../services/campaigns.service'
@@ -40,7 +41,9 @@ export class CampaignUpdateHistoryController {
 
     const campaign = slug
       ? await this.campaigns.findFirstOrThrow({ where: { slug } })
-      : await this.campaigns.findByUserId(user.id)
+      : await this.campaigns.findActiveByUserId(user.id)
+
+    if (!campaign) throw new NotFoundException()
 
     const updateHistory = await this.updateHistory.findMany({
       where: {

@@ -11,19 +11,33 @@ export class CanDownloadVoterFileGuard implements CanActivate {
     private organizationsService: OrganizationsService,
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const { user } = context.switchToHttp().getRequest<{
+    const { user, headers } = context.switchToHttp().getRequest<{
       user: { id: number }
+      headers: Record<string, string | undefined>
     }>()
 
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    // Scope download access to the org the client is acting in (mirrors
+    // UseCampaignGuard) rather than the user's arbitrary first campaign, so a
+    // multi-org user can't authorize against an org they aren't acting in.
+    const slug = headers['x-organization-slug']
+    if (typeof slug !== 'string') return false
 
-    const district = campaign?.organizationSlug
+    const [org, campaign] = await Promise.all([
+      this.campaignsService.client.organization.findFirst({
+        where: { slug, ownerId: user.id },
+      }),
+      this.campaignsService.findFirst({
+        where: { organizationSlug: slug, userId: user.id },
+      }),
+    ])
+    if (!org || !campaign) return false
+
+    const district = campaign.organizationSlug
       ? await this.organizationsService.getDistrictForOrgSlug(
           campaign.organizationSlug,
         )
       : null
 
-    const result = this.voterFileDownloadAccess.canDownload(campaign, district)
-    return Boolean(result)
+    return Boolean(this.voterFileDownloadAccess.canDownload(campaign, district))
   }
 }
