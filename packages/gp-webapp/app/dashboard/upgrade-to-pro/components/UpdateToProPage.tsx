@@ -75,12 +75,18 @@ export default function DetailsPage(
   const router = useRouter()
   const { ready, enabled } = useProUpgrade3Flag()
 
-  usePageExit(() => {
-    // Only the off-cohort actually views this splash. The cohort is bounced to
-    // the new wizard (below), and the flag-resolution re-render consumes
-    // usePageExit's initial-mount guard, so without this condition the bounce
-    // unmount would emit a spurious SplashPage.Exit for a page they never saw.
-    if (ready && !enabled) trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
+  usePageExit((isWindowClose) => {
+    // The cohort is bounced to the new wizard (below) and never engages this
+    // splash, so its exit event would pollute the off-cohort funnel. The two
+    // exit paths need different gates. On unmount the flag-resolution
+    // re-render has consumed usePageExit's initial-mount guard, so emit only
+    // for the confirmed off-cohort. On window close the guard isn't involved
+    // and the flag may not have resolved yet, so emit unless the user is
+    // confirmed cohort — an off-cohort user who closes the tab mid-resolve
+    // still genuinely viewed the splash.
+    if (isWindowClose ? !(ready && enabled) : ready && !enabled) {
+      trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
+    }
   })
 
   // This legacy splash is the off-cohort funnel. The pro-upgrade3 cohort can

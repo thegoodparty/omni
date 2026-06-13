@@ -88,6 +88,31 @@ describe('UpdateToProPage cohort bounce', () => {
     )
   })
 
+  it('emits SplashPage.Exit when the tab is closed before the flag resolves', () => {
+    // The window-close path does not go through usePageExit's initial-mount
+    // guard, so the gate must not depend on the flag having resolved: an
+    // off-cohort user who closes the tab mid-resolve still viewed the splash.
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: false, enabled: false })
+    render(<UpdateToProPage campaign={null} />)
+
+    window.dispatchEvent(new Event('beforeunload'))
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.SplashPage.Exit,
+    )
+  })
+
+  it('does not emit SplashPage.Exit when a confirmed cohort user closes the tab', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+    render(<UpdateToProPage campaign={null} />)
+
+    window.dispatchEvent(new Event('beforeunload'))
+
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.SplashPage.Exit,
+    )
+  })
+
   it('renders the legacy splash for the off-cohort and keeps the pro-sign-up CTA', () => {
     mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
 
