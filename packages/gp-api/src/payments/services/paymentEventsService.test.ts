@@ -19,7 +19,6 @@ describe('PaymentEventsService', () => {
     findActiveByUserId: vi.fn(),
     patchCampaignDetails: vi.fn(),
     setIsPro: vi.fn(),
-    update: vi.fn(),
   }
   const analytics = {
     trackProPayment: vi.fn(),
@@ -91,7 +90,6 @@ describe('PaymentEventsService', () => {
     campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
     campaignsService.setIsPro.mockResolvedValue(undefined)
-    campaignsService.update.mockResolvedValue(undefined)
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -292,13 +290,9 @@ describe('PaymentEventsService', () => {
     it('persists the subscriptionId on the active campaign', async () => {
       await service.customerSubscriptionCreatedHandler(createdEvent)
 
-      expect(campaignsService.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: mockCampaign.id },
-          data: expect.objectContaining({
-            details: expect.objectContaining({ subscriptionId: 'sub_new' }),
-          }),
-        }),
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_new' }),
       )
     })
 
@@ -309,7 +303,7 @@ describe('PaymentEventsService', () => {
         service.customerSubscriptionCreatedHandler(createdEvent),
       ).resolves.not.toThrow()
 
-      expect(campaignsService.update).not.toHaveBeenCalled()
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ userId: mockUser.id }),
         expect.stringContaining('active campaign'),

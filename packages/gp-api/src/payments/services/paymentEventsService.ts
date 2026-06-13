@@ -99,16 +99,8 @@ export class PaymentEventsService {
       return
     }
 
-    const { id: campaignId, details: campaignDetails } = campaign
-
-    return this.campaignsService.update({
-      where: { id: campaignId },
-      data: {
-        details: {
-          ...campaignDetails,
-          subscriptionId,
-        },
-      },
+    return this.campaignsService.patchCampaignDetails(campaign.id, {
+      subscriptionId,
     })
   }
 

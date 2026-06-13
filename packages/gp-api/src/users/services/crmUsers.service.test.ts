@@ -20,9 +20,16 @@ describe('CrmUsersService - trackContact active-campaign selection', () => {
     metaData: { hubspotId: 'hs-1' },
   } as unknown as User
 
+  // A realistic findActiveByUserId return: it guarantees the isActiveCampaign
+  // predicate (didWin null, future electionDate, not demo) but NOT the isActive
+  // column, which only flips true at launch. So an active *run* can still be an
+  // unlaunched campaign — active_candidate 'Yes' while live_candidate 'false'.
   const activeCampaign = {
     id: 222,
-    isActive: true,
+    isActive: false,
+    isDemo: false,
+    didWin: null,
+    details: { electionDate: '2999-11-04' },
   } as unknown as Campaign
 
   beforeEach(() => {
@@ -50,7 +57,7 @@ describe('CrmUsersService - trackContact active-campaign selection', () => {
       expect.objectContaining({
         properties: expect.objectContaining({
           active_candidate: 'Yes',
-          live_candidate: 'true',
+          live_candidate: 'false',
           product_user: 'yes',
         }),
       }),
