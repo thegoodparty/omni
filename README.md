@@ -11,16 +11,17 @@ conventions plus pointers to per-package `CLAUDE.md` files and the docs below.
 
 All workspaces (apps and shared libs) live under `packages/`.
 
-| Path                       | What                                           | Port |
-| -------------------------- | ---------------------------------------------- | ---- |
-| `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)          | 3000 |
-| `packages/gp-webapp`       | Next.js product app (candidates & officials)   | 4000 |
-| `packages/election-api`    | NestJS microservice — election data            | 3001 |
-| `packages/people-api`      | NestJS microservice — voter data               | 3002 |
-| `packages/gp-admin`        | Next.js internal admin console                 | 3500 |
-| `packages/candidate-sites` | Next.js per-candidate sites                    | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client        | —    |
-| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types | —    |
+| Path                       | What                                            | Port |
+| -------------------------- | ----------------------------------------------- | ---- |
+| `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)           | 3000 |
+| `packages/gp-webapp`       | Next.js product app (candidates & officials)    | 4000 |
+| `packages/election-api`    | NestJS microservice — election data             | 3001 |
+| `packages/people-api`      | NestJS microservice — voter data                | 3002 |
+| `packages/gp-admin`        | Next.js internal admin console                  | 3500 |
+| `packages/candidate-sites` | Next.js per-candidate sites                     | 4001 |
+| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | —    |
+| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | —    |
+| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | —    |
 
 ## Quickstart
 

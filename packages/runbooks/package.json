@@ -1,0 +1,7 @@
+{
+  "name": "@goodparty_org/runbooks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent runbooks, slash commands, and PMF experiment manifests. Markdown + JSON + uv-managed Python (scripts/python). No JS build.",
+  "license": "CC0-1.0"
+}

@@ -1,6 +1,10 @@
 # Runbooks
 
-A standalone collection of reusable runbooks and scripts for AI agents.
+Reusable runbooks, slash commands, and PMF experiment manifests for AI agents.
+Lives in omni as `packages/runbooks`. `books/` and `commands/` are still written
+to be portable (clone-anywhere, no paths outside this package); `experiments/` is
+coupled to omni — its `manifest.json` schemas drive TS codegen in `gp-api` and
+`gp-webapp` (`scripts/generate-agent-job-types.ts`).
 
 ## Project Structure
 
@@ -27,13 +31,14 @@ When given a task, start by reading `books/INDEX.md` to find the relevant proced
 
 ## Used by the delegate worker
 
-The `ops/delegate/worker` clones this repo at boot via the GitHub App token and sets `RUNBOOKS_DIR=/app/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.
+The `ops/delegate/worker` (in the separate `ops` repo) clones omni at boot via the GitHub App token with a partial + sparse checkout of just this package, and sets `RUNBOOKS_DIR=/app/omni/packages/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy — the clone is fresh each boot. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.
 
-This is the only first-party consumer that pins specific paths into this repo's content. Other consumers should treat the repo as cloneable to anywhere.
+This is the only first-party consumer that pins specific paths into this package's content. Keep individual `books/`/`commands/` procedures portable — don't reference paths outside this package.
 
 ## Rules
 
 ### Standalone Project
+
 Procedures and references in `books/` and `commands/` are self-contained. Do not reference or link to external repositories, file paths outside this repo, or project-specific directories from those documents. Users clone this repo wherever they want — never assume a specific path.
 
 Exception: the top-level `CLAUDE.md` may include a dedicated "Used by" section that names first-party consumers (e.g., bots and services that clone this repo at boot), so maintainers know where the runbooks are read from. Keep individual procedures clean.
@@ -43,18 +48,21 @@ Exception: the top-level `CLAUDE.md` may include a dedicated "Used by" section t
 Books are markdown files in `books/`. There are two types:
 
 **Procedures** (`proc`) — step-by-step workflows for accomplishing a task:
+
 - Keep focused — one procedure per workflow or concern
 - Name by the action, not the topic (`query-voter-data.md` not `voter-data.md`)
 - List prerequisites (tools, access, permissions) before the steps
 - Should be concise and actionable — prefer examples over lengthy explanations
 
 **References** (`ref`) — informational docs for lookup and context:
+
 - Name by the topic (`platform-overview.md`)
 - Can be broad — covering an entire system or domain is fine
 - May reference external codebases, file paths, and infrastructure (that's the point)
 - Keep accurate — stale reference docs are worse than none
 
 **Shared rules for both types:**
+
 - Every book starts with a one-line summary of what it does
 - May reference scripts in `scripts/` by relative path (e.g., `scripts/example.py`)
 - Should be self-explanatory without requiring external context
@@ -63,7 +71,7 @@ Books are markdown files in `books/`. There are two types:
 
 ### Commands
 
-Commands are markdown procedures in `commands/` that *also* register as Claude Code slash commands via `install.sh`. Same shape as books — the difference is invocation surface, not content.
+Commands are markdown procedures in `commands/` that _also_ register as Claude Code slash commands via `install.sh`. Same shape as books — the difference is invocation surface, not content.
 
 - A `commands/<name>.md` file is invokable as `/<name>` after the user runs `./install.sh`
 - Without install, agents read `commands/<name>.md` directly the same way they read books
@@ -77,6 +85,7 @@ Commands are markdown procedures in `commands/` that *also* register as Claude C
 - Commands that operate on the omni monorepo (`release-prep.md`, `release.md`) additionally include a second resolution block, wrapped in `<!-- BEGIN: resolve-omni-dir -->` … `<!-- END: resolve-omni-dir -->`, that resolves the omni repo path via `$RELEASE_OMNI_DIR` (with fallbacks). Duplicated by design for the same reason — keep it in sync across any command that operates on the omni repo
 
 ### Scripts
+
 - Reusable code that books reference
 - If a runbook needs inline code longer than a few lines, extract it to `scripts/` instead
 - Scripts should be runnable independently where possible
@@ -91,6 +100,7 @@ Commands are markdown procedures in `commands/` that *also* register as Claude C
 - Never install packages globally — always use the language-specific manager
 
 ### Environment Variables
+
 - This repo has two `.env` files with different trust levels:
   - `books/.env` — non-sensitive config (paths, regions, org names). AI agents MAY read this to resolve `$VARIABLES` in books.
   - `scripts/.env` — secrets and credentials for script execution. AI agents MUST NEVER read this.
@@ -99,6 +109,7 @@ Commands are markdown procedures in `commands/` that *also* register as Claude C
 - Each book should list which `books/.env` vars it requires in its prerequisites
 
 ### Security
+
 - Never commit `.env` files — only `.env.example`
 - Never hardcode sensitive information in books or scripts
 - Use `$VARIABLE` placeholders when referencing any user-specific values
@@ -106,12 +117,14 @@ Commands are markdown procedures in `commands/` that *also* register as Claude C
 - This repo is private as an extra safeguard, but write as if it were public
 
 ### Portability
+
 - No hardcoded usernames, machine names, or OS-specific absolute paths
 - Use `$HOME`, relative paths, or clearly marked placeholders
 - Procedures must not assume a specific directory structure outside this repo
 - References may reference external paths when documenting external systems
 
 ### Naming
+
 - Use kebab-case for filenames (`deploy-ecs.md`, not `Deploy ECS.md`)
 - Procedures: name by the action (`query-voter-data.md`, `debug-peerly-errors.md`)
 - References: name by the topic (`platform-overview.md`, `aws-infrastructure.md`)
@@ -162,13 +175,16 @@ Tables, code blocks, and structured content for quick lookup.
 ```
 
 ### Maintenance
+
 - Delete stale runbooks rather than marking them deprecated — git history preserves them
 - Don't commit dated snapshots — that's what git history is for
 
 ### Audience
+
 - Write for AI agents as the primary reader, humans as secondary
 - Be explicit — don't assume the reader has context about your infrastructure
 
 ### Writing Style
+
 - Procedures should be concise and actionable — prefer examples over lengthy explanations
 - References should be scannable — use tables, headers, and code blocks for quick lookup

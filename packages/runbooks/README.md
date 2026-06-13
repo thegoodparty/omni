@@ -7,6 +7,7 @@ Operational runbooks and scripts for the GoodParty.org platform, written for AI 
 AI agents read `CLAUDE.md` (or `agent.md` for non-Claude agents) for project rules, then consult `books/INDEX.md` to find the right book for their task.
 
 Books come in two types:
+
 - **Procedures** — step-by-step workflows (e.g., querying voter data)
 - **References** — informational lookup docs (e.g., platform architecture)
 
@@ -14,10 +15,11 @@ Scripts in `scripts/` are reusable code that books reference.
 
 ## Setup
 
+This package lives in the omni monorepo at `packages/runbooks`. Clone omni, then
+configure env files and Python deps from here:
+
 ```bash
-# Clone
-git clone git@github.com-goodparty:thegoodparty/runbooks.git
-cd runbooks
+cd packages/runbooks
 
 # Configure books (non-sensitive — paths, regions, profiles)
 cp books/.env.example books/.env
@@ -27,7 +29,7 @@ cp books/.env.example books/.env
 cp scripts/.env.example scripts/.env
 # Edit scripts/.env
 
-# Install Python script dependencies
+# Install Python script dependencies (uv-managed; independent of npm workspaces)
 cd scripts/python && uv sync
 ```
 
@@ -42,7 +44,7 @@ install.sh       Installer that symlinks commands into Claude Code's commands di
 CLAUDE.md        Rules and conventions for AI agents
 ```
 
-`books/` and `commands/` both hold markdown procedures with the same shape. The split is invocation surface, not content: anything in `commands/` is *also* invokable as `/<name>` after running `install.sh`. Anything in `books/` is read-only-when-asked.
+`books/` and `commands/` both hold markdown procedures with the same shape. The split is invocation surface, not content: anything in `commands/` is _also_ invokable as `/<name>` after running `install.sh`. Anything in `books/` is read-only-when-asked.
 
 ## Slash commands
 
@@ -50,12 +52,12 @@ The `commands/` directory holds procedures that double as Claude Code slash comm
 
 ### Available
 
-| Slash command           | File                                    | What it does                                                                            |
-| ----------------------- | --------------------------------------- | --------------------------------------------------------------------------------------- |
-| `/prd-to-tech-design`   | `commands/prd-to-tech-design.md`        | PRD → blessed tech design doc + drawio data flow + ClickUp page under the PRD           |
-| `/clickup-epic-create`  | `commands/clickup-epic-create.md`       | Tech design + repo → ClickUp Epic with agent-ready subtasks                             |
-| `/clickup-epic-edit`    | `commands/clickup-epic-edit.md`         | Snapshot / diff / apply edits to an existing Epic; default-archive on removals          |
-| `/work-on-clickup`      | `commands/work-on-clickup.md`           | Pick up a task, scope-confirm, implement against AC, verify, optionally update ClickUp  |
+| Slash command          | File                              | What it does                                                                           |
+| ---------------------- | --------------------------------- | -------------------------------------------------------------------------------------- |
+| `/prd-to-tech-design`  | `commands/prd-to-tech-design.md`  | PRD → blessed tech design doc + drawio data flow + ClickUp page under the PRD          |
+| `/clickup-epic-create` | `commands/clickup-epic-create.md` | Tech design + repo → ClickUp Epic with agent-ready subtasks                            |
+| `/clickup-epic-edit`   | `commands/clickup-epic-edit.md`   | Snapshot / diff / apply edits to an existing Epic; default-archive on removals         |
+| `/work-on-clickup`     | `commands/work-on-clickup.md`     | Pick up a task, scope-confirm, implement against AC, verify, optionally update ClickUp |
 
 ### Install
 
@@ -71,13 +73,13 @@ After install, restart your Claude Code session for the commands to register.
 
 ### Configure once
 
-Slash commands run from arbitrary working directories, so they need to know where this repo lives. Add to your shell profile:
+Slash commands run from arbitrary working directories, so they need to know where this package lives. Point `RUNBOOKS_DIR` at it inside your omni checkout. Add to your shell profile:
 
 ```bash
-export RUNBOOKS_DIR="$HOME/Documents/gp/dev/runbooks"   # or wherever you cloned it
+export RUNBOOKS_DIR="$HOME/path/to/omni/packages/runbooks"   # your omni checkout
 ```
 
-Without this, the commands fall back to checking common locations (`~/Documents/gp/dev/runbooks`, `~/code/runbooks`, `~/runbooks`) and prompt if none match.
+Without this, the commands fall back to checking common locations and prompt if none match.
 
 ### Skipping the slash commands
 
