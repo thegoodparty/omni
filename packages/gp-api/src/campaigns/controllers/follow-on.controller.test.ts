@@ -68,6 +68,44 @@ describe('POST /v1/campaigns/follow-on', () => {
     })
   })
 
+  it('blocks a second follow-on once the first created an active campaign', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-repeat',
+        ownerId: service.user.id,
+        positionId: 'pos-repeat',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-repeat',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const body = {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-repeat',
+      details: { electionDate: '2099-11-03', state: 'CA' },
+    }
+
+    const first = await service.client.post('/v1/campaigns/follow-on', body)
+    expect(first.status).toBe(201)
+
+    // The campaign just created is active (future electionDate), so the
+    // per-user eligibility re-check inside the locked transaction rejects a
+    // second run.
+    const second = await service.client.post('/v1/campaigns/follow-on', body)
+    expect(second.status).toBe(409)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(1)
+  })
+
   it('returns 409 when the user already has an active campaign', async () => {
     await service.prisma.organization.create({
       data: { slug: 'campaign-60', ownerId: service.user.id },
