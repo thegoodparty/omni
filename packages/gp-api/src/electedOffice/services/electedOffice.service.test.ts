@@ -96,6 +96,10 @@ describe('ElectedOfficeService.create', () => {
   })
 
   it('returns the held office without creating a second active one', async () => {
+    const dispatch = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
     await service.prisma.organization.create({
       data: { slug: 'eo-existing', ownerId: service.user.id },
     })
@@ -117,6 +121,13 @@ describe('ElectedOfficeService.create', () => {
         where: { ownerId: service.user.id },
       }),
     ).toBe(1)
+    // The idempotent return path must still re-dispatch the schedule: a prior
+    // call may have committed the row but died before dispatching, and that
+    // dispatch is the only recovery path. Guards against the dispatch being
+    // gated on the fresh-create branch.
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: existing.id }),
+    )
   })
 
   it('still creates an office when the user only holds past offices', async () => {
