@@ -58,6 +58,56 @@ describe('GET /v1/organizations', () => {
     })
   })
 
+  it('still returns the org when election-api gives null position/district leaves', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    // A real position with a district that has no L2 mapping yet — the response
+    // schema must tolerate these null leaves, or the whole list 500s and the
+    // dashboard bounces the user back into onboarding.
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
+      id: 'pos-null',
+      brPositionId: null,
+      brDatabaseId: 'br-db-null',
+      state: null,
+      name: 'City Council',
+      district: {
+        id: 'dist-null',
+        state: null,
+        L2DistrictType: null,
+        L2DistrictName: null,
+        projectedTurnout: null,
+      },
+      // election-api isn't runtime-validated here; the leaves above are null in
+      // practice even though the TS type marks them required.
+    } as unknown as Awaited<ReturnType<ElectionsService['getPositionById']>>)
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-5',
+        ownerId: service.user.id,
+        positionId: 'pos-null',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'null-leaf-campaign',
+        details: { electionDate: '2026-11-03' },
+        organizationSlug: 'campaign-5',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toHaveLength(1)
+    expect(result.data.organizations[0]).toMatchObject({
+      slug: 'campaign-5',
+      campaignId: 5,
+      position: { id: 'pos-null', state: null, brPositionId: null },
+      district: { id: 'dist-null', l2Type: null, l2Name: null },
+    })
+  })
+
   it('returns "Campaign" as name when no electionDate', async () => {
     await service.prisma.organization.create({
       data: {

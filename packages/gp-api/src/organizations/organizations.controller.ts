@@ -35,19 +35,29 @@ import { pick } from 'es-toolkit'
 // The decorated org-list shape returned by this controller is not the persisted
 // Organization row, so it isn't OrganizationSchema from contracts; only the
 // derived `status` enum is shared. Validated at runtime via @ResponseSchema.
+// position/district sub-fields come straight from election-api, which is not
+// runtime-validated here and legitimately returns null leaves (e.g. a position
+// whose district has no L2 mapping yet). Before these endpoints were response-
+// validated the null leaves shipped to the webapp untouched; the strict schema
+// must tolerate the same shape or it 500s the whole org list — which makes the
+// webapp see zero orgs and bounce the dashboard back into onboarding.
 const APIOrganizationSchema = z.object({
   slug: z.string(),
   name: z.string().nullable(),
   positionName: z.string().nullable(),
   position: z
-    .object({ id: z.string(), state: z.string(), brPositionId: z.string() })
+    .object({
+      id: z.string(),
+      state: z.string().nullable(),
+      brPositionId: z.string().nullable(),
+    })
     .nullable(),
   district: z
     .object({
       id: z.string(),
-      state: z.string(),
-      l2Type: z.string(),
-      l2Name: z.string(),
+      state: z.string().nullable(),
+      l2Type: z.string().nullable(),
+      l2Name: z.string().nullable(),
     })
     .nullable(),
   electedOfficeId: z.string().nullable(),
