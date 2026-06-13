@@ -260,7 +260,7 @@ describe('GET /v1/organizations', () => {
 
     await service.prisma.organization.create({
       data: {
-        slug: 'my-org',
+        slug: 'campaign-700',
         ownerId: service.user.id,
       },
     })
@@ -270,7 +270,7 @@ describe('GET /v1/organizations', () => {
         userId: service.user.id,
         slug: 'my-campaign',
         details: {},
-        organizationSlug: 'my-org',
+        organizationSlug: 'campaign-700',
       },
     })
 
@@ -278,7 +278,7 @@ describe('GET /v1/organizations', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.organizations).toHaveLength(1)
-    expect(result.data.organizations[0].slug).toBe('my-org')
+    expect(result.data.organizations[0].slug).toBe('campaign-700')
   })
 
   it('returns multiple organizations from both campaigns and elected offices', async () => {
@@ -351,6 +351,88 @@ describe('GET /v1/organizations', () => {
       electedOfficeId: 'abc-123',
       campaignId: null,
     })
+  })
+
+  it('marks the active campaign "active" and an ended office "past"', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-600', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'active-run',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-600',
+      },
+    })
+
+    await service.prisma.organization.create({
+      data: { slug: 'eo-ended-1', ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-ended-1',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2000-01-01'),
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-600',
+    )
+    const officeOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'eo-ended-1',
+    )
+    expect(campaignOrg.status).toBe('active')
+    expect(officeOrg.status).toBe('past')
+  })
+
+  it('marks a held office "active" when its term has not ended', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'eo-held-1', ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-held-1',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const officeOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'eo-held-1',
+    )
+    expect(officeOrg.status).toBe('active')
+  })
+
+  it('marks a concluded campaign (past election date) "past"', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-601', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'concluded-run',
+        details: { electionDate: '2000-11-07' },
+        organizationSlug: 'campaign-601',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-601',
+    )
+    expect(campaignOrg.status).toBe('past')
   })
 })
 

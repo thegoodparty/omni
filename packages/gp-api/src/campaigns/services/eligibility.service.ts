@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import { isAfter, isValid } from 'date-fns'
+import { isAfter } from 'date-fns'
 import { Eligibility } from '@goodparty_org/contracts'
-import { getMidnightForDate, parseIsoDateAsUTC } from '@/shared/util/date.util'
-import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
-import { Campaign, ElectedOffice } from '../../generated/prisma'
+import { ElectedOffice } from '../../generated/prisma'
 import { CampaignsService } from './campaigns.service'
+import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
+import { isActiveCampaign, isHeldOffice } from '../util/eligibility.util'
 
 @Injectable()
 export class EligibilityService {
@@ -22,11 +22,11 @@ export class EligibilityService {
     const now = new Date()
 
     const hasActiveCampaign = campaigns.some((campaign) =>
-      this.isActiveCampaign(campaign, now),
+      isActiveCampaign(campaign, now),
     )
 
     const heldOffice = electedOffices.find((office) =>
-      this.holdsOffice(office, now),
+      isHeldOffice(office, now),
     )
     const reelectionOffice = heldOffice ?? this.mostRecentOffice(electedOffices)
 
@@ -39,26 +39,6 @@ export class EligibilityService {
       canGainOffice: !holdsOffice,
       reelectionOfficeSlug: reelectionOffice?.organizationSlug ?? null,
     }
-  }
-
-  private isActiveCampaign(campaign: Campaign, now: Date): boolean {
-    if (campaign.isDemo) return false
-    const electionDate = campaign.details?.electionDate
-    if (!electionDate) return false
-    const parsed = parseIsoDateAsUTC(electionDate)
-    if (!isValid(parsed)) return false
-    // electionDate is a calendar date (UTC midnight); the campaign stays
-    // active through the whole election day, so compare UTC calendar days
-    // rather than the parsed instant — date-fns endOfDay is local-time and
-    // would flip the boundary on non-UTC servers.
-    return campaign.didWin === null && !isAfter(getMidnightForDate(now), parsed)
-  }
-
-  private holdsOffice(office: ElectedOffice, now: Date): boolean {
-    return (
-      office.isActive &&
-      (office.termEndAt === null || isAfter(office.termEndAt, now))
-    )
   }
 
   private mostRecentOffice(

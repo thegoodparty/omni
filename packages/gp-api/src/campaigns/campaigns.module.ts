@@ -38,6 +38,7 @@ import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDig
 import { CampaignUpdateHistoryController } from './updateHistory/campaignUpdateHistory.controller'
 import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHistory.service'
 import { PublicCampaignsController } from './controllers/public-campaigns.controller'
+import { EligibilityController } from './controllers/eligibility.controller'
 import { PublicCampaignsService } from './services/public-campaigns.service'
 
 @Global()
@@ -71,6 +72,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTasksController,
     CampaignTcrComplianceController,
     PublicCampaignsController,
+    EligibilityController,
   ],
   providers: [
     CampaignsService,
