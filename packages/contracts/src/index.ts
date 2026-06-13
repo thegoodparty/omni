@@ -296,6 +296,11 @@ export {
 
 export { RaceFullSchema, type RaceFull } from './elections/raceFull'
 
+export {
+  RaceFrequencyByBrHashSchema,
+  type RaceFrequencyByBrHash,
+} from './elections/raceFrequency'
+
 export { ZipCodesArraySchema } from './elections/zipCodes'
 
 export {

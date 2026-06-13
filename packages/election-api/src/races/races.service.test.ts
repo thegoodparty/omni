@@ -208,3 +208,60 @@ describe('RacesService.findFilingFeeByBrHashId', () => {
     expect(result.paperworkInstructions).toBeNull()
   })
 })
+
+describe('RacesService.findFrequencyByBrHashId', () => {
+  let service: RacesService
+  let raceFindMany: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    raceFindMany = vi.fn()
+    service = new RacesService({} as PrismaService)
+    Object.defineProperty(service, '_prisma', {
+      value: {
+        race: {
+          findMany: raceFindMany,
+        },
+      },
+    })
+  })
+
+  it('returns empty frequency and null date when no Race matches the hash', async () => {
+    raceFindMany.mockResolvedValue([])
+
+    const result = await service.findFrequencyByBrHashId('Z2lk-missing')
+
+    expect(raceFindMany).toHaveBeenCalledWith({
+      where: { brHashId: 'Z2lk-missing' },
+      select: { frequency: true, electionDate: true },
+      orderBy: [
+        { isPrimary: { sort: 'asc', nulls: 'last' } },
+        { isRunoff: { sort: 'asc', nulls: 'last' } },
+      ],
+      take: 1,
+    })
+    expect(result).toEqual({ frequency: [], electionDate: null })
+  })
+
+  it('returns the matched race frequency and ISO election date', async () => {
+    raceFindMany.mockResolvedValue([
+      { frequency: [4], electionDate: new Date('2024-11-05T00:00:00.000Z') },
+    ])
+
+    const result = await service.findFrequencyByBrHashId('Z2lk-four-year')
+
+    expect(result).toEqual({
+      frequency: [4],
+      electionDate: '2024-11-05T00:00:00.000Z',
+    })
+  })
+
+  it('preserves a multi-element cadence array as stored', async () => {
+    raceFindMany.mockResolvedValue([
+      { frequency: [2, 4], electionDate: new Date('2024-11-05T00:00:00.000Z') },
+    ])
+
+    const result = await service.findFrequencyByBrHashId('Z2lk-staggered')
+
+    expect(result.frequency).toEqual([2, 4])
+  })
+})

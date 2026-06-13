@@ -621,6 +621,68 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('getElectionFrequencyByBrHashId', () => {
+    it('returns null without calling the API when brHashId is empty', async () => {
+      const result = await service.getElectionFrequencyByBrHashId('')
+
+      expect(result).toBeNull()
+      expect(mockHttpGet).not.toHaveBeenCalled()
+    })
+
+    it('forwards the brHashId on the URL and returns the parsed cadence', async () => {
+      const response = {
+        frequency: [4],
+        electionDate: '2024-11-05T00:00:00.000Z',
+      }
+      mockHttpGet.mockReturnValue(of({ data: response, status: 200 }))
+
+      const result = await service.getElectionFrequencyByBrHashId('br-hash-123')
+
+      expect(result).toEqual(response)
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('races/by-br-hash-id/br-hash-123/frequency'),
+        expect.anything(),
+      )
+    })
+
+    it('URI-encodes brHashes that contain special characters', async () => {
+      mockHttpGet.mockReturnValue(
+        of({ data: { frequency: [], electionDate: null }, status: 200 }),
+      )
+
+      await service.getElectionFrequencyByBrHashId('Z2lkOi8v/ballot=')
+
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `races/by-br-hash-id/${encodeURIComponent('Z2lkOi8v/ballot=')}/frequency`,
+        ),
+        expect.anything(),
+      )
+    })
+
+    it('returns null and swallows errors when the API call fails', async () => {
+      mockHttpGet.mockImplementation(() => {
+        throw new Error('boom')
+      })
+
+      const result = await service.getElectionFrequencyByBrHashId('br-hash-1')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null when the response fails schema validation', async () => {
+      // A malformed payload (frequency not an array) must not propagate a
+      // half-typed object into term derivation — degrade to no enrichment.
+      mockHttpGet.mockReturnValue(
+        of({ data: { frequency: 4, electionDate: null }, status: 200 }),
+      )
+
+      const result = await service.getElectionFrequencyByBrHashId('br-hash-1')
+
+      expect(result).toBeNull()
+    })
+  })
+
   describe('fetchCampaignStrategyContext', () => {
     it('returns null without calling the API when brHashId is empty', async () => {
       const mockHttpPost = vi.fn()
