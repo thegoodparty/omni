@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import UpdateToProPage from './UpdateToProPage'
 
 vi.mock('@shared/experiments/proUpgrade3Flag', async (importOriginal) => {
@@ -39,6 +40,7 @@ vi.mock('app/dashboard/upgrade-to-pro/components/ProPricingCard', () => ({
 }))
 
 const mockUseProUpgrade3Flag = vi.mocked(useProUpgrade3Flag)
+const mockTrackEvent = vi.mocked(trackEvent)
 
 describe('UpdateToProPage cohort bounce', () => {
   beforeEach(() => {
@@ -52,6 +54,38 @@ describe('UpdateToProPage cohort bounce', () => {
 
     expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade')
     expect(screen.queryByText('Why pay more for less?')).not.toBeInTheDocument()
+  })
+
+  it('does not emit SplashPage.Exit for a cohort user bounced after the flag resolves', () => {
+    // Mirror production: the flag starts unresolved, then resolves on. The
+    // resolution re-render consumes usePageExit's initial-mount guard, so the
+    // bounce unmount must not emit the splash's exit event for a page the
+    // cohort user never actually saw.
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: false, enabled: false })
+    const { rerender, unmount } = render(<UpdateToProPage campaign={null} />)
+
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
+    rerender(<UpdateToProPage campaign={null} />)
+    unmount()
+
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.SplashPage.Exit,
+    )
+  })
+
+  it('still emits SplashPage.Exit for an off-cohort user leaving the splash', () => {
+    // The same resolution re-render must leave the off-cohort exit event
+    // intact — the fix suppresses the event only for the cohort.
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: false, enabled: false })
+    const { rerender, unmount } = render(<UpdateToProPage campaign={null} />)
+
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
+    rerender(<UpdateToProPage campaign={null} />)
+    unmount()
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.SplashPage.Exit,
+    )
   })
 
   it('renders the legacy splash for the off-cohort and keeps the pro-sign-up CTA', () => {

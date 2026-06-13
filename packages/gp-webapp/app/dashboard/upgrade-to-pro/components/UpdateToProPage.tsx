@@ -76,7 +76,11 @@ export default function DetailsPage(
   const { ready, enabled } = useProUpgrade3Flag()
 
   usePageExit(() => {
-    trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
+    // Only the off-cohort actually views this splash. The cohort is bounced to
+    // the new wizard (below), and the flag-resolution re-render consumes
+    // usePageExit's initial-mount guard, so without this condition the bounce
+    // unmount would emit a spurious SplashPage.Exit for a page they never saw.
+    if (ready && !enabled) trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
   })
 
   // This legacy splash is the off-cohort funnel. The pro-upgrade3 cohort can
