@@ -1,6 +1,7 @@
 import {
   CampaignLaunchStatus,
   CampaignStatus,
+  type Eligibility,
   OnboardingStep,
   type ListCampaignsPagination,
   type RaceMilestones,
@@ -11,6 +12,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { differenceInMilliseconds, formatISO } from 'date-fns'
@@ -47,6 +49,7 @@ import {
   PlanVersion,
   UpdateCampaignFieldsInput,
 } from '../campaigns.types'
+import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
@@ -171,6 +174,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     orgPosition?: {
       ballotReadyPositionId?: string
       customPositionName?: string
+      // Already-resolved org fields, used by the follow-on "same-office" path
+      // to inherit the held office's position without re-resolving BallotReady.
+      positionId?: string
+      overrideDistrictId?: string
+    },
+    campaignOverrides?: {
+      isPro?: boolean
     },
   ) {
     this.logger.debug(user, 'Creating campaign for user')
@@ -186,7 +196,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         )
       : null
 
-    const resolvedCustomPositionName = !position
+    const resolvedPositionId = position?.id ?? orgPosition?.positionId ?? null
+
+    const resolvedCustomPositionName = !resolvedPositionId
       ? (orgPosition?.customPositionName ?? null)
       : null
 
@@ -211,7 +223,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         data: {
           slug: orgSlug,
           ownerId: user.id,
-          positionId: position?.id ?? null,
+          positionId: resolvedPositionId,
+          overrideDistrictId: orgPosition?.overrideDistrictId ?? null,
           customPositionName: resolvedCustomPositionName,
         },
       })
@@ -227,6 +240,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           slug,
           organizationSlug: orgSlug,
           isActive: false,
+          isPro: campaignOverrides?.isPro ?? false,
           userId: user.id,
           details: mergedDetails,
           data: initialData.data
@@ -239,6 +253,82 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     await this.crm.trackCampaign(newCampaign.id)
 
     return newCampaign
+  }
+
+  // Creates a follow-on campaign (a re-election or a run for a new office) for
+  // a user who already holds office. Eligibility is re-checked by the caller;
+  // this method only resolves the inherited position + Pro state and reuses
+  // createForUser's org+campaign transaction. The new org becomes the active
+  // one by derivation (it carries the only active campaign).
+  async createFollowOn(
+    user: User,
+    body: CreateFollowOnCampaignBody,
+    eligibility: Eligibility,
+  ) {
+    const initialData = {
+      details: (body.details ?? {}) as PrismaJson.CampaignDetails,
+      data: body.data as PrismaJson.CampaignData | undefined,
+    }
+
+    if (body.intent === 'same-office') {
+      if (!body.fromOrganizationSlug) {
+        throw new BadRequestException(
+          'fromOrganizationSlug is required for a same-office follow-on',
+        )
+      }
+
+      const sourceOrg = await this.organizations.findFirst({
+        where: { slug: body.fromOrganizationSlug, ownerId: user.id },
+        include: { electedOffice: { include: { campaign: true } } },
+      })
+
+      if (!sourceOrg) {
+        throw new NotFoundException('Source organization not found')
+      }
+
+      return this.createForUser(
+        user,
+        initialData,
+        {
+          positionId: sourceOrg.positionId ?? undefined,
+          overrideDistrictId: sourceOrg.overrideDistrictId ?? undefined,
+          customPositionName: sourceOrg.customPositionName ?? undefined,
+        },
+        { isPro: sourceOrg.electedOffice?.campaign?.isPro ?? false },
+      )
+    }
+
+    return this.createForUser(
+      user,
+      initialData,
+      {
+        ballotReadyPositionId: body.ballotReadyPositionId ?? undefined,
+        customPositionName: body.customPositionName ?? undefined,
+      },
+      {
+        isPro: await this.proFromOfficeOrg(
+          eligibility.reelectionOfficeSlug,
+          user.id,
+        ),
+      },
+    )
+  }
+
+  // Reads the Pro state carried by the campaign that won the user a given
+  // office org. Used as the isPro source for new-office follow-ons, where the
+  // request body has no source org to inherit from.
+  private async proFromOfficeOrg(
+    slug: string | null,
+    ownerId: number,
+  ): Promise<boolean> {
+    if (!slug) return false
+
+    const org = await this.organizations.findFirst({
+      where: { slug, ownerId },
+      include: { electedOffice: { include: { campaign: true } } },
+    })
+
+    return org?.electedOffice?.campaign?.isPro ?? false
   }
 
   async update(args: Prisma.CampaignUpdateArgs & { where: { id: number } }) {

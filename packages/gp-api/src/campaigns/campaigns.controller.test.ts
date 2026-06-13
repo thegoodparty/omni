@@ -14,6 +14,7 @@ import { CampaignsController } from './campaigns.controller'
 import { CreateCampaignSchema } from './schemas/updateCampaign.schema'
 import { CampaignPlanVersionsService } from './services/campaignPlanVersions.service'
 import { CampaignsService } from './services/campaigns.service'
+import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 
@@ -127,6 +128,7 @@ describe('CampaignsController', () => {
   let organizationsService: OrganizationsService
   let analyticsService: AnalyticsService
   let filingInstructionsService: FilingInstructionsService
+  let eligibilityService: EligibilityService
 
   beforeEach(() => {
     const campaignsServiceMock: Partial<CampaignsService> = {
@@ -179,6 +181,11 @@ describe('CampaignsController', () => {
     filingInstructionsService =
       filingInstructionsServiceMock as FilingInstructionsService
 
+    const eligibilityServiceMock: Partial<EligibilityService> = {
+      evaluate: vi.fn(),
+    }
+    eligibilityService = eligibilityServiceMock as EligibilityService
+
     controller = new CampaignsController(
       campaignsService,
       planVersionsService,
@@ -186,6 +193,7 @@ describe('CampaignsController', () => {
       organizationsService,
       analyticsService,
       filingInstructionsService,
+      eligibilityService,
       createMockLogger(),
     )
   })

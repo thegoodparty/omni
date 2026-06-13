@@ -97,6 +97,23 @@ export class CreateCampaignSchema extends createZodDto(
   }),
 ) {}
 
+export const createFollowOnCampaignBodySchema = z.object({
+  intent: z.enum(['same-office', 'new-office']),
+  fromOrganizationSlug: z.string().nullish(),
+  details: CampaignDetailsSchema.optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  ballotReadyPositionId: z.string().nullish(),
+  customPositionName: z.string().nullish(),
+})
+
+export type CreateFollowOnCampaignBody = z.infer<
+  typeof createFollowOnCampaignBodySchema
+>
+
+export class CreateFollowOnCampaignSchema extends createZodDto(
+  createFollowOnCampaignBodySchema,
+) {}
+
 export class SetDistrictDTO extends createZodDto(
   z.object({
     slug: z.string().optional(),
