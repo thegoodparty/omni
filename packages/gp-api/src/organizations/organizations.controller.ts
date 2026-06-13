@@ -35,26 +35,30 @@ import { pick } from 'es-toolkit'
 // The decorated org-list shape returned by this controller is not the persisted
 // Organization row, so it isn't OrganizationSchema from contracts; only the
 // derived `status` enum is shared. Validated at runtime via @ResponseSchema.
-// position/district sub-fields come straight from election-api, which is not
-// runtime-validated here and legitimately returns null leaves (e.g. a position
-// whose district has no L2 mapping yet). Before these endpoints were response-
-// validated the null leaves shipped to the webapp untouched; the strict schema
-// must tolerate the same shape or it 500s the whole org list — which makes the
-// webapp see zero orgs and bounce the dashboard back into onboarding.
+//
+// Everything except `slug` and the derived `status` is a best-effort display
+// enrichment sourced from election-api, which is NOT runtime-validated here and
+// legitimately returns null/absent leaves (a position with no L2 district, a
+// missing brPositionId, etc.). Before these endpoints were response-validated
+// those values shipped to the webapp untouched and nothing broke; the schema
+// must tolerate the same shape or one bad leaf 500s the WHOLE org list — which
+// makes the webapp (getCurrentUserOrganizations maps any non-ok to []) see zero
+// orgs and bounce the dashboard back into onboarding. So the display leaves are
+// nullable and only slug/status are guaranteed.
 const APIOrganizationSchema = z.object({
   slug: z.string(),
   name: z.string().nullable(),
   positionName: z.string().nullable(),
   position: z
     .object({
-      id: z.string(),
+      id: z.string().nullable(),
       state: z.string().nullable(),
       brPositionId: z.string().nullable(),
     })
     .nullable(),
   district: z
     .object({
-      id: z.string(),
+      id: z.string().nullable(),
       state: z.string().nullable(),
       l2Type: z.string().nullable(),
       l2Name: z.string().nullable(),
@@ -130,8 +134,11 @@ const toAPIOrganization = (
     result.electedOfficeId = org.slug.replace('eo-', '')
     result.name = result.positionName
   } else {
-    result.campaignId = parseInt(org.slug.replace('campaign-', ''))
-    const electionYear = org.campaign?.details.electionDate?.split('-').at(0)
+    // A non-`campaign-<int>` slug would parse to NaN; z.number() rejects NaN
+    // and would 500 the whole list, so fall back to null.
+    const parsedCampaignId = parseInt(org.slug.replace('campaign-', ''))
+    result.campaignId = Number.isNaN(parsedCampaignId) ? null : parsedCampaignId
+    const electionYear = org.campaign?.details?.electionDate?.split('-').at(0)
     result.name = [electionYear, 'Campaign'].filter(Boolean).join(' ')
   }
   return result
