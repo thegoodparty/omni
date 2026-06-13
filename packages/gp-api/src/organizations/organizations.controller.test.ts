@@ -58,6 +58,49 @@ describe('GET /v1/organizations', () => {
     })
   })
 
+  it('still returns the org when election-api omits position/district leaves', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    // A real position whose optional leaves are simply ABSENT (undefined), not
+    // null — this is what election-api actually returns. z.string().nullable()
+    // rejects undefined ("Required") and 500s the whole list, bouncing the
+    // dashboard back into onboarding; the schema must be nullish.
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
+      id: 'pos-sparse',
+      brDatabaseId: 'br-db-sparse',
+      name: 'City Council',
+      // brPositionId + state intentionally absent
+      district: {
+        id: 'dist-sparse',
+        // state + L2DistrictType + L2DistrictName intentionally absent
+      },
+    } as unknown as Awaited<ReturnType<ElectionsService['getPositionById']>>)
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-5',
+        ownerId: service.user.id,
+        positionId: 'pos-sparse',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'sparse-leaf-campaign',
+        details: { electionDate: '2026-11-03' },
+        organizationSlug: 'campaign-5',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toHaveLength(1)
+    expect(result.data.organizations[0]).toMatchObject({
+      slug: 'campaign-5',
+      campaignId: 5,
+    })
+  })
+
   it('returns "Campaign" as name when no electionDate', async () => {
     await service.prisma.organization.create({
       data: {

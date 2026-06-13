@@ -1,16 +1,19 @@
 import {
   CampaignLaunchStatus,
   CampaignStatus,
+  type Eligibility,
   OnboardingStep,
   type ListCampaignsPagination,
   type RaceMilestones,
 } from '@goodparty_org/contracts'
 import {
   BadRequestException,
+  ConflictException,
   forwardRef,
   Inject,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { differenceInMilliseconds, formatISO } from 'date-fns'
@@ -47,6 +50,9 @@ import {
   PlanVersion,
   UpdateCampaignFieldsInput,
 } from '../campaigns.types'
+import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
+import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
+import { isActiveCampaign } from '../util/eligibility.util'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
@@ -171,7 +177,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     orgPosition?: {
       ballotReadyPositionId?: string
       customPositionName?: string
+      // Already-resolved org fields, used by the follow-on "same-office" path
+      // to inherit the held office's position without re-resolving BallotReady.
+      positionId?: string
+      overrideDistrictId?: string
     },
+    campaignOverrides?: {
+      isPro?: boolean
+    },
+    // When provided, the org+campaign insert runs inside the caller's
+    // transaction (the follow-on path holds a per-user advisory lock around an
+    // eligibility re-check). CRM tracking is then the caller's responsibility,
+    // after that transaction commits — the row isn't visible to it until then.
+    outerTx?: Prisma.TransactionClient,
   ) {
     this.logger.debug(user, 'Creating campaign for user')
     const slug = await this.findSlug(user)
@@ -186,11 +204,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         )
       : null
 
-    const resolvedCustomPositionName = !position
+    const resolvedPositionId = position?.id ?? orgPosition?.positionId ?? null
+
+    const resolvedCustomPositionName = !resolvedPositionId
       ? (orgPosition?.customPositionName ?? null)
       : null
 
-    const newCampaign = await this.client.$transaction(async (tx) => {
+    const insert = async (tx: Prisma.TransactionClient) => {
       const [{ nextval: id }] = await tx.$queryRaw<[{ nextval: bigint }]>`
         SELECT nextval('campaign_id_seq')`
 
@@ -211,7 +231,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         data: {
           slug: orgSlug,
           ownerId: user.id,
-          positionId: position?.id ?? null,
+          positionId: resolvedPositionId,
+          overrideDistrictId: orgPosition?.overrideDistrictId ?? null,
           customPositionName: resolvedCustomPositionName,
         },
       })
@@ -227,6 +248,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           slug,
           organizationSlug: orgSlug,
           isActive: false,
+          isPro: campaignOverrides?.isPro ?? false,
           userId: user.id,
           details: mergedDetails,
           data: initialData.data
@@ -234,11 +256,143 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             : baseData,
         },
       })
-    })
+    }
+
+    const newCampaign = outerTx
+      ? await insert(outerTx)
+      : await this.client.$transaction(insert)
+
     this.logger.debug({ newCampaign }, 'Created campaign')
+
+    if (!outerTx) {
+      await this.crm.trackCampaign(newCampaign.id)
+    }
+
+    return newCampaign
+  }
+
+  // Creates a follow-on campaign (a re-election or a run for a new office) for
+  // a user who already holds office. Reuses createForUser's org+campaign
+  // transaction; the new org becomes the active one by derivation (it carries
+  // the only active campaign). Eligibility is re-checked here under a per-user
+  // advisory lock so two concurrent requests can't both create a campaign.
+  async createFollowOn(
+    user: User,
+    body: CreateFollowOnCampaignBody,
+    eligibility: Eligibility,
+  ) {
+    const initialData = {
+      details: (body.details ?? {}) as PrismaJson.CampaignDetails,
+      data: body.data as PrismaJson.CampaignData | undefined,
+    }
+
+    // Resolve the inherited position + Pro source before taking the lock, so
+    // the serialized section is just the eligibility re-check + insert.
+    const { orgPosition, isPro } = await this.resolveFollowOnInputs(
+      user,
+      body,
+      eligibility,
+    )
+
+    const newCampaign = await this.client.$transaction(async (tx) => {
+      // The second concurrent request blocks here until the first commits,
+      // then its re-check below sees the freshly-created active campaign.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY}::integer, ${user.id}::integer)`
+
+      const now = new Date()
+      const existing = await tx.campaign.findMany({
+        where: { userId: user.id },
+      })
+      if (existing.some((campaign) => isActiveCampaign(campaign, now))) {
+        throw new ConflictException(
+          'User is not eligible to start a new campaign',
+        )
+      }
+
+      return this.createForUser(user, initialData, orgPosition, { isPro }, tx)
+    })
+
     await this.crm.trackCampaign(newCampaign.id)
 
     return newCampaign
+  }
+
+  private async resolveFollowOnInputs(
+    user: User,
+    body: CreateFollowOnCampaignBody,
+    eligibility: Eligibility,
+  ): Promise<{
+    orgPosition: {
+      ballotReadyPositionId?: string
+      customPositionName?: string
+      positionId?: string
+      overrideDistrictId?: string
+    }
+    isPro: boolean
+  }> {
+    if (body.intent === 'same-office') {
+      if (!body.fromOrganizationSlug) {
+        throw new BadRequestException(
+          'fromOrganizationSlug is required for a same-office follow-on',
+        )
+      }
+
+      const sourceOrg = await this.organizations.findFirst({
+        where: { slug: body.fromOrganizationSlug, ownerId: user.id },
+        include: { electedOffice: { include: { campaign: true } } },
+      })
+
+      if (!sourceOrg) {
+        throw new NotFoundException('Source organization not found')
+      }
+
+      // A same-office run inherits the held office; the source must be an
+      // elected-office org. Any other owned org (e.g. a campaign-* org) would
+      // pass the ownership guard but inherit the wrong position and silently
+      // strip isPro (no electedOffice.campaign to read it from).
+      if (!sourceOrg.electedOffice) {
+        throw new BadRequestException(
+          'fromOrganizationSlug must reference an elected-office organization',
+        )
+      }
+
+      return {
+        orgPosition: {
+          positionId: sourceOrg.positionId ?? undefined,
+          overrideDistrictId: sourceOrg.overrideDistrictId ?? undefined,
+          customPositionName: sourceOrg.customPositionName ?? undefined,
+        },
+        isPro: sourceOrg.electedOffice.campaign?.isPro ?? false,
+      }
+    }
+
+    return {
+      orgPosition: {
+        ballotReadyPositionId: body.ballotReadyPositionId ?? undefined,
+        customPositionName: body.customPositionName ?? undefined,
+      },
+      isPro: await this.proFromOfficeOrg(
+        eligibility.reelectionOfficeSlug,
+        user.id,
+      ),
+    }
+  }
+
+  // Reads the Pro state carried by the campaign that won the user a given
+  // office org. Used as the isPro source for new-office follow-ons, where the
+  // request body has no source org to inherit from.
+  private async proFromOfficeOrg(
+    slug: string | null,
+    ownerId: number,
+  ): Promise<boolean> {
+    if (!slug) return false
+
+    const org = await this.organizations.findFirst({
+      where: { slug, ownerId },
+      include: { electedOffice: { include: { campaign: true } } },
+    })
+
+    return org?.electedOffice?.campaign?.isPro ?? false
   }
 
   async update(args: Prisma.CampaignUpdateArgs & { where: { id: number } }) {
