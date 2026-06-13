@@ -55,6 +55,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: null,
     campaignId: 1,
+    status: 'active',
   },
   {
     slug: 'org-two',
@@ -64,6 +65,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: 'eo-1',
     campaignId: 2,
+    status: 'active',
   },
   {
     slug: 'org-three',
@@ -73,6 +75,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: null,
     campaignId: null,
+    status: 'past',
   },
 ]
 
@@ -346,6 +349,7 @@ describe('OrganizationPicker', () => {
         district: null,
         electedOfficeId: null,
         campaignId: 10,
+        status: 'active',
       },
     ]
 
