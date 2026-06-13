@@ -189,7 +189,7 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
     }
     return {
       frequency: race.frequency,
-      electionDate: race.electionDate.toISOString(),
+      electionDate: race.electionDate ? race.electionDate.toISOString() : null,
     }
   }
 
