@@ -95,6 +95,22 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     }) as Promise<Prisma.CampaignGetPayload<{ include: T }>>
   }
 
+  // The active-aware counterpart to findByUserId for background call sites that
+  // have no X-Organization-Slug context (Stripe webhooks, CRM sync). electionDate
+  // lives in the details JSON, so the active campaign is filtered in app code via
+  // the shared isActiveCampaign predicate rather than a where clause.
+  async findActiveByUserId<T extends Prisma.CampaignInclude>(
+    userId: Prisma.CampaignWhereInput['userId'],
+    include?: T,
+  ): Promise<Prisma.CampaignGetPayload<{ include: T }> | null> {
+    const campaigns = await this.findMany({ where: { userId }, include })
+    const now = new Date()
+    const active = campaigns.find((campaign) => isActiveCampaign(campaign, now))
+    // Prisma include query — TypeScript cannot narrow the included relations at compile time
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    return (active ?? null) as Prisma.CampaignGetPayload<{ include: T }> | null
+  }
+
   async listCampaigns({
     offset: skip = DEFAULT_PAGINATION_OFFSET,
     limit = DEFAULT_PAGINATION_LIMIT,

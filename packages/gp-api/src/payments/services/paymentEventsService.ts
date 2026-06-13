@@ -90,11 +90,13 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.created; skipping',
       )
+      return
     }
 
     const { id: campaignId, details: campaignDetails } = campaign
@@ -127,11 +129,13 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.resumed; skipping',
       )
+      return
     }
     const { id: campaignId } = campaign
 
@@ -260,9 +264,13 @@ export class PaymentEventsService {
         'No user found with given checkout session userId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadRequestException('No campaign found for user')
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription checkout; skipping',
+      )
+      return
     }
 
     const { id: campaignId } = campaign

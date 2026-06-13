@@ -36,7 +36,7 @@ export class CrmUsersService {
 
   async calculateCRMContactProperties(
     user: User,
-    campaign: Campaign,
+    campaign: Campaign | null,
   ): Promise<CRMContactProperties> {
     const { firstName, lastName, email, phone, zip, metaData } = user
     const meta =
@@ -181,7 +181,7 @@ export class CrmUsersService {
     const { id: userId, email, metaData } = user
     let { hubspotId: crmContactId } = metaData || {}
 
-    const campaign = await this.campaigns.findByUserId(userId)
+    const campaign = await this.campaigns.findActiveByUserId(userId)
 
     const crmContactProperties = await this.calculateCRMContactProperties(
       user,
