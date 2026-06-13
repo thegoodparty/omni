@@ -1,0 +1,132 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "district_issue_pulse",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 60,
+  "timeout_seconds": 1200,
+  "scope": {
+    "allowed_tables": [
+      "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
+    ],
+    "max_rows": 1000
+  },
+  "input_schema": {
+    "$ref": "../_schema/manifest.schema.json#/$defs/districtInputs"
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "DistrictIssuePulse",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "state",
+      "city",
+      "l2_district_type",
+      "l2_district_name",
+      "total_active_voters",
+      "top_issues"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      },
+      "city": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "l2_district_type": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "l2_district_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "total_active_voters": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "top_issues": {
+        "type": "array",
+        "minItems": 5,
+        "maxItems": 5,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rank",
+            "issue_label",
+            "hs_column",
+            "voter_count",
+            "voter_percentage",
+            "news"
+          ],
+          "properties": {
+            "rank": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "issue_label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "hs_column": {
+              "type": "string",
+              "pattern": "^hs_[a-z0-9_]+$"
+            },
+            "voter_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "voter_percentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "news": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_name",
+                "url",
+                "summary"
+              ],
+              "properties": {
+                "source_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "url": {
+                  "type": "string",
+                  "pattern": "^https?://"
+                },
+                "published_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 10,
+                  "maxLength": 400
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

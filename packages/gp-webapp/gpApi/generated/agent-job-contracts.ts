@@ -17,11 +17,11 @@ export interface AgentJobContracts {
        */
       campaign_id: number
       /**
-       * Candidate first name. Used for the `{first_initial}` placeholder in the domain pattern catalog. Empty string skips the two patterns that depend on first_initial (per instruction.md: 'When unset or empty string, skip the two patterns that need it').
+       * Candidate first name. No longer used by the domain pattern catalog (the initials-based patterns were removed); accepted but unused, since the dispatcher still includes it in the params payload.
        */
-      candidate_first_name: string
+      candidate_first_name?: string
       /**
-       * Candidate last name. Used for `{last_name}` and `{last_initial}` placeholders in the domain pattern catalog.
+       * Candidate last name. Used for the `{last_name}` placeholder in the domain pattern catalog.
        */
       candidate_last_name: string
       /**
@@ -33,7 +33,7 @@ export interface AgentJobContracts {
        */
       domain_budget_cap_usd?: number
       /**
-       * YYYY-MM-DD. Drives the {mm}/{month_abbreviation}/{yyyy} placeholders in the domain pattern catalog (instruction.md).
+       * YYYY-MM-DD. Drives the {month_abbreviation}/{yyyy} placeholders in the domain pattern catalog (instruction.md).
        */
       election_date: string
       /**
@@ -87,6 +87,14 @@ export interface AgentJobContracts {
   meeting_briefing: {
     Input: {
       /**
+       * Optional URL to the agenda packet the user pasted in the briefings UI. The agent fetches via pmf_runtime.pdf.download() and skips channel-1-4 discovery. This is always the user's own permanent URL — never a presigned S3 URL. Cite the URL verbatim as the permanent source in run_metadata.agenda_packet_url and sources[]. When the user uploaded a file instead of pasting a URL, this field is absent and the file is pre-staged at /workspace/input/agenda.pdf (the runner fetches it via the broker before the agent boots); the pre-staged file takes precedence over agentic discovery just like agendaPacketUrl does.
+       */
+      agendaPacketUrl?: string
+      /**
+       * Optional hint from a prior run describing where the agenda packet was last found. Usually a URL to the city's meetings index, the streaming platform's calendar page, or a CDN parent path. May include prose navigation notes when no single URL captures it. The agent SHOULD try this as channel 0 in Step 2's discovery before falling through to channels 1-4; if the hint is stale, continue with normal discovery — do not bail.
+       */
+      knownAgendaLocation?: string
+      /**
        * L2 district value to match (e.g. "25"). Required if l2DistrictType is set.
        */
       l2DistrictName?: string
@@ -94,6 +102,18 @@ export interface AgentJobContracts {
        * L2 voter file column for the official's district (e.g. City_Council_Commissioner_District). ASCII identifier shape — interpolated as a backtick-quoted column name in Databricks SQL. Omit for at-large officials.
        */
       l2DistrictType?: string
+      /**
+       * Target meeting date in YYYY-MM-DD. Required. The caller (gp-api) supplies this from the official's meeting_schedule. The agent does NOT discover the meeting date — it uses this value as the target and verifies the platform shows a meeting on that date.
+       */
+      meetingDate: string
+      /**
+       * Start time of the target meeting in 24-hour HH:MM (local time of meetingTimezone). Optional but recommended. When provided, the agent treats this as the source-of-truth meeting time and copies it through to the artifact's meeting_time field. When omitted, the agent reads the time from the streaming platform.
+       */
+      meetingTime?: string
+      /**
+       * IANA timezone name for meetingTime (e.g. "America/New_York"). Optional but recommended. Pair with meetingTime.
+       */
+      meetingTimezone?: string
       /**
        * Full name of the elected official (e.g. "Shekar Krishnan").
        */
@@ -112,6 +132,14 @@ export interface AgentJobContracts {
   meeting_schedule: {
     Input: MeetingScheduleInput
     Output: MeetingSchedule
+  }
+  opportunities_and_challenges: {
+    Input: OpportunitiesAndChallengesInputParams
+    Output: OpportunitiesAndChallengesArtifact
+  }
+  opposition_research: {
+    Input: OppositionResearchInputParams
+    Output: OppositionResearchArtifact
   }
 }
 export interface DistrictIssuePulse {
@@ -1061,6 +1089,14 @@ export interface MeetingBriefingFull {
    * Official name of the meeting body as the source refers to it (e.g. 'City Council', 'Planning Board'). Used as the list-row title in the candidate dashboard. Mirrors meeting_schedule.meeting_name when a schedule exists.
    */
   meeting_name: string
+  /**
+   * Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Briefings own this independently of meeting_schedule so the row is self-sufficient.
+   */
+  meeting_time: string
+  /**
+   * IANA timezone name for meeting_time (e.g. 'America/Chicago'). Use the timezone the governing body publishes the meeting in, not UTC.
+   */
+  meeting_timezone: string
   official_name: string
   required_data_points: {
     allowed_source_types?: (
@@ -1082,6 +1118,10 @@ export interface MeetingBriefingFull {
      */
     agenda_packet_url: string | null
     briefing_version?: string
+    /**
+     * Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists.
+     */
+    discovered_agenda_location: string | null
     /**
      * Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.
      */
@@ -1123,7 +1163,7 @@ export interface MeetingBriefingFull {
 }
 export interface MeetingBriefingPlaceholder {
   /**
-   * Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when no upcoming meeting exists within the 60-day search window. Use 'error' for unrecoverable run failures — populate run_metadata.run_decisions[] with the diagnostic trail.
+   * Early-exit / placeholder artifact. UI renders a check-back state. Use 'awaiting_agenda' when the meeting is on the calendar but the agenda packet has not been published. Use 'no_meeting_found' when the streaming platform shows no meeting of the official's body on the caller-supplied PARAMS.meetingDate (stale schedule signal). Use 'error' for unrecoverable run failures — populate run_metadata.run_decisions[] with the diagnostic trail.
    */
   briefing_status: 'awaiting_agenda' | 'no_meeting_found' | 'error'
   /**
@@ -1456,6 +1496,14 @@ export interface MeetingBriefingPlaceholder {
    * Official name of the meeting body (e.g. 'City Council'). Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error.
    */
   meeting_name: string
+  /**
+   * Start time of the meeting in 24-hour HH:MM format, in the local timezone given by meeting_timezone. Required-but-may-be-empty: populate when the meeting is identified (awaiting_agenda), emit an empty string when no_meeting_found or error.
+   */
+  meeting_time: string
+  /**
+   * IANA timezone name for meeting_time (e.g. 'America/Chicago'). Required-but-may-be-empty: populate when the meeting is identified, emit an empty string when no_meeting_found or error.
+   */
+  meeting_timezone: string
   official_name: string
   required_data_points: {
     allowed_source_types?: (
@@ -1477,6 +1525,10 @@ export interface MeetingBriefingPlaceholder {
      */
     agenda_packet_url: string | null
     briefing_version?: string
+    /**
+     * Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists.
+     */
+    discovered_agenda_location: string | null
     /**
      * Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.
      */
@@ -1522,6 +1574,10 @@ export interface MeetingScheduleInput {
    */
   elected_office_id?: string
   /**
+   * Optional hint from a prior run describing where the meeting schedule was last found. Usually a URL to the city's meetings page or a municipal-code section, but may include prose navigation notes. The agent SHOULD try this location first before falling back to full WebSearch discovery; if the hint is stale, the agent must continue with normal discovery — do not bail.
+   */
+  known_schedule_location?: string
+  /**
    * Full position/office name as it appears to the candidate (e.g. 'Burnsville City Council Member', 'Mayor of Cheyenne'). Usually contains the jurisdiction verbatim; when generic (e.g. just 'City Council'), the agent must infer the city from the position + state via WebSearch.
    */
   office: string
@@ -1531,6 +1587,10 @@ export interface MeetingScheduleInput {
   state: string
 }
 export interface MeetingScheduleFound {
+  /**
+   * Best current prose describing where the meeting schedule can be found, persisted by gp-api as a hint for future runs. Prefer a URL to the parent page that lists the schedule (e.g. the city's meetings index, the municipal-code section). Prose with multi-step navigation is allowed when no single URL captures it. Set to null only when no location is meaningfully recoverable.
+   */
+  discovered_schedule_location: string | null
   /**
    * Typical meeting length in minutes.
    */
@@ -2448,6 +2508,10 @@ export interface MeetingScheduleFound {
   timezone: string
 }
 export interface MeetingScheduleNotFound {
+  /**
+   * For not_found runs, the best lead on where a schedule might be locatable on a future run (e.g. the city's meetings page even though no recurrence was stated there). Null when no useful lead exists. Persisted by gp-api as a hint for future runs.
+   */
+  discovered_schedule_location: string | null
   duration_minutes: number
   generated_at: string
   human: string
@@ -3342,4 +3406,200 @@ export interface MeetingScheduleNotFound {
   status: 'not_found'
   time: string
   timezone: string
+}
+export interface OpportunitiesAndChallengesInputParams {
+  /**
+   * The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.
+   */
+  campaign_primary_strategy_context?: {
+    candidate_count: number
+    /**
+     * The filed candidate roster for the primary stage of this race.
+     */
+    candidates: {
+      email?: string | null
+      first_name: string
+      full_name: string
+      gp_candidate_id?: string | null
+      is_incumbent?: boolean | null
+      last_name: string
+      party?: string | null
+      website_url?: string | null
+    }[]
+  } | null
+  /**
+   * The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is the source of the race numbers the opportunities/challenges are derived from. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.
+   */
+  campaign_strategy_context: {
+    candidate_count: number
+    candidate_office: string | null
+    /**
+     * Provisional seed roster - incomplete and lagging (the real field is owned by opposition_research). Do NOT derive opportunities/challenges from candidate_count, this roster, or is_incumbent; base bullets on the race numbers + web search.
+     */
+    candidates: {
+      email?: string | null
+      first_name: string
+      full_name: string
+      gp_candidate_id?: string | null
+      is_incumbent?: boolean | null
+      last_name: string
+      party?: string | null
+      website_url?: string | null
+    }[]
+    contacts_needed_estimate?: number | null
+    filing_date_end?: string | null
+    general_election_date?: string | null
+    number_of_seats?: number | null
+    office_level?: string | null
+    office_type?: string | null
+    official_office_name?: string | null
+    /**
+     * Race partisan type from election-api (e.g. 'partisan' / 'nonpartisan'). 'nonpartisan' means party labels are voter-registration noise, not the contest. May be null until election-api populates it.
+     */
+    partisan_type?: string | null
+    primary_election_date?: string | null
+    projected_turnout?: number | null
+    registered_voters?: number | null
+    relevant_election_date?: string | null
+    state?: string | null
+    unique_cellphones?: number | null
+    unique_landlines?: number | null
+    win_number_effective?: number | null
+  }
+  /**
+   * The candidate's party when user_party_affiliation == 'Other'.
+   */
+  other_party?: string | null
+  /**
+   * BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it or look anything up with it.
+   */
+  race_id: string
+  /**
+   * The candidate's email. Used to mark is_user against the roster (exact match, case-insensitive + trimmed).
+   */
+  user_email: string
+  user_first_name?: string | null
+  /**
+   * The candidate we write FOR. Referred to as 'you' in output, never by name.
+   */
+  user_full_name: string
+  user_last_name?: string | null
+  /**
+   * Party label, or null. 'Other' means the real value is in other_party.
+   */
+  user_party_affiliation?: string | null
+}
+export interface OpportunitiesAndChallengesArtifact {
+  /**
+   * Up to 3 structural risks for this race, each a finished 1-3 sentence bullet with its citation inlined as '... ([source](url))'. At least 1.
+   *
+   * @minItems 1
+   * @maxItems 3
+   */
+  challenges: [string] | [string, string] | [string, string, string]
+  /**
+   * Up to 3 structural advantages for this race, each a finished 1-3 sentence bullet with its citation inlined as '... ([source](url))'. At least 1.
+   *
+   * @minItems 1
+   * @maxItems 3
+   */
+  opportunities: [string] | [string, string] | [string, string, string]
+}
+export interface OppositionResearchInputParams {
+  /**
+   * The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.
+   */
+  campaign_primary_strategy_context?: {
+    candidate_count: number
+    /**
+     * The filed candidate roster for the primary stage of this race.
+     */
+    candidates: {
+      email?: string | null
+      first_name: string
+      full_name: string
+      gp_candidate_id?: string | null
+      is_incumbent?: boolean | null
+      last_name: string
+      party?: string | null
+      website_url?: string | null
+    }[]
+  } | null
+  /**
+   * The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is its only roster source besides web search. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.
+   */
+  campaign_strategy_context: {
+    candidate_count: number
+    candidate_office: string | null
+    /**
+     * Full seed roster (NOT pre-filtered). The agent marks the candidate via is_user and excludes them; it does not receive a pre-trimmed opponent list.
+     */
+    candidates: {
+      email?: string | null
+      first_name: string
+      full_name: string
+      gp_candidate_id?: string | null
+      is_incumbent?: boolean | null
+      last_name: string
+      party?: string | null
+      website_url?: string | null
+    }[]
+    contacts_needed_estimate?: number | null
+    filing_date_end?: string | null
+    general_election_date?: string | null
+    number_of_seats?: number | null
+    office_level?: string | null
+    office_type?: string | null
+    official_office_name?: string | null
+    /**
+     * Race partisan type from election-api (e.g. 'partisan' / 'nonpartisan'). 'nonpartisan' means the party labels are voter-registration noise, not the contest. May be null until election-api populates it. Not enum-constrained - election-api is the source of truth for the value.
+     */
+    partisan_type?: string | null
+    primary_election_date?: string | null
+    projected_turnout?: number | null
+    registered_voters?: number | null
+    relevant_election_date?: string | null
+    state?: string | null
+    unique_cellphones?: number | null
+    unique_landlines?: number | null
+    win_number_effective?: number | null
+  }
+  /**
+   * The candidate's party when user_party_affiliation == 'Other'.
+   */
+  other_party?: string | null
+  /**
+   * BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it or look anything up with it.
+   */
+  race_id: string
+  /**
+   * The candidate's email. Used to mark is_user against the roster (exact match, case-insensitive + trimmed).
+   */
+  user_email: string
+  user_first_name?: string | null
+  /**
+   * The candidate we write FOR. Referred to as 'you' in output, never by name. Fallback for is_user when the email doesn't match a roster row.
+   */
+  user_full_name: string
+  user_last_name?: string | null
+  /**
+   * Party label, or null. 'Other' means the real value is in other_party.
+   */
+  user_party_affiliation?: string | null
+}
+export interface OppositionResearchArtifact {
+  /**
+   * Confirmed opponents running in this race (seed roster plus any web-confirmed late filers, candidate excluded). Empty array if uncontested. gp-api renders the campaign-plan Opposition Research section from this structured data.
+   */
+  opponents: {
+    full_name: string
+    /**
+     * true if known to be the incumbent, false if known not to be, null if unknown.
+     */
+    incumbent: boolean | null
+    /**
+     * Party name, 'Nonpartisan', or 'Unknown'.
+     */
+    party_affiliation: string
+  }[]
 }

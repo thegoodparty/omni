@@ -1,0 +1,2931 @@
+"""
+qa_validate.py — Validate a qa-spine-compliant artifact against the QA protocol.
+
+Product-agnostic. Reads a single unified artifact JSON whose shape matches the
+qa-spine input contract: a top-level `claims[]` array (each with `claim_id`,
+`claim_text`, `claim_type`, `claim_weight`, `source_ids`, `source_extracts`)
+and a top-level `sources[]` array (each with `id`, `source_type`,
+`retrieved_text_or_snapshot`). Product-specific rules — which fields count
+as identity, which items are priority, which phrases are prohibited, how
+product_id is derived — live in the product_spec JSON, not in this file.
+
+Runs in order:
+  1. Load artifact     — file exists and is valid JSON
+  2. Deterministic     — rule-based checks (no LLM); hard blocks and annotations
+  3. Phase 1 (Anthropic) — triage all claims
+  4. Phase 2 (Gemini)  — escalate high-weight Phase-1-not-OK claims only
+  5. Route             — Block / OK
+  6. Write qa_bundle.json next to the artifact
+
+Usage:
+    uv run python qa_validate.py path/to/meeting_briefing.json
+    uv run python qa_validate.py path/to/meeting_briefing.json --no-llm
+    uv run python qa_validate.py path/to/meeting_briefing.json \\
+        --product-spec path/to/meeting_briefing_product_spec.json
+
+Loads credentials from ~/Research/.env (via scripts/.env symlink):
+  ANTHROPIC_API_KEY — Phase 1 triage judge
+  gemini-qa-agent   — Phase 2 escalation judge (lowercase-hyphenated literal name)
+
+Product spec default: meeting_briefing_product_spec.json (same directory as this script).
+"""
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import json
+import math
+import os
+import re
+import socket
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator, Literal, Optional
+
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+
+# ── Environment ───────────────────────────────────────────────────────────────
+
+def _load_env() -> None:
+    # scripts/.env is the in-repo convention. In Fargate the task definition + Secrets
+    # Manager populate os.environ at task launch and no .env file is needed; load_dotenv
+    # is a harmless no-op when the file is missing. Locally, contributors keep their
+    # credentials in scripts/.env (real file or symlink — python-dotenv handles both
+    # transparently; it does NOT crash on broken symlinks).
+    script_env = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(script_env)
+
+
+# ── Product spec ──────────────────────────────────────────────────────────────
+
+def load_product_spec(spec_path: Optional[Path] = None) -> dict:
+    if spec_path is None:
+        spec_path = Path(__file__).parent / "meeting_briefing_product_spec.json"
+    if not spec_path.exists():
+        sys.exit(f"ERROR: Product spec not found: {spec_path}")
+    spec = json.loads(spec_path.read_text())
+    # Record where the spec was loaded from so repo-relative paths declared in
+    # the spec (e.g. output_format.schema.manifest_path) can be resolved.
+    spec["_spec_path"] = str(spec_path.resolve())
+    return spec
+
+
+def blockable_types(spec: dict) -> set[str]:
+    return {k for k, v in spec["claim_types"].items() if v.get("blockable")}
+
+
+def ok_categories(spec: dict) -> set[str]:
+    return set(spec["accuracy_categories"]["ok"])
+
+
+# ── Data structures ───────────────────────────────────────────────────────────
+
+@dataclass
+class DeterministicCheck:
+    check_id: str
+    status: Literal["pass", "fail", "warning"]
+    severity: str
+    message: str
+    # 'diagnostic' is recorded in the bundle but never drives the release
+    # verdict (see compute_release_verdict) — used for non-verdict signals
+    # like a missing source-hierarchy policy gap.
+    route: Literal["block", "annotate", "pass", "diagnostic"]
+    offending: str = ""
+    details: Optional[dict] = None  # structured per-check measurements for inspection
+
+
+@dataclass
+class Phase1Result:
+    claim_id: str
+    accuracy_category: str
+    reasoning: str
+    is_ok: bool
+
+
+@dataclass
+class Phase2Result:
+    claim_id: str
+    accuracy_category: str
+    reasoning: str
+    is_ok: bool
+    proposed_correction: Optional[str] = None
+
+
+@dataclass
+class ClaimTrace:
+    claim: dict
+    phase1: Optional[Phase1Result] = None
+    phase2: Optional[Phase2Result] = None
+    final_route: str = "ok"
+
+
+# ── Load artifact ─────────────────────────────────────────────────────────────
+
+def load_artifact(artifact_path: Path) -> tuple[dict, list[DeterministicCheck]]:
+    """Load the meeting_briefing artifact JSON. Returns (artifact, list-of-load-checks)."""
+    results: list[DeterministicCheck] = []
+    if not artifact_path.exists():
+        results.append(DeterministicCheck(
+            check_id="artifact_present",
+            status="fail", severity="high",
+            message=f"Artifact not found at {artifact_path}",
+            route="block",
+        ))
+        return {}, results
+    try:
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        results.append(DeterministicCheck(
+            check_id="artifact_present",
+            status="fail", severity="high",
+            message=f"Artifact is invalid JSON: {e}",
+            route="block",
+        ))
+        return {}, results
+    results.append(DeterministicCheck(
+        check_id="artifact_present",
+        status="pass", severity="info",
+        message="Artifact loaded successfully",
+        route="pass",
+    ))
+    return artifact, results
+
+
+# ── Layer-1 schema validation (WS2) ───────────────────────────────────────────
+
+def _spec_dir(spec: dict) -> Path:
+    """Directory the product spec was loaded from; repo-relative manifest paths
+    in output_format.schema.manifest_path resolve against the repo root, which we
+    locate by walking up from the spec dir until we find experiments/."""
+    sp = spec.get("_spec_path")
+    base = Path(sp).resolve().parent if sp else Path(__file__).resolve().parent
+    return base
+
+
+def _resolve_repo_relative(spec: dict, rel: str) -> Optional[Path]:
+    """Resolve a repo-relative path (e.g. 'experiments/.../manifest.json').
+
+    Walks up from the spec's directory looking for a parent that contains the
+    given relative path. Returns the first hit or None. Keeps the spine free of
+    hard-coded absolute paths (portability rule)."""
+    start = _spec_dir(spec)
+    for base in [start, *start.parents]:
+        candidate = base / rel
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def schema_validate_layer1(
+    artifact: dict, spec: dict, output_format: dict
+) -> Optional[DeterministicCheck]:
+    """Layer-1 jsonschema validation against the manifest output_schema.
+
+    Returns a DeterministicCheck (the spine inserts it FIRST), or None when the
+    resolved output type does not call for schema_layer1 (e.g. inline_cited_prose).
+
+    Routing/edge-case behavior (resolved defaults):
+      - output_format.schema absent      → skip-with-warning (never silent-skip).
+      - manifest / schema_key unreadable → skip-with-warning.
+      - jsonschema import unavailable    → skip-with-warning (strictest could not
+        run; surfaced, not silently dropped).
+      - schema present & artifact invalid → BLOCK (hard-fail on shape drift).
+      - schema present & artifact valid   → pass.
+    It never re-penalizes an artifact already rejected at load (invalid JSON
+    never reaches here — main() halts first), so no double-penalty.
+    """
+    if not output_format["routes"].get("schema_layer1"):
+        return None
+
+    sch = output_format["schema"]
+    if not sch or not sch.get("manifest_path"):
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=(
+                "Layer-1 schema validation skipped: output_format.schema.manifest_path "
+                "not declared (skip-with-warning; never silent-skip)"
+            ),
+            route="annotate",
+            details={"reason": "no_manifest_path"},
+        )
+
+    manifest_path = _resolve_repo_relative(spec, sch["manifest_path"])
+    if manifest_path is None:
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=f"Layer-1 schema validation skipped: manifest not found at {sch['manifest_path']!r}",
+            route="annotate",
+            details={"reason": "manifest_not_found", "manifest_path": sch["manifest_path"]},
+        )
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        schema = manifest[sch.get("schema_key", "output_schema")]
+    except Exception as e:  # noqa: BLE001 — any read/parse failure is skip-with-warning
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=f"Layer-1 schema validation skipped: could not load schema ({e})",
+            route="annotate",
+            details={"reason": "schema_unreadable", "error": str(e)},
+        )
+
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="warning", severity="medium",
+            message=(
+                "Layer-1 schema validation skipped: jsonschema not installed "
+                "(strictest route could not run; surfaced, not silent-skipped)"
+            ),
+            route="annotate",
+            details={"reason": "jsonschema_unavailable"},
+        )
+
+    errors = sorted(Draft7Validator(schema).iter_errors(artifact), key=lambda e: list(e.path))
+    if errors:
+        preview = [
+            {"path": "$." + ".".join(str(p) for p in e.path), "message": e.message}
+            for e in errors[:8]
+        ]
+        return DeterministicCheck(
+            check_id="schema_validation",
+            status="fail", severity="high",
+            message=(
+                f"Artifact failed Layer-1 schema validation: {len(errors)} error(s) "
+                f"against {manifest_path.name} output_schema (staged: warning only, "
+                f"not blocking, while we confirm existing briefings conform)"
+            ),
+            # Staged as annotate, not block, for an initial trial window: a shape
+            # drift surfaces as a warning so it does not retroactively fail
+            # briefings that passed before this gate existed. Promote to "block"
+            # once production briefings are confirmed to conform to the schema.
+            route="annotate",
+            offending="; ".join(f"{p['path']}: {p['message']}" for p in preview[:5]),
+            details={"manifest": manifest_path.name, "error_count": len(errors), "errors": preview},
+        )
+    return DeterministicCheck(
+        check_id="schema_validation",
+        status="pass", severity="info",
+        message=f"Artifact passed Layer-1 schema validation against {manifest_path.name} output_schema",
+        route="pass",
+        details={"manifest": manifest_path.name},
+    )
+
+
+# ── Path walker (for spec-declared field paths) ───────────────────────────────
+
+def _walk(obj, dotted: str):
+    """Walk a dotted-path through a dict; return the leaf value or None."""
+    for part in dotted.split("."):
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(part)
+        if obj is None:
+            return None
+    return obj
+
+
+def _values_at_path(artifact: dict, path: str) -> list[str]:
+    """Resolve a spec path to a list of non-empty string values.
+
+    Supported forms:
+      'top_field'                       → [artifact['top_field']] if string-valued
+      'parent.child'                    → [artifact['parent']['child']] if string-valued
+      'items[].x.y'                     → [item.x.y for each item in artifact['items']]
+      'parent.items[].leaf'             → [entry.leaf for each entry in artifact['parent']['items']]
+    """
+    if "[]." in path:
+        before, _, after = path.partition("[].")
+        # _walk resolves dotted prefixes like 'executive_summary.items'.
+        container = _walk(artifact, before)
+        if not isinstance(container, list):
+            return []
+        results: list[str] = []
+        for entry in container:
+            if not isinstance(entry, dict):
+                continue
+            value = _walk(entry, after)
+            if isinstance(value, str) and value.strip():
+                results.append(value)
+        return results
+    value = _walk(artifact, path)
+    return [value] if isinstance(value, str) and value.strip() else []
+
+
+# ── Output-format routing backbone (WS2 foundation) ───────────────────────────
+#
+# A product spec declares output_format.type so the spine routes validation by
+# artifact shape instead of assuming one structure. The mechanism is generic:
+# the spine knows a small set of known types and which validation families each
+# runs; product-specific detail (which manifest, which inline-citation pattern)
+# lives in the product spec, never here.
+
+# Known artifact-shape types → the validation families the spine runs for them.
+# Families are advisory routing labels read by run_deterministic; adding a type
+# here is how a new artifact shape opts into the routing backbone.
+VALIDATION_ROUTES: dict[str, dict] = {
+    # A single JSON object validated by jsonschema (Layer 1) plus the standard
+    # claim/source deterministic family.
+    "structured_json": {"schema_layer1": True, "claim_source_family": True},
+    # Free prose with inline citations — no whole-document jsonschema, but the
+    # claim/source family still applies once claims are extracted.
+    "inline_cited_prose": {"schema_layer1": False, "claim_source_family": True},
+}
+
+# When output_format.type is missing or unparseable we route to the STRICTEST
+# known type and warn — never silent-skip. Strictest = the one that runs the
+# most validation (schema_layer1 + claim_source_family).
+_STRICTEST_OUTPUT_TYPE = "structured_json"
+
+
+def resolve_output_format(spec: dict) -> dict:
+    """Normalize spec.output_format into a routing descriptor.
+
+    Returns a dict with:
+      type        — the resolved (possibly defaulted) type string
+      routes      — the VALIDATION_ROUTES entry for that type
+      warnings    — list of human-readable routing warnings (never raises)
+      defaulted   — True when we fell back to the strictest type
+      schema      — the raw output_format.schema block (or {})
+      inline_citation_pattern — regex string or None
+
+    Edge case (resolved default): a missing or unparseable type routes to the
+    strictest validation and warns; it never silent-skips. Blocking only happens
+    downstream if the strictest route cannot run (e.g. schema unavailable), and
+    that is surfaced by the individual check, not here.
+    """
+    of = spec.get("output_format") or {}
+    warnings: list[str] = []
+    raw_type = of.get("type")
+    defaulted = False
+    if not isinstance(raw_type, str) or raw_type not in VALIDATION_ROUTES:
+        if raw_type is None:
+            warnings.append(
+                f"output_format.type missing — routing to strictest "
+                f"validation ('{_STRICTEST_OUTPUT_TYPE}')"
+            )
+        else:
+            warnings.append(
+                f"output_format.type {raw_type!r} unrecognized — routing to "
+                f"strictest validation ('{_STRICTEST_OUTPUT_TYPE}')"
+            )
+        resolved_type = _STRICTEST_OUTPUT_TYPE
+        defaulted = True
+    else:
+        resolved_type = raw_type
+    return {
+        "type": resolved_type,
+        "routes": VALIDATION_ROUTES[resolved_type],
+        "warnings": warnings,
+        "defaulted": defaulted,
+        "schema": of.get("schema") or {},
+        "inline_citation_pattern": of.get("inline_citation_pattern"),
+    }
+
+
+# Default inline-citation token shapes if a spec declares none: [1], [S1],
+# [src_1], [src-12]. Conservative — bracketed numeric/alphanumeric refs only.
+_DEFAULT_INLINE_CITATION_RE = re.compile(r"\[(?:src[_-]?)?[A-Za-z]*\d+\]")
+
+
+def extract_inline_citations(text: str, pattern: Optional[str] = None) -> list[dict]:
+    """Generic inline-citation extractor.
+
+    Pulls bracketed citation tokens (e.g. '[src_1]', '[S3]', '[12]') out of prose
+    and returns them with their character spans, so a caller can map inline
+    citations back to sources[] or flag uncited prose. Product-specific token
+    shapes come from spec.output_format.inline_citation_pattern; absent that, a
+    conservative default pattern is used.
+
+    Returns a list of {token, ref, start, end} dicts in order of appearance.
+    'ref' is the token with surrounding brackets and any 'src'/'S' prefix
+    stripped to the bare identifier (best-effort; callers that need exact
+    matching should use 'token').
+    """
+    if not text:
+        return []
+    rx = re.compile(pattern) if pattern else _DEFAULT_INLINE_CITATION_RE
+    out: list[dict] = []
+    for m in rx.finditer(text):
+        token = m.group(0)
+        ref = token.strip("[]")
+        ref = re.sub(r"(?i)^src[_-]?", "", ref)
+        out.append({"token": token, "ref": ref, "start": m.start(), "end": m.end()})
+    return out
+
+
+# ── High-stakes literal extractors ────────────────────────────────────────────
+#
+# Each extractor pulls every literal of one kind out of a piece of text. They
+# LABEL the figures in a flagged claim for the numeric-review prompt (see
+# flag_numeric_review / extract_literals); they no longer gate anything, so they
+# return raw surface strings and need no normalization or rounding tolerance.
+
+_MONEY_RE = re.compile(
+    r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:million|billion|thousand|m|bn|k)?",
+    re.IGNORECASE,
+)
+_PERCENT_RE = re.compile(r"\d+(?:\.\d+)?\s?(?:%|percent)", re.IGNORECASE)
+_VOTE_RE = re.compile(r"\b\d{1,3}\s?[-–to]{1,3}\s?\d{1,3}\b", re.IGNORECASE)
+# "page 4-1", "Section 3-2", "Exhibit 4-1", "Table 2-1" are document-structural
+# references, not vote tallies. Python's re only allows fixed-width lookbehind, so
+# a word-alternation negative lookbehind on _VOTE_RE won't compile; instead a vote
+# match immediately preceded by one of these labels is rejected at extraction time
+# (see extract_literals). Leading \b prevents "rampage" from matching "page".
+_VOTE_STRUCT_PREFIX_RE = re.compile(
+    r"\b(?:page|pg|section|sec|exhibit|exh|figure|fig|table|tab|appendix|app|"
+    r"attachment|att)\.?\s*[-–]?\s*$",
+    re.IGNORECASE,
+)
+# Legal citations: "Ordinance 2024-17", "Resolution No. 12", "Section 3.4",
+# "Ord. 17", "HB 1234", "Chapter 5", "Article IV".
+_LEGAL_RE = re.compile(
+    r"\b(?:ordinance|resolution|res|ord|section|sec|chapter|ch|article|art|"
+    r"bill|hb|sb|case|docket|cause|no)\.?\s?(?:no\.?\s?)?[A-Za-z]?\d[\w.\-/]*",
+    re.IGNORECASE,
+)
+_DATE_RE = re.compile(
+    r"\b(?:"
+    r"\d{4}-\d{2}-\d{2}"  # 2026-06-01
+    r"|\d{1,2}/\d{1,2}/\d{2,4}"  # 6/1/2026
+    r"|(?:January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)\s+\d{1,2}(?:,\s*\d{4})?"  # June 1, 2026
+    r")\b",
+    re.IGNORECASE,
+)
+# Proper-noun name runs: 1+ capitalized words (allows middle initials, hyphens).
+# Heuristic — drops common sentence-initial false positives is left to the
+# caller; for high-stakes matching we only require the run appears in source.
+_NAME_RE = re.compile(r"\b(?:[A-Z][a-z]+(?:\.|)\s?){2,}")
+
+
+# kind → compiled regex. The numeric-review labeler (extract_literals) reads this;
+# `name` is retained as the anchor for the planned proper-noun review follow-up.
+# Adding a kind is purely additive here.
+STRUCTURED_EXTRACTORS: dict[str, re.Pattern] = {
+    "money": _MONEY_RE,
+    "percentage": _PERCENT_RE,
+    "vote_count": _VOTE_RE,
+    "legal_citation": _LEGAL_RE,
+    "date": _DATE_RE,
+    "name": _NAME_RE,
+}
+
+
+def extract_literals(text: str, kind: str) -> list[str]:
+    """Extract every literal of `kind` from `text` as raw surface strings.
+
+    Returns the original matched text (e.g. "$5,000,000"), which is what the
+    numeric-review prompt hands the judge to verify against the source. Unknown
+    kind → empty list (the caller treats an unconfigured kind as "nothing to
+    check", not an error).
+    """
+    rx = STRUCTURED_EXTRACTORS.get(kind)
+    if not rx or not text:
+        return []
+    seen: list[str] = []
+    for m in rx.finditer(text):
+        # Reject document-structural references ("page 4-1", "Table 2-1") that
+        # would otherwise be surfaced as a vote tally.
+        if kind == "vote_count" and _VOTE_STRUCT_PREFIX_RE.search(text[: m.start()]):
+            continue
+        tok = m.group(0).strip()
+        if tok and tok not in seen:
+            seen.append(tok)
+    return seen
+
+
+# Detection fires on generic numeric presence: any digit-bearing token in a
+# high-weight claim. Recall is what matters now that the flag steers a judge
+# instead of gating release — a missed flag is a number the judge was never told
+# to verify, while a false flag only adds a (harmless) instruction. So detection
+# must NOT depend on the precise kind extractors (which have known gaps: "$.05",
+# a bare table value "186,115.00") or on a correct claim_type.
+_DIGIT_RE = re.compile(r"\d")
+
+# Kinds the numeric-review prompt covers. "name" is deliberately excluded — names
+# are not numeric and the instruction text is numeric-only. Proper-noun review is
+# tracked as a separate follow-up (a sibling literal-review flag), not folded here.
+_NUMERIC_KINDS = ("money", "percentage", "vote_count", "legal_citation", "date")
+
+# Sentinel kind for a flagged claim whose figures none of the precise extractors
+# could classify (e.g. "$.05", "186,115.00"). The claim is still flagged AND its
+# raw numeric tokens are listed (via _bare_numbers) so the judge confirms specific
+# values rather than re-finding them.
+_GENERIC_NUMERIC_KIND = "number"
+
+# Deliberately broad: grabs any digit-bearing token (optional leading $ or decimal,
+# embedded commas, trailing %), so figures the precise kind extractors miss are still
+# surfaced verbatim. Used only as the fallback labeler — false positives (a year, an
+# item number) are acceptable because this only steers the judge prompt.
+_BARE_NUMBER_RE = re.compile(r"\$?\.?\d[\d,]*(?:\.\d+)?%?")
+
+
+def _bare_numbers(text: str) -> list[str]:
+    """Raw digit-bearing tokens, de-duplicated in order of appearance."""
+    seen: list[str] = []
+    for m in _BARE_NUMBER_RE.finditer(text):
+        tok = m.group(0).strip()
+        if tok and tok not in seen:
+            seen.append(tok)
+    return seen
+
+
+def flag_numeric_review(claim: dict, blockable: set[str]) -> dict[str, list[str]]:
+    """Detect whether a claim needs numeric review by the judge, and label its figures.
+
+    Detection only — no matching against the source. A claim is flagged when it is
+    high-weight (its claim_type is blockable, or claim_weight is "high") AND its text
+    contains any digit. Detection is intentionally high-recall and does not trust the
+    claim_type: a numeric claim misclassified into a non-numeric type is still flagged.
+
+    Labeling is best-effort and never gates the flag: the precise kind extractors run
+    only to enrich the prompt with the actual stated figures (raw surface forms). When
+    no extractor classifies the figures, the claim is still flagged under the generic
+    "number" kind with an empty value list.
+
+    Returns {kind: [raw literals]} for a flagged claim, or {} otherwise. The result
+    steers the judge prompt only; it is never written to the artifact.
+    """
+    ctype = claim.get("claim_type", "")
+    high_weight = ctype in blockable or claim.get("claim_weight") == "high"
+    if not high_weight:
+        return {}
+    text = claim.get("claim_text", "")
+    if not _DIGIT_RE.search(text):
+        return {}
+    labels: dict[str, list[str]] = {}
+    for kind in _NUMERIC_KINDS:
+        raw = extract_literals(text, kind)
+        if raw:
+            labels[kind] = raw
+    # Always add the broad-extractor figures the precise kinds missed, so a claim that
+    # mixes formats (e.g. "$5,000,000" AND "$.05") never drops the gap figure from the
+    # judge's list. Exact-set membership, NOT substring: a bare "1,000" must not be
+    # swallowed by a labeled "$1,000,000". Recall over precision — a sub-token of a
+    # multi-part value (e.g. "4"/"1" from a "4-1" vote) may be listed too; harmless.
+    labeled = {v for vs in labels.values() for v in vs}
+    gaps = [n for n in _bare_numbers(text) if n not in labeled]
+    if gaps:
+        labels[_GENERIC_NUMERIC_KIND] = gaps
+    return labels or {_GENERIC_NUMERIC_KIND: []}
+
+
+def _format_safe(template: str, data: dict) -> str:
+    """Substitute {key} references in template; missing keys become 'unknown'."""
+    def repl(m: re.Match) -> str:
+        key = m.group(1)
+        value = data.get(key)
+        return str(value) if value else "unknown"
+    return re.sub(r"\{([^{}]+)\}", repl, template)
+
+
+# ── Source-extract normalization (legacy string vs structured object) ────────
+
+def _extract_text(extract) -> str:
+    """source_extracts items are either strings (legacy) or objects with `text` (preferred)."""
+    if isinstance(extract, str):
+        return extract
+    if isinstance(extract, dict):
+        return extract.get("text") or ""
+    return ""
+
+
+def _extract_section_header(extract) -> str:
+    """Returns the section_header if extract is in object form, empty string for legacy strings."""
+    if isinstance(extract, dict):
+        return extract.get("section_header") or ""
+    return ""
+
+
+def _extract_type(extract) -> str:
+    """Returns extract_type if extract is in object form, 'unknown' for legacy strings."""
+    if isinstance(extract, dict):
+        return extract.get("extract_type") or "unknown"
+    return "unknown"
+
+
+def _iter_extract_texts(extracts) -> list[str]:
+    """Pull text strings out of a source_extracts list, filtering empties."""
+    out: list[str] = []
+    for e in extracts or []:
+        t = _extract_text(e)
+        if t and t.strip():
+            out.append(t)
+    return out
+
+
+# ── Scoring helpers (coherence check) ─────────────────────────────────────────
+
+_WORD_RE = re.compile(r"\b[a-z]{2,}\b")
+
+
+def _tokenize(s: str) -> list[str]:
+    return _WORD_RE.findall(s.lower())
+
+
+def _tfidf_cosine(a_text: str, b_text: str) -> float:
+    toks_a, toks_b = _tokenize(a_text), _tokenize(b_text)
+    if not toks_a or not toks_b:
+        return 0.0
+    tf_a, tf_b = Counter(toks_a), Counter(toks_b)
+    vocab = set(tf_a) | set(tf_b)
+
+    def idf(tok: str) -> float:
+        df = (1 if tok in tf_a else 0) + (1 if tok in tf_b else 0)
+        return math.log((2 + 1) / (df + 1)) + 1
+
+    va = {t: tf_a[t] * idf(t) for t in vocab}
+    vb = {t: tf_b[t] * idf(t) for t in vocab}
+    dot = sum(va[t] * vb[t] for t in vocab)
+    na = math.sqrt(sum(v * v for v in va.values()))
+    nb = math.sqrt(sum(v * v for v in vb.values()))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _containment(summary: str, source: str) -> float:
+    s = set(_tokenize(summary))
+    if not s:
+        return 0.0
+    e = set(_tokenize(source))
+    return len(s & e) / len(s)
+
+
+# Module-level cache: model_name → loaded SentenceTransformer (or None if load failed).
+# Lazy-loaded on first call so the import cost is paid only when the coherence
+# check actually runs an embedding pass.
+_EMBEDDING_MODEL_CACHE: dict = {}
+
+
+def _embedding_cosine(a_text: str, b_text: str, model_name: str) -> float | None:
+    """Semantic cosine similarity between two strings via a local sentence-transformer.
+
+    Returns None when the dependency is missing or the model fails to load — the
+    caller treats None as "skip embedding signal", same convention as ROUGE-L.
+    Returns 0.0 when either input is empty.
+
+    Embedding cosine catches paraphrases that TF-IDF + containment miss (different
+    vocabulary expressing the same meaning), but is brittle against small factual
+    swaps ("$1.8M" vs "$2M" can score ~0.99). Used as a rescue signal for the
+    lexical verdict, not as a primary failure detector.
+    """
+    if not a_text.strip() or not b_text.strip():
+        return 0.0
+    if model_name not in _EMBEDDING_MODEL_CACHE:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _EMBEDDING_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+        except Exception:
+            _EMBEDDING_MODEL_CACHE[model_name] = None
+    model = _EMBEDDING_MODEL_CACHE[model_name]
+    if model is None:
+        return None
+    try:
+        vecs = model.encode([a_text, b_text], normalize_embeddings=True, show_progress_bar=False)
+        return float(vecs[0] @ vecs[1])
+    except Exception:
+        return None
+
+
+# ── Layer A helpers (citations, host normalization, template expansion) ──────
+
+# Wikipedia-style inline citations. Two valid forms produced by prompts that
+# cite externally: [Label](URL) and the URL-less marker [GoodParty.org Data].
+# URL-less markers are not matched here; checks that need them pattern-match
+# the bare label separately.
+_CITATION_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+
+_SOCIAL_HOSTS: frozenset[str] = frozenset({
+    "twitter.com", "x.com", "facebook.com", "instagram.com", "tiktok.com",
+})
+
+
+def _extract_citations(text: str) -> list[tuple[str, str]]:
+    return _CITATION_RE.findall(text or "")
+
+
+def _normalize_host(url: str) -> str:
+    host = (urllib.parse.urlparse(url).hostname or "").casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+# Cloud-metadata endpoint — explicitly blocked even though it is link-local
+# (defence in depth; some resolvers/proxies could shadow the link-local range).
+_METADATA_IP = "169.254.169.254"
+
+
+def _ip_is_blocked(ip: str) -> bool:
+    """True if an IP literal falls in a range we must never probe (SSRF guard).
+
+    Blocks private, loopback, link-local, reserved, multicast and unspecified
+    ranges, plus the cloud metadata IP explicitly. Unparseable input is treated
+    as blocked (fail closed)."""
+    if ip == _METADATA_IP:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _ssrf_check_url(url: str) -> Optional[str]:
+    """Validate a URL is safe to probe. Returns None when safe, else a short
+    human-readable reason the URL was rejected (advisory — never raises).
+
+    Rejects non-http(s) schemes and any host that resolves to a private,
+    loopback, link-local, reserved, multicast or metadata IP. Resolves every
+    address the host maps to and blocks if ANY is unsafe (DNS-rebinding-aware
+    for the resolved set)."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = (parsed.scheme or "").casefold()
+    if scheme not in ("http", "https"):
+        return f"non-http(s) scheme '{parsed.scheme}'"
+    host = parsed.hostname
+    if not host:
+        return "missing host"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        return f"DNS resolution failed: {e}"
+    ips = {str(info[4][0]) for info in infos}
+    if not ips:
+        return "host did not resolve to any address"
+    blocked = sorted(ip for ip in ips if _ip_is_blocked(ip))
+    if blocked:
+        return f"host resolves to blocked IP(s): {', '.join(blocked)}"
+    return None
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow HTTP redirects. A redirect could point at an internal
+    host that the SSRF pre-check never saw, so we re-validate by simply
+    declining the hop and surfacing it as an HTTPError to the caller."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        reason = _ssrf_check_url(newurl)
+        if reason is not None:
+            raise urllib.error.HTTPError(
+                newurl, code, f"blocked redirect ({reason})", headers, fp
+            )
+        # Redirect target is safe by the same IP rules — still refuse to follow
+        # automatically; treat the redirect as a non-200 outcome the caller can
+        # report rather than silently chasing arbitrary hops.
+        raise urllib.error.HTTPError(
+            newurl, code, f"redirect not followed (-> {newurl})", headers, fp
+        )
+
+
+def _iter_prose_at_paths(artifact: dict, paths: list[str]) -> Iterator[tuple[str, str]]:
+    """Yield (path, text) for each spec-declared prose path that resolves to
+    non-empty string(s). Per-path iteration preserves the source path so
+    findings can report exactly where a problem lives."""
+    for path in paths:
+        for value in _values_at_path(artifact, path):
+            yield (path, value)
+
+
+def _resolve_pattern_template(pattern: str, artifact: dict) -> tuple[Optional[str], list[str]]:
+    """Substitute `{{key}}` placeholders in a regex pattern with re.escape of
+    the artifact's top-level string value at that key. Returns
+    (resolved_pattern, missing_keys). If any referenced key is missing or
+    empty, returns (None, [missing_keys]) so the caller can skip the pattern.
+
+    Top-level string values only. Patterns without placeholders pass through
+    unchanged. Substituted values are re.escape'd so the spec author does not
+    have to worry about regex-special characters in the artifact data."""
+    missing: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        key = m.group(1).strip()
+        value = artifact.get(key)
+        if not isinstance(value, str) or not value:
+            missing.append(key)
+            return ""
+        return re.escape(value)
+
+    resolved = re.sub(r"\{\{([^{}]+)\}\}", _sub, pattern)
+    if missing:
+        return None, missing
+    return resolved, []
+
+
+# ── Deterministic checks ──────────────────────────────────────────────────────
+
+def run_deterministic(
+    artifact: dict,
+    spec: dict,
+    check_urls: Optional[bool] = None,
+) -> list[DeterministicCheck]:
+    results: list[DeterministicCheck] = []
+    items = artifact.get("items") or []
+    claims = artifact.get("claims") or []
+    sources = artifact.get("sources") or []
+
+    # 0. output_format routing (WS2 backbone). Resolve which validation families
+    #    run for this artifact shape. Missing/unparseable type → strictest + warn.
+    output_format = resolve_output_format(spec)
+    for w in output_format["warnings"]:
+        results.append(DeterministicCheck(
+            check_id="output_format_routing",
+            status="warning", severity="medium",
+            message=w,
+            route="annotate",
+            details={"resolved_type": output_format["type"], "defaulted": output_format["defaulted"]},
+        ))
+
+    # 0b. Layer-1 schema validation — runs BEFORE every other check; hard-fails
+    #     on shape drift, skip-with-warning when schema/jsonschema unavailable.
+    layer1 = schema_validate_layer1(artifact, spec, output_format)
+    if layer1 is not None:
+        results.append(layer1)
+
+    # 1. Identity fields present (driven by spec.identity_fields)
+    identity_fields = spec.get("identity_fields") or []
+    missing_id = [f for f in identity_fields if not artifact.get(f)]
+    if missing_id:
+        results.append(DeterministicCheck(
+            check_id="identity_fields_present",
+            status="fail", severity="high",
+            message=f"Top-level identity fields missing: {missing_id}",
+            route="block",
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="identity_fields_present",
+            status="pass", severity="info",
+            message=f"Identity fields present: {identity_fields}",
+            route="pass",
+        ))
+
+    # 2. Priority-item count when briefing_status indicates a full briefing
+    pf = spec.get("priority_filter") or {}
+    priority_field = pf.get("field", "tier")
+    priority_value = pf.get("value", "featured")
+    priority_required_status = spec.get("priority_required_status")
+    priority_items = [it for it in items if it.get(priority_field) == priority_value]
+    status_field = artifact.get("briefing_status")
+    if priority_required_status and status_field == priority_required_status and not priority_items:
+        results.append(DeterministicCheck(
+            check_id="priority_count_nonzero",
+            status="fail", severity="high",
+            message=(
+                f"briefing_status='{status_field}' but no items match priority_filter "
+                f"({priority_field}={priority_value!r})"
+            ),
+            route="block",
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="priority_count_nonzero",
+            status="pass", severity="info",
+            message=f"{len(priority_items)} priority item(s) present (status={status_field})",
+            route="pass",
+        ))
+
+    # 3. High-weight / blockable-type claims must have non-empty source_extracts
+    high_types = blockable_types(spec)
+    def _has_extract(c: dict) -> bool:
+        return bool(_iter_extract_texts(c.get("source_extracts") or []))
+    no_extract = [
+        c.get("claim_id", "<no-id>") for c in claims
+        if (c.get("claim_type") in high_types or c.get("claim_weight") == "high")
+        and not _has_extract(c)
+    ]
+    if no_extract:
+        results.append(DeterministicCheck(
+            check_id="high_weight_claims_have_extracts",
+            status="fail", severity="high",
+            message=f"High-weight/blockable claims with no source extract: {no_extract}",
+            route="block",
+            offending=", ".join(no_extract),
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="high_weight_claims_have_extracts",
+            status="pass", severity="info",
+            message="All high-weight/blockable claims have source extracts",
+            route="pass",
+        ))
+
+    # 3b. Every claim (regardless of weight) must have non-empty source_ids AND source_extracts.
+    #     Belt-and-suspenders with #3 above (which only covers high-weight extracts).
+    #     Routes block if any failing claim is high-weight/blockable; annotates otherwise.
+    missing_sources: list[dict] = []
+    missing_extracts: list[dict] = []
+    for c in claims:
+        cid = c.get("claim_id", "<no-id>")
+        weight = c.get("claim_weight", "?")
+        ctype = c.get("claim_type", "?")
+        is_high = (weight == "high") or (ctype in high_types)
+        if not (c.get("source_ids") or []):
+            missing_sources.append({"claim_id": cid, "weight": weight, "type": ctype, "is_high": is_high})
+        if not _has_extract(c):
+            missing_extracts.append({"claim_id": cid, "weight": weight, "type": ctype, "is_high": is_high})
+    prov_details = {
+        "missing_source_ids": missing_sources,
+        "missing_source_extracts": missing_extracts,
+        "totals": {
+            "claims_total": len(claims),
+            "missing_source_ids": len(missing_sources),
+            "missing_source_extracts": len(missing_extracts),
+        },
+    }
+    if missing_sources or missing_extracts:
+        block_level = any(r["is_high"] for r in missing_sources + missing_extracts)
+        msg_parts = []
+        if missing_sources:
+            msg_parts.append(f"{len(missing_sources)} claim(s) missing source_ids")
+        if missing_extracts:
+            msg_parts.append(f"{len(missing_extracts)} claim(s) missing source_extracts")
+        results.append(DeterministicCheck(
+            check_id="all_claims_have_provenance",
+            status="fail" if block_level else "warning",
+            severity="high" if block_level else "medium",
+            message="; ".join(msg_parts) + (" (high-weight failure → block)" if block_level else ""),
+            route="block" if block_level else "annotate",
+            offending="; ".join(
+                f"{r['claim_id']}({r['weight']})"
+                for r in (missing_sources + missing_extracts)[:6]
+            ),
+            details=prov_details,
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="all_claims_have_provenance",
+            status="pass", severity="info",
+            message=f"All {len(claims)} claim(s) have source_ids and source_extracts",
+            route="pass",
+            details=prov_details,
+        ))
+
+    # 4. Claim source_ids resolve to known sources (using source.id)
+    source_id_set = {s.get("id") for s in sources if s.get("id")}
+    broken_citations = [
+        f"{c.get('claim_id', '<no-id>')}→{sid}"
+        for c in claims
+        for sid in (c.get("source_ids") or [])
+        if sid not in source_id_set
+    ]
+    if broken_citations:
+        results.append(DeterministicCheck(
+            check_id="citation_ids_resolve",
+            status="fail", severity="high",
+            message=f"Broken source_id references on claims: {broken_citations}",
+            route="block",
+            offending=", ".join(broken_citations),
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="citation_ids_resolve",
+            status="pass", severity="info",
+            message="All claim source_ids resolve to known sources",
+            route="pass",
+        ))
+
+    # 5. Every source has non-empty retrieved_text_or_snapshot
+    empty_snapshots = [
+        s.get("id") or "<no-id>"
+        for s in sources
+        if not (s.get("retrieved_text_or_snapshot") or "").strip()
+    ]
+    if empty_snapshots:
+        results.append(DeterministicCheck(
+            check_id="source_snapshots_present",
+            status="warning", severity="medium",
+            message=f"Sources with empty retrieved_text_or_snapshot: {empty_snapshots}",
+            route="annotate",
+            offending=", ".join(empty_snapshots),
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="source_snapshots_present",
+            status="pass", severity="info",
+            message="All sources carry retrieved_text_or_snapshot content",
+            route="pass",
+        ))
+
+    # 6. Prohibited phrases — scan the spec-declared prose paths
+    #    (Sections like talking_points with a posture override are EXCLUDED by
+    #    being absent from spec.prohibited_phrase_paths.)
+    #    Patterns may include `{{key}}` placeholders that interpolate top-level
+    #    artifact string values (re.escape'd) before regex compile. Lets a spec
+    #    express runtime-variable rules like "never mention {{candidate_name}}"
+    #    without code changes.
+    phrase_specs = spec.get("prohibited_phrases") or []
+    path_specs = spec.get("prohibited_phrase_paths") or []
+    prose_parts: list[str] = []
+    for p in path_specs:
+        prose_parts.extend(_values_at_path(artifact, p))
+    prose = " ".join(prose_parts)
+    hit_names: list[str] = []
+    skipped_patterns: list[dict] = []
+    for entry in phrase_specs:
+        name = entry.get("name") or entry.get("pattern", "<unnamed>")
+        pattern = entry.get("pattern", "")
+        if not pattern:
+            continue
+        if "{{" in pattern:
+            resolved, missing_keys = _resolve_pattern_template(pattern, artifact)
+            if resolved is None:
+                skipped_patterns.append({"name": name, "missing_keys": missing_keys})
+                continue
+            pattern = resolved
+        if re.search(pattern, prose, re.IGNORECASE):
+            hit_names.append(name)
+    phrase_details = {
+        "paths_scanned": path_specs,
+        "skipped_patterns": skipped_patterns,
+    }
+    if hit_names:
+        results.append(DeterministicCheck(
+            check_id="prohibited_phrases",
+            status="warning", severity="low",
+            message=(
+                "Directive language detected in non-override prose. "
+                f"Paths scanned: {path_specs}. "
+                "Sections like talking_points are exempt by not being in the path list."
+            ),
+            route="annotate",
+            offending="; ".join(hit_names),
+            details=phrase_details,
+        ))
+    else:
+        results.append(DeterministicCheck(
+            check_id="prohibited_phrases",
+            status="pass", severity="info",
+            message=f"No prohibited phrases found across {len(path_specs)} prose path(s)",
+            route="pass",
+            details=phrase_details,
+        ))
+
+    # 7. extracts_appear_in_cited_source — bounded to cited sources only,
+    #    with rapidfuzz partial_ratio fallback inside the SAME cited source(s).
+    #    High-weight failures block; lower-weight failures annotate.
+    fuzzy_cfg = spec.get("substring_check") or {}
+    fuzzy_threshold = fuzzy_cfg.get("fuzzy_threshold", 90)
+    source_map = {s["id"]: s for s in sources if s.get("id")}
+    blockable = blockable_types(spec)
+
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip().lower()
+
+    def _is_high_weight(c: dict) -> bool:
+        return c.get("claim_weight") == "high" or c.get("claim_type") in blockable
+
+    try:
+        from rapidfuzz import fuzz
+        _have_rapidfuzz = True
+    except ImportError:
+        _have_rapidfuzz = False
+
+    high_failures: list[str] = []
+    other_failures: list[str] = []
+    fuzzy_only: list[str] = []
+    per_claim_trace: list[dict] = []  # provenance for inspection
+    exact_count = 0
+    for claim in claims:
+        cid = claim.get("claim_id", "<no-id>")
+        cited_haystacks: list[str] = []
+        for sid in claim.get("source_ids") or []:
+            text = (source_map.get(sid, {}).get("retrieved_text_or_snapshot") or "")
+            if text:
+                cited_haystacks.append(_norm(text))
+        for ex in claim.get("source_extracts") or []:
+            ex_text = _extract_text(ex)
+            if not ex_text.strip():
+                continue
+            needle = _norm(ex_text)
+            # Exact substring in any cited source
+            exact_hit = any(needle in haystack for haystack in cited_haystacks)
+            # Fuzzy fallback — only within the SAME cited sources
+            best = 0
+            if _have_rapidfuzz and cited_haystacks:
+                best = max(
+                    (int(fuzz.partial_ratio(needle, h)) for h in cited_haystacks),
+                    default=0,
+                )
+            snippet = (ex_text[:60] + "…") if len(ex_text) > 60 else ex_text
+            if exact_hit:
+                outcome = "exact"
+                exact_count += 1
+            elif best >= fuzzy_threshold:
+                outcome = "fuzzy"
+                fuzzy_only.append(f"{cid}: '{snippet}' (best_fuzzy={best})")
+            elif _is_high_weight(claim):
+                outcome = "fail_high_weight"
+                high_failures.append(f"{cid}: '{snippet}' (best_fuzzy={best})")
+            else:
+                outcome = "fail_other"
+                other_failures.append(f"{cid}: '{snippet}' (best_fuzzy={best})")
+            per_claim_trace.append({
+                "claim_id": cid,
+                "claim_weight": claim.get("claim_weight"),
+                "cited_source_ids": claim.get("source_ids") or [],
+                "extract_preview": snippet,
+                "outcome": outcome,
+                "fuzzy_score": best if outcome != "exact" else None,
+            })
+
+    substring_details = {
+        "fuzzy_threshold": fuzzy_threshold,
+        "rapidfuzz_available": _have_rapidfuzz,
+        "totals": {
+            "extracts_checked": len(per_claim_trace),
+            "exact_pass": exact_count,
+            "fuzzy_pass": len(fuzzy_only),
+            "fail_high_weight": len(high_failures),
+            "fail_other": len(other_failures),
+        },
+        "per_extract": per_claim_trace,
+    }
+    if high_failures:
+        results.append(DeterministicCheck(
+            check_id="extracts_appear_in_cited_source",
+            status="fail", severity="high",
+            message=(
+                f"{len(high_failures)} high-weight extract(s) not found in cited "
+                f"source (exact or fuzzy ≥ {fuzzy_threshold})"
+            ),
+            route="block",
+            offending="; ".join(high_failures[:5]),
+            details=substring_details,
+        ))
+    elif other_failures:
+        results.append(DeterministicCheck(
+            check_id="extracts_appear_in_cited_source",
+            status="warning", severity="medium",
+            message=f"{len(other_failures)} non-high-weight extract(s) not found in cited source",
+            route="annotate",
+            offending="; ".join(other_failures[:5]),
+            details=substring_details,
+        ))
+    elif fuzzy_only:
+        results.append(DeterministicCheck(
+            check_id="extracts_appear_in_cited_source",
+            status="warning", severity="low",
+            message=(
+                f"{len(fuzzy_only)} extract(s) matched only via fuzzy "
+                f"(threshold {fuzzy_threshold}); likely OCR noise"
+            ),
+            route="annotate",
+            offending="; ".join(fuzzy_only[:5]),
+            details=substring_details,
+        ))
+    else:
+        note = "(rapidfuzz unavailable)" if not _have_rapidfuzz else ""
+        results.append(DeterministicCheck(
+            check_id="extracts_appear_in_cited_source",
+            status="pass", severity="info",
+            message=f"All extracts found exact-substring in their cited sources {note}".strip(),
+            route="pass",
+            details=substring_details,
+        ))
+
+    # 7b. numeric_review_flag — detection only. Flag every high-weight claim that
+    #     states a figure so the triage judge is REQUIRED to verify it against the cited
+    #     extracts. This deterministic step never matches values and never blocks or
+    #     annotates: a regex cannot tell a rate basis from a budget figure or read a
+    #     "(in $1,000s)" table header. Blocking on numbers comes only from the judge
+    #     verdict on high-weight claims (see phase1/phase2 and compute_release_verdict).
+    #     Emitted unconditionally: detection no longer depends on structured_validators,
+    #     so gating this diagnostic on that config would let the bundle omit the record
+    #     even when phase 1/2 prompts received the numeric instruction.
+    flagged: list[dict] = []
+    for claim in claims:
+        kinds = flag_numeric_review(claim, blockable)
+        if kinds:
+            flagged.append({
+                "claim_id": claim.get("claim_id", "<no-id>"),
+                "kinds": sorted(kinds.keys()),
+                "values": sorted({v for vs in kinds.values() for v in vs}),
+            })
+    results.append(DeterministicCheck(
+        check_id="numeric_review_flag",
+        status="pass", severity="info",
+        message=f"{len(flagged)} high-weight claim(s) flagged for judge numeric review",
+        route="diagnostic",
+        offending="; ".join(f"{f['claim_id']}({','.join(f['kinds'])})" for f in flagged[:5]),
+        details={
+            "flagged_count": len(flagged),
+            "flagged": flagged,
+        },
+    ))
+
+    # 7c. source_hierarchy_policy (WS2 P0) — spec-declared claim_type → allowed
+    #     source_types. A claim citing a source whose source_type is not allowed
+    #     for its claim_type is flagged. A claim_type with NO entry yields a
+    #     non-blocking diagnostic surfacing the policy gap (not block, not allow).
+    hierarchy = spec.get("source_hierarchy") or {}
+    if hierarchy:
+        source_type_map = {s.get("id"): s.get("source_type") for s in sources if s.get("id")}
+        sh_high_fail: list[str] = []
+        sh_other_fail: list[str] = []
+        sh_gaps: set[str] = set()
+        sh_trace: list[dict] = []
+        for claim in claims:
+            ctype = claim.get("claim_type", "")
+            allowed = hierarchy.get(ctype)
+            if allowed is None:
+                if ctype:
+                    sh_gaps.add(ctype)
+                continue
+            allowed_set = set(allowed)
+            violations = []
+            for sid in claim.get("source_ids") or []:
+                stype = source_type_map.get(sid)
+                if stype is not None and stype not in allowed_set:
+                    violations.append(f"{sid}={stype}")
+            cid = claim.get("claim_id", "<no-id>")
+            if violations:
+                sh_trace.append({
+                    "claim_id": cid, "claim_type": ctype,
+                    "allowed": allowed, "violations": violations,
+                })
+                entry = f"{cid}({ctype}): {violations[:3]} not in {allowed}"
+                if _is_high_weight(claim):
+                    sh_high_fail.append(entry)
+                else:
+                    sh_other_fail.append(entry)
+        sh_details = {
+            "policy": hierarchy,
+            "claim_types_without_policy": sorted(sh_gaps),
+            "violations": sh_trace,
+        }
+        # Each condition emits independently so co-occurring signals all surface.
+        # A policy gap must always produce its own route="diagnostic" result, even
+        # when the same artifact also has a (block) high-fail or (annotate)
+        # other-fail — otherwise the gap diagnostic would only survive in details.
+        if sh_high_fail:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="fail", severity="high",
+                message=f"{len(sh_high_fail)} high-weight claim(s) cite source types not allowed for their claim_type",
+                route="block",
+                offending="; ".join(sh_high_fail[:5]),
+                details=sh_details,
+            ))
+        if sh_other_fail:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="warning", severity="medium",
+                message=f"{len(sh_other_fail)} non-high-weight claim(s) cite disallowed source types",
+                route="annotate",
+                offending="; ".join(sh_other_fail[:5]),
+                details=sh_details,
+            ))
+        if sh_gaps:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="warning", severity="low",
+                message=(
+                    f"No source-hierarchy policy declared for {len(sh_gaps)} claim_type(s): "
+                    f"{sorted(sh_gaps)} (diagnostic — not a block, not silent-allow)"
+                ),
+                route="diagnostic",
+                offending=", ".join(sorted(sh_gaps)),
+                details=sh_details,
+            ))
+        if not sh_high_fail and not sh_other_fail and not sh_gaps:
+            results.append(DeterministicCheck(
+                check_id="source_hierarchy_policy",
+                status="pass", severity="info",
+                message="All claims cite source types allowed for their claim_type",
+                route="pass",
+                details=sh_details,
+            ))
+
+    # 8. summary_source_coherence — TF-IDF cosine + containment between
+    #    display.summary and the item's combined source_extracts.
+    #    Warns when BOTH lexical signals are below threshold AND a semantic
+    #    embedding cosine (if available) does not rescue the item. The AND
+    #    on lexical signals guards against single-metric false positives;
+    #    the embedding rescue guards against the residual paraphrase
+    #    false-positive that lexical metrics can't distinguish from drift.
+    #    ROUGE-L is recorded per-item for diagnostic value (does the summary
+    #    copy or paraphrase?) but does NOT drive the verdict.
+    coh_cfg = spec.get("coherence_check") or {}
+    if coh_cfg.get("enabled", False):
+        tfidf_threshold = float(coh_cfg.get("tfidf_threshold", 0.30))
+        contain_threshold = float(coh_cfg.get("containment_threshold", 0.50))
+
+        try:
+            from rouge_score import rouge_scorer
+            rouge_l_scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+        except ImportError:
+            rouge_l_scorer = None
+
+        emb_cfg = spec.get("embedding_check") or {}
+        emb_enabled = bool(emb_cfg.get("enabled", False))
+        emb_model_name = str(emb_cfg.get("model", "all-MiniLM-L6-v2"))
+        emb_rescue_threshold = float(emb_cfg.get("rescue_threshold", 0.70))
+        # WS2 P0 deny-list: claim_types for which embedding rescue is forbidden.
+        # Absence from this list means a type stays rescuable.
+        rescue_blocklist = set(spec.get("embedding_rescue_blocklist") or [])
+
+        coherence_scope = [
+            it for it in items
+            if it.get(priority_field) == priority_value or it.get("tier") == "queued"
+        ]
+        claims_by_item: dict[str, list[dict]] = {}
+        for c in claims:
+            iid = c.get("item_id")
+            if iid:
+                claims_by_item.setdefault(iid, []).append(c)
+
+        low_coherence: list[str] = []
+        scored = 0
+        rescued_count = 0
+        emb_available_observed = False
+        per_item_scores: list[dict] = []
+        for it in coherence_scope:
+            iid = it.get("id")
+            summary = (it.get("display") or {}).get("summary") or ""
+            if not summary.strip():
+                continue
+            item_extracts: list[str] = []
+            for c in claims_by_item.get(iid, []):
+                item_extracts.extend(_iter_extract_texts(c.get("source_extracts") or []))
+            if not item_extracts:
+                continue
+            combined = " ".join(item_extracts)
+            tfidf = _tfidf_cosine(summary, combined)
+            contain = _containment(summary, combined)
+            rouge_l = (
+                rouge_l_scorer.score(combined, summary)["rougeL"].fmeasure
+                if rouge_l_scorer is not None else None
+            )
+            emb_cos = (
+                _embedding_cosine(summary, combined, emb_model_name)
+                if emb_enabled else None
+            )
+            if emb_cos is not None:
+                emb_available_observed = True
+
+            # WS2: refuse embedding rescue when ANY claim feeding this item's
+            # comparison is of a blocklisted claim_type (numbers, dates, names,
+            # vote counts, legal citations, allegations). Deny-list semantics:
+            # an item with no blocklisted claim stays rescuable.
+            item_claim_types = {
+                ct for c in claims_by_item.get(iid, [])
+                if (ct := c.get("claim_type"))
+            }
+            rescue_forbidden = bool(item_claim_types & rescue_blocklist)
+            blocking_types = sorted(item_claim_types & rescue_blocklist)
+
+            below_lexical = tfidf < tfidf_threshold and contain < contain_threshold
+            rescued = (
+                below_lexical
+                and not rescue_forbidden
+                and emb_cos is not None
+                and emb_cos >= emb_rescue_threshold
+            )
+            below = below_lexical and not rescued
+            scored += 1
+            if rescued:
+                rescued_count += 1
+            per_item_scores.append({
+                "item_id": iid,
+                "tier": it.get("tier"),
+                "tfidf_cosine": round(tfidf, 3),
+                "containment": round(contain, 3),
+                "rouge_l": round(rouge_l, 3) if rouge_l is not None else None,
+                "embedding_cosine": round(emb_cos, 3) if emb_cos is not None else None,
+                "below_lexical": below_lexical,
+                "rescued_by_embedding": rescued,
+                "rescue_forbidden": rescue_forbidden,
+                "rescue_blocked_by_claim_types": blocking_types,
+                "below_threshold": below,
+                "summary_chars": len(summary),
+                "summary_preview": summary[:200] + ("…" if len(summary) > 200 else ""),
+                "extracts_count": len(item_extracts),
+                "extracts_total_chars": sum(len(e) for e in item_extracts),
+                "extracts_combined_preview": combined[:200] + ("…" if len(combined) > 200 else ""),
+            })
+            if below:
+                low_coherence.append(
+                    f"{iid}: tfidf={round(tfidf, 3)}, contain={round(contain, 3)}"
+                    + (f", emb={round(emb_cos, 3)}" if emb_cos is not None else "")
+                )
+
+        if not emb_enabled:
+            emb_role = "disabled"
+        elif emb_available_observed:
+            emb_role = "rescue_signal"
+        else:
+            emb_role = "unavailable"
+
+        coherence_details = {
+            "tfidf_threshold": tfidf_threshold,
+            "containment_threshold": contain_threshold,
+            "verdict_logic": (
+                "(tfidf < t1 AND contain < t2) AND NOT (embedding >= rescue)"
+                if emb_role == "rescue_signal"
+                else "AND (warn when both below)"
+            ),
+            "embedding_role": emb_role,
+            "embedding_model": emb_model_name if emb_enabled else None,
+            "embedding_rescue_threshold": emb_rescue_threshold if emb_enabled else None,
+            "embedding_rescue_blocklist": sorted(rescue_blocklist),
+            "rouge_l_role": "info_only" if rouge_l_scorer is not None else "unavailable",
+            "scored_items": scored,
+            "rescued_by_embedding_count": rescued_count,
+            "below_threshold_count": len(low_coherence),
+            "per_item": per_item_scores,
+        }
+        if low_coherence:
+            rescue_note = (
+                f" ({rescued_count} rescued by embedding ≥ {emb_rescue_threshold})"
+                if rescued_count else ""
+            )
+            results.append(DeterministicCheck(
+                check_id="summary_source_coherence",
+                status="warning", severity="low",
+                message=(
+                    f"{len(low_coherence)} of {scored} item(s) below both "
+                    f"tfidf {tfidf_threshold} AND containment {contain_threshold}"
+                    f"{rescue_note}"
+                ),
+                # Diagnostic-only: the TF-IDF IDF term is degenerate over the
+                # N=2 strings compared (down-weights shared tokens, backwards for
+                # a support signal). Scores are recorded for triage but never
+                # drive the verdict — see compute_release_verdict.
+                route="diagnostic",
+                offending="; ".join(low_coherence[:5]),
+                details=coherence_details,
+            ))
+        else:
+            rescue_note = (
+                f" ({rescued_count} rescued by embedding)"
+                if rescued_count else ""
+            )
+            results.append(DeterministicCheck(
+                check_id="summary_source_coherence",
+                status="pass", severity="info",
+                message=(
+                    f"All {scored} scored item(s) clear coherence floor "
+                    f"(tfidf ≥ {tfidf_threshold} OR containment ≥ {contain_threshold}"
+                    f"{rescue_note})"
+                ),
+                route="pass",
+                details=coherence_details,
+            ))
+
+    # 9. completeness_floor — minimum-substance thresholds from spec.completeness.
+    #    Warnings only; never blocks. Catches "agent shipped a skeleton."
+    comp = spec.get("completeness") or {}
+    if comp:
+        comp_issues: list[str] = []
+        comp_measured: dict = {}
+
+        # priority items
+        min_pri = comp.get("min_priority_items")
+        comp_measured["priority_items"] = {
+            "count": len(priority_items),
+            "min": min_pri,
+            "target": comp.get("target_priority_items"),
+            "ids": [it.get("id") for it in priority_items],
+        }
+        if min_pri is not None and len(priority_items) < min_pri:
+            comp_issues.append(f"only {len(priority_items)} priority item(s) (min {min_pri})")
+
+        # executive summary length — WS2 decouple: walk spec-declared paths from
+        # completeness.field_paths instead of hard-coded meeting_briefing field
+        # names. lead_in_path + exec_summary_overview_paths feed the measurement.
+        # Edge case (resolved): no overview paths declared → skip-with-warning,
+        # never silent-skip.
+        fpaths = comp.get("field_paths") or {}
+        min_exec = comp.get("min_executive_summary_chars")
+        lead_in_path = fpaths.get("lead_in_path")
+        overview_paths = fpaths.get("exec_summary_overview_paths") or []
+        lead_in_values = _values_at_path(artifact, lead_in_path) if lead_in_path else []
+        lead_in_chars = sum(len(v) for v in lead_in_values)
+        # Optional scope: when 'priority_filter', an items[]-rooted overview path
+        # only counts entries that match priority_filter (e.g. tier==featured),
+        # so queued/standard items can't inflate the exec-summary length.
+        overview_scope = fpaths.get("exec_summary_overview_scope")
+        priority_ids = {it.get("id") for it in priority_items}
+        overview_values: list[str] = []
+        for op in overview_paths:
+            if overview_scope == "priority_filter" and op.startswith("items[]."):
+                leaf = op[len("items[]."):]
+                for it in items:
+                    if not isinstance(it, dict) or it.get("id") not in priority_ids:
+                        continue
+                    v = _walk(it, leaf)
+                    if isinstance(v, str) and v.strip():
+                        overview_values.append(v)
+            else:
+                overview_values.extend(_values_at_path(artifact, op))
+        overview_chars = sum(len(v) for v in overview_values)
+        exec_len = lead_in_chars + overview_chars
+        comp_measured["executive_summary"] = {
+            "chars": exec_len,
+            "lead_in_chars": lead_in_chars,
+            "overview_chars": overview_chars,
+            "lead_in_path": lead_in_path,
+            "overview_paths": overview_paths,
+            "overview_count": len(overview_values),
+            "min": min_exec,
+        }
+        if not overview_paths:
+            comp_issues.append(
+                "executive_summary length not measured: no "
+                "completeness.field_paths.exec_summary_overview_paths declared "
+                "(skip-with-warning)"
+            )
+        elif not overview_values and priority_items:
+            # Paths declared but resolve to nothing while featured items exist —
+            # report as a missing/empty required field, not a length shortfall,
+            # so it can't silently undercount (the prior MB silent-undercount bug).
+            comp_issues.append(
+                f"required exec-summary overview missing or empty at {overview_paths} "
+                f"({len(priority_items)} featured item(s) present)"
+            )
+        elif min_exec is not None and exec_len < min_exec:
+            comp_issues.append(f"executive_summary {exec_len} chars (min {min_exec})")
+
+        # per-priority-item overview length — field name from spec.field_paths
+        # (default 'summary' under each priority item's display).
+        min_overview = comp.get("min_overview_chars_per_priority_item")
+        pi_field = fpaths.get("priority_item_overview_field", "summary")
+        per_item_overview = {
+            it.get("id"): len((it.get("display") or {}).get(pi_field) or "")
+            for it in priority_items
+        }
+        comp_measured["overview_chars_per_priority_item"] = {
+            "per_item": per_item_overview,
+            "min": min_overview,
+        }
+        if min_overview is not None:
+            short = [iid for iid, n in per_item_overview.items() if n < min_overview]
+            if short:
+                comp_issues.append(
+                    f"{len(short)} priority item(s) with overview < {min_overview} chars: {short[:3]}"
+                )
+
+        # total prose word count — WS2 decouple: accumulate prose from the
+        # spec-declared total_prose_paths. Falls back to the exec lead+overview
+        # paths when total_prose_paths is absent, so a partial spec still counts
+        # something rather than silently scoring zero.
+        min_words = comp.get("min_total_prose_words")
+        total_prose_paths = fpaths.get("total_prose_paths")
+        if not total_prose_paths:
+            total_prose_paths = ([lead_in_path] if lead_in_path else []) + list(overview_paths)
+        prose_parts: list[str] = []
+        for pp in total_prose_paths:
+            prose_parts.extend(_values_at_path(artifact, pp))
+        total_words = sum(len(p.split()) for p in prose_parts)
+        comp_measured["total_prose"] = {
+            "words": total_words,
+            "min": min_words,
+            "parts_counted": len(prose_parts),
+            "paths": total_prose_paths,
+        }
+        if min_words is not None and total_words < min_words:
+            comp_issues.append(f"total prose ~{total_words} words (min {min_words})")
+
+        if comp_issues:
+            results.append(DeterministicCheck(
+                check_id="completeness_floor",
+                status="warning", severity="low",
+                message=f"Completeness floor not met: {'; '.join(comp_issues)}",
+                route="annotate",
+                details=comp_measured,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="completeness_floor",
+                status="pass", severity="info",
+                message="All completeness thresholds met",
+                route="pass",
+                details=comp_measured,
+            ))
+
+    # 9b. claim_coverage — diagnostic-only. Per featured item, flag items that
+    #     carry prose (display.summary) but have fewer than the spec cutoff of
+    #     referencing claims (join claim.item_id == item.id). Surfaces generator
+    #     under-emission, which biases downstream accuracy rates. Recorded but
+    #     never drives the verdict (route diagnostic).
+    cov_cfg = spec.get("coverage_check") or {}
+    if cov_cfg.get("enabled", False):
+        min_claims = int(cov_cfg.get("min_claims_per_featured_item", 2))
+        claim_counts_by_item: dict[str, int] = {}
+        for c in claims:
+            iid = c.get("item_id")
+            if iid:
+                claim_counts_by_item[iid] = claim_counts_by_item.get(iid, 0) + 1
+        low_coverage: list[dict] = []
+        per_item_coverage: list[dict] = []
+        for it in priority_items:
+            iid = it.get("id")
+            summary = (it.get("display") or {}).get("summary") or ""
+            has_prose = bool(summary.strip())
+            n_claims = claim_counts_by_item.get(iid, 0)
+            per_item_coverage.append({
+                "item_id": iid,
+                "claim_count": n_claims,
+                "has_prose": has_prose,
+            })
+            if has_prose and n_claims < min_claims:
+                low_coverage.append({"item_id": iid, "claim_count": n_claims})
+        coverage_details = {
+            "min_claims_per_featured_item": min_claims,
+            "featured_items_scored": len(priority_items),
+            "below_count": len(low_coverage),
+            "per_item": per_item_coverage,
+        }
+        if low_coverage:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="warning", severity="low",
+                message=(
+                    f"{len(low_coverage)} of {len(priority_items)} featured item(s) "
+                    f"carry prose but have < {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                offending="; ".join(
+                    f"{f['item_id']}: {f['claim_count']} claim(s)" for f in low_coverage[:5]
+                ),
+                details=coverage_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="claim_coverage",
+                status="pass", severity="info",
+                message=(
+                    f"All {len(priority_items)} featured item(s) with prose carry "
+                    f"≥ {min_claims} referencing claim(s)"
+                ),
+                route="diagnostic",
+                details=coverage_details,
+            ))
+
+    # 10. polish_grammar — deterministic regex polish on EO-facing prose.
+    #     Always annotation-level (never blocks). Per-finding path enables
+    #     the calling agent to fix specific locations before final write.
+    polish_patterns = spec.get("polish_patterns") or []
+    if polish_patterns:
+        polish_findings: list[dict] = []
+        for path, text in _iter_polish_prose(artifact):
+            for entry in polish_patterns:
+                name = entry.get("name", "unnamed")
+                pattern = entry.get("pattern", "")
+                if not pattern:
+                    continue
+                flags = re.IGNORECASE if entry.get("case_insensitive") else 0
+                for m in re.finditer(pattern, text, flags):
+                    start = max(0, m.start() - 25)
+                    end = min(len(text), m.end() + 25)
+                    context = text[start:end].replace("\n", " ")
+                    polish_findings.append({
+                        "pattern_name": name,
+                        "path": path,
+                        "matched": m.group(0),
+                        "context": ("…" if start > 0 else "") + context + ("…" if end < len(text) else ""),
+                    })
+        polish_details = {
+            "patterns_checked": [p.get("name") for p in polish_patterns],
+            "findings": polish_findings,
+            "total_prose_fields_scanned": sum(1 for _ in _iter_polish_prose(artifact)),
+        }
+        if polish_findings:
+            results.append(DeterministicCheck(
+                check_id="polish_grammar",
+                status="warning", severity="low",
+                message=f"{len(polish_findings)} polish issue(s) in prose",
+                route="annotate",
+                offending="; ".join(
+                    f"{f['pattern_name']}@{f['path']}: '{f['matched']}'"
+                    for f in polish_findings[:5]
+                ),
+                details=polish_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="polish_grammar",
+                status="pass", severity="info",
+                message="No polish issues found across EO-facing prose",
+                route="pass",
+                details=polish_details,
+            ))
+
+    # 11. citation_label_url_coherence — inline [Label](URL) citations whose
+    #     label maps to a known publisher (Wikipedia, Ballotpedia, etc.) must
+    #     point at one of that publisher's hosts. Catches drift like
+    #     `[Wikipedia](nytimes.com)`. Spec-driven via label_domain_map and
+    #     citation_paths; skipped entirely when either is absent.
+    label_domain_map: dict = spec.get("label_domain_map") or {}
+    citation_paths: list[str] = spec.get("citation_paths") or []
+    if label_domain_map and citation_paths:
+        # Sort label patterns longest-first so "Twitter" matches before a shorter
+        # overlapping label like "T" would.
+        sorted_labels = sorted(
+            label_domain_map.items(), key=lambda kv: len(kv[0]), reverse=True
+        )
+        mismatches: list[dict] = []
+        cite_count = 0
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                cite_count += 1
+                host = _normalize_host(url)
+                label_l = label.strip().casefold()
+                for label_pattern, expected_domains in sorted_labels:
+                    if label_pattern.casefold() not in label_l:
+                        continue
+                    expected_l = [d.casefold() for d in (expected_domains or [])]
+                    if expected_l and not any(host.endswith(d) for d in expected_l):
+                        mismatches.append({
+                            "path": path,
+                            "label": label,
+                            "url": url,
+                            "host": host,
+                            "expected_label": label_pattern,
+                            "expected_domains": expected_domains,
+                        })
+                    break  # longest match wins; do not double-flag
+        coh_details = {
+            "citations_scanned": cite_count,
+            "label_patterns": list(label_domain_map.keys()),
+            "mismatches": mismatches,
+        }
+        if mismatches:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="warning", severity="low",
+                message=(
+                    f"{len(mismatches)} citation(s) where label and URL host do not align "
+                    f"per label_domain_map"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{m['label']}]({m['url']}) at {m['path']}" for m in mismatches[:5]
+                ),
+                details=coh_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="citation_label_url_coherence",
+                status="pass", severity="info",
+                message=f"All {cite_count} citation(s) match label_domain_map expectations",
+                route="pass",
+                details=coh_details,
+            ))
+
+    # 12. social_media_citation — social URLs in citation positions are not
+    #     factual provenance; they belong in a websites[] / handles[] structure.
+    #     Skipped when citation_paths is not declared.
+    if citation_paths:
+        social_findings: list[dict] = []
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for label, url in _extract_citations(text):
+                host = _normalize_host(url)
+                if host in _SOCIAL_HOSTS:
+                    social_findings.append({"path": path, "label": label, "url": url, "host": host})
+        social_details = {
+            "social_hosts": sorted(_SOCIAL_HOSTS),
+            "findings": social_findings,
+        }
+        if social_findings:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="warning", severity="low",
+                message=(
+                    f"{len(social_findings)} citation(s) point at social-media hosts; "
+                    "these are handles, not factual sources"
+                ),
+                route="annotate",
+                offending="; ".join(
+                    f"[{f['label']}]({f['url']}) at {f['path']}"
+                    for f in social_findings[:5]
+                ),
+                details=social_details,
+            ))
+        else:
+            results.append(DeterministicCheck(
+                check_id="social_media_citation",
+                status="pass", severity="info",
+                message="No social-media URLs found in citation positions",
+                route="pass",
+                details=social_details,
+            ))
+
+    # 13. urls_resolve — HTTP liveness probe for cited/structured URLs.
+    #     Gating: spec.url_check.enabled is the default trigger — when true the
+    #     check runs WITHOUT requiring the --check-urls CLI flag. check_urls is
+    #     a tri-state override: None defers to the spec, True force-enables,
+    #     False force-disables (so callers can suppress network access on an
+    #     enabled spec, e.g. offline CI).
+    #     URL sources: inline [Label](URL) citations on spec.citation_paths
+    #     (legacy) UNION the structured-artifact values at spec.url_check.
+    #     url_paths (e.g. sources[].url, run_metadata.agenda_packet_url).
+    #     SSRF guard: every URL is host-validated before probing and redirects
+    #     are refused (see _ssrf_check_url / _NoRedirectHandler). Liveness is
+    #     ADVISORY — dead, unreachable, or SSRF-rejected URLs route to annotate,
+    #     never block.
+    url_check_cfg = spec.get("url_check") or {}
+    url_check_on = check_urls if check_urls is not None else bool(url_check_cfg.get("enabled", False))
+    url_paths: list[str] = url_check_cfg.get("url_paths") or []
+    if url_check_on and (citation_paths or url_paths):
+        timeout = float(url_check_cfg.get("timeout_seconds", 5))
+        parallel = int(url_check_cfg.get("parallel", 8))
+        user_agent = str(url_check_cfg.get("user_agent", "qa-spine-url-check/0.1"))
+
+        # Union the two URL sources, tracking which spec path each URL came from.
+        url_to_paths: dict[str, list[str]] = {}
+        for path, text in _iter_prose_at_paths(artifact, citation_paths):
+            for _, url in _extract_citations(text):
+                url_to_paths.setdefault(url, []).append(path)
+        for path in url_paths:
+            for url in _values_at_path(artifact, path):
+                paths = url_to_paths.setdefault(url, [])
+                if path not in paths:
+                    paths.append(path)
+        unique_urls = sorted(url_to_paths.keys())
+
+        # SSRF pre-screen: reject unsafe URLs up front so we never open a
+        # connection to them. Rejected URLs are advisory findings, not probes.
+        rejected: list[dict] = []
+        probe_urls: list[str] = []
+        for url in unique_urls:
+            reason = _ssrf_check_url(url)
+            if reason is not None:
+                rejected.append({
+                    "url": url, "reason": reason, "paths": url_to_paths.get(url, []),
+                })
+            else:
+                probe_urls.append(url)
+
+        # No-redirect opener so a 30x to an internal host can't bypass the
+        # pre-screen; the handler re-validates and refuses the hop regardless.
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+
+        def _probe(url: str) -> tuple[Optional[int], Optional[str]]:
+            headers = {"User-Agent": user_agent}
+            try:
+                req = urllib.request.Request(url, method="HEAD", headers=headers)
+                with opener.open(req, timeout=timeout) as resp:
+                    return resp.status, None
+            except urllib.error.HTTPError as e:
+                if e.code in (403, 405):
+                    try:
+                        req = urllib.request.Request(url, method="GET", headers=headers)
+                        with opener.open(req, timeout=timeout) as resp:
+                            return resp.status, None
+                    except urllib.error.HTTPError as e2:
+                        return e2.code, str(e2)
+                    except Exception as e2:
+                        return None, str(e2)
+                return e.code, str(e)
+            except urllib.error.URLError as e:
+                return None, f"URLError: {e.reason}"
+            except Exception as e:
+                return None, f"{type(e).__name__}: {e}"
+
+        results_by_url: dict[str, tuple[Optional[int], Optional[str]]] = {}
+        probe_error: Optional[str] = None
+        if probe_urls:
+            try:
+                with ThreadPoolExecutor(max_workers=parallel) as ex:
+                    for url, outcome in zip(probe_urls, ex.map(_probe, probe_urls)):
+                        results_by_url[url] = outcome
+            except Exception as e:
+                probe_error = f"{type(e).__name__}: {e}"
+                results_by_url = {}
+
+        failures: list[dict] = []
+        for url, (status_code, err) in results_by_url.items():
+            if status_code == 200:
+                continue
+            failures.append({
+                "url": url,
+                "status": status_code,
+                "error": err,
+                "paths": url_to_paths.get(url, []),
+            })
+        url_details = {
+            "checked": len(results_by_url),
+            "unique_urls": len(unique_urls),
+            "timeout_seconds": timeout,
+            "parallel": parallel,
+            "failures": failures,
+            "rejected": rejected,
+        }
+
+        # Aggregate everything into one urls_resolve check. Any failure,
+        # rejection, or probe error is advisory (route=annotate); a clean pass
+        # routes to pass.
+        if probe_error is not None:
+            results.append(DeterministicCheck(
+                check_id="urls_resolve",
+                status="warning", severity="low",
+                message=f"URL liveness check skipped: {probe_error}",
+                route="annotate",
+                details={**url_details, "error": probe_error},
+            ))
+        elif unique_urls:
+            n_ok = len(results_by_url) - len(failures)
+            problems = len(failures) + len(rejected)
+            if problems:
+                parts: list[str] = []
+                if failures:
+                    parts.append(f"{len(failures)} unreachable/non-200")
+                if rejected:
+                    parts.append(f"{len(rejected)} SSRF-rejected")
+                offending_bits = [
+                    f"{f['url']} → {f['status']}" for f in failures[:5]
+                ] + [
+                    f"{r['url']} → rejected ({r['reason']})" for r in rejected[:5]
+                ]
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="warning", severity="medium",
+                    message=(
+                        f"{len(unique_urls)} URL(s) checked: {n_ok} OK, "
+                        + ", ".join(parts)
+                    ),
+                    route="annotate",
+                    offending="; ".join(offending_bits[:5]),
+                    details=url_details,
+                ))
+            else:
+                results.append(DeterministicCheck(
+                    check_id="urls_resolve",
+                    status="pass", severity="info",
+                    message=f"All {len(results_by_url)} checked URL(s) returned HTTP 200",
+                    route="pass",
+                    details=url_details,
+                ))
+
+    return results
+
+
+def _iter_polish_prose(artifact: dict):
+    """Yield (path, text) for every EO-facing prose field worth polishing.
+
+    Paths use a JSONPath-ish notation so a downstream agent can locate the
+    exact field to fix. The fields enumerated here are the ones that render
+    to the EO and PMs — audit fields (raw_context, source extracts) are NOT
+    polished because they must remain verbatim.
+    """
+    exec_obj = artifact.get("executive_summary")
+    if isinstance(exec_obj, dict):
+        lead_in = exec_obj.get("lead_in")
+        if isinstance(lead_in, str) and lead_in:
+            yield ("$.executive_summary.lead_in", lead_in)
+        # Per-item overviews live under executive_summary.items[].overview in
+        # the flattened shape (manifest v5+), not items[].display.
+        for e in exec_obj.get("items") or []:
+            if not isinstance(e, dict):
+                continue
+            eid = e.get("item_id") or "<no-id>"
+            overview = e.get("overview")
+            if isinstance(overview, str) and overview:
+                yield (f"$.executive_summary.items[{eid}].overview", overview)
+    for item in artifact.get("items") or []:
+        iid = item.get("id") or "<no-id>"
+        display = item.get("display") or {}
+        if isinstance(display.get("summary"), str) and display["summary"]:
+            yield (f"$.items[{iid}].display.summary", display["summary"])
+        bi = display.get("budget_impact")
+        if bi and isinstance(bi.get("summary"), str) and bi["summary"]:
+            yield (f"$.items[{iid}].display.budget_impact.summary", bi["summary"])
+        cs = display.get("constituent_sentiment")
+        if cs and isinstance(cs.get("summary"), str) and cs["summary"]:
+            yield (f"$.items[{iid}].display.constituent_sentiment.summary", cs["summary"])
+        for j, tp in enumerate(display.get("talking_points") or []):
+            if isinstance(tp, str) and tp:
+                yield (f"$.items[{iid}].display.talking_points[{j}]", tp)
+
+
+# ── LLM clients ───────────────────────────────────────────────────────────────
+
+class _AdjudicationOutput(BaseModel):
+    accuracy_category: Literal[
+        "Accurate",
+        "Directionally Consistent",
+        "Extrapolating",
+        "Modeled",
+        "Not in Source — Verified Elsewhere",
+        "Not in Source — Unresolved",
+        "Incorrect",
+        "Unverifiable",
+    ]
+    reasoning: str
+    proposed_correction: Optional[str] = None
+
+
+_TRIAGE_SYSTEM = """You are a factual accuracy reviewer for civic briefing documents.
+
+Given a factual claim and a source extract from a government agenda document, classify the claim's accuracy.
+
+Categories:
+- Accurate: The claim matches the source extract precisely.
+- Directionally Consistent: The claim is generally aligned with the source but not verbatim.
+- Extrapolating: The claim goes slightly beyond the source but is a reasonable inference from it.
+- Modeled: The claim is explicitly based on modeled or estimated data (e.g., constituent sentiment scores).
+- Not in Source — Verified Elsewhere: The claim cannot be found in this extract but may be correct from another source.
+- Not in Source — Unresolved: The claim cannot be substantiated from the provided source.
+- Incorrect: The claim contradicts the source extract.
+- Unverifiable: The source exists but the claim cannot be verified against it as written.
+
+Be direct. Do not hedge. If the extract is empty, classify as Not in Source — Unresolved."""
+
+
+_ESCALATION_SYSTEM = """You are an adversarial fact-checker reviewing a civic briefing claim that a first-pass reviewer flagged as not adequately supported. Your default posture is skepticism: assume the first reviewer was generous, and look hard for what they may have missed.
+
+Procedure:
+1. Read the claim and identify every factual assertion within it (numbers, names, dates, vote counts, recommendations, attributions). Each assertion must be independently grounded in the source passage.
+2. For every assertion, find the supporting span in the source passage. Quote it back to yourself before classifying.
+3. If any assertion is unsupported, partially supported, or contradicted by the source — even if other assertions are fine — the overall claim does not get a clean pass.
+4. Do not defer to the first reviewer. Do not give the briefing the benefit of the doubt. If you cannot independently confirm the claim, classify accordingly.
+
+You receive context in three labeled tiers:
+- PRIMARY: the agent's stated grounding (cited extracts with their section_header). This is where the agent says the evidence is.
+- SECONDARY: full snapshots of the cited sources. Use to verify the cited extracts are faithful and not cherry-picked.
+- TERTIARY: the rest of the agenda packet (uncited sources). Use to find grounding the agent may have missed — a claim is not necessarily wrong if it can be substantiated elsewhere in the packet, but you should call out the missing citation.
+
+Apply the same accuracy categories as the first reviewer.
+
+Categories:
+- Accurate: Every assertion in the claim is directly and verifiably grounded in the source passage.
+- Directionally Consistent: Generally aligned with the source but not verbatim on the specifics.
+- Extrapolating: Reasonable inference from the source, but extends beyond what the source explicitly states.
+- Modeled: Explicitly framed as modeled/estimated data; the framing itself is accurate.
+- Not in Source — Verified Elsewhere: The claim cannot be confirmed from this passage but may be correct from another source (use this when grounding lives in TERTIARY rather than the cited sources).
+- Not in Source — Unresolved: The claim cannot be substantiated by the passage.
+- Incorrect: The claim contradicts the source passage.
+- Unverifiable: The passage exists but cannot be assessed as supporting or refuting the claim as written.
+
+When you classify as anything other than Accurate, Directionally Consistent, Extrapolating, or Modeled, you MUST populate `proposed_correction` with a specific, actionable fix. Take one of these shapes:
+- A rewritten claim text grounded in the source as you understand it. Be specific about which phrases to change and which to keep.
+- A removal recommendation if no source in the packet supports the claim.
+- A scope tightening if part of the claim is grounded but another part is not — restrict the claim to what is supported and drop the rest.
+
+If your verdict is Accurate, Directionally Consistent, Extrapolating, or Modeled, leave `proposed_correction` as null."""
+
+
+_NUMERIC_REVIEW_INSTRUCTION = (
+    "NUMERIC REVIEW REQUIRED. This high-weight claim states one or more figures{detail}. "
+    "{values}"
+    "Verify each stated amount, vote tally, citation number, percentage, and date against "
+    "the source extract(s) above. If any stated figure is not supported by the "
+    "extract(s), mark the claim not-OK using the appropriate not-in-source or incorrect "
+    "category. Account for equivalent renderings (\"$1.8M\" = \"$1,800,000\", "
+    "\"Ordinance No. 12\" = \"Ordinance 12\") and unit headers (a value under "
+    "\"in $1,000s\" is stated in thousands)."
+)
+
+
+def _numeric_review_instruction(flagged: dict) -> str:
+    """Render the numeric-review instruction for a flagged claim.
+
+    `flagged` is the {kind: [raw values]} map from flag_numeric_review(). The figures
+    are listed verbatim so the judge confirms specific values rather than re-finding
+    every number itself; the kind list is omitted for the generic ("number") fallback.
+    """
+    kinds = sorted(k for k in flagged if k != _GENERIC_NUMERIC_KIND)
+    values = sorted({v for vs in flagged.values() for v in vs})
+    detail = f" (detected: {', '.join(kinds)})" if kinds else ""
+    values_line = f"Confirm each of these stated figures: {'; '.join(values)}. " if values else ""
+    return _NUMERIC_REVIEW_INSTRUCTION.format(detail=detail, values=values_line)
+
+
+def _format_phase1_user_prompt(claim: dict) -> str:
+    """Build Phase 1 context: ALL source_extracts as a labeled list.
+
+    A single claim may be grounded across multiple separately-cited extracts (e.g. a
+    table caption + a table row). Phase 1 sees them all so the judge can verify each
+    assertion in the claim against whichever extract supports it.
+
+    Each extract may carry a section_header (object-form extracts) — the header is what
+    gives the verbatim text its context. A bare table row only makes sense once you know
+    the table's caption. We render section_header alongside the text so the judge can
+    reason about both.
+    """
+    extracts = [e for e in (claim.get("source_extracts") or []) if _extract_text(e).strip()]
+    if not extracts:
+        return "Source extracts: (none provided by the agent — claim is unsupported by design)"
+
+    def _render(idx: int, ex) -> list[str]:
+        text = _extract_text(ex)
+        header = _extract_section_header(ex)
+        kind = _extract_type(ex)
+        lines = [f"[Extract {idx}]"]
+        if header:
+            lines.append(f"Section: {header}")
+        if kind != "unknown":
+            lines.append(f"Type: {kind}")
+        if header or kind != "unknown":
+            lines.append("Text:")
+        lines.append(text)
+        return lines
+
+    if len(extracts) == 1:
+        parts = ["Source extract (one provided):"]
+        parts.extend(_render(1, extracts[0]))
+        return "\n".join(parts)
+
+    parts = [
+        f"Source extracts ({len(extracts)} provided, listed separately — each was cited "
+        f"verbatim by the agent; any may be the relevant one for a given assertion in the claim).",
+        "",
+    ]
+    for i, ex in enumerate(extracts, 1):
+        parts.extend(_render(i, ex))
+        parts.append("")
+    return "\n".join(parts).rstrip()
+
+
+_PHASE2_PER_SOURCE_CAP = 5000
+_PHASE2_TOTAL_PACKET_CAP = 50000
+
+
+def _format_phase2_user_prompt(claim: dict, sources: list[dict], artifact: dict) -> str:
+    """Build Phase 2 context for adversarial review:
+
+    PRIMARY  — the claim's stated grounding: each cited extract with its section_header
+               (the agent's claimed evidence). Focus verification here first.
+    SECONDARY — full retrieved_text_or_snapshot for each cited source, capped per-source.
+                Verify whether the cited extracts are faithful and complete.
+    TERTIARY  — the full agenda packet: every source's snapshot in sources[], regardless
+                of whether the claim cited it. Use to find grounding the agent may have
+                missed or to confirm a date/fact lives in a different uncited source.
+    """
+    source_map = {s["id"]: s for s in (sources or []) if s.get("id")}
+    cited_ids = list(claim.get("source_ids") or [])
+    cited_set = set(cited_ids)
+    extracts = [e for e in (claim.get("source_extracts") or []) if _extract_text(e).strip()]
+
+    parts: list[str] = []
+
+    parts.append("== Stated grounding for this claim (PRIMARY — focus your verification here) ==")
+    if extracts:
+        parts.append(
+            f"The briefing agent cited {len(extracts)} extract(s) verbatim from the source(s). "
+            f"Each carries the verbatim text plus a section_header naming where in the source it came from."
+        )
+        parts.append("")
+        for i, ex in enumerate(extracts, 1):
+            parts.append(f"[Extract {i}]")
+            header = _extract_section_header(ex)
+            kind = _extract_type(ex)
+            if header:
+                parts.append(f"Section: {header}")
+            if kind != "unknown":
+                parts.append(f"Type: {kind}")
+            parts.append("Text:")
+            parts.append(_extract_text(ex))
+            parts.append("")
+    else:
+        parts.append("(no extracts provided)")
+        parts.append("")
+
+    parts.append(
+        "== Full snapshots of cited sources "
+        "(SECONDARY — verify whether the cited extracts above are faithful and complete) =="
+    )
+    for sid in cited_ids:
+        src = source_map.get(sid)
+        if not src:
+            parts.append(f"[Source {sid}] (source_id does not resolve in sources[])")
+            parts.append("")
+            continue
+        snapshot = src.get("retrieved_text_or_snapshot", "") or ""
+        if not snapshot:
+            parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}] (no snapshot captured)")
+            parts.append("")
+            continue
+        truncated = snapshot[:_PHASE2_PER_SOURCE_CAP]
+        parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}]")
+        parts.append(truncated)
+        if len(snapshot) > _PHASE2_PER_SOURCE_CAP:
+            parts.append("…(snapshot truncated)")
+        parts.append("")
+
+    parts.append(
+        "== Full agenda packet "
+        "(TERTIARY — every source in the artifact, cited or not; use to find grounding "
+        "the agent may have missed or to triangulate facts across sources) =="
+    )
+    packet_budget = _PHASE2_TOTAL_PACKET_CAP
+    for src in (sources or []):
+        sid = src.get("id")
+        if not sid or sid in cited_set:
+            continue  # cited ones already in SECONDARY
+        snapshot = src.get("retrieved_text_or_snapshot", "") or ""
+        if not snapshot:
+            parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}] (no snapshot captured)")
+            parts.append("")
+            continue
+        if packet_budget <= 0:
+            parts.append("…(remaining sources omitted; total packet cap reached)")
+            break
+        share = min(_PHASE2_PER_SOURCE_CAP, packet_budget)
+        truncated = snapshot[:share]
+        parts.append(f"[Source {sid} — {src.get('source_type', 'unknown')}]")
+        parts.append(truncated)
+        if len(snapshot) > share:
+            parts.append("…(snapshot truncated)")
+        parts.append("")
+        packet_budget -= len(truncated)
+
+    return "\n".join(parts).rstrip()
+
+
+def _response_schema_instruction() -> str:
+    """Generic JSON-output instruction usable by any LLM provider.
+
+    Built from the _AdjudicationOutput Pydantic schema so adding/removing fields
+    propagates without prompt edits across multiple judge implementations. New
+    judges (OpenAI, DeepSeek, Bedrock, etc.) reuse this helper for parity.
+    """
+    schema = _AdjudicationOutput.model_json_schema()
+    return (
+        "Respond with a single JSON object matching this schema:\n"
+        + json.dumps(schema, indent=2)
+        + "\n\nReturn JSON only — no surrounding prose, no markdown fencing."
+    )
+
+
+class Judge:
+    """Pluggable LLM judge for QA adjudication. Subclasses implement provider-specific clients.
+
+    A Judge is configured by a single entry in the QA_JUDGES env var, of the form
+    `name:provider:model` (e.g. `claude:anthropic:claude-sonnet-4-6`). The product_spec
+    declares which named judge each Phase uses (`spec.judges.phase1`, `spec.judges.phase2`).
+    """
+
+    def __init__(self, name: str, provider: str, model: str, api_key: str):
+        self.name = name
+        self.provider = provider
+        self.model = model
+        self.api_key = api_key
+
+    def adjudicate(
+        self,
+        claim: dict,
+        system_prompt: str,
+        source_passage: str = "",
+        prior: Optional[Phase1Result] = None,
+    ) -> _AdjudicationOutput:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(name={self.name!r}, provider={self.provider!r}, model={self.model!r})"
+
+
+class AnthropicJudge(Judge):
+    def adjudicate(
+        self,
+        claim: dict,
+        system_prompt: str,
+        source_passage: str = "",
+        prior: Optional[Phase1Result] = None,
+    ) -> _AdjudicationOutput:
+        import anthropic
+        client = anthropic.Anthropic(api_key=self.api_key)
+
+        tool_def = {
+            "name": "classify",
+            "description": "Classify claim accuracy",
+            "input_schema": _AdjudicationOutput.model_json_schema(),
+        }
+        prompt_lines = [
+            f"Claim: {claim.get('claim_text', '')}",
+            f"Claim type: {claim.get('claim_type', 'unknown')}",
+            "",
+            source_passage or "(no context provided)",
+        ]
+        if prior is not None:
+            prompt_lines.append("")
+            prompt_lines.append(f"First reviewer verdict: {prior.accuracy_category}")
+            prompt_lines.append(f"First reviewer reasoning: {prior.reasoning}")
+
+        resp = client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=system_prompt,
+            tools=[tool_def],
+            tool_choice={"type": "tool", "name": "classify"},
+            messages=[{"role": "user", "content": "\n".join(prompt_lines)}],
+        )
+        block = next((b for b in resp.content if b.type == "tool_use"), None)
+        if block is None:
+            raise RuntimeError("No tool_use block from Anthropic")
+        return _AdjudicationOutput.model_validate(block.input)
+
+
+class GoogleJudge(Judge):
+    def adjudicate(
+        self,
+        claim: dict,
+        system_prompt: str,
+        source_passage: str = "",
+        prior: Optional[Phase1Result] = None,
+    ) -> _AdjudicationOutput:
+        import google.generativeai as genai
+        genai.configure(api_key=self.api_key)
+        model = genai.GenerativeModel(self.model)
+
+        prompt_lines = [
+            system_prompt,
+            "",
+            f"Claim: {claim.get('claim_text', '')}",
+            f"Claim type: {claim.get('claim_type', 'unknown')}",
+            "",
+            source_passage or "(no context provided)",
+        ]
+        if prior is not None:
+            prompt_lines.append("")
+            prompt_lines.append(f"First reviewer verdict: {prior.accuracy_category}")
+            prompt_lines.append(f"First reviewer reasoning: {prior.reasoning}")
+        prompt_lines.append("")
+        prompt_lines.append(_response_schema_instruction())
+
+        resp = model.generate_content("\n\n".join(prompt_lines))
+        raw = resp.text.strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        try:
+            data = json.loads(raw)
+            return _AdjudicationOutput.model_validate(data)
+        except Exception:
+            # Best-effort regex fallback when the model produces malformed JSON
+            cat_match = re.search(r'"accuracy_category"\s*:\s*"([^"]+)"', raw)
+            reason_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', raw)
+            corr_match = re.search(r'"proposed_correction"\s*:\s*"([^"]+)"', raw)
+            return _AdjudicationOutput(
+                accuracy_category=cat_match.group(1) if cat_match else "Unverifiable",
+                reasoning=reason_match.group(1) if reason_match else "Could not parse response",
+                proposed_correction=corr_match.group(1) if corr_match else None,
+            )
+
+
+PROVIDER_REGISTRY: dict[str, type[Judge]] = {
+    "anthropic": AnthropicJudge,
+    "google": GoogleJudge,
+}
+
+
+def parse_qa_judges(env_value: str) -> list[dict]:
+    """Parse QA_JUDGES env var into a list of {name, provider, model} dicts.
+
+    Format: `name:provider:model,name:provider:model,...`
+    Example: `claude:anthropic:claude-sonnet-4-6,gemini:google:gemini-2.5-flash`
+    """
+    if not env_value:
+        return []
+    out: list[dict] = []
+    for chunk in env_value.split(","):
+        parts = chunk.strip().split(":")
+        if len(parts) != 3:
+            continue
+        out.append({
+            "name": parts[0].strip(),
+            "provider": parts[1].strip(),
+            "model": parts[2].strip(),
+        })
+    return out
+
+
+def _resolve_api_key(provider: str) -> Optional[str]:
+    """Map provider → API key from environment. Supports non-standard env var names."""
+    if provider == "anthropic":
+        return os.environ.get("ANTHROPIC_API_KEY")
+    if provider == "google":
+        # gemini-qa-agent is the literal lowercase-hyphenated name in ~/Research/.env
+        return (
+            os.environ.get("gemini-qa-agent")
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        )
+    if provider == "openai":
+        return os.environ.get("OPEN_AI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    return None
+
+
+def make_judge(name: str, judges_config: list[dict]) -> Optional[Judge]:
+    """Instantiate the named judge using the QA_JUDGES-parsed config.
+
+    Returns None when: name not present in config, provider unknown, or
+    API key for the provider is not available. Caller is responsible
+    for handling None (skip the phase, emit a status note).
+    """
+    for cfg in judges_config:
+        if cfg.get("name") != name:
+            continue
+        provider = cfg.get("provider", "")
+        cls = PROVIDER_REGISTRY.get(provider)
+        if cls is None:
+            return None
+        api_key = _resolve_api_key(provider)
+        if not api_key:
+            return None
+        return cls(name=cfg["name"], provider=provider, model=cfg["model"], api_key=api_key)
+    return None
+
+
+# ── Phase 1 — triage (Anthropic, all claims) ─────────────────────────────────
+
+def phase1_triage(
+    claims: list[dict],
+    judge: Judge,
+    ok_cats: set[str],
+    blockable: set[str],
+) -> list[Phase1Result]:
+    results: list[Phase1Result] = []
+    for i, claim in enumerate(claims):
+        cid = claim.get("claim_id", f"claim_{i}")
+        try:
+            user_context = _format_phase1_user_prompt(claim)
+            numeric_flag = flag_numeric_review(claim, blockable)
+            if numeric_flag:
+                user_context += "\n\n" + _numeric_review_instruction(numeric_flag)
+            out = judge.adjudicate(claim, system_prompt=_TRIAGE_SYSTEM, source_passage=user_context)
+            results.append(Phase1Result(
+                claim_id=cid,
+                accuracy_category=out.accuracy_category,
+                reasoning=out.reasoning,
+                is_ok=out.accuracy_category in ok_cats,
+            ))
+        except Exception as e:
+            results.append(Phase1Result(
+                claim_id=cid,
+                accuracy_category="Unverifiable",
+                reasoning=f"Phase 1 adjudication failed ({judge.name}): {e}",
+                is_ok=False,
+            ))
+    return results
+
+
+# ── Phase 2 — escalation (Gemini, high-weight Phase-1-not-OK only) ────────────
+
+def phase2_escalate(
+    traces: list[ClaimTrace],
+    sources: list[dict],
+    judge: Judge,
+    blockable: set[str],
+    ok_cats: set[str],
+    artifact: dict,
+) -> None:
+    """Mutates traces in-place, adding phase2 result for escalated claims.
+
+    Phase 2 context includes (a) every cited extract, (b) full snapshots of every cited
+    source, (c) the full briefing (exec summary + each item's display). Section labels
+    in the prompt signal that cited locations are the primary focus and briefing-wide
+    context is for triangulation only.
+    """
+    for trace in traces:
+        claim = trace.claim
+        p1 = trace.phase1
+        if p1 is None or p1.is_ok:
+            continue
+        if claim.get("claim_type") not in blockable and claim.get("claim_weight") != "high":
+            continue
+
+        user_context = _format_phase2_user_prompt(claim, sources, artifact)
+        # Phase 2 makes the block decision, so the explicit figure list belongs here
+        # too — not just in phase 1. Same detection and instruction as phase 1.
+        numeric_flag = flag_numeric_review(claim, blockable)
+        if numeric_flag:
+            user_context += "\n\n" + _numeric_review_instruction(numeric_flag)
+
+        try:
+            out = judge.adjudicate(
+                claim,
+                system_prompt=_ESCALATION_SYSTEM,
+                source_passage=user_context,
+                prior=p1,
+            )
+            trace.phase2 = Phase2Result(
+                claim_id=claim.get("claim_id", ""),
+                accuracy_category=out.accuracy_category,
+                reasoning=out.reasoning,
+                is_ok=out.accuracy_category in ok_cats,
+                proposed_correction=out.proposed_correction,
+            )
+        except Exception as e:
+            trace.phase2 = Phase2Result(
+                claim_id=claim.get("claim_id", ""),
+                accuracy_category="Unverifiable",
+                reasoning=f"Phase 2 adjudication failed ({judge.name}): {e}",
+                is_ok=False,
+                proposed_correction=None,
+            )
+
+
+# ── Fail-open guard ───────────────────────────────────────────────────────────
+
+def check_high_weight_unadjudicated(
+    traces: list[ClaimTrace], blockable: set[str], *, llm_expected: bool, p2_expected: bool = False
+) -> Optional[DeterministicCheck]:
+    """Guard against silent fail-open when judge review was expected but did not run.
+
+    A high-weight/blockable claim that the verdict depends on can slip through unreviewed
+    at two points:
+      - Phase 1 never ran (`llm_expected` but `phase1 is None`) — falls through to 'ok'.
+      - Phase 1 flagged it not-OK and Phase 2 never ran (`p2_expected` but `phase2 is
+        None`) — the block decision lives in Phase 2, so it silently downgrades to 'warn'.
+    Both happen on judge unavailability (missing API key, provider outage). This is a
+    general guard, not numeric-specific: every blockable type (budget, vote, legal, date,
+    name, …) shares the hole the numeric flag merely exposed.
+
+    Silent when review was not expected (--no-llm or no judge configured). Returns a
+    blocking check when such claims exist, else None. Its route='block' flips
+    release_verdict to 'block' unconditionally (like any block check); the non-zero exit
+    is gated by --enforce-verdict, matching the spine's report-don't-enforce mode.
+    """
+    if not llm_expected:
+        return None
+
+    def _is_high_weight(t: ClaimTrace) -> bool:
+        c = t.claim
+        return c.get("claim_type") in blockable or c.get("claim_weight") == "high"
+
+    unadjudicated: list[str] = []
+    for t in traces:
+        if not _is_high_weight(t):
+            continue
+        # Phase 1 never produced a verdict for this claim.
+        if t.phase1 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
+        # Phase 1 said not-OK and Phase 2 (where the block decision is made) didn't run.
+        elif p2_expected and not t.phase1.is_ok and t.phase2 is None:
+            unadjudicated.append(t.claim.get("claim_id", "<no-id>"))
+    if not unadjudicated:
+        return None
+    return DeterministicCheck(
+        check_id="high_weight_claims_unadjudicated",
+        status="fail", severity="high",
+        message=f"{len(unadjudicated)} high-weight claim(s) had no LLM review "
+                f"(a judge was expected but did not run); release cannot be verified",
+        route="block",
+        offending="; ".join(unadjudicated[:5]),
+        details={"unadjudicated_count": len(unadjudicated), "claim_ids": unadjudicated},
+    )
+
+
+# ── Routing ───────────────────────────────────────────────────────────────────
+
+def route(
+    det_checks: list[DeterministicCheck],
+    traces: list[ClaimTrace],
+    blockable: set[str],
+) -> tuple[str, str]:
+    """Return (status, reason) — 'Block' or 'OK'."""
+    for chk in det_checks:
+        if chk.route == "block" and chk.status == "fail":
+            return "Block", f"Deterministic check failed: {chk.check_id} — {chk.message}"
+
+    for trace in traces:
+        claim = trace.claim
+        if claim.get("claim_type") not in blockable and claim.get("claim_weight") != "high":
+            continue
+        if trace.phase2 is not None and not trace.phase2.is_ok:
+            return (
+                "Block",
+                f"High-weight claim {claim.get('claim_id')} not supported after Phase 2 review "
+                f"({trace.phase2.accuracy_category}): {trace.phase2.reasoning}"
+            )
+
+    return "OK", "All deterministic checks passed and no blockable claim failed Phase 2"
+
+
+def compute_release_verdict(
+    det_checks: list[DeterministicCheck],
+    traces: list[ClaimTrace],
+) -> str:
+    """Three-way verdict for downstream consumers: 'ok' | 'warn' | 'block'.
+
+    During the trial period, qa_validate.py reports the verdict but does not
+    enforce it (default exit 0). Downstream callers (the agent invoking
+    qa_validate.py, the Fargate runner) read this field and decide whether
+    to act on it.
+
+    Only routes 'block' and 'annotate' are verdict-bearing. A check emitting
+    route='diagnostic' is recorded in the bundle but never affects the verdict
+    (used by summary_source_coherence and claim_coverage); do not wire it in.
+    """
+    # block: any blocking deterministic failure OR any blockable/high-weight phase2 not-OK
+    for chk in det_checks:
+        if chk.route == "block" and chk.status == "fail":
+            return "block"
+    for trace in traces:
+        if trace.phase2 is not None and not trace.phase2.is_ok:
+            return "block"
+
+    # warn: any annotation-level finding OR any phase1 not-OK
+    for chk in det_checks:
+        if chk.route == "annotate" and chk.status in ("fail", "warning"):
+            return "warn"
+    for trace in traces:
+        if trace.phase1 is not None and not trace.phase1.is_ok:
+            return "warn"
+
+    return "ok"
+
+
+# ── Output ────────────────────────────────────────────────────────────────────
+
+def write_bundle(
+    bundle_path: Path,
+    artifact: dict,
+    spec: dict,
+    det_checks: list[DeterministicCheck],
+    traces: list[ClaimTrace],
+    status: str,
+    reason: str,
+    release_verdict: str,
+    judges_used: dict,
+    run_ts: str,
+) -> Path:
+    # Build a product_id from spec.product_id_template, substituting artifact fields.
+    template = spec.get("product_id_template") or "{briefing_type}"
+    raw_id = _format_safe(template, artifact)
+    product_id = raw_id.lower().replace(" ", "_")
+
+    bundle = {
+        "product_id": product_id,
+        "briefing_type": artifact.get("briefing_type") or spec.get("product_type") or "unknown",
+        "release_verdict": release_verdict,
+        "judges_used": judges_used,
+        "run_timestamp": run_ts,
+        "final_status": status,
+        "block_reason": reason if status == "Block" else None,
+        "deterministic_checks": [
+            {
+                "check_id": c.check_id,
+                "status": c.status,
+                "severity": c.severity,
+                "message": c.message,
+                "route": c.route,
+                "offending": c.offending or None,
+                "details": c.details,
+            }
+            for c in det_checks
+        ],
+        "claims": [
+            {
+                **trace.claim,
+                "phase1": {
+                    "accuracy_category": trace.phase1.accuracy_category,
+                    "reasoning": trace.phase1.reasoning,
+                    "is_ok": trace.phase1.is_ok,
+                } if trace.phase1 else None,
+                "phase2": {
+                    "accuracy_category": trace.phase2.accuracy_category,
+                    "reasoning": trace.phase2.reasoning,
+                    "is_ok": trace.phase2.is_ok,
+                    "proposed_correction": trace.phase2.proposed_correction,
+                } if trace.phase2 else None,
+                "final_route": trace.final_route,
+            }
+            for trace in traces
+        ],
+    }
+
+    bundle_path.write_text(json.dumps(bundle, indent=2, ensure_ascii=False))
+    return bundle_path
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "artifact",
+        type=Path,
+        help="Path to the artifact JSON (qa-spine-compliant shape)",
+    )
+    parser.add_argument(
+        "--product-spec",
+        default="",
+        help="Path to product spec JSON (default: meeting_briefing_product_spec.json)",
+    )
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Run deterministic checks only, skip LLM adjudication",
+    )
+    parser.add_argument(
+        "--bundle-out",
+        default="",
+        help="Path to write qa_bundle.json (default: <artifact_dir>/qa_bundle.json)",
+    )
+    parser.add_argument(
+        "--enforce-verdict",
+        action="store_true",
+        help=(
+            "Exit non-zero when release_verdict != 'ok' (1 on warn, 2 on block). "
+            "Default is non-blocking — script always exits 0 so callers can read "
+            "the verdict from qa_bundle.json and decide policy themselves."
+        ),
+    )
+    parser.add_argument(
+        "--check-urls",
+        dest="check_urls",
+        action="store_true",
+        default=None,
+        help=(
+            "Force-enable the HTTP liveness probe for cited/structured URLs "
+            "(spec.citation_paths inline citations UNION spec.url_check.url_paths "
+            "structured paths), overriding spec.url_check.enabled. By default the "
+            "check follows spec.url_check.enabled — when that is true it runs "
+            "without this flag. SSRF-hardened and advisory (never blocks)."
+        ),
+    )
+    parser.add_argument(
+        "--no-check-urls",
+        dest="check_urls",
+        action="store_false",
+        help=(
+            "Force-disable the URL liveness probe even when spec.url_check.enabled "
+            "is true (e.g. to keep an offline CI run from touching the network)."
+        ),
+    )
+    # Pin the tri-state default explicitly so "no flag = follow spec" (None) holds
+    # regardless of the registration order of --check-urls / --no-check-urls.
+    # (argparse lets the first-registered action's default win for a shared dest;
+    # --no-check-urls carries an implicit default=True that would otherwise leak.)
+    parser.set_defaults(check_urls=None)
+    args = parser.parse_args()
+
+    _load_env()
+
+    spec_path = Path(args.product_spec) if args.product_spec else None
+    spec = load_product_spec(spec_path)
+    blockable = blockable_types(spec)
+    ok_cats = ok_categories(spec)
+
+    # Parse QA_JUDGES env var → list of {name, provider, model}
+    judges_config = parse_qa_judges(os.environ.get("QA_JUDGES", ""))
+    judges_spec = spec.get("judges") or {}
+    judges_used: dict[str, Optional[dict]] = {"phase1": None, "phase2": None}
+
+    run_ts = datetime.now(timezone.utc).isoformat()
+    bundle_path = Path(args.bundle_out) if args.bundle_out else args.artifact.parent / "qa_bundle.json"
+
+    print(f"\n{'=' * 60}")
+    print(f"QA VALIDATION — {args.artifact}")
+    print(f"{'=' * 60}")
+
+    # 1. Load artifact
+    print("\n[1/4] Load artifact...")
+    artifact, load_checks = load_artifact(args.artifact)
+    if any(c.route == "block" and c.status == "fail" for c in load_checks):
+        write_bundle(
+            bundle_path, {}, spec, load_checks, [],
+            "Block", "Artifact not loadable",
+            release_verdict="block", judges_used=judges_used, run_ts=run_ts,
+        )
+        print("  HALT: Artifact not loadable")
+        print(f"\nrelease_verdict: block (non-blocking exit unless --enforce-verdict)")
+        sys.exit(2 if args.enforce_verdict else 0)
+
+    claims = artifact.get("claims") or []
+    sources = artifact.get("sources") or []
+    print(f"  Loaded: {len(artifact.get('items') or [])} item(s), "
+          f"{len(claims)} claim(s), {len(sources)} source(s)")
+
+    # 2. Deterministic
+    print("[2/4] Deterministic checks...")
+    det_checks = load_checks + run_deterministic(artifact, spec, check_urls=args.check_urls)
+    det_fails = [c for c in det_checks if c.status == "fail"]
+    det_warns = [c for c in det_checks if c.status == "warning"]
+    print(f"  {len(det_fails)} failures, {len(det_warns)} warnings")
+
+    traces = [ClaimTrace(claim=c) for c in claims]
+
+    # 3. Phase 1 — adjudicate every claim with the spec-declared judge
+    p1_name = judges_spec.get("phase1") or ""
+    if not args.no_llm and claims and p1_name:
+        p1_judge = make_judge(p1_name, judges_config)
+        if p1_judge is None:
+            print(f"[3/4] Phase 1 skipped — judge '{p1_name}' unavailable "
+                  f"(check QA_JUDGES env and provider API key)")
+        else:
+            print(f"[3/4] Phase 1 triage — {len(claims)} claims via {p1_judge}")
+            judges_used["phase1"] = {
+                "name": p1_judge.name, "provider": p1_judge.provider, "model": p1_judge.model,
+            }
+            p1_results = phase1_triage(claims, p1_judge, ok_cats, blockable)
+            # Attach positionally: phase1_triage returns exactly one result per claim in
+            # order, so this is robust to a missing or duplicate claim_id. A claim_id-keyed
+            # map would mis-attach (claim_id absent → phase1 falls to None), which the
+            # unadjudicated guard would then read as "never reviewed" and false-block.
+            for trace, result in zip(traces, p1_results):
+                trace.phase1 = result
+            not_ok = sum(1 for r in p1_results if not r.is_ok)
+            print(f"  Phase 1 done: {not_ok}/{len(p1_results)} claims not-OK")
+    else:
+        reason = "--no-llm" if args.no_llm else ("no claims" if not claims else "no judge in spec.judges.phase1")
+        print(f"[3/4] Phase 1 skipped ({reason})")
+
+    # 4. Phase 2 — escalate high-weight Phase-1-not-OK
+    high_not_ok = [
+        t for t in traces
+        if t.phase1 and not t.phase1.is_ok
+        and (t.claim.get("claim_type") in blockable or t.claim.get("claim_weight") == "high")
+    ]
+    p2_name = judges_spec.get("phase2") or ""
+    if not args.no_llm and high_not_ok and p2_name:
+        p2_judge = make_judge(p2_name, judges_config)
+        if p2_judge is None:
+            print(f"[4/4] Phase 2 skipped — judge '{p2_name}' unavailable "
+                  f"({len(high_not_ok)} claims need escalation)")
+        else:
+            print(f"[4/4] Phase 2 escalation — {len(high_not_ok)} high-weight not-OK via {p2_judge}")
+            judges_used["phase2"] = {
+                "name": p2_judge.name, "provider": p2_judge.provider, "model": p2_judge.model,
+            }
+            phase2_escalate(traces, sources, p2_judge, blockable, ok_cats, artifact)
+            blocked = sum(1 for t in traces if t.phase2 and not t.phase2.is_ok)
+            print(f"  Phase 2 done: {blocked}/{len(high_not_ok)} claims still not-OK after escalation")
+    else:
+        if args.no_llm:
+            reason = "--no-llm"
+        elif not high_not_ok:
+            reason = "no high-weight not-OK claims"
+        else:
+            reason = "no judge in spec.judges.phase2"
+        print(f"[4/4] Phase 2 skipped ({reason})")
+
+    # Assign final_route per claim
+    for trace in traces:
+        claim = trace.claim
+        ctype = claim.get("claim_type", "")
+        is_blockable = ctype in blockable or claim.get("claim_weight") == "high"
+        if trace.phase2 is not None and not trace.phase2.is_ok and is_blockable:
+            trace.final_route = "block"
+        elif trace.phase1 is not None and not trace.phase1.is_ok:
+            trace.final_route = "annotate"
+        else:
+            trace.final_route = "ok"
+
+    # 5. Route + release_verdict
+    # Fail-open guard: if a judge was expected (not --no-llm, judge configured) but a
+    # high-weight claim went unadjudicated — Phase 1 never ran, or Phase 1 flagged it
+    # not-OK and Phase 2 never ran — block rather than silently pass it.
+    llm_expected = (not args.no_llm) and bool(p1_name)
+    p2_expected = (not args.no_llm) and bool(p2_name)
+    unadjudicated_guard = check_high_weight_unadjudicated(
+        traces, blockable, llm_expected=llm_expected, p2_expected=p2_expected
+    )
+    if unadjudicated_guard is not None:
+        det_checks.append(unadjudicated_guard)
+    status, reason = route(det_checks, traces, blockable)
+    release_verdict = compute_release_verdict(det_checks, traces)
+
+    # 6. Write
+    write_bundle(
+        bundle_path, artifact, spec, det_checks, traces,
+        status, reason,
+        release_verdict=release_verdict, judges_used=judges_used, run_ts=run_ts,
+    )
+
+    # Summary
+    print(f"\n{'=' * 60}")
+    print(f"release_verdict: {release_verdict.upper()}")
+    if status == "Block":
+        print(f"Block reason: {reason}")
+    blocked_claims = sum(1 for t in traces if t.final_route == "block")
+    annotated_claims = sum(1 for t in traces if t.final_route == "annotate")
+    print(f"Claims: {len(traces)} total — {blocked_claims} blocked, {annotated_claims} annotated")
+    det_block_count = sum(1 for c in det_checks if c.route == "block" and c.status == "fail")
+    det_warn_count = sum(1 for c in det_checks if c.status in ("fail", "warning") and c.route == "annotate")
+    print(f"Deterministic: {det_block_count} block-level, {det_warn_count} annotation-level")
+    print(f"\nFull trace: {bundle_path}")
+
+    if args.enforce_verdict:
+        sys.exit({"ok": 0, "warn": 1, "block": 2}[release_verdict])
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
