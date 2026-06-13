@@ -599,6 +599,42 @@ describe('OrganizationsService', () => {
       })
     })
 
+    it('takes the district from the override but the ballot level from the position when both are set', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        overrideDistrictId: 'override-district-1',
+      })
+      mockGetPositionById.mockResolvedValue({
+        id: 'gp-pos-id',
+        name: 'US House',
+        level: 'FEDERAL',
+        district,
+      })
+      mockGetDistrict.mockResolvedValue({
+        id: 'override-district-1',
+        state: 'CA',
+        L2DistrictType: 'County',
+        L2DistrictName: 'San Diego county',
+      })
+
+      const result = await service.getDistrictAndBallotLevelForOrgSlug('poway')
+
+      expect(result).toEqual({
+        district: {
+          id: 'override-district-1',
+          state: 'CA',
+          l2Type: 'County',
+          l2Name: 'San Diego county',
+        },
+        ballotLevel: 'FEDERAL',
+      })
+      expect(mockGetPositionById).toHaveBeenCalledWith('gp-pos-id', {
+        includeDistrict: true,
+      })
+      expect(mockGetDistrict).toHaveBeenCalledWith('override-district-1')
+    })
+
     it('returns a null ballot level when the position has no level', async () => {
       mockFindUnique.mockResolvedValue({
         slug: 'poway',

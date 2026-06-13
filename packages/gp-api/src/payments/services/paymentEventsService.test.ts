@@ -26,7 +26,7 @@ describe('PaymentEventsService', () => {
   const slackService = { message: vi.fn() }
   const voterFileDownloadAccess = { downloadAccessAlert: vi.fn() }
   const organizationsService = {
-    getDistrictForOrgSlug: vi.fn(),
+    getDistrictAndBallotLevelForOrgSlug: vi.fn(),
     resolvePositionNameByOrganizationSlug: vi.fn(),
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }

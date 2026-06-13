@@ -56,10 +56,11 @@ export class VoterFileDownloadAccessService implements OnModuleInit {
     campaign: Campaign,
     user: User,
     district?: OrgDistrict | null,
+    authoritativeBallotLevel?: BallotReadyPositionLevel | null,
   ) {
     const canDownload = !campaign
       ? false
-      : await this.canDownload(campaign, district)
+      : await this.canDownload(campaign, district, authoritativeBallotLevel)
     if (!canDownload) {
       // alert Jared and Rob.
       const alertSlackMessage = `<@U01AY0VQFPE> and <@U03RY5HHYQ5>`

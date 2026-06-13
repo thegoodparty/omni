@@ -162,19 +162,23 @@ export class AdminCampaignsService {
     const districtResults = await Promise.allSettled(
       campaigns.map((c) =>
         c.organizationSlug
-          ? this.organizations.getDistrictForOrgSlug(c.organizationSlug)
+          ? this.organizations.getDistrictAndBallotLevelForOrgSlug(
+              c.organizationSlug,
+            )
           : null,
       ),
     )
 
-    return campaigns.filter(
-      (campaign, i) =>
-        !this.voterFileDownloadAccess.canDownload(
-          campaign,
-          districtResults[i].status === 'fulfilled'
-            ? districtResults[i].value
-            : null,
-        ),
-    )
+    return campaigns.filter((campaign, i) => {
+      const resolved =
+        districtResults[i].status === 'fulfilled'
+          ? districtResults[i].value
+          : null
+      return !this.voterFileDownloadAccess.canDownload(
+        campaign,
+        resolved?.district ?? null,
+        resolved?.ballotLevel ?? null,
+      )
+    })
   }
 }
