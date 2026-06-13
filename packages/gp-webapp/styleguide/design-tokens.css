@@ -385,9 +385,9 @@
   --color-lavender-500: #d7b2ff;
   --color-lavender-600: #cda1ff;
   --color-lavender-700: #9e6beb;
-  --color-lavender-800: #783dde;
+  --color-lavender-800: #652cc8;
   --color-lavender-900: #441e9f;
-  --color-lavender-950: #200b6a;
+  --color-lavender-950: #1a0e46;
   --color-midnight-50: #ecf5ff;
   --color-midnight-100: #d8e7f7;
   --color-midnight-200: #b4cef0;
@@ -933,65 +933,55 @@
    * BASE/THEME VARIABLES (from Figma theme tokens)
    * ========================================================================== */
   --base-foreground: var(--tw-neutral-950);
-  --base-background: #ffffff;
+  --base-background: var(--tw-white);
   --base-muted-foreground: var(--tw-neutral-500);
   --base-muted: var(--tw-neutral-100);
   --base-inactive: var(--tw-neutral-200);
   --base-border: var(--tw-neutral-300);
   --base-accent: var(--tw-neutral-100);
   --base-accent-foreground: var(--tw-neutral-950);
-  --base-surface: #ffffff;
+  --base-surface: var(--tw-white);
   --base-surface-foreground: var(--tw-neutral-950);
   --base-focus-ring: var(--tw-neutral-400);
-  --base-ring-offset: #ffffff;
-  --base-foreground-focus: color-mix(
-    in srgb,
-    var(--tw-neutral-400) 50%,
-    transparent
-  );
+  --base-ring-offset: var(--tw-white);
   --base-foreground-dark: #ffffff;
-  --base-foreground-dark-focus: color-mix(
-    in srgb,
-    var(--base-foreground-dark) 50%,
-    transparent
-  );
   --base-background-dark: var(--tw-neutral-950);
 
   /* ==========================================================================
    * THEME COLORS (from Figma theme tokens)
    * Semantic: main = 600 | light = 200 | dark = 900 (light mode)
    * ========================================================================== */
-  --theme-primary: var(--goodparty-blue-600);
-  --theme-primary-light: var(--goodparty-blue-200);
-  --theme-primary-dark: var(--goodparty-blue-900);
-  --theme-primary-foreground: #ffffff;
+  --theme-primary: var(--color-brand-blue-500);
+  --theme-primary-light: var(--color-brand-blue-100);
+  --theme-primary-dark: var(--color-brand-blue-950);
+  --theme-primary-foreground: var(--tw-white);
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--goodparty-blue-600) 30%,
+    var(--color-brand-blue-500) 30%,
     transparent
   );
-  --theme-secondary: var(--color-midnight-900);
-  --theme-secondary-light: var(--color-midnight-200);
-  --theme-secondary-dark: var(--color-midnight-900);
-  --theme-secondary-foreground: #ffffff;
+  --theme-secondary: var(--color-lavender-800);
+  --theme-secondary-light: var(--color-lavender-200);
+  --theme-secondary-dark: var(--color-lavender-950);
+  --theme-secondary-foreground: var(--tw-white);
   --theme-secondary-focus: color-mix(
     in srgb,
-    var(--color-midnight-900) 30%,
+    var(--color-lavender-800) 30%,
     transparent
   );
-  --theme-tertiary: var(--tw-slate-500);
+  --theme-tertiary: var(--tw-slate-800);
   --theme-tertiary-light: var(--tw-slate-200);
   --theme-tertiary-dark: var(--tw-slate-900);
-  --theme-tertiary-foreground: #ffffff;
+  --theme-tertiary-foreground: var(--tw-white);
   --theme-tertiary-focus: color-mix(
     in srgb,
-    var(--tw-slate-500) 30%,
+    var(--tw-slate-800) 30%,
     transparent
   );
   --theme-destructive: var(--tw-red-600);
   --theme-destructive-light: var(--tw-red-200);
   --theme-destructive-dark: var(--tw-red-900);
-  --theme-destructive-foreground: #ffffff;
+  --theme-destructive-foreground: var(--tw-white);
   --theme-destructive-focus: color-mix(
     in srgb,
     var(--tw-red-600) 30%,
@@ -1000,7 +990,7 @@
   --theme-success: var(--tw-green-600);
   --theme-success-light: var(--tw-green-200);
   --theme-success-dark: var(--tw-green-900);
-  --theme-success-foreground: #ffffff;
+  --theme-success-foreground: var(--tw-white);
   --theme-success-focus: color-mix(
     in srgb,
     var(--tw-green-600) 30%,
@@ -1009,27 +999,27 @@
   --theme-info: var(--tw-blue-600);
   --theme-info-light: var(--tw-blue-200);
   --theme-info-dark: var(--tw-blue-900);
-  --theme-info-foreground: #ffffff;
+  --theme-info-foreground: var(--tw-white);
   --theme-info-focus: color-mix(in srgb, var(--tw-blue-600) 30%, transparent);
   --theme-warning: var(--tw-orange-600);
   --theme-warning-light: var(--tw-orange-200);
   --theme-warning-dark: var(--tw-orange-900);
-  --theme-warning-foreground: #000000;
+  --theme-warning-foreground: var(--tw-black);
   --theme-warning-focus: color-mix(
     in srgb,
     var(--tw-orange-600) 30%,
     transparent
   );
-  --component-link: var(--tw-blue-500);
+  --component-link: var(--color-brand-blue-500);
 
   /* ==========================================================================
    * DATA/CHART COLORS (from Figma)
    * ========================================================================== */
-  --data-chart-1: #5975a6;
-  --data-chart-2: #cda1ff;
-  --data-chart-3: #63d1a0;
-  --data-chart-4: #ffc523;
-  --data-chart-5: #ff9364;
+  --data-chart-1: var(--color-midnight-400);
+  --data-chart-2: var(--color-lavender-600);
+  --data-chart-3: var(--color-halo-green-400);
+  --data-chart-4: var(--color-bright-yellow-600);
+  --data-chart-5: var(--color-waxflower-400);
 
   /* ==========================================================================
    * ALPHA TRANSPARENCY SCALE
@@ -1048,14 +1038,14 @@
   /* ==========================================================================
    * COMPONENT INPUT TOKENS (from Figma)
    * ========================================================================== */
-  --component-input-active: #2563eb;
+  --component-input-active: var(--color-brand-blue-500);
   --component-input-inactive: var(--tw-neutral-500);
-  --component-input-foreground: #ffffff;
-  --component-input-base: #ffffff;
-  --component-input-border: #d4d4d4;
+  --component-input-foreground: var(--tw-black);
+  --component-input-base: var(--tw-white);
+  --component-input-border: var(--tw-neutral-300);
   --component-input-focus: color-mix(
     in srgb,
-    var(--tw-blue-600) 30%,
+    var(--color-brand-blue-500) 30%,
     transparent
   );
   --component-input-inactive-focus: color-mix(
@@ -1067,24 +1057,25 @@
   /* ==========================================================================
    * COMPONENT TOOLTIP TOKENS (from Figma)
    * ========================================================================== */
-  --component-tooltip-base: #262626;
-  --component-tooltip-foreground: #ffffff;
+  --component-tooltip-base: var(--tw-neutral-800);
+  --component-tooltip-foreground: var(--tw-white);
 
   /* ==========================================================================
    * COMPONENT CARD TOKENS (from Figma)
    * ========================================================================== */
-  --component-card-base: #ffffff;
+  --component-card-base: var(--tw-white);
   --component-card-foreground: var(--tw-neutral-950);
+  --component-card-border: var(--tw-neutral-300);
 
   /* ==========================================================================
    * COMPONENT SIDEBAR TOKENS (from Figma)
    * ========================================================================== */
-  --component-sidebar-background: #fafafa;
+  --component-sidebar-background: var(--tw-neutral-50);
   --component-sidebar-foreground: var(--base-foreground); /* #0a0a0a */
   --component-sidebar-primary: #171717;
   --component-sidebar-primary-foreground: var(--base-background); /* #ffffff */
   --component-sidebar-accent: var(--base-accent); /* #f5f5f5 */
-  --component-sidebar-accent-foreground: #171717;
-  --component-sidebar-border: #e5e5e5;
+  --component-sidebar-accent-foreground: var(--tw-neutral-900);
+  --component-sidebar-border: var(--tw-neutral-200);
   --component-sidebar-ring: var(--theme-primary); /* #2563eb */
 }

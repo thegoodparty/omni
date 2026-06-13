@@ -33,7 +33,7 @@ const colorMap: Record<LegacyColor, ButtonProps['variant']> = {
   warning: 'destructive',
   error: 'destructive',
   neutral: 'secondary',
-  white: 'whiteOutline',
+  white: 'outline',
 }
 
 interface CopyToClipboardButtonProps {

@@ -44,7 +44,7 @@ export default function CloseConfirmModal({
         <div className="flex justify-center gap-4">
           <Button
             size="large"
-            variant="secondary"
+            variant="neutral"
             onClick={onCancel}
             {...continueTrackingAttrs}
           >

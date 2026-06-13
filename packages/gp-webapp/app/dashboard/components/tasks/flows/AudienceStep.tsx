@@ -291,7 +291,7 @@ export default function AudienceStep({
           <div className="col-span-6 text-left mt-6">
             <Button
               size="large"
-              variant="secondary"
+              variant="neutral"
               onClick={backCallback}
               {...backTrackingAttrs}
             >
@@ -301,7 +301,7 @@ export default function AudienceStep({
           <div className="col-span-6 text-right mt-6">
             <Button
               size="large"
-              variant="secondary"
+              variant="neutral"
               onClick={handleOnNext}
               disabled={isNextDisabled}
               loading={loading}

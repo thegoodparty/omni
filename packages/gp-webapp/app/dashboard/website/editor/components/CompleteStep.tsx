@@ -35,7 +35,7 @@ const CompleteStep = ({
         your website is live!
       </h3>
 
-      <Button variant="secondary" onClick={() => setShareModalOpen(true)}>
+      <Button variant="neutral" onClick={() => setShareModalOpen(true)}>
         Share
       </Button>
       {!domain ? (

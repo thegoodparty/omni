@@ -16,7 +16,7 @@ const DraftState = (): React.JSX.Element => {
       <StepList type="draft" />
       <Button
         asChild
-        variant="secondary"
+        variant="neutral"
         className="mt-12 w-full md:w-auto px-10"
       >
         <Link

@@ -48,7 +48,7 @@ const EmptyChat = (): React.JSX.Element => {
           {prompts.map((prompt) => (
             <Button
               key={prompt.label}
-              variant="secondary"
+              variant="neutral"
               size="small"
               onClick={() => handleClick(prompt)}
             >

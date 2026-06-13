@@ -98,7 +98,7 @@ export default function WebsiteVisits({
           </H5>
           <Body2 className="mt-1 text-gray-500 text-xs">Last 7 days</Body2>
         </div>
-        <Button variant="secondary" onClick={() => setModalOpen(true)}>
+        <Button variant="neutral" onClick={() => setModalOpen(true)}>
           Increase visitors
         </Button>
       </div>

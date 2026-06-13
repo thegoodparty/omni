@@ -489,9 +489,9 @@
   --color-brand-lavender-500: #d7b2ff;
   --color-brand-lavender-600: #cda1ff;
   --color-brand-lavender-700: #9e6beb;
-  --color-brand-lavender-800: #783dde;
+  --color-brand-lavender-800: #652cc8;
   --color-brand-lavender-900: #441e9f;
-  --color-brand-lavender-950: #200b6a;
+  --color-brand-lavender-950: #1a0e46;
 
   /* brand-waxflower (Figma: waxflower/50-950) */
   --color-brand-waxflower-50: #ffebd8;
@@ -552,9 +552,7 @@
   --color-base-surface-foreground: #0a0a0a;
   --color-base-focus-ring: #a3a3a3;
   --color-base-ring-offset: #ffffff;
-  --color-base-foreground-focus: rgba(163, 163, 163, 0.5);
   --color-base-foreground-dark: #ffffff;
-  --color-base-foreground-dark-focus: rgba(255, 255, 255, 0.5);
   --color-base-background-dark: #0a0a0a;
 
   /* ==========================================================================
@@ -573,6 +571,7 @@
    * ========================================================================== */
   --color-components-card-base: #ffffff;
   --color-components-card-foreground: #0a0a0a;
+  --color-components-card-border: var(--component-card-border);
   --color-components-input-active: #2563eb;
   --color-components-input-inactive: var(--component-input-inactive);
   --color-components-input-foreground: #ffffff;

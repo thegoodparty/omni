@@ -38,7 +38,7 @@ export default function DeadlineModal({
         </Body1>
 
         <div className="flex justify-center gap-4">
-          <Button asChild size="large" variant="secondary" {...trackingAttrs}>
+          <Button asChild size="large" variant="neutral" {...trackingAttrs}>
             <Link
               href={`mailto:${SUPPORT_EMAIL}?subject=Last minute ${type} request`}
               target="_blank"

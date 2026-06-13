@@ -152,7 +152,7 @@ export default function PrimaryResultModal({
               disabled={requestState.loading}
               onClick={() => onClose()}
               type="button"
-              variant="secondary"
+              variant="neutral"
               size="large"
               className="px-16"
             >

@@ -165,7 +165,7 @@ function Calendar({
           return (
             <Button
               variant="ghost"
-              size="xSmall"
+              size="small"
               className={cn(className)}
               {...props}
             />
@@ -175,7 +175,7 @@ function Calendar({
           return (
             <Button
               variant="ghost"
-              size="xSmall"
+              size="small"
               className={cn(className)}
               {...props}
             />

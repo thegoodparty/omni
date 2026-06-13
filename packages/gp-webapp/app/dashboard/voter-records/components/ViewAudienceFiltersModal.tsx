@@ -81,7 +81,7 @@ const ViewAudienceFiltersModal = ({
       ) : (
         <Button
           size={size}
-          variant="secondary"
+          variant="neutral"
           title="View Audience Filters"
           className={`flex gap-2 items-center ${className}`}
           onClick={onOpen}

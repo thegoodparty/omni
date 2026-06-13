@@ -160,7 +160,7 @@ export default function ScheduleStep({
         </div>
         <div className="mt-4 grid grid-cols-12 gap-4">
           <div className="col-span-6 text-left mt-6">
-            <Button size="large" variant="secondary" onClick={backCallback}>
+            <Button size="large" variant="neutral" onClick={backCallback}>
               Back
             </Button>
           </div>
@@ -168,7 +168,7 @@ export default function ScheduleStep({
             <Button
               loading={isLoading}
               size="large"
-              variant="secondary"
+              variant="neutral"
               onClick={handleNext}
               disabled={!canSubmit() || isLoading}
               {...trackingAttrs}

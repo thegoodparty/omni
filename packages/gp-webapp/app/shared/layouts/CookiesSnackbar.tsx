@@ -32,8 +32,8 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
           By continuing to browse this site, you consent to the use of cookies.
         </Body2>
         <Button
-          className="ml-6 self-center"
-          variant="whiteOutline"
+          className="ml-6 self-center border-white text-white hover:bg-white/5"
+          variant="outline"
           size="medium"
           onClick={handleAccept}
           data-testid="cookie-accept-btn"
