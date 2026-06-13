@@ -1,0 +1,36 @@
+{
+  "_fixture_note": "WS2 regression for the prior meeting_briefing completeness_floor silent-undercount bug. A briefing_ready artifact that carries a featured item but whose exec-summary overview field is empty/missing. Before the decouple, the hard-coded path produced overview_chars=0 and the floor either passed silently or warned for the wrong reason (a length shortfall) instead of naming the missing required field. After the decouple, completeness_floor walks spec-declared paths and reports a missing/empty required exec-summary overview while featured items exist. Synthetic and PII-free.",
+  "experiment_id": "meeting_briefing",
+  "briefing_type": "city_council_meeting",
+  "briefing_status": "briefing_ready",
+  "generated_at": "2026-05-30T00:00:00Z",
+  "official_name": "Fixture Official",
+  "meeting_name": "Town Council",
+  "location": "Town Hall",
+  "meeting_date": "2026-06-01",
+  "estimated_read_minutes": 5,
+  "executive_summary": {"lead_in": "The following items on your agenda require action:"},
+  "run_metadata": {
+    "agenda_packet_url": null,
+    "source_bundle_retrieved_at": "2026-05-30T00:00:00Z"
+  },
+  "items": [
+    {
+      "id": "item_001",
+      "item_number": "1",
+      "title": "Stadium Bond Authorization",
+      "tier": "featured",
+      "vote_required": true,
+      "tier_reason": ["vote_required"],
+      "display": {
+        "summary": "The council will vote to authorize a bond for the proposed stadium project at this meeting.",
+        "executive_summary_overview": null
+      },
+      "research": {"raw_context": [], "full_treatment": null}
+    }
+  ],
+  "claims": [],
+  "sources": [],
+  "required_data_points": [],
+  "disclosure": "Synthetic fixture for QA spine WS2 regression testing."
+}

@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://runbooks.goodparty.org/experiments/_schema/manifest.schema.json",
+  "title": "PMF Experiment Manifest",
+  "description": "Defines a single PMF experiment that the runner, dispatch Lambda, gp-api, and gp-webapp all consume from S3.",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "model",
+    "max_turns",
+    "timeout_seconds",
+    "input_schema",
+    "output_schema"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to the meta-schema. Lets editors (VSCode, JetBrains) auto-complete fields and show per-field descriptions on hover. Not consumed by runtime."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable identifier. Snake_case. Used in EXPERIMENT_ID env var, S3 paths, and as foreign key in ExperimentRun rows."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bump on every published change. Surfaced in index.json so consumers can detect drift."
+    },
+    "model": {
+      "type": "string",
+      "enum": ["sonnet", "opus", "haiku"],
+      "description": "Claude model the harness drives."
+    },
+    "max_turns": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Agent loop budget. Sonnet typically needs 25-50 for non-trivial experiments; 100 for multi-step web+databricks. Not strictly enforced — agent may exceed slightly."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 14400,
+      "description": "Wall-clock cap on the Fargate runner. After this, runner exits and emits `failed` callback. Default 1200 (20 min); 3000 for heavy multi-step."
+    },
+    "input_schema": {
+      "type": "object",
+      "description": "JSON Schema Draft-07 for the params dict the dispatcher passes the agent (PARAMS_JSON env var). Lambda validates the SQS message's params against this before launching Fargate. Replaces the older `required_params` field — supports types + patterns + constraints, not just key names."
+    },
+    "output_schema": {
+      "type": "object",
+      "description": "JSON Schema Draft-07 for the artifact JSON the agent writes to /workspace/output/<id>.json. The runner validates the artifact against this before publishing to s3://gp-agent-artifacts-{env}/{id}/{run_id}/artifact.json. Used for codegen of TS interfaces in gp-webapp."
+    },
+    "output_constraints": {
+      "type": "object",
+      "description": "Optional cross-field constraints on the output (array_length, equals, enums, ranges, exact_ids) the bare schema can't express.",
+      "additionalProperties": true
+    },
+    "system_prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50000,
+      "description": "Optional per-experiment system prompt for write-action experiments. Validation rules mirror pmf_engine/control_plane/manifest_loader.py::_validate_write_action_fields so a manifest that passes here also passes Lambda dispatch validation. Presence of this field (or `permission_mode`) is the dispatch-time discriminator that flags the experiment as write-action; the runner reads the field from the manifest body."
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": ["default", "bypassPermissions"],
+      "description": "Optional Claude Agent SDK permission mode for write-action experiments. The SDK supports `default | acceptEdits | plan | bypassPermissions`; only the two we've reviewed for the Fargate sandbox are allow-listed here. Presence of this field (or `system_prompt`) flags the experiment as write-action."
+    },
+    "allowed_external_tools": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "description": "Optional list of external tool names the runner harness exposes to the agent. Names match the Claude SDK's tool identifiers; the harness reads this from the manifest body. Independent of `system_prompt` / `permission_mode` — a read-action experiment may carry it too, so on its own it does not flag the experiment as write-action."
+    },
+    "scope": {
+      "type": "object",
+      "description": "Per-experiment broker scope: which Databricks tables the runner is allowed to query, and the per-query row cap. Omitted = no Databricks access (web-only experiment).",
+      "additionalProperties": false,
+      "required": ["allowed_tables", "max_rows"],
+      "properties": {
+        "allowed_tables": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]*\\.[a-z_][a-z0-9_]*\\.[a-z_][a-z0-9_]*$"
+          },
+          "description": "Fully-qualified Databricks table names (catalog.schema.table). Broker SQL rewriter rejects queries against tables not on this list."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "Per-query row cap enforced by the broker."
+        },
+        "data_required_unless": {
+          "type": "object",
+          "description": "Optional carve-out for the broker's publish-time anti-fabrication gate. By default, an experiment that declares allowed_tables must produce at least one successful Databricks query before its artifact can be published — protects against the agent fabricating output when data is unreachable. When this object is present and the artifact's named field carries one of the listed values, the broker skips that check. Typical use: a legitimate early-exit branch (e.g. meeting_briefing's awaiting_agenda placeholder when the next council meeting's agenda packet hasn't been published yet).",
+          "additionalProperties": false,
+          "required": ["field", "values"],
+          "properties": {
+            "field": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Top-level artifact field the broker reads to evaluate the carve-out (e.g. 'briefing_status')."
+            },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Values of the named field that exempt the artifact from the data-required check. Should match the output_schema's placeholder-branch enum (e.g. ['awaiting_agenda', 'no_meeting_found', 'error'])."
+            }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "description": "Optional runtime knobs for the agent harness. Omitted = harness defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_subagents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Opt-in for parallel research fan-out. When > 0, the harness wires a 'researcher' subagent (inheriting the parent's tools, model, permission mode, and broker MCP scope) and the parent may dispatch up to this many concurrently via the Agent tool to research independent items in parallel. 0 or omitted disables fan-out. The harness clamps to its own hard ceiling (20); higher values are reduced."
+        },
+        "max_thinking_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Extended-thinking control. Omitted = the bundled CLI default (thinking on), which generates reasoning tokens every turn and is the dominant wall-clock cost on long research+assemble runs. 0 = disable thinking entirely. > 0 = enable with that token budget. Lower/disable for mechanical, tool-heavy experiments where step-by-step reasoning isn't needed."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "districtInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "city", "l2DistrictType", "l2DistrictName"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "2-letter state code (e.g. NC)."
+        },
+        "city": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full city name (e.g. Fayetteville)."
+        },
+        "l2DistrictType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "L2 voter file column name for district (e.g. City_Ward)."
+        },
+        "l2DistrictName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "L2 district value to match (e.g. FAYETTEVILLE CITY WARD 2)."
+        }
+      }
+    }
+  }
+}

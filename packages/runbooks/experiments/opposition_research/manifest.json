@@ -1,0 +1,350 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "opposition_research",
+  "version": 9,
+  "model": "sonnet",
+  "max_turns": 30,
+  "timeout_seconds": 600,
+  "runtime": {
+    "max_parallel_subagents": 0,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opposition Research input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "race_id",
+      "user_email",
+      "user_full_name",
+      "campaign_strategy_context"
+    ],
+    "properties": {
+      "race_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it or look anything up with it."
+      },
+      "user_email": {
+        "type": "string",
+        "description": "The candidate's email. Used to mark is_user against the roster (exact match, case-insensitive + trimmed)."
+      },
+      "user_first_name": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "user_last_name": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "user_full_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The candidate we write FOR. Referred to as 'you' in output, never by name. Fallback for is_user when the email doesn't match a roster row."
+      },
+      "user_party_affiliation": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Party label, or null. 'Other' means the real value is in other_party."
+      },
+      "other_party": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "The candidate's party when user_party_affiliation == 'Other'."
+      },
+      "campaign_strategy_context": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is its only roster source besides web search. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.",
+        "required": [
+          "candidate_count",
+          "candidate_office",
+          "candidates"
+        ],
+        "properties": {
+          "candidate_count": {
+            "type": "integer"
+          },
+          "candidate_office": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "description": "Full seed roster (NOT pre-filtered). The agent marks the candidate via is_user and excludes them; it does not receive a pre-trimmed opponent list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "first_name",
+                "last_name",
+                "full_name"
+              ],
+              "properties": {
+                "gp_candidate_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "first_name": {
+                  "type": "string"
+                },
+                "last_name": {
+                  "type": "string"
+                },
+                "full_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "website_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "party": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_incumbent": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "contacts_needed_estimate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "filing_date_end": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "general_election_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number_of_seats": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "office_level": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "office_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "official_office_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "partisan_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Race partisan type from election-api (e.g. 'partisan' / 'nonpartisan'). 'nonpartisan' means the party labels are voter-registration noise, not the contest. May be null until election-api populates it. Not enum-constrained - election-api is the source of truth for the value."
+          },
+          "primary_election_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projected_turnout": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "relevant_election_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "win_number_effective": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "registered_voters": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "unique_cellphones": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "unique_landlines": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "campaign_primary_strategy_context": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "description": "The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.",
+        "required": [
+          "candidate_count",
+          "candidates"
+        ],
+        "properties": {
+          "candidate_count": {
+            "type": "integer"
+          },
+          "candidates": {
+            "type": "array",
+            "description": "The filed candidate roster for the primary stage of this race.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "first_name",
+                "last_name",
+                "full_name"
+              ],
+              "properties": {
+                "gp_candidate_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "first_name": {
+                  "type": "string"
+                },
+                "last_name": {
+                  "type": "string"
+                },
+                "full_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "website_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "party": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_incumbent": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opposition Research artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "opponents"
+    ],
+    "properties": {
+      "opponents": {
+        "type": "array",
+        "description": "Confirmed opponents running in this race (seed roster plus any web-confirmed late filers, candidate excluded). Empty array if uncontested. gp-api renders the campaign-plan Opposition Research section from this structured data.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "full_name",
+            "party_affiliation",
+            "incumbent"
+          ],
+          "properties": {
+            "full_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "party_affiliation": {
+              "type": "string",
+              "description": "Party name, 'Nonpartisan', or 'Unknown'."
+            },
+            "incumbent": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "true if known to be the incumbent, false if known not to be, null if unknown."
+            }
+          }
+        }
+      }
+    }
+  }
+}
