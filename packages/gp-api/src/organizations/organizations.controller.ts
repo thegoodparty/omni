@@ -61,6 +61,30 @@ const ListOrganizationsResponseSchema = z.object({
   organizations: z.array(APIOrganizationSchema),
 })
 
+// /admin/list returns each org plus an `extra` block. `campaign.details` is a
+// free-form JSON blob, so it's typed `unknown` to pass through unvalidated
+// rather than being stripped by the response interceptor.
+const AdminListOrganizationSchema = APIOrganizationSchema.extend({
+  extra: z.object({
+    positionName: z.string().nullable(),
+    hasDistrictOverride: z.boolean(),
+    owner: z.object({
+      id: z.number(),
+      email: z.string(),
+      firstName: z.string().nullable(),
+      lastName: z.string().nullable(),
+      phone: z.string().nullable(),
+    }),
+    campaign: z
+      .object({ id: z.number(), slug: z.string(), details: z.unknown() })
+      .nullable(),
+  }),
+})
+
+const AdminListOrganizationsResponseSchema = z.object({
+  organizations: z.array(AdminListOrganizationSchema),
+})
+
 const toAPIOrganization = (
   org: FriendlyOrganization,
   status: OrganizationStatus,
@@ -127,6 +151,7 @@ export class OrganizationsController {
   }
 
   @Get('/:slug')
+  @ResponseSchema(APIOrganizationSchema)
   async getOrganization(
     @Param('slug') slug: string,
     @ReqUser() user: User,
@@ -136,6 +161,7 @@ export class OrganizationsController {
   }
 
   @Patch('/:slug')
+  @ResponseSchema(APIOrganizationSchema)
   async patchOrganization(
     @Param('slug') slug: string,
     @ReqUser() user: User,
@@ -157,6 +183,7 @@ export class OrganizationsController {
   // with `slug = 'list'`).
   @Get('/admin/list')
   @UseGuards(AdminOrM2MGuard)
+  @ResponseSchema(AdminListOrganizationsResponseSchema)
   async adminListOrganizations(@Query() query: AdminListOrganizationsDto) {
     const organizations =
       await this.organizationsService.adminListOrganizations(query)
@@ -188,6 +215,7 @@ export class OrganizationsController {
 
   @Get('/admin/:slug')
   @UseGuards(AdminOrM2MGuard)
+  @ResponseSchema(APIOrganizationSchema)
   async adminGetOrganization(
     @Param('slug') slug: string,
   ): Promise<APIOrganization> {
@@ -197,6 +225,7 @@ export class OrganizationsController {
 
   @Patch('/admin/:slug')
   @UseGuards(AdminOrM2MGuard)
+  @ResponseSchema(APIOrganizationSchema)
   async adminPatchOrganization(
     @Param('slug') slug: string,
     @Body() updates: AdminPatchOrganizationDto,
