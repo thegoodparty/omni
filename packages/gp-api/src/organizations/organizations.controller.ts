@@ -45,27 +45,33 @@ import { pick } from 'es-toolkit'
 // makes the webapp (getCurrentUserOrganizations maps any non-ok to []) see zero
 // orgs and bounce the dashboard back into onboarding. So the display leaves are
 // nullable and only slug/status are guaranteed.
+// Everything is `.nullish()` (null OR absent) except slug + the derived status:
+// election-api omits these leaves entirely for some positions/districts (the
+// key is undefined, not null), and z.string().nullable() rejects undefined with
+// "Required" — which 500s the whole list. nullish accepts string | null |
+// undefined, matching the untyped shape that shipped before this endpoint was
+// response-validated.
 const APIOrganizationSchema = z.object({
   slug: z.string(),
-  name: z.string().nullable(),
-  positionName: z.string().nullable(),
+  name: z.string().nullish(),
+  positionName: z.string().nullish(),
   position: z
     .object({
-      id: z.string().nullable(),
-      state: z.string().nullable(),
-      brPositionId: z.string().nullable(),
+      id: z.string().nullish(),
+      state: z.string().nullish(),
+      brPositionId: z.string().nullish(),
     })
-    .nullable(),
+    .nullish(),
   district: z
     .object({
-      id: z.string().nullable(),
-      state: z.string().nullable(),
-      l2Type: z.string().nullable(),
-      l2Name: z.string().nullable(),
+      id: z.string().nullish(),
+      state: z.string().nullish(),
+      l2Type: z.string().nullish(),
+      l2Name: z.string().nullish(),
     })
-    .nullable(),
-  electedOfficeId: z.string().nullable(),
-  campaignId: z.number().nullable(),
+    .nullish(),
+  electedOfficeId: z.string().nullish(),
+  campaignId: z.number().nullish(),
   status: OrganizationStatusSchema,
 })
 

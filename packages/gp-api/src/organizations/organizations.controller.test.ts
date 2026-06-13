@@ -58,39 +58,34 @@ describe('GET /v1/organizations', () => {
     })
   })
 
-  it('still returns the org when election-api gives null position/district leaves', async () => {
+  it('still returns the org when election-api omits position/district leaves', async () => {
     const electionsService = service.app.get(ElectionsService)
-    // A real position with a district that has no L2 mapping yet — the response
-    // schema must tolerate these null leaves, or the whole list 500s and the
-    // dashboard bounces the user back into onboarding.
+    // A real position whose optional leaves are simply ABSENT (undefined), not
+    // null — this is what election-api actually returns. z.string().nullable()
+    // rejects undefined ("Required") and 500s the whole list, bouncing the
+    // dashboard back into onboarding; the schema must be nullish.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
-      id: 'pos-null',
-      brPositionId: null,
-      brDatabaseId: 'br-db-null',
-      state: null,
+      id: 'pos-sparse',
+      brDatabaseId: 'br-db-sparse',
       name: 'City Council',
+      // brPositionId + state intentionally absent
       district: {
-        id: 'dist-null',
-        state: null,
-        L2DistrictType: null,
-        L2DistrictName: null,
-        projectedTurnout: null,
+        id: 'dist-sparse',
+        // state + L2DistrictType + L2DistrictName intentionally absent
       },
-      // election-api isn't runtime-validated here; the leaves above are null in
-      // practice even though the TS type marks them required.
     } as unknown as Awaited<ReturnType<ElectionsService['getPositionById']>>)
 
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-5',
         ownerId: service.user.id,
-        positionId: 'pos-null',
+        positionId: 'pos-sparse',
       },
     })
     await service.prisma.campaign.create({
       data: {
         userId: service.user.id,
-        slug: 'null-leaf-campaign',
+        slug: 'sparse-leaf-campaign',
         details: { electionDate: '2026-11-03' },
         organizationSlug: 'campaign-5',
       },
@@ -103,8 +98,6 @@ describe('GET /v1/organizations', () => {
     expect(result.data.organizations[0]).toMatchObject({
       slug: 'campaign-5',
       campaignId: 5,
-      position: { id: 'pos-null', state: null, brPositionId: null },
-      district: { id: 'dist-null', l2Type: null, l2Name: null },
     })
   })
 
