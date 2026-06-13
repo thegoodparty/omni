@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useGlobals } from 'storybook/internal/preview-api'
+import { useGlobals } from 'storybook/preview-api'
 import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
 
 // design-tokens.css is the source of truth. The chain label under each swatch
