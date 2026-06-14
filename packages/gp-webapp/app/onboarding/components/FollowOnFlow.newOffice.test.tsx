@@ -199,4 +199,27 @@ describe('FollowOnFlow — new office', () => {
       ),
     )
   })
+
+  it('surfaces an error when the early-answers flush fails after creation', async () => {
+    // POST follow-on succeeds, but the follow-up updateCampaign flush rejects
+    // (updateCampaign returns false only when its clientFetch throws). The
+    // party / ballot answers must not be silently lost.
+    mockClientFetch.mockImplementation((endpoint: { path: string }) =>
+      endpoint.path.includes('races-by-year')
+        ? Promise.resolve({ data: [searchRace], ok: true } as never)
+        : Promise.reject(new Error('network')),
+    )
+
+    renderFlow()
+    await advanceToOfficeSelection()
+    fireEvent.click(await screen.findByRole('radio', { name: /cheyenne/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /something went wrong saving your answers/i,
+    )
+  })
 })

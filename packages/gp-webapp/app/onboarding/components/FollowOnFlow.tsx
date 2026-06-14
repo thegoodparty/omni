@@ -5,6 +5,7 @@ import { CircleAlert } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
@@ -167,6 +168,13 @@ export default function FollowOnFlow({
     boolean | null
   >(null)
   const isAdvancingRef = useRef(false)
+  // Early answers (party / ballot status) collected before the campaign
+  // exists. If the post-creation flush fails, they're parked here and retried
+  // on the next advance — Back is disabled after creation, so there's no other
+  // recovery path.
+  const pendingEarlyAttrsRef = useRef<{ key: string; value: string }[] | null>(
+    null,
+  )
 
   const ready = !eligibilityQuery.isPending && !organizationsQuery.isPending
 
@@ -233,9 +241,42 @@ export default function FollowOnFlow({
     void queryClient.invalidateQueries({ queryKey: ELIGIBILITY_QUERY_KEY })
   }
 
+  const buildEarlyAttrs = (): { key: string; value: string }[] => {
+    const attrs: { key: string; value: string }[] = []
+    if (answers.partyAffiliation) {
+      attrs.push({
+        key: 'details.party',
+        value: partyAffiliationToCampaignParty[answers.partyAffiliation],
+      })
+    }
+    if (answers.ballotStatus) {
+      attrs.push({ key: 'details.ballotStatus', value: answers.ballotStatus })
+    }
+    return attrs
+  }
+
+  // updateCampaign swallows errors and returns false (never throws), so a
+  // failed flush is invisible to the outer catch. Park the attrs for retry and
+  // surface the failure rather than silently losing party / ballot status.
+  const flushEarlyAttrs = async (
+    attrs: { key: string; value: string }[],
+  ): Promise<boolean> => {
+    if (attrs.length === 0) return true
+    const flushed = await updateCampaign(attrs)
+    if (flushed === false) {
+      pendingEarlyAttrsRef.current = attrs
+      setErrorMessage(
+        'Something went wrong saving your answers. Please try again.',
+      )
+      return false
+    }
+    pendingEarlyAttrsRef.current = null
+    return true
+  }
+
   // Creates the new campaign via the follow-on endpoint, sets it active, then
-  // flushes the early answers (party / ballot status) collected before
-  // creation. Returns false on failure so the caller can halt navigation.
+  // flushes the early answers collected before creation. Returns false on
+  // failure so the caller can halt navigation.
   const createFollowOnCampaign = async (): Promise<boolean> => {
     setIsCreating(true)
     setErrorMessage(null)
@@ -245,43 +286,36 @@ export default function FollowOnFlow({
         buildFollowOnPayload(answers),
       )
       setNewCampaignActive(campaign)
-
-      const earlyAttrs = []
-      if (answers.partyAffiliation) {
-        earlyAttrs.push({
-          key: 'details.party',
-          value: partyAffiliationToCampaignParty[answers.partyAffiliation],
-        })
-      }
-      if (answers.ballotStatus) {
-        earlyAttrs.push({
-          key: 'details.ballotStatus',
-          value: answers.ballotStatus,
-        })
-      }
-      if (earlyAttrs.length > 0) {
-        // updateCampaign swallows errors and returns false (never throws), so
-        // the outer catch can't see a failed flush — check it explicitly or the
-        // party / ballot-status answers are silently lost on the new campaign.
-        const flushed = await updateCampaign(earlyAttrs)
-        if (flushed === false) {
+      return await flushEarlyAttrs(buildEarlyAttrs())
+    } catch (error) {
+      // A retry after the campaign already exists (e.g. a page refresh dropped
+      // liveCampaign and re-fired creation) 409s server-side. Recover by
+      // resuming on the existing active campaign instead of dead-ending.
+      if (error instanceof FetchError && error.status === 409) {
+        try {
+          const { data: existing } = await clientRequest(
+            'GET /v1/campaigns/mine',
+            {},
+          )
+          setNewCampaignActive(existing)
+          return await flushEarlyAttrs(buildEarlyAttrs())
+        } catch (recoverError) {
+          reportErrorToSentry(recoverError, {
+            context: 'followOn.createFollowOnCampaign.recover409',
+            intent: answers.followOnIntent,
+          })
           setErrorMessage(
-            'Something went wrong saving your answers. Please go back and try again.',
+            'Something went wrong creating your campaign. Please try again.',
           )
           return false
         }
       }
-      return true
-    } catch (error) {
       reportErrorToSentry(error, {
         context: 'followOn.createFollowOnCampaign',
         intent: answers.followOnIntent,
       })
-      // The server re-checks eligibility and 400s a same-office request with no
-      // fromOrganizationSlug (reachable via direct URL). Surface it instead of
-      // leaving the user stuck on the step with no feedback.
       setErrorMessage(
-        'Something went wrong creating your campaign. Please go back and try again.',
+        'Something went wrong creating your campaign. Please try again.',
       )
       return false
     } finally {
@@ -355,6 +389,13 @@ export default function FollowOnFlow({
   }
 
   const runGoNext = async () => {
+    // Retry a previously failed early-attrs flush before advancing, so the
+    // parked party / ballot-status answers aren't lost on the new campaign.
+    if (pendingEarlyAttrsRef.current && liveCampaign) {
+      const ok = await flushEarlyAttrs(pendingEarlyAttrsRef.current)
+      if (!ok) return
+    }
+
     // Persist per-step edits once the new campaign exists (mirrors the
     // standard flow editing an existing campaign).
     if (

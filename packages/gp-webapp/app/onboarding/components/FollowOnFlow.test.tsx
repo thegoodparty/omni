@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { render, testQueryClient } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
 const eligibility = (reelectionOfficeSlug: string | null) => ({
@@ -121,6 +122,43 @@ describe('FollowOnFlow', () => {
     expect(
       await screen.findByRole('button', { name: /continue/i }),
     ).toBeDisabled()
+  })
+
+  it('recovers from a 409 by resuming on the existing campaign', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+    // A retry after the campaign already exists (e.g. a refresh re-fired
+    // creation): the server 409s, and the flow resumes on the existing
+    // campaign rather than dead-ending. 409 isn't in the typed mocker's status
+    // union, so register it as a raw handler.
+    mswServer.use(
+      http.post('/api/v1/campaigns/follow-on', () =>
+        HttpResponse.json(
+          { message: 'already has an active campaign' },
+          { status: 409 },
+        ),
+      ),
+    )
+    api.mock('GET /v1/campaigns/mine', {
+      status: 200,
+      data: { id: 99, slug: 'campaign-99' } as never,
+    })
+
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+
+    // Advances to the next step (welcome) with no error surfaced.
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /set up your new campaign/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('surfaces an error when follow-on creation fails', async () => {
