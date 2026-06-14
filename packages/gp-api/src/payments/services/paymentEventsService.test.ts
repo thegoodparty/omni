@@ -12,6 +12,7 @@ describe('PaymentEventsService', () => {
 
   const usersService = {
     findUser: vi.fn(),
+    findByCustomerId: vi.fn(),
     patchUserMetaData: vi.fn(),
   }
   const campaignsService = {
@@ -78,12 +79,20 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionCompletedEvent
 
+  const subscriptionResumedEvent = {
+    type: WebhookEventType.CustomerSubscriptionResumed,
+    data: {
+      object: { id: 'sub_resumed', customer: 'cus_test' },
+    },
+  } as unknown as Stripe.CustomerSubscriptionResumedEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
     purchaseService.completeCheckoutSession.mockResolvedValue({
       alreadyProcessed: false,
     })
     usersService.findUser.mockResolvedValue(mockUser)
+    usersService.findByCustomerId.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     campaignsService.findByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
@@ -208,6 +217,35 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('agentic compliance kickoff'),
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEvent — customer.subscription.resumed', () => {
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionResumedEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // Same server-authoritative requirement as the checkout-completed path:
+      // the resumed handler must not let details.ballotLevel decide the alert.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
     })
   })
 
