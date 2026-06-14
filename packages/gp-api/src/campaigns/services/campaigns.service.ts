@@ -37,6 +37,7 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
 import { objectNotEmpty } from 'src/shared/util/objects.util'
+import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
 import { UsersService } from 'src/users/services/users.service'
 import { getUserFullName } from 'src/users/util/users.util'
@@ -297,18 +298,18 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     body: CreateFollowOnCampaignBody,
     eligibility: Eligibility,
   ) {
-    const initialData = {
-      details: (body.details ?? {}) as PrismaJson.CampaignDetails,
-      data: body.data as PrismaJson.CampaignData | undefined,
-    }
-
     // Resolve the inherited position + Pro source before taking the lock, so
     // the serialized section is just the eligibility re-check + insert.
-    const { orgPosition, isPro } = await this.resolveFollowOnInputs(
-      user,
-      body,
-      eligibility,
-    )
+    const { orgPosition, isPro, electionDate } =
+      await this.resolveFollowOnInputs(user, body, eligibility)
+
+    const initialData = {
+      details: {
+        ...(body.details ?? {}),
+        ...(electionDate ? { electionDate } : {}),
+      } as PrismaJson.CampaignDetails,
+      data: body.data as PrismaJson.CampaignData | undefined,
+    }
 
     const newCampaign = await this.client.$transaction(async (tx) => {
       // The second concurrent request blocks here until the first commits,
@@ -345,6 +346,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       overrideDistrictId?: string
     }
     isPro: boolean
+    electionDate: string | null
   }> {
     if (body.intent === 'same-office') {
       if (!body.fromOrganizationSlug) {
@@ -379,6 +381,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           customPositionName: sourceOrg.customPositionName ?? undefined,
         },
         isPro: sourceOrg.electedOffice.campaign?.isPro ?? false,
+        // A re-election's next general date isn't known, so derive it from the
+        // held office's term-end boundary (itself derived from the position's
+        // election cadence). Without it the campaign has no electionDate and
+        // derive-on-read marks it "past" — mislabeling the switcher and leaving
+        // canStartCampaign true (unlimited duplicate re-elections).
+        electionDate:
+          toDateOnlyString(sourceOrg.electedOffice.termEndAt) ?? null,
       }
     }
 
@@ -391,6 +400,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         eligibility.reelectionOfficeSlug,
         user.id,
       ),
+      electionDate: null,
     }
   }
 
