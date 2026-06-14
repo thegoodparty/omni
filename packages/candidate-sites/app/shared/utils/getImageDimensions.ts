@@ -102,7 +102,10 @@ export async function getImageDimensionsServer(
 ): Promise<ImageDimensions> {
   try {
     const url = assertFetchableImageUrl(imageUrl)
-    const response = await fetch(url)
+    // redirect: 'error' closes the redirect-based SSRF bypass — without it an
+    // allowlisted host returning a 3xx to an internal/metadata endpoint would
+    // be followed past the host check above. Asset URLs are served directly.
+    const response = await fetch(url, { redirect: 'error' })
     if (!response.ok) {
       throw new Error(
         `Failed to fetch image: ${response.status} ${response.statusText}`,
