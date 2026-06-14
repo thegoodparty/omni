@@ -13,7 +13,14 @@ const intentStep: OnboardingStepConfig = {
   title: 'Are you running for re-election or a new office?',
   description:
     'Tell us whether this campaign is for the office you hold now or a different one.',
-  isValid: ({ answers }) => Boolean(answers.followOnIntent),
+  // same-office inherits the held office via fromOrganizationSlug, so block
+  // Continue without it (e.g. a direct ?intent=same-office URL with no ?from=)
+  // rather than firing a request the server will 400 — the user can recover by
+  // choosing new-office instead, since Back is disabled on this first step.
+  isValid: ({ answers }) =>
+    Boolean(answers.followOnIntent) &&
+    (answers.followOnIntent !== 'same-office' ||
+      Boolean(answers.fromOrganizationSlug)),
 }
 
 const sameOffice = ({

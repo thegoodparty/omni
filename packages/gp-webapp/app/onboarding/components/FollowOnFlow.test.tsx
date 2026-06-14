@@ -97,20 +97,35 @@ describe('FollowOnFlow', () => {
     })
   })
 
+  it('disables continue for same-office without a held-office slug', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+
+    // Direct ?intent=same-office URL with no ?from=: Continue must stay
+    // disabled rather than firing a request the server would 400 (Back is
+    // disabled on this first step, so there'd be no way out).
+    render(<FollowOnFlow intent="same-office" />)
+
+    expect(
+      await screen.findByRole('button', { name: /continue/i }),
+    ).toBeDisabled()
+  })
+
   it('surfaces an error when follow-on creation fails', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [heldOfficeOrg] },
     })
-    // Same-office with no fromOrganizationSlug: the server 400s. The user must
-    // not be left stuck on the step with no feedback.
     api.mock('POST /v1/campaigns/follow-on', {
-      status: 400,
-      data: { message: 'fromOrganizationSlug is required' },
+      status: 500,
+      data: { message: 'boom' },
     })
 
-    render(<FollowOnFlow intent="same-office" />)
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
 
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
 
