@@ -36,7 +36,9 @@ describe('CanDownloadVoterFileGuard', () => {
       client: { organization: { findFirst: mockOrgFindFirst } },
     } as unknown as CampaignsService
     organizationsService = {
-      getDistrictForOrgSlug: vi.fn().mockResolvedValue(null),
+      getDistrictAndBallotLevelForOrgSlug: vi
+        .fn()
+        .mockResolvedValue({ district: null, ballotLevel: null }),
     } as unknown as OrganizationsService
     voterFileDownloadAccess = {
       canDownload: vi.fn().mockReturnValue(true),
@@ -64,8 +66,12 @@ describe('CanDownloadVoterFileGuard', () => {
     expect(campaignsService.findFirst).toHaveBeenCalledWith({
       where: { organizationSlug: 'campaign-a', userId: 1 },
     })
+    expect(
+      organizationsService.getDistrictAndBallotLevelForOrgSlug,
+    ).toHaveBeenCalledWith('campaign-a')
     expect(voterFileDownloadAccess.canDownload).toHaveBeenCalledWith(
       campaignA,
+      null,
       null,
     )
   })

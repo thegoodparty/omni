@@ -139,15 +139,16 @@ export class PaymentEventsService {
     await Promise.allSettled([
       this.sendProSubscriptionResumedSlackMessage(user, campaign),
       (async () => {
-        const district = campaign.organizationSlug
-          ? await this.organizationsService.getDistrictForOrgSlug(
+        const { district, ballotLevel } = campaign.organizationSlug
+          ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
               campaign.organizationSlug,
             )
-          : null
+          : { district: null, ballotLevel: null }
         await this.voterFileDownloadAccess.downloadAccessAlert(
           campaign,
           user,
           district,
+          ballotLevel,
         )
       })(),
     ])
@@ -326,15 +327,16 @@ export class PaymentEventsService {
     const results = await Promise.allSettled([
       this.sendProSignUpSlackMessage(user, campaign),
       (async () => {
-        const district = campaign.organizationSlug
-          ? await this.organizationsService.getDistrictForOrgSlug(
+        const { district, ballotLevel } = campaign.organizationSlug
+          ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
               campaign.organizationSlug,
             )
-          : null
+          : { district: null, ballotLevel: null }
         await this.voterFileDownloadAccess.downloadAccessAlert(
           campaign,
           user,
           district,
+          ballotLevel,
         )
       })(),
     ])

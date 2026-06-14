@@ -32,12 +32,17 @@ export class CanDownloadVoterFileGuard implements CanActivate {
     ])
     if (!org || !campaign) return false
 
-    const district = campaign.organizationSlug
-      ? await this.organizationsService.getDistrictForOrgSlug(
+    const { district, ballotLevel } = campaign.organizationSlug
+      ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
           campaign.organizationSlug,
         )
-      : null
+      : { district: null, ballotLevel: null }
 
-    return Boolean(this.voterFileDownloadAccess.canDownload(campaign, district))
+    const result = this.voterFileDownloadAccess.canDownload(
+      campaign,
+      district,
+      ballotLevel,
+    )
+    return Boolean(result)
   }
 }

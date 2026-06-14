@@ -27,7 +27,7 @@ describe('PaymentEventsService', () => {
   const slackService = { message: vi.fn() }
   const voterFileDownloadAccess = { downloadAccessAlert: vi.fn() }
   const organizationsService = {
-    getDistrictForOrgSlug: vi.fn(),
+    getDistrictAndBallotLevelForOrgSlug: vi.fn(),
     resolvePositionNameByOrganizationSlug: vi.fn(),
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }
@@ -79,6 +79,13 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionCompletedEvent
 
+  const subscriptionResumedEvent = {
+    type: WebhookEventType.CustomerSubscriptionResumed,
+    data: {
+      object: { id: 'sub_resumed', customer: 'cus_test' },
+    },
+  } as unknown as Stripe.CustomerSubscriptionResumedEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
     purchaseService.completeCheckoutSession.mockResolvedValue({
@@ -124,6 +131,33 @@ describe('PaymentEventsService', () => {
         { pro: true },
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // The alert must judge eligibility by the server-determined level, not the
+      // user-editable details.ballotLevel.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
     })
 
     it('swallows analytics.track errors and continues the flow', async () => {
@@ -183,6 +217,35 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('agentic compliance kickoff'),
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEvent — customer.subscription.resumed', () => {
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionResumedEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // Same server-authoritative requirement as the checkout-completed path:
+      // the resumed handler must not let details.ballotLevel decide the alert.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
     })
   })
 
