@@ -286,4 +286,16 @@ describe('RacesService.findRaces — candidacy PII', () => {
     // Never a bare `true` — that would expand to all scalars incl. email.
     expect(args.include.Candidacies).toEqual({ omit: { email: true } })
   })
+
+  it('omits candidacy email on the select path too (raceColumns + includeCandidacies)', async () => {
+    await service.findRaces({
+      raceColumns: 'id',
+      includeCandidacies: true,
+    } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0][0]
+    // raceColumns present -> top-level `select`; the Candidacies relation still
+    // carries the omit so email never comes back.
+    expect(args.select.Candidacies).toEqual({ omit: { email: true } })
+  })
 })
