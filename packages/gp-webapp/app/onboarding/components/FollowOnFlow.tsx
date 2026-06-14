@@ -155,6 +155,7 @@ export default function FollowOnFlow({
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
   const [isP2vLoading, setIsP2vLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const isAdvancingRef = useRef(false)
 
   const ready = !eligibilityQuery.isPending && !organizationsQuery.isPending
@@ -221,6 +222,7 @@ export default function FollowOnFlow({
   // creation. Returns false on failure so the caller can halt navigation.
   const createFollowOnCampaign = async (): Promise<boolean> => {
     setIsCreating(true)
+    setErrorMessage(null)
     try {
       const { data: campaign } = await clientRequest(
         'POST /v1/campaigns/follow-on',
@@ -250,6 +252,12 @@ export default function FollowOnFlow({
         context: 'followOn.createFollowOnCampaign',
         intent: answers.followOnIntent,
       })
+      // The server re-checks eligibility and 400s a same-office request with no
+      // fromOrganizationSlug (reachable via direct URL). Surface it instead of
+      // leaving the user stuck on the step with no feedback.
+      setErrorMessage(
+        'Something went wrong creating your campaign. Please go back and try again.',
+      )
       return false
     } finally {
       setIsCreating(false)
@@ -350,8 +358,14 @@ export default function FollowOnFlow({
 
     if (activeStep.id === 'pledge') {
       if (!liveCampaign) return
+      setErrorMessage(null)
       const ok = await completePledge()
-      if (!ok) return
+      if (!ok) {
+        setErrorMessage(
+          'Something went wrong finishing your campaign. Please try again.',
+        )
+        return
+      }
       router.push('/dashboard')
       return
     }
@@ -406,6 +420,12 @@ export default function FollowOnFlow({
               </p>
             </div>
           )}
+
+          {errorMessage ? (
+            <Alert variant="destructive" icon={<CircleAlert />}>
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          ) : null}
 
           {activeStep.id === 'intent' && (
             <IntentStep

@@ -96,4 +96,61 @@ describe('FollowOnFlow', () => {
       fromOrganizationSlug: 'eo-1',
     })
   })
+
+  it('surfaces an error when follow-on creation fails', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+    // Same-office with no fromOrganizationSlug: the server 400s. The user must
+    // not be left stuck on the step with no feedback.
+    api.mock('POST /v1/campaigns/follow-on', {
+      status: 400,
+      data: { message: 'fromOrganizationSlug is required' },
+    })
+
+    render(<FollowOnFlow intent="same-office" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /something went wrong creating your campaign/i,
+    )
+  })
+
+  it('blocks continue on party affiliation when a major party is selected', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [] },
+    })
+
+    render(<FollowOnFlow intent="new-office" />)
+
+    const continueButton = await screen.findByRole('button', {
+      name: /continue/i,
+    })
+    // welcome -> ballot-status
+    fireEvent.click(continueButton)
+    fireEvent.click(await screen.findByLabelText(/officially on the ballot/i))
+    // ballot-status -> party-affiliation
+    fireEvent.click(continueButton)
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /party designation/i,
+      }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText(/democrat/i))
+    expect(continueButton).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /only for non-partisan and independent candidates/i,
+    )
+
+    fireEvent.click(screen.getByLabelText(/nonpartisan race/i))
+    expect(continueButton).toBeEnabled()
+  })
 })
