@@ -17,20 +17,19 @@ function makeContext(request: Record<string, unknown>): ExecutionContext {
 describe('S2SAuthGuard', () => {
   let guard: S2SAuthGuard
   let reflector: { getAllAndOverride: ReturnType<typeof vi.fn> }
-  const originalEnv = { ...process.env }
 
   beforeEach(() => {
     reflector = { getAllAndOverride: vi.fn().mockReturnValue(false) }
     guard = new S2SAuthGuard(reflector as unknown as Reflector)
-    process.env.PEOPLE_API_S2S_SECRET = SECRET
+    vi.stubEnv('PEOPLE_API_S2S_SECRET', SECRET)
   })
 
   afterEach(() => {
-    process.env = { ...originalEnv }
+    vi.unstubAllEnvs()
   })
 
   it('does NOT bypass auth for a spoofed Host: localhost from a non-loopback IP', () => {
-    process.env.S2S_ALLOW_LOCALHOST = 'true'
+    vi.stubEnv('S2S_ALLOW_LOCALHOST', 'true')
     const ctx = makeContext({
       headers: {},
       ip: '203.0.113.7',
@@ -40,7 +39,7 @@ describe('S2SAuthGuard', () => {
   })
 
   it('allows the localhost bypass only from the real loopback socket address', () => {
-    process.env.S2S_ALLOW_LOCALHOST = 'true'
+    vi.stubEnv('S2S_ALLOW_LOCALHOST', 'true')
     for (const ip of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
       const ctx = makeContext({ headers: {}, ip, hostname: 'evil.example.com' })
       expect(guard.canActivate(ctx)).toBe(true)
@@ -48,9 +47,19 @@ describe('S2SAuthGuard', () => {
   })
 
   it('does not bypass from loopback when S2S_ALLOW_LOCALHOST is off', () => {
-    delete process.env.S2S_ALLOW_LOCALHOST
+    vi.stubEnv('S2S_ALLOW_LOCALHOST', undefined)
     const ctx = makeContext({ headers: {}, ip: '127.0.0.1', hostname: 'x' })
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException)
+  })
+
+  it('treats non-truthy S2S_ALLOW_LOCALHOST values as off', () => {
+    // 'false1' specifically guards the alternation-precedence regex fix —
+    // the old /^true|1|yes$/ matched any string containing '1'.
+    for (const value of ['false', '0', 'no', 'false1']) {
+      vi.stubEnv('S2S_ALLOW_LOCALHOST', value)
+      const ctx = makeContext({ headers: {}, ip: '127.0.0.1' })
+      expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException)
+    }
   })
 
   it('accepts a valid Bearer token regardless of host/ip', () => {

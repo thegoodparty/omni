@@ -61,7 +61,9 @@ export class S2SAuthGuard implements CanActivate {
     // (CWE-290).
     if (
       process.env.S2S_ALLOW_LOCALHOST &&
-      /^true|1|yes$/i.test(process.env.S2S_ALLOW_LOCALHOST) &&
+      // Anchored group — without the parens the alternation binds as
+      // (^true)|(1)|(yes$), so e.g. `false1` would wrongly enable the bypass.
+      /^(true|1|yes)$/i.test(process.env.S2S_ALLOW_LOCALHOST) &&
       (request.ip === '127.0.0.1' ||
         request.ip === '::1' ||
         request.ip === '::ffff:127.0.0.1')
