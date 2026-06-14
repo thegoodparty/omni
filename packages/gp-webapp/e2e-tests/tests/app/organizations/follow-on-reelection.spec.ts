@@ -67,7 +67,26 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   const eoSlug = electedOfficeOrg.slug
   const campaignSlugsBefore = await getCampaignOrgSlugs(client)
 
-  // 1–2: open the switcher and start the re-election flow.
+  // A held-office user is only eligible for re-election once the prior campaign
+  // is concluded. setupElectedOfficeUser navigates straight to the result screen
+  // and wins on a freshly launched campaign whose electionDate is still in the
+  // future, and "I won my race" sets only details.wonGeneral (never the didWin
+  // column) — so the won campaign still reads "active" and canStartCampaign stays
+  // false, hiding the action. Backdate its electionDate (the production state
+  // once the election has happened) so eligibility opens up; this also makes the
+  // won campaign org read "Past". PUT /v1/campaigns/mine merges details, so only
+  // electionDate changes.
+  const wonCampaignSlug = campaignSlugsBefore[0]
+  if (!wonCampaignSlug) throw new Error('No won campaign org found after setup')
+  client.defaults.headers.common['x-organization-slug'] = wonCampaignSlug
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: '2020-11-03' },
+  })
+  client.defaults.headers.common['x-organization-slug'] = eoSlug
+
+  // 1–2: reload so the picker's eligibility query refetches, then open the
+  // switcher and start the re-election flow.
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
   await openSwitcher(page)
   const reelectionAction = page.getByRole('menuitem', {
