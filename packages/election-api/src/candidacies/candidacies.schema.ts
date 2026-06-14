@@ -4,14 +4,23 @@ import { toUpper } from 'src/shared/util/strings.util'
 import { z } from 'zod'
 import { Prisma } from '../generated/prisma'
 
-export const candidacyColumns = Object.values(
-  Prisma.CandidacyScalarFieldEnum,
-) as (keyof typeof Prisma.CandidacyScalarFieldEnum)[]
+// Candidate PII that must never be selectable on this public, unauthenticated
+// endpoint. `email` is personal contact data — exposing it lets anyone page
+// through candidacies and harvest addresses in bulk (CWE-306). It is kept out
+// of both the column allowlist (below) and the default response (via `omit` in
+// candidacies.service.ts).
+export const CANDIDACY_PII_COLUMNS: readonly string[] = ['email']
+
+export const candidacyColumns = (
+  Object.values(
+    Prisma.CandidacyScalarFieldEnum,
+  ) as (keyof typeof Prisma.CandidacyScalarFieldEnum)[]
+).filter((col) => !CANDIDACY_PII_COLUMNS.includes(col))
 const raceColumns = Object.values(
   Prisma.RaceScalarFieldEnum,
 ) as (keyof typeof Prisma.RaceScalarFieldEnum)[]
 
-const candidacyFilterSchema = z
+export const candidacyFilterSchema = z
   .object({
     state: z
       .preprocess(toUpper, z.string())
