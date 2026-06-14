@@ -16,7 +16,7 @@ export const listElectedOffices = async (
   userId: number
 ): Promise<PaginatedList<ElectedOffice>> => {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')
   }
   return gpAction(async (client) => {
@@ -26,7 +26,7 @@ export const listElectedOffices = async (
 
 export const getElectedOffice = async (id: string): Promise<ElectedOffice> => {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')
   }
   return gpAction(async (client) => await client.electedOffices.get(id))
@@ -38,7 +38,7 @@ export const updateElectedOffice = async (
   input: UpdateElectedOfficeInput
 ): Promise<ElectedOffice> => {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
     throw new Error('Missing write_campaigns permission')
   }
   return gpAction(async (client) => {

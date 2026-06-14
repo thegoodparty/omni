@@ -51,6 +51,17 @@ describe('listCampaigns', () => {
     expect(mockList).not.toHaveBeenCalled()
   })
 
+  it('throws a clean permission error (not a TypeError) when unauthenticated', async () => {
+    // Clerk auth() returns has: null for an unauthenticated session; the guard
+    // must use has?.() so a direct Next-Action POST without a session fails
+    // closed instead of throwing "has is not a function".
+    mockAuth.mockReturnValue(makeAuthResult({ has: null }))
+    await expect(listCampaigns(1)).rejects.toThrow(
+      'Missing read_campaigns permission'
+    )
+    expect(mockList).not.toHaveBeenCalled()
+  })
+
   it('checks the READ_CAMPAIGNS permission', async () => {
     await listCampaigns(1)
     expect(mockHas).toHaveBeenCalledWith({

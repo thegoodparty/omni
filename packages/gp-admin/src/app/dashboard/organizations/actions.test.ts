@@ -42,6 +42,15 @@ describe('getOrganization', () => {
     expect(mockGet).not.toHaveBeenCalled()
   })
 
+  it('throws a clean permission error (not a TypeError) when unauthenticated', async () => {
+    // Clerk auth() returns has: null for an unauthenticated session.
+    mockAuth.mockReturnValue(makeAuthResult({ has: null }))
+    await expect(getOrganization('org-1')).rejects.toThrow(
+      'Missing read_campaigns permission'
+    )
+    expect(mockGet).not.toHaveBeenCalled()
+  })
+
   it('checks the READ_CAMPAIGNS permission', async () => {
     await getOrganization('org-1')
     expect(mockHas).toHaveBeenCalledWith({

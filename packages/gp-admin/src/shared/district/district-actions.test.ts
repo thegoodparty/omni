@@ -62,6 +62,15 @@ describe('fetchDistrictTypes', () => {
     expect(mockListTypes).not.toHaveBeenCalled()
   })
 
+  it('throws a clean permission error (not a TypeError) when unauthenticated', async () => {
+    // Clerk auth() returns has: null for an unauthenticated session.
+    mockAuth.mockReturnValue(makeAuthResult({ has: null }))
+    await expect(fetchDistrictTypes('CA', 2026)).rejects.toThrow(
+      'Missing read_campaigns permission'
+    )
+    expect(mockListTypes).not.toHaveBeenCalled()
+  })
+
   it('checks the READ_CAMPAIGNS permission', async () => {
     await fetchDistrictTypes('CA', 2026)
     expect(mockHas).toHaveBeenCalledWith({

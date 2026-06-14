@@ -15,7 +15,7 @@ export async function fetchDistrictTypes(
   excludeInvalid?: boolean
 ): Promise<DistrictTypeItem[]> {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')
   }
   return gpAction(async (client) => {
@@ -34,7 +34,7 @@ export async function fetchDistrictNames(
   excludeInvalid?: boolean
 ): Promise<DistrictNameItem[]> {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')
   }
   return gpAction(async (client) => {
@@ -54,7 +54,7 @@ export async function updateCampaignDistrict(
   userId: number
 ): Promise<void> {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
     throw new Error('Missing write_campaigns permission')
   }
   await gpAction(async (client) => {
@@ -74,7 +74,7 @@ export async function updateElectedOfficeDistrict(
   userId: number
 ): Promise<void> {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
     throw new Error('Missing write_campaigns permission')
   }
   await gpAction(async (client) => {

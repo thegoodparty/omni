@@ -13,7 +13,7 @@ export async function getOrganization(
   slug: string
 ): Promise<Organization | null> {
   const { has } = await auth()
-  if (!has({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')
   }
   return gpAction(async (client) => {
