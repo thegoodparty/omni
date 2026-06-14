@@ -1,9 +1,37 @@
+import { ALLOWED_IMAGE_HOSTS } from './allowedImageHosts'
+
 /**
  * Interface for image dimensions
  */
 export interface ImageDimensions {
   width: number
   height: number
+}
+
+/**
+ * Validates a user-controlled image URL before the server fetches it.
+ *
+ * The candidate's image URL is attacker-controllable, so an unguarded
+ * server-side `fetch` is a blind-SSRF sink (CWE-918): a URL like
+ * `http://169.254.169.254/latest/meta-data/` would coerce the server into
+ * hitting internal/metadata endpoints. Only allow https to the known asset
+ * hosts; an IP literal or internal host is never in the allowlist, so every
+ * SSRF target is rejected here.
+ */
+function assertFetchableImageUrl(imageUrl: string): URL {
+  let url: URL
+  try {
+    url = new URL(imageUrl)
+  } catch {
+    throw new Error('Invalid image URL')
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(`Refusing to fetch image over ${url.protocol} (https only)`)
+  }
+  if (!(ALLOWED_IMAGE_HOSTS as readonly string[]).includes(url.hostname)) {
+    throw new Error(`Refusing to fetch image from disallowed host`)
+  }
+  return url
 }
 
 /**
@@ -73,7 +101,8 @@ export async function getImageDimensionsServer(
   imageUrl: string,
 ): Promise<ImageDimensions> {
   try {
-    const response = await fetch(imageUrl)
+    const url = assertFetchableImageUrl(imageUrl)
+    const response = await fetch(url)
     if (!response.ok) {
       throw new Error(
         `Failed to fetch image: ${response.status} ${response.statusText}`,
