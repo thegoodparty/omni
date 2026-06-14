@@ -9,10 +9,9 @@ describe('CandidaciesService.getCandidacies', () => {
   beforeEach(() => {
     findMany = vi.fn().mockResolvedValue([])
     service = new CandidaciesService()
-    // The base class reads the delegate from `_prisma[modelName]`.
-    ;(service as unknown as { _prisma: unknown })._prisma = {
-      candidacy: { findMany },
-    }
+    Object.defineProperty(service, '_prisma', {
+      value: { candidacy: { findMany } },
+    })
   })
 
   it('omits the email PII field on the default (no-columns) response', async () => {
@@ -26,6 +25,19 @@ describe('CandidaciesService.getCandidacies', () => {
       omit: { email: true },
       include: undefined,
     })
+  })
+
+  it('still omits email when stances/race are included (no columns)', async () => {
+    await service.getCandidacies({
+      includeStances: true,
+      includeRace: true,
+    } as CandidacyFilterDto)
+
+    const args = findMany.mock.calls[0][0]
+    expect(args.omit).toEqual({ email: true })
+    // include is populated for the relations, but email is still omitted.
+    expect(args.include).toBeDefined()
+    expect(args.select).toBeUndefined()
   })
 
   it('selects only the requested non-PII columns when columns are provided', async () => {

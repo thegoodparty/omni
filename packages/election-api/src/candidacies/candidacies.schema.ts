@@ -9,13 +9,17 @@ import { Prisma } from '../generated/prisma'
 // through candidacies and harvest addresses in bulk (CWE-306). It is kept out
 // of both the column allowlist (below) and the default response (via `omit` in
 // candidacies.service.ts).
-export const CANDIDACY_PII_COLUMNS: readonly string[] = ['email']
+// Typed against the field enum so a typo (e.g. 'Email') fails the build rather
+// than silently leaving PII selectable.
+export const CANDIDACY_PII_COLUMNS = [
+  'email',
+] satisfies (keyof typeof Prisma.CandidacyScalarFieldEnum)[]
 
 export const candidacyColumns = (
   Object.values(
     Prisma.CandidacyScalarFieldEnum,
   ) as (keyof typeof Prisma.CandidacyScalarFieldEnum)[]
-).filter((col) => !CANDIDACY_PII_COLUMNS.includes(col))
+).filter((col) => !(CANDIDACY_PII_COLUMNS as readonly string[]).includes(col))
 const raceColumns = Object.values(
   Prisma.RaceScalarFieldEnum,
 ) as (keyof typeof Prisma.RaceScalarFieldEnum)[]
