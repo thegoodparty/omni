@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { RacesService } from './races.service'
+import { RaceFilterDto } from './races.schema'
 
 describe('RacesService.findFilingFeeByBrHashId', () => {
   let service: RacesService
@@ -263,5 +264,38 @@ describe('RacesService.findFrequencyByBrHashId', () => {
     const result = await service.findFrequencyByBrHashId('Z2lk-staggered')
 
     expect(result.frequency).toEqual([2, 4])
+  })
+})
+
+describe('RacesService.findRaces — candidacy PII', () => {
+  let service: RacesService
+  let raceFindMany: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    raceFindMany = vi.fn().mockResolvedValue([{ id: 'race-1' }])
+    service = new RacesService({} as PrismaService)
+    Object.defineProperty(service, '_prisma', {
+      value: { race: { findMany: raceFindMany } },
+    })
+  })
+
+  it('omits candidacy email when including candidacies with no explicit columns', async () => {
+    await service.findRaces({ includeCandidacies: true } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0][0]
+    // Never a bare `true` — that would expand to all scalars incl. email.
+    expect(args.include.Candidacies).toEqual({ omit: { email: true } })
+  })
+
+  it('omits candidacy email on the select path too (raceColumns + includeCandidacies)', async () => {
+    await service.findRaces({
+      raceColumns: 'id',
+      includeCandidacies: true,
+    } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0][0]
+    // raceColumns present -> top-level `select`; the Candidacies relation still
+    // carries the omit so email never comes back.
+    expect(args.select.Candidacies).toEqual({ omit: { email: true } })
   })
 })

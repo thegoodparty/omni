@@ -209,8 +209,13 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
     candidacyColumns: string | undefined | null,
     includeCandidacies: boolean | undefined | null,
   ) {
-    if (!candidacyColumns) return true
     if (!includeCandidacies) return true
+
+    // No explicit columns: include every candidacy scalar EXCEPT PII. Never
+    // return bare `true` here — that expands to all columns and would leak
+    // candidate emails through GET /races?includeCandidacies=true (CWE-306),
+    // the same hole closed in candidacies.service.ts.
+    if (!candidacyColumns) return { omit: { email: true } }
 
     return {
       select: buildColumnSelect(candidacyColumns) as Prisma.CandidacySelect,
