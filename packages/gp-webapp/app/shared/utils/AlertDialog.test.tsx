@@ -132,16 +132,16 @@ describe('AlertDialog', () => {
     expect(defaultProps.handleClose).not.toHaveBeenCalled()
   })
 
-  it('applies button-destructive class when redButton is true (default)', () => {
+  it('applies destructive variant when redButton is true (default)', () => {
     render(<AlertDialog {...defaultProps} />)
     const proceedBtn = screen.getByRole('button', { name: 'Proceed' })
-    expect(proceedBtn.className).toMatch(/button-destructive/)
+    expect(proceedBtn.className).toMatch(/bg-destructive/)
   })
 
-  it('applies button-primary class when redButton is false', () => {
+  it('applies primary variant when redButton is false', () => {
     render(<AlertDialog {...defaultProps} redButton={false} />)
     const proceedBtn = screen.getByRole('button', { name: 'Proceed' })
-    expect(proceedBtn.className).toMatch(/button-primary/)
-    expect(proceedBtn.className).not.toMatch(/button-destructive/)
+    expect(proceedBtn.className).toMatch(/bg-primary/)
+    expect(proceedBtn.className).not.toMatch(/bg-destructive/)
   })
 })

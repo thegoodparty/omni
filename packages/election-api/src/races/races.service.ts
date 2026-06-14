@@ -158,6 +158,41 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
     }
   }
 
+  /**
+   * Resolve a position's election cadence (`Race.frequency`, an Int[] of
+   * inter-election year gaps) and the matched race's election day, keyed by
+   * the BallotReady race hash gp-api persists on `campaign.details.raceId`.
+   * Mirrors `findFilingFeeByBrHashId`'s by-hash lookup — `brHashId` isn't
+   * unique, so order general → primary → runoff for a deterministic pick.
+   *
+   * Returns empty frequency + null date for "no match" so the consumer can
+   * treat a missing race and a race with no cadence identically.
+   */
+  async findFrequencyByBrHashId(
+    brHashId: string,
+  ): Promise<{ frequency: number[]; electionDate: string | null }> {
+    const races = await this.model.findMany({
+      where: { brHashId },
+      select: {
+        frequency: true,
+        electionDate: true,
+      },
+      orderBy: [
+        { isPrimary: { sort: 'asc', nulls: 'last' } },
+        { isRunoff: { sort: 'asc', nulls: 'last' } },
+      ],
+      take: 1,
+    })
+    const race = races[0]
+    if (!race) {
+      return { frequency: [], electionDate: null }
+    }
+    return {
+      frequency: race.frequency,
+      electionDate: race.electionDate ? race.electionDate.toISOString() : null,
+    }
+  }
+
   private buildPlaceInclude(
     placeColumns: string | undefined | null,
     includePlace: boolean | undefined | null,

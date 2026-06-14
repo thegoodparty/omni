@@ -16,7 +16,7 @@ describe('PaymentEventsService', () => {
     patchUserMetaData: vi.fn(),
   }
   const campaignsService = {
-    findByUserId: vi.fn(),
+    findActiveByUserId: vi.fn(),
     patchCampaignDetails: vi.fn(),
     setIsPro: vi.fn(),
   }
@@ -94,7 +94,7 @@ describe('PaymentEventsService', () => {
     usersService.findUser.mockResolvedValue(mockUser)
     usersService.findByCustomerId.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
-    campaignsService.findByUserId.mockResolvedValue(mockCampaign)
+    campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
     campaignsService.setIsPro.mockResolvedValue(undefined)
     analytics.trackProPayment.mockResolvedValue(undefined)
@@ -134,7 +134,7 @@ describe('PaymentEventsService', () => {
     })
 
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
-      campaignsService.findByUserId.mockResolvedValue({
+      campaignsService.findActiveByUserId.mockResolvedValue({
         ...mockCampaign,
         organizationSlug: 'team-acme',
       })
@@ -222,7 +222,7 @@ describe('PaymentEventsService', () => {
 
   describe('handleEvent — customer.subscription.resumed', () => {
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
-      campaignsService.findByUserId.mockResolvedValue({
+      campaignsService.findActiveByUserId.mockResolvedValue({
         ...mockCampaign,
         organizationSlug: 'team-acme',
       })
@@ -300,6 +300,126 @@ describe('PaymentEventsService', () => {
 
       await expect(service.handleEvent(oneTimePaymentEvent)).rejects.toThrow(
         fulfillmentError,
+      )
+    })
+  })
+
+  describe('active-campaign selection (multi-org)', () => {
+    const activeCampaign = {
+      id: 222,
+      organizationSlug: null,
+      details: {
+        electionDate: new Date(Date.now() + 365 * 86_400_000).toISOString(),
+      },
+      data: {},
+    } as unknown as Campaign
+
+    it('writes Pro state to the active campaign for a multi-campaign user', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(activeCampaign)
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(campaignsService.findActiveByUserId).toHaveBeenCalledWith(
+        mockUser.id,
+      )
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        activeCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_test' }),
+      )
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(activeCampaign.id)
+    })
+
+    it('completes an election-day checkout for the active campaign', async () => {
+      const today = new Date()
+      const electionDayCampaign = {
+        id: 333,
+        organizationSlug: null,
+        details: { electionDate: today.toISOString() },
+        data: {},
+      } as unknown as Campaign
+      campaignsService.findActiveByUserId.mockResolvedValue(electionDayCampaign)
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        electionDayCampaign.id,
+      )
+    })
+
+    it('no-ops and warns on checkout when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
+      )
+    })
+  })
+
+  describe('customerSubscriptionCreatedHandler', () => {
+    const createdEvent = {
+      data: { object: { id: 'sub_new', customer: 'cus_test' } },
+    } as unknown as Stripe.CustomerSubscriptionCreatedEvent
+
+    it('persists the subscriptionId on the active campaign', async () => {
+      await service.customerSubscriptionCreatedHandler(createdEvent)
+
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_new' }),
+      )
+    })
+
+    it('no-ops and warns when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionCreatedHandler(createdEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
+      )
+    })
+  })
+
+  describe('customerSubscriptionResumedHandler', () => {
+    const resumedEvent = {
+      data: { object: { id: 'sub_resumed', customer: 'cus_test' } },
+    } as unknown as Stripe.CustomerSubscriptionResumedEvent
+
+    it('marks the active campaign Pro', async () => {
+      await service.customerSubscriptionResumedHandler(resumedEvent)
+
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_resumed' }),
+      )
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
+    it('no-ops and warns when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionResumedHandler(resumedEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
       )
     })
   })

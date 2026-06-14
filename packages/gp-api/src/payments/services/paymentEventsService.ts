@@ -21,7 +21,6 @@ import { IS_PROD_DEPLOY } from 'src/shared/util/appEnvironment.util'
 import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { parseCampaignElectionDate } from '../../campaigns/util/parseCampaignElectionDate.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WrapperType } from 'src/shared/types/utility.types'
@@ -90,23 +89,17 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.created; skipping',
       )
+      return
     }
 
-    const { id: campaignId, details: campaignDetails } = campaign
-
-    return this.campaignsService.update({
-      where: { id: campaignId },
-      data: {
-        details: {
-          ...campaignDetails,
-          subscriptionId,
-        },
-      },
+    return this.campaignsService.patchCampaignDetails(campaign.id, {
+      subscriptionId,
     })
   }
 
@@ -127,11 +120,13 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.resumed; skipping',
       )
+      return
     }
     const { id: campaignId } = campaign
 
@@ -261,18 +256,21 @@ export class PaymentEventsService {
         'No user found with given checkout session userId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadRequestException('No campaign found for user')
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription checkout; skipping',
+      )
+      return
     }
 
+    // findActiveByUserId already guaranteed, via isActiveCampaign, a present and
+    // valid electionDate that has not passed by UTC calendar day. The previous
+    // instant `electionDate < new Date()` re-check wrongly 500'd an election-day
+    // checkout (the run is active through the whole day), and re-deriving the
+    // date here would duplicate the shared predicate.
     const { id: campaignId } = campaign
-    const electionDate = parseCampaignElectionDate(campaign)
-    if (!electionDate || electionDate < new Date()) {
-      throw new BadGatewayException(
-        'No electionDate or electionDate is in the past',
-      )
-    }
 
     // These have to happen in serial since setIsPro also mutates the JSONP details column
     await this.campaignsService.patchCampaignDetails(campaignId, {

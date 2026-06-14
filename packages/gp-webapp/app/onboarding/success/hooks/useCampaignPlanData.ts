@@ -135,11 +135,12 @@ export const useCampaignPlanData = (
   // We also pull positionName / city / state from the same source for the
   // local-news query below so the cache key matches what
   // LocalNewsSourcesSection used during onboarding — see comment there.
-  const onboardingStructuredOffice = (
+  const snapshot = (
     campaign?.data as
       | {
           onboarding?: {
             structuredOffice?: {
+              raceId?: string
               positionId?: string
               positionName?: string
               city?: string
@@ -149,6 +150,16 @@ export const useCampaignPlanData = (
         }
       | undefined
   )?.onboarding?.structuredOffice
+  // The snapshot describes the race onboarding picked, and nothing updates
+  // it when the user later edits their race (campaign-details). Trust it
+  // only while the campaign is still on that race — otherwise its office,
+  // location, and BR position id would keep feeding the media and
+  // voter-insights queries the OLD race's inputs, serving stale content
+  // forever after an office change.
+  const onboardingStructuredOffice =
+    snapshot?.raceId && snapshot.raceId === campaign?.details?.raceId
+      ? snapshot
+      : undefined
   const ballotReadyPositionId = onboardingStructuredOffice?.positionId
 
   // Cache-key alignment with onboarding: the local-news query must use

@@ -43,12 +43,14 @@ import { ReqCampaign } from './decorators/ReqCampaign.decorator'
 import { UseCampaign } from './decorators/UseCampaign.decorator'
 import {
   CreateCampaignSchema,
+  CreateFollowOnCampaignSchema,
   SetDistrictDTO,
   SetDistrictM2MDTO,
   UpdateCampaignSchema,
 } from './schemas/updateCampaign.schema'
 import { CampaignPlanVersionsService } from './services/campaignPlanVersions.service'
 import { CampaignsService } from './services/campaigns.service'
+import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 
@@ -69,6 +71,7 @@ export class CampaignsController {
     private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
+    private readonly eligibility: EligibilityService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignsController.name)
@@ -198,9 +201,11 @@ export class CampaignsController {
 
   @Post()
   async create(@ReqUser() user: User, @Body() body: CreateCampaignSchema) {
-    const existing = await this.campaigns.findByUserId(user.id)
-    if (existing) {
-      throw new ConflictException('User campaign already exists.')
+    const { canStartCampaign } = await this.eligibility.evaluate(user.id)
+    if (!canStartCampaign) {
+      throw new ConflictException(
+        'User is not eligible to start a new campaign',
+      )
     }
     return this.campaigns.createForUser(
       user,
@@ -210,6 +215,25 @@ export class CampaignsController {
         customPositionName: body.customPositionName ?? undefined,
       },
     )
+  }
+
+  // The write path behind the org switcher's "run for" actions. The UI hiding
+  // these actions is cosmetic, so eligibility is re-checked here server-side
+  // before any campaign is created.
+  @Post('follow-on')
+  @ResponseSchema(ReadCampaignOutputSchema)
+  async createFollowOn(
+    @ReqUser() user: User,
+    @Body() body: CreateFollowOnCampaignSchema,
+  ) {
+    const eligibility = await this.eligibility.evaluate(user.id)
+    if (!eligibility.canStartCampaign) {
+      throw new ConflictException(
+        'User is not eligible to start a new campaign',
+      )
+    }
+
+    return this.campaigns.createFollowOn(user, body, eligibility)
   }
 
   @Put('mine')

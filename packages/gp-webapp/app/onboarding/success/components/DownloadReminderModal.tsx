@@ -36,7 +36,7 @@ interface DownloadReminderModalProps {
 
 const TITLE = 'Download your campaign plan?'
 const DESCRIPTION =
-  "You haven't downloaded your campaign plan yet. Download a copy now, or continue to your Campaign manager."
+  "You haven't downloaded your campaign plan yet. Download a copy now, or continue to your Campaign Manager."
 const PREPARING_TOOLTIP =
   'Your plan is still being generated. It will be ready in a moment.'
 
@@ -84,7 +84,7 @@ const DownloadReminderModal = ({
       onClick={onContinue}
       className="w-full"
     >
-      Continue to Campaign manager
+      Continue to Campaign Manager
     </Button>
   )
 

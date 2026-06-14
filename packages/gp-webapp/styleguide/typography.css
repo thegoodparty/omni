@@ -28,25 +28,3 @@
 .text-muted {
   color: var(--color-muted-foreground);
 }
-
-/* Button text styles. Font family is inherited from the page body. */
-.button-text-large {
-  font-weight: 500;
-  font-size: 1rem;
-  line-height: 1.5;
-  letter-spacing: 0.025em;
-}
-
-.button-text-medium {
-  font-weight: 500;
-  font-size: 0.875rem;
-  line-height: 1.25;
-  letter-spacing: 0.025em;
-}
-
-.button-text-small {
-  font-weight: 500;
-  font-size: 0.75rem;
-  line-height: 1;
-  letter-spacing: 0.025em;
-}

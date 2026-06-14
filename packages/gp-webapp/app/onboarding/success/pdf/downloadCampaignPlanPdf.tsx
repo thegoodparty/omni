@@ -15,7 +15,7 @@ const slugify = (s: string): string =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'campaign-plan'
 
-type Options = {
+export type CampaignPlanPdfOptions = {
   liveUrl?: string
 }
 
@@ -27,10 +27,10 @@ const buildQrDataUrl = (url: string): Promise<string> =>
     color: { dark: '#1a2a5e', light: '#ffffff' },
   })
 
-export const downloadCampaignPlanPdf = async (
+export const generateCampaignPlanPdfBlob = async (
   plan: PlanData,
-  options: Options = {},
-): Promise<void> => {
+  options: CampaignPlanPdfOptions = {},
+): Promise<Blob> => {
   const liveQrDataUrl = options.liveUrl
     ? await buildQrDataUrl(options.liveUrl)
     : undefined
@@ -57,7 +57,7 @@ export const downloadCampaignPlanPdf = async (
   // Pass 2: render again with the populated map so the TOC shows real
   // page numbers. Footer page-number column width is fixed, so the TOC
   // height is identical between passes — section pages don't shift.
-  const blob = await pdf(
+  return pdf(
     <CampaignPlanPdfDocument
       plan={plan}
       liveUrl={options.liveUrl}
@@ -65,6 +65,13 @@ export const downloadCampaignPlanPdf = async (
       tocPageMap={pageMap}
     />,
   ).toBlob()
+}
+
+export const downloadCampaignPlanPdf = async (
+  plan: PlanData,
+  options: CampaignPlanPdfOptions = {},
+): Promise<void> => {
+  const blob = await generateCampaignPlanPdfBlob(plan, options)
 
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

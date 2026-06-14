@@ -35,6 +35,11 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
   the URL is predictable per PR.
 - `prod` deploys to the production target.
+- The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
+  build` peaks near Node's default ~4GB heap and started OOMing intermittently
+  on the runners (2026-06-12). The cap is per process and propagates to every
+  worker the build spawns, so raise it cautiously — several workers at a
+  bigger cap can trip the kernel OOM killer instead.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR listing every app; every app's deploy job runs on every PR,
   so all the URLs resolve.

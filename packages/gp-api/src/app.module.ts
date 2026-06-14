@@ -8,6 +8,7 @@ import { AuthenticationModule } from '@/authentication/authentication.module'
 import { SessionGuard } from '@/authentication/guards/Session.guard'
 import { ImpersonationInterceptor } from '@/analytics/interceptors/Impersonation.interceptor'
 import { AdminAuditInterceptor } from '@/authentication/interceptors/AdminAudit.interceptor'
+import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShares.module'
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
@@ -90,6 +91,7 @@ import { loggerModule } from './observability/logging/logger-module'
     ContactsModule,
     ContactEngagementModule,
     PollsModule,
+    CampaignPlanSharesModule,
     MeetingsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
