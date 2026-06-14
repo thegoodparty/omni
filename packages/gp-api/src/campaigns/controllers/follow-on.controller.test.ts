@@ -68,6 +68,49 @@ describe('POST /v1/campaigns/follow-on', () => {
     })
   })
 
+  it('derives the electionDate from the held office term end on same-office', async () => {
+    // The held-office org with a future term end — the cadence-derived boundary
+    // used as the re-election's next-election date.
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-term',
+        ownerId: service.user.id,
+        positionId: 'pos-term',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-term',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+      },
+    })
+
+    // Mirrors the production same-office payload: no details, so no
+    // electionDate is supplied by the client.
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-term',
+    })
+
+    expect(result.status).toBe(201)
+    expect(result.data.details.electionDate).toBe('2099-01-05')
+
+    // The derived future date makes the campaign active, so derive-on-read no
+    // longer mislabels it "past" and a duplicate re-election is rejected.
+    const second = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-term',
+    })
+    expect(second.status).toBe(409)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(1)
+  })
+
   it('blocks a second follow-on once the first created an active campaign', async () => {
     await service.prisma.organization.create({
       data: {
