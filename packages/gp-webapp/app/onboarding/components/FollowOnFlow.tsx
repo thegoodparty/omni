@@ -145,7 +145,10 @@ export default function FollowOnFlow({
   }, [organizationsQuery.data, reelectionOfficeSlug])
 
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => ({
-    followOnIntent: intent,
+    // Pre-seed same-office (it carries fromOrganizationSlug); leave new-office
+    // unseeded so the office-holder makes an explicit choice on the intent
+    // screen instead of being able to skip past a pre-selected card.
+    followOnIntent: intent === 'same-office' ? intent : undefined,
     fromOrganizationSlug:
       intent === 'same-office' ? fromOrganizationSlug : undefined,
   }))
@@ -257,7 +260,16 @@ export default function FollowOnFlow({
         })
       }
       if (earlyAttrs.length > 0) {
-        await updateCampaign(earlyAttrs)
+        // updateCampaign swallows errors and returns false (never throws), so
+        // the outer catch can't see a failed flush — check it explicitly or the
+        // party / ballot-status answers are silently lost on the new campaign.
+        const flushed = await updateCampaign(earlyAttrs)
+        if (flushed === false) {
+          setErrorMessage(
+            'Something went wrong saving your answers. Please go back and try again.',
+          )
+          return false
+        }
       }
       return true
     } catch (error) {
