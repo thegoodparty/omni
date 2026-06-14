@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
-import { Organization } from 'gpApi/api-endpoints'
+import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
@@ -20,10 +20,12 @@ import {
   DropdownMenuGroup,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
   ProBadge,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  ArrowRightIcon,
 } from '@styleguide'
 import { ChevronDown } from 'lucide-react'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
@@ -65,6 +67,9 @@ interface OrganizationProviderProps {
 }
 
 export const ORGANIZATIONS_QUERY_KEY = ['organizations']
+// Eligibility is per-user, not per-org, so it must survive an org switch
+// untouched (see the invalidation predicate in setSelectedSlug).
+export const ELIGIBILITY_QUERY_KEY = ['eligibility']
 
 export const OrganizationProvider = ({
   children,
@@ -112,11 +117,14 @@ export const OrganizationProvider = ({
     (slug: string) => {
       setRawSelectedSlug(slug)
       setCookie(ORG_SLUG_COOKIE, slug)
-      // Exclude the organizations query from invalidation — the org list doesn't
-      // change when switching between orgs, and invalidating it causes a brief
-      // flash where nav items disappear while the list refetches.
+      // Exclude the organizations and eligibility queries from invalidation —
+      // neither changes when switching between orgs (the org list doesn't
+      // change, and eligibility is per-user). Invalidating the org list also
+      // causes a brief flash where nav items disappear while it refetches.
       void queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0],
+        predicate: (query) =>
+          query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
       })
     },
     [queryClient],
@@ -147,6 +155,12 @@ export const OrganizationPicker = () => {
   const [campaign] = useCampaign()
   const pathname = usePathname()
 
+  const { data: eligibility } = useQuery<Eligibility>({
+    queryKey: ELIGIBILITY_QUERY_KEY,
+    queryFn: async () =>
+      clientRequest('GET /v1/eligibility', {}).then((res) => res.data),
+  })
+
   if (!ctx || ctx.organizations.length === 0 || !ctx.selected) return null
 
   const { organizations, selected, setSelectedSlug } = ctx
@@ -159,6 +173,19 @@ export const OrganizationPicker = () => {
     if (!isOnSharedPage) {
       router.push(org.electedOfficeId ? '/dashboard/briefings' : '/dashboard')
     }
+  }
+
+  // Server-side enforcement is the real gate (POST /v1/campaigns/follow-on
+  // re-checks eligibility); this navigation only opens the follow-on flow.
+  // Task 11 owns the destination screen — for now it reads intent (and the
+  // office to inherit, for re-election) off the query string.
+  const handleRunFor = (
+    intent: 'same-office' | 'new-office',
+    fromOrganizationSlug?: string,
+  ) => {
+    const params = new URLSearchParams({ intent })
+    if (fromOrganizationSlug) params.set('from', fromOrganizationSlug)
+    router.push(`/onboarding/office-selection?${params.toString()}`)
   }
 
   return (
@@ -194,6 +221,7 @@ export const OrganizationPicker = () => {
             <DropdownMenuGroup>
               {organizations.map((org) => {
                 const isSelected = org.slug === selected.slug
+                const isPast = org.status === 'past'
                 return (
                   <DropdownMenuItem
                     key={org.slug}
@@ -211,11 +239,54 @@ export const OrganizationPicker = () => {
                         <span className="size-1.5 rounded-full bg-white" />
                       )}
                     </span>
-                    <span className="text-sm font-opensans">{org.name}</span>
+                    <span
+                      className={`text-sm font-opensans ${
+                        isPast ? 'text-muted-foreground' : ''
+                      }`}
+                    >
+                      {org.name}
+                    </span>
+                    {isPast && (
+                      <span className="ml-auto text-xs font-opensans text-muted-foreground">
+                        Past
+                      </span>
+                    )}
                   </DropdownMenuItem>
                 )
               })}
             </DropdownMenuGroup>
+            {eligibility?.canStartCampaign && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  {eligibility.reelectionOfficeSlug && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        handleRunFor(
+                          'same-office',
+                          eligibility.reelectionOfficeSlug ?? undefined,
+                        )
+                      }
+                      className="gap-2 px-2 py-2.5"
+                    >
+                      <span className="text-sm font-opensans">
+                        Run for re-election
+                      </span>
+                      <ArrowRightIcon className="ml-auto" />
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onClick={() => handleRunFor('new-office')}
+                    className="gap-2 px-2 py-2.5"
+                  >
+                    <span className="text-sm font-opensans">
+                      Run for a new office
+                    </span>
+                    <ArrowRightIcon className="ml-auto" />
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
