@@ -176,19 +176,19 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   await openSwitcher(page)
   const orgItems = page.getByRole('menuitem')
   await expect(orgItems.first()).toBeVisible({ timeout: 15_000 })
-  const pastCount = await page
-    .getByRole('menuitem')
-    .filter({ hasText: 'Past' })
-    .count()
-  expect(pastCount).toBe(1)
+  // toHaveCount polls (the switcher refetches the org list independently of the
+  // API eventually() above, so the new org's item may not be in the DOM yet).
+  await expect(
+    page.getByRole('menuitem').filter({ hasText: 'Past' }),
+  ).toHaveCount(1, { timeout: 15_000 })
 
   // 8 (UI): eligibility flipped — the "run for" actions are now hidden.
   await expect(
     page.getByRole('menuitem', { name: 'Run for re-election' }),
-  ).toHaveCount(0)
+  ).toHaveCount(0, { timeout: 15_000 })
   await expect(
     page.getByRole('menuitem', { name: 'Run for a new office' }),
-  ).toHaveCount(0)
+  ).toHaveCount(0, { timeout: 15_000 })
   await closeSwitcher(page)
 
   // 8 (produced state): a direct second follow-on is rejected with 409.
