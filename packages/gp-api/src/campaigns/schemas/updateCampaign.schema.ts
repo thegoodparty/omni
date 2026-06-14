@@ -64,6 +64,7 @@ const CampaignDetailsSchema = z
     priorElectionDates: z.array(z.string()),
     electionId: z.string().nullish(),
     tier: z.string(),
+    wonGeneral: z.boolean(),
   })
   .partial()
 
