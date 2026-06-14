@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrComplianceStatus } from 'helpers/types'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import { useProUpgradeEntryHref } from '@shared/experiments/proUpgrade3Flag'
 
 interface ComplianceModalProps {
   open: boolean
@@ -22,6 +23,22 @@ export function ComplianceModal({
 }: ComplianceModalProps): React.JSX.Element {
   const { ready, enabled } = useProUpgradeFlag()
   const phase1Enabled = ready && enabled
+
+  // Only the default "Start Registration" branch links into the
+  // compliance/upgrade flow — the pending/rejected/error branches use a
+  // mailto or no href. Route that branch through the pro-upgrade3 entry hook
+  // so the cohort lands in the new wizard while everyone else keeps the
+  // profile compliance section. The callers mount this modal unconditionally
+  // (open or not), so only count exposure when the registration CTA is the
+  // one actually rendered and on screen.
+  const isRegistrationCase =
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.PENDING &&
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.REJECTED &&
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.ERROR
+  const { href: registrationHref } = useProUpgradeEntryHref(
+    '/dashboard/profile#texting-compliance',
+    open && isRegistrationCase,
+  )
 
   const helpTrailer = (
     <>
@@ -81,7 +98,7 @@ export function ComplianceModal({
         </>
       )
       cta = 'Start Registration'
-      ctaHref = '/dashboard/profile#texting-compliance'
+      ctaHref = registrationHref
       break
   }
 
