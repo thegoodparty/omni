@@ -11,7 +11,7 @@ const isPublicRoute = createRouteMatcher([
   '/impersonate(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
-  '/api/revalidate(.*)',
+  '/api/revalidate',
 ])
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

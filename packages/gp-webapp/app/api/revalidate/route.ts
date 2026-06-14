@@ -9,9 +9,9 @@ import { timingSafeEqual } from 'node:crypto'
 // in middleware.ts precisely so this secret check is the gate.
 function isAuthorized(request: NextRequest): boolean {
   const secret = process.env.REVALIDATE_SECRET
-  // Fail closed: with no secret configured, the endpoint is unusable rather
-  // than open to anyone.
-  if (!secret) return false
+  // Fail closed: with no secret configured (unset, empty, or whitespace-only),
+  // the endpoint is unusable rather than open to anyone.
+  if (!secret || secret.trim().length === 0) return false
 
   const header = request.headers.get('authorization') ?? ''
   const provided = header.startsWith('Bearer ')
@@ -31,10 +31,11 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const path = request.nextUrl.searchParams.get('path') || '/'
-  // Only same-origin absolute paths — reject full URLs and protocol-relative
-  // (`//host`) values.
-  if (!path.startsWith('/') || path.startsWith('//')) {
+  // Require an explicit same-origin absolute path. Don't default to '/' — that
+  // would let a caller (or an omitted param) silently bust the entire site
+  // cache. Reject full URLs and protocol-relative (`//host`) values.
+  const path = request.nextUrl.searchParams.get('path')
+  if (!path || !path.startsWith('/') || path.startsWith('//')) {
     return NextResponse.json({ error: 'Invalid path' }, { status: 400 })
   }
 

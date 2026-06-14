@@ -371,7 +371,7 @@ export const apiRoutes = {
   admin: {
     bustCache: {
       path: '/revalidate',
-      method: 'GET',
+      method: 'POST',
       nextApiRoute: true,
     },
     user: {
