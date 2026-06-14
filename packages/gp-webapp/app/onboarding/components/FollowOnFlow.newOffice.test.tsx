@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { clientFetch } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { router } from 'helpers/test-utils/router-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
 // The office picker mocks clientFetch / clientRequest directly (see
@@ -69,9 +70,37 @@ const advanceToOfficeSelection = async () => {
   fireEvent.click(screen.getByRole('button', { name: /search/i }))
 }
 
+// Drive the manual-office path from office-selection through creation to the
+// pledge step (p2v + voter-demographics are skipped on the manual path).
+const fillManualOfficeToPledge = async () => {
+  fireEvent.click(
+    await screen.findByRole('button', { name: /don.t see my office/i }),
+  )
+  fireEvent.change(await screen.findByLabelText(/office name/i), {
+    target: { value: 'Town Dogcatcher' },
+  })
+  fireEvent.click(screen.getByRole('combobox', { name: /state/i }))
+  fireEvent.click(screen.getByRole('option', { name: 'NC' }))
+  fireEvent.change(screen.getByLabelText(/city, town or county/i), {
+    target: { value: 'Asheville' },
+  })
+  fireEvent.click(screen.getByRole('combobox', { name: /term length/i }))
+  fireEvent.click(screen.getByRole('option', { name: '4 years' }))
+  fireEvent.change(screen.getByLabelText(/general election date/i), {
+    target: { value: '2026-11-03' },
+  })
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled(),
+  )
+  // Creates the campaign and advances to the pledge step.
+  fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+  await screen.findByText(/i pledge to be/i)
+}
+
 beforeEach(() => {
   mockClientFetch.mockReset()
   mockClientRequest.mockReset()
+  if (router.push) vi.mocked(router.push).mockClear()
   vi.mocked(useSnackbar).mockReturnValue({
     errorSnackbar: vi.fn(),
     successSnackbar: vi.fn(),
@@ -221,5 +250,46 @@ describe('FollowOnFlow — new office', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /something went wrong saving your answers/i,
     )
+  })
+
+  it('launches and routes to the dashboard on pledge', async () => {
+    renderFlow()
+    await advanceToOfficeSelection()
+    await fillManualOfficeToPledge()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /agree & create my plan/i }),
+    )
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
+    // The launch endpoint was hit as part of completing the pledge.
+    expect(mockClientFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/campaigns/launch' }),
+    )
+  })
+
+  it('surfaces an error and does not redirect when launch fails', async () => {
+    mockClientFetch.mockImplementation((endpoint: { path: string }) => {
+      if (endpoint.path.includes('races-by-year')) {
+        return Promise.resolve({ data: [searchRace], ok: true } as never)
+      }
+      if (endpoint.path === '/campaigns/launch') {
+        return Promise.resolve({ data: {}, ok: false, status: 500 } as never)
+      }
+      return Promise.resolve({ data: { id: 4242 }, ok: true } as never)
+    })
+
+    renderFlow()
+    await advanceToOfficeSelection()
+    await fillManualOfficeToPledge()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /agree & create my plan/i }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /something went wrong finishing your campaign/i,
+    )
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
