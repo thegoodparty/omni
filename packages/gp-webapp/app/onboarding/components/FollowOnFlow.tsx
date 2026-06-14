@@ -156,20 +156,33 @@ export default function FollowOnFlow({
   const [isP2vLoading, setIsP2vLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Freeze whether the user holds an office the moment the initial data lands.
+  // Background refetches (window focus, or the eligibility invalidation in
+  // setNewCampaignActive) must not flip hasHeldOffice and mutate the step set
+  // mid-flow, which would silently jump the user off the intent step.
+  const [frozenHasHeldOffice, setFrozenHasHeldOffice] = useState<
+    boolean | null
+  >(null)
   const isAdvancingRef = useRef(false)
 
   const ready = !eligibilityQuery.isPending && !organizationsQuery.isPending
+
+  useEffect(() => {
+    if (ready && frozenHasHeldOffice === null) {
+      setFrozenHasHeldOffice(hasHeldOffice)
+    }
+  }, [ready, frozenHasHeldOffice, hasHeldOffice])
 
   // Drop the intent step entirely for no-office candidates; the rest of the
   // standard step set begins at welcome.
   const flowSteps = useMemo<NonEmptyArray<OnboardingStepConfig>>(
     () =>
-      hasHeldOffice
+      (frozenHasHeldOffice ?? hasHeldOffice)
         ? FOLLOW_ON_STEPS
         : (FOLLOW_ON_STEPS.slice(
             1,
           ) as unknown as NonEmptyArray<OnboardingStepConfig>),
-    [hasHeldOffice],
+    [frozenHasHeldOffice, hasHeldOffice],
   )
 
   const visibleSteps = getVisibleOnboardingSteps(flowSteps, answers)

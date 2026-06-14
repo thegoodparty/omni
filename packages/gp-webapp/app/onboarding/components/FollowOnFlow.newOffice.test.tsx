@@ -51,6 +51,24 @@ const renderFlow = () =>
     </QueryClientProvider>,
   )
 
+// Drive welcome -> ballot-status -> party-affiliation -> office-selection,
+// recording on-ballot + nonpartisan so the early-attrs flush has values.
+const advanceToOfficeSelection = async () => {
+  const continueButton = await screen.findByRole('button', {
+    name: /continue/i,
+  })
+  fireEvent.click(continueButton)
+  fireEvent.click(await screen.findByLabelText(/officially on the ballot/i))
+  fireEvent.click(continueButton)
+  fireEvent.click(await screen.findByLabelText(/nonpartisan race/i))
+  fireEvent.click(continueButton)
+  // Search so the office list (and the "can't find my office" link) renders.
+  fireEvent.change(await screen.findByLabelText(/zip code/i), {
+    target: { value: '82001' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: /search/i }))
+}
+
 beforeEach(() => {
   mockClientFetch.mockReset()
   mockClientRequest.mockReset()
@@ -80,34 +98,22 @@ beforeEach(() => {
     return Promise.resolve({ data: {} } as never)
   })
 
-  mockClientFetch.mockResolvedValue({
-    data: [searchRace],
-    ok: true,
-  } as never)
+  // Route the legacy client by path: race search returns the race list; every
+  // other call (the post-create updateCampaign PUT /campaigns/mine) returns a
+  // campaign-shaped ok response so the early-attrs flush isn't fed race data.
+  mockClientFetch.mockImplementation((endpoint: { path: string }) => {
+    if (endpoint.path.includes('races-by-year')) {
+      return Promise.resolve({ data: [searchRace], ok: true } as never)
+    }
+    return Promise.resolve({ data: { id: 4242 }, ok: true } as never)
+  })
 })
 
 describe('FollowOnFlow — new office', () => {
-  it('creates the campaign via follow-on with the structured-office payload', async () => {
+  it('creates the campaign via follow-on with the structured-office payload and flushes early answers', async () => {
     renderFlow()
+    await advanceToOfficeSelection()
 
-    const continueButton = await screen.findByRole('button', {
-      name: /continue/i,
-    })
-
-    // welcome -> ballot-status
-    fireEvent.click(continueButton)
-    fireEvent.click(await screen.findByLabelText(/officially on the ballot/i))
-    // ballot-status -> party-affiliation
-    fireEvent.click(continueButton)
-    fireEvent.click(await screen.findByLabelText(/nonpartisan race/i))
-    // party-affiliation -> office-selection
-    fireEvent.click(continueButton)
-
-    // Search and pick a structured office.
-    fireEvent.change(await screen.findByLabelText(/zip code/i), {
-      target: { value: '82001' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /search/i }))
     // Match the race card by its city to disambiguate from the "City Council"
     // filter pill (also role=radio).
     fireEvent.click(await screen.findByRole('radio', { name: /cheyenne/i }))
@@ -128,6 +134,65 @@ describe('FollowOnFlow — new office', () => {
             raceId: 'race-1',
             state: 'WY',
             city: 'Cheyenne',
+            electionDate: '2026-11-03',
+          }),
+        }),
+      ),
+    )
+
+    // The party + ballot-status answers collected before creation must be
+    // flushed onto the new campaign via updateCampaign (PUT /campaigns/mine).
+    await waitFor(() =>
+      expect(mockClientFetch).toHaveBeenCalledWith(
+        expect.objectContaining({ path: '/campaigns/mine' }),
+        expect.objectContaining({
+          details: expect.objectContaining({
+            party: 'nonpartisan',
+            ballotStatus: 'on-ballot',
+          }),
+        }),
+      ),
+    )
+  })
+
+  it('creates the campaign via follow-on with the manual-office payload', async () => {
+    renderFlow()
+    await advanceToOfficeSelection()
+
+    // Fall back to manual entry.
+    fireEvent.click(
+      await screen.findByRole('button', { name: /don.t see my office/i }),
+    )
+
+    fireEvent.change(await screen.findByLabelText(/office name/i), {
+      target: { value: 'Town Dogcatcher' },
+    })
+    fireEvent.click(screen.getByRole('combobox', { name: /state/i }))
+    fireEvent.click(screen.getByRole('option', { name: 'NC' }))
+    fireEvent.change(screen.getByLabelText(/city, town or county/i), {
+      target: { value: 'Asheville' },
+    })
+    fireEvent.click(screen.getByRole('combobox', { name: /term length/i }))
+    fireEvent.click(screen.getByRole('option', { name: '4 years' }))
+    fireEvent.change(screen.getByLabelText(/general election date/i), {
+      target: { value: '2026-11-03' },
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    await waitFor(() =>
+      expect(mockClientRequest).toHaveBeenCalledWith(
+        'POST /v1/campaigns/follow-on',
+        expect.objectContaining({
+          intent: 'new-office',
+          customPositionName: 'Town Dogcatcher',
+          details: expect.objectContaining({
+            raceId: null,
+            state: 'NC',
+            city: 'Asheville',
             electionDate: '2026-11-03',
           }),
         }),
