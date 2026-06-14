@@ -20,7 +20,7 @@ const positionLevelEnum = z.enum([
   'TOWNSHIP',
 ])
 
-const raceFilterSchema = z
+export const raceFilterSchema = z
   .object({
     state: z
       .preprocess(toUpper, z.string())
@@ -92,13 +92,13 @@ const raceFilterSchema = z
           if (!val) return true
           const columns = val.split(',').map((col) => col.trim())
           return columns.every((col) =>
-            placeColumns.includes(
-              col as keyof typeof Prisma.PlaceScalarFieldEnum,
+            candidacyColumns.includes(
+              col as keyof typeof Prisma.CandidacyScalarFieldEnum,
             ),
           )
         },
         {
-          message: `Invalid place column provided. Allowed columns are: ${candidacyColumns.join(', ')}`,
+          message: `Invalid candidacy column provided. Allowed columns are: ${candidacyColumns.join(', ')}`,
         },
       ),
   })
