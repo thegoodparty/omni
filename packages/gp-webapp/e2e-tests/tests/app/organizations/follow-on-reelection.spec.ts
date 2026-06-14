@@ -76,13 +76,17 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   // once the election has happened) so eligibility opens up; this also makes the
   // won campaign org read "Past". PUT /v1/campaigns/mine merges details, so only
   // electionDate changes.
+  // Set the same direct header key setupElectedOfficeUser uses — axios lets a
+  // direct defaults.headers key override defaults.headers.common, so .common
+  // here would be ignored and the PUT would target the EO org (no campaign ->
+  // 404). /v1/campaigns/mine resolves the campaign from x-organization-slug.
   const wonCampaignSlug = campaignSlugsBefore[0]
   if (!wonCampaignSlug) throw new Error('No won campaign org found after setup')
-  client.defaults.headers.common['x-organization-slug'] = wonCampaignSlug
+  client.defaults.headers['x-organization-slug'] = wonCampaignSlug
   await client.put('/v1/campaigns/mine', {
     details: { electionDate: '2020-11-03' },
   })
-  client.defaults.headers.common['x-organization-slug'] = eoSlug
+  client.defaults.headers['x-organization-slug'] = eoSlug
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the re-election flow.
