@@ -537,7 +537,10 @@ export default function FollowOnFlow({
             variant="ghost"
             size="large"
             onClick={goBack}
-            disabled={!previousStep}
+            // Once the campaign exists, going back can't un-create it; block it
+            // so the user can't return to the intent step, switch same->new,
+            // and finish on a campaign that was created for the other intent.
+            disabled={!previousStep || liveCampaign !== null}
           >
             Back
           </Button>

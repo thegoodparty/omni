@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
@@ -25,6 +25,9 @@ const heldOfficeOrg = {
 
 beforeEach(() => {
   api.reset()
+  // vitest.setup already clears this between tests; kept explicit so this
+  // file's eligibility-driven assertions never read a prior test's cache.
+  testQueryClient.clear()
 })
 
 describe('FollowOnFlow', () => {
@@ -95,6 +98,12 @@ describe('FollowOnFlow', () => {
       intent: 'same-office',
       fromOrganizationSlug: 'eo-1',
     })
+
+    // Back is locked after creation so the user can't return to the intent
+    // step and switch intent on an already-created campaign.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /back/i })).toBeDisabled(),
+    )
   })
 
   it('disables continue for same-office without a held-office slug', async () => {
