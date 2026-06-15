@@ -9,12 +9,30 @@ const orgHeader = (slug: string) => ({
   headers: { 'x-organization-slug': slug },
 })
 
-const seedElectedOffice = async (orgSlug: string) => {
+let ownerSeq = 0
+const seedElectedOffice = async (
+  orgSlug: string,
+  opts: { distinctOwner?: boolean } = {},
+) => {
+  let ownerId = service.user.id
+  if (opts.distinctOwner) {
+    ownerSeq += 1
+    const owner = await service.prisma.user.create({
+      data: {
+        id: 9000 + ownerSeq,
+        clerkId: `other_user_${ownerSeq}`,
+        email: `other-${ownerSeq}@goodparty.org`,
+        firstName: 'Other',
+        lastName: 'Official',
+      },
+    })
+    ownerId = owner.id
+  }
   await service.prisma.organization.create({
-    data: { slug: orgSlug, ownerId: service.user.id },
+    data: { slug: orgSlug, ownerId },
   })
   return service.prisma.electedOffice.create({
-    data: { organizationSlug: orgSlug, userId: service.user.id },
+    data: { organizationSlug: orgSlug, userId: ownerId },
   })
 }
 
@@ -142,7 +160,7 @@ describe('GET /v1/dashboard/cards', () => {
     const orgSlug = 'eo-cards-scope-a'
     const otherSlug = 'eo-cards-scope-b'
     const eo = await seedElectedOffice(orgSlug)
-    const other = await seedElectedOffice(otherSlug)
+    const other = await seedElectedOffice(otherSlug, { distinctOwner: true })
     await seedCard(eo.id, { dueDate: addDays(new Date(), 1) })
     await seedCard(other.id, { dueDate: addDays(new Date(), 1) })
 
@@ -177,7 +195,7 @@ describe('PUT /v1/dashboard/cards/:id/dismiss', () => {
     const orgSlug = 'eo-dismiss-scope-a'
     const otherSlug = 'eo-dismiss-scope-b'
     await seedElectedOffice(orgSlug)
-    const other = await seedElectedOffice(otherSlug)
+    const other = await seedElectedOffice(otherSlug, { distinctOwner: true })
     const card = await seedCard(other.id, { dueDate: addDays(new Date(), 3) })
 
     const res = await service.client.put(

@@ -401,8 +401,6 @@ describe('buildDescribeConstituentDataTool', () => {
 
   it('never references the warehouse provider', async () => {
     const tool = buildDescribeConstituentDataTool({ scope })
-    await expect(
-      (async () => tool.execute({}))(),
-    ).resolves.toBeDefined()
+    await expect((async () => tool.execute({}))()).resolves.toBeDefined()
   })
 })
