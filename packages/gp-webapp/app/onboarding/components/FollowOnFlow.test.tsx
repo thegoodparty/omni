@@ -181,6 +181,32 @@ describe('FollowOnFlow', () => {
     )
   })
 
+  it('surfaces an actionable message when the office has no upcoming election', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+    // The server refuses a same-office run it can't date (400). 400 isn't in
+    // the typed mocker's status union, so register it as a raw handler.
+    mswServer.use(
+      http.post('/api/v1/campaigns/follow-on', () =>
+        HttpResponse.json(
+          { message: 'Could not determine the next election date' },
+          { status: 400 },
+        ),
+      ),
+    )
+
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /couldn't find an upcoming election for this office/i,
+    )
+  })
+
   it('blocks continue on party affiliation when a major party is selected', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
     api.mock('GET /v1/organizations', {

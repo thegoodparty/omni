@@ -648,4 +648,99 @@ describe('PositionsService', () => {
       expect(result.filingFeeExtractionSource).toBe('direct_dollar')
     })
   })
+
+  describe('getNextElectionForPosition', () => {
+    it('returns the nearest future general election date', async () => {
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: 'place-1',
+        name: 'Mayor',
+      })
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2999-11-05'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+        {
+          electionDate: new Date('2998-11-07'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+        {
+          electionDate: new Date('2000-11-07'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+      ])
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBe('2998-11-07')
+    })
+
+    it('excludes primaries and runoffs when a general exists', async () => {
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: 'place-1',
+        name: 'Mayor',
+      })
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2998-03-05'),
+          isPrimary: true,
+          isRunoff: false,
+        },
+        {
+          electionDate: new Date('2998-11-07'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+      ])
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBe('2998-11-07')
+    })
+
+    it('returns null when the position has only past races', async () => {
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: 'place-1',
+        name: 'Mayor',
+      })
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2000-11-07'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+      ])
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBeNull()
+    })
+
+    it('returns null when the position has no placeId', async () => {
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: null,
+        name: 'Mayor',
+      })
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBeNull()
+      expect(raceFindMany).not.toHaveBeenCalled()
+    })
+
+    it('throws NotFound when the position does not exist', async () => {
+      findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.getNextElectionForPosition('missing'),
+      ).rejects.toThrow(NotFoundException)
+    })
+  })
 })

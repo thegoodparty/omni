@@ -312,6 +312,23 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       data: body.data as PrismaJson.CampaignData | undefined,
     }
 
+    // A same-office re-election carries no client-supplied office details, so
+    // its electionDate must come from resolveFollowOnInputs. Without one,
+    // derive-on-read marks the new campaign "past" — mislabeling the switcher
+    // and leaving canStartCampaign true (unlimited duplicate re-elections). Fail
+    // loudly rather than create that broken campaign.
+    if (body.intent === 'same-office' && !initialData.details.electionDate) {
+      void this.analytics
+        .track(user.id, EVENTS.Campaigns.FollowOnBlocked, {
+          intent: body.intent,
+          reason: 'unresolved_election_date',
+        })
+        .catch(() => undefined)
+      throw new BadRequestException(
+        'Could not determine the next election date for this office',
+      )
+    }
+
     const newCampaign = await this.client.$transaction(async (tx) => {
       // The second concurrent request blocks here until the first commits,
       // then its re-check below sees the freshly-created active campaign.
@@ -407,6 +424,17 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         )
       }
 
+      // The re-election runs in the position's next upcoming election. Resolve
+      // that real date from election-api; fall back to the held office's
+      // term-end boundary (a cadence-derived proxy) only when election-api
+      // can't answer. The guard then refuses to create a campaign with neither:
+      // derive-on-read marks an electionDate-less campaign "past", mislabeling
+      // the switcher and leaving canStartCampaign true (unlimited duplicate
+      // re-elections).
+      const nextElection = sourceOrg.positionId
+        ? await this.elections.getNextElectionForPosition(sourceOrg.positionId)
+        : null
+
       return {
         orgPosition: {
           positionId: sourceOrg.positionId ?? undefined,
@@ -414,13 +442,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           customPositionName: sourceOrg.customPositionName ?? undefined,
         },
         isPro: sourceOrg.electedOffice.campaign?.isPro ?? false,
-        // A re-election's next general date isn't known, so derive it from the
-        // held office's term-end boundary (itself derived from the position's
-        // election cadence). Without it the campaign has no electionDate and
-        // derive-on-read marks it "past" — mislabeling the switcher and leaving
-        // canStartCampaign true (unlimited duplicate re-elections).
         electionDate:
-          toDateOnlyString(sourceOrg.electedOffice.termEndAt) ?? null,
+          nextElection?.electionDate ??
+          toDateOnlyString(sourceOrg.electedOffice.termEndAt) ??
+          null,
       }
     }
 
