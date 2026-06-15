@@ -25,6 +25,7 @@ import { OutreachModule } from '@/outreach/outreach.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
+import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
 import { PollsModule } from '@/polls/polls.module'
@@ -92,6 +93,7 @@ import { loggerModule } from './observability/logging/logger-module'
     PollsModule,
     PrioritiesModule,
     MeetingsModule,
+    DashboardCardsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
     ElectedOfficeModule,

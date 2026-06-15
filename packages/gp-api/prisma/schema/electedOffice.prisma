@@ -20,6 +20,7 @@ model ElectedOffice {
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
   priorities               Priority[]
+  dashboardCards           DashboardCard[]
 
   @@unique([userId])
   @@index([campaignId])
