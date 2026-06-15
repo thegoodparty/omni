@@ -304,9 +304,21 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     const { orgPosition, isPro, electionDate } =
       await this.resolveFollowOnInputs(user, body, eligibility)
 
+    // For same-office the electionDate is server-authoritative (resolved from
+    // election-api, falling back to the term end). Strip any client-supplied
+    // electionDate so a direct API caller can't inject one and slip past the
+    // guard below when the server resolves none. New-office legitimately
+    // carries the picked office's date in body.details, so leave it intact.
+    const clientDetails: PrismaJson.CampaignDetails = {
+      ...(body.details ?? {}),
+    }
+    if (body.intent === 'same-office') {
+      delete clientDetails.electionDate
+    }
+
     const initialData = {
       details: {
-        ...(body.details ?? {}),
+        ...clientDetails,
         ...(electionDate ? { electionDate } : {}),
       } as PrismaJson.CampaignDetails,
       data: body.data as PrismaJson.CampaignData | undefined,
