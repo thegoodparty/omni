@@ -3,6 +3,7 @@ import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import Stripe from 'stripe'
 import {
   EVENTS,
+  SegmentGroupTraits,
   SegmentIdentityTraits,
   SegmentTrackEventProperties,
   UserContext,
@@ -106,6 +107,29 @@ export class AnalyticsService {
       this.logger.debug(`[ANALYTICS] Successfully identified user ${userId}`)
     } catch (e) {
       this.logger.error({ e }, `[ANALYTICS] Failed to identify user: ${userId}`)
+      throw e
+    }
+  }
+
+  // Maps a user to the campaign/organization they are acting in, keyed on the
+  // org slug, so per-campaign facts (office, election date, party) stay
+  // attributable per campaign in the warehouse instead of overwriting the
+  // user identity each time the user runs again.
+  async group(userId: number, groupId: string, traits: SegmentGroupTraits) {
+    this.logger.debug(
+      `[ANALYTICS] Starting group identification - User: ${userId}, Group: ${groupId}`,
+    )
+
+    try {
+      await this.segment.group(userId, groupId, traits)
+      this.logger.debug(
+        `[ANALYTICS] Successfully grouped user ${userId} into ${groupId}`,
+      )
+    } catch (e) {
+      this.logger.error(
+        { e },
+        `[ANALYTICS] Failed to group user: ${userId} into ${groupId}`,
+      )
       throw e
     }
   }

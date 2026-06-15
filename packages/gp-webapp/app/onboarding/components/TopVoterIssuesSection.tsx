@@ -7,6 +7,7 @@ import { reportErrorToSentry } from '@shared/sentry'
 
 interface TopVoterIssuesSectionProps {
   ballotReadyPositionId?: string
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
@@ -22,14 +23,21 @@ const COLLAPSED_ISSUES_VISIBLE = 3
 // Endpoint derives district from the org cookie, so the request takes no
 // params. We still key the cache by office identity so navigating back and
 // changing zip/office refetches instead of returning the prior district.
+// orgPositionId covers the post-onboarding case: a campaign-details race
+// edit re-points the org's position, and keying on it turns that into a
+// fresh key (and refetch) the moment the invalidated campaign reloads.
 const voterIssuesQueryOptions = (params: {
   ballotReadyPositionId?: string
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
 }) =>
   queryOptions({
     queryKey: [VOTER_ISSUES_QUERY_KEY, params] as const,
+    // Without either identifier the org has no resolvable district (manual
+    // office entry) and the request is a guaranteed 404 — stay idle.
+    enabled: Boolean(params.ballotReadyPositionId || params.orgPositionId),
     queryFn: () =>
       clientRequest(VOTER_ISSUES_ROUTE, {}).then((res) => res.data),
   })
@@ -49,13 +57,20 @@ const VoterIssuesSkeleton = (): React.JSX.Element => (
 
 export const TopVoterIssuesSection = ({
   ballotReadyPositionId,
+  orgPositionId,
   city,
   state,
   office,
   headingsAsSubsections = false,
 }: TopVoterIssuesSectionProps): React.JSX.Element | null => {
   const query = useQuery(
-    voterIssuesQueryOptions({ ballotReadyPositionId, city, state, office }),
+    voterIssuesQueryOptions({
+      ballotReadyPositionId,
+      orgPositionId,
+      city,
+      state,
+      office,
+    }),
   )
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -68,6 +83,12 @@ export const TopVoterIssuesSection = ({
 
   const issues = query.data?.issues ?? []
 
+  // Disabled queries stay isPending forever — without this, a campaign
+  // with no identifiers would render an eternal skeleton instead of
+  // nothing.
+  if (!ballotReadyPositionId && !orgPositionId) {
+    return null
+  }
   if (!query.isPending && issues.length === 0) {
     return null
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
 import {
   Button,
@@ -17,9 +17,14 @@ import PlanSections, {
   type StrategyState,
   type VoterInsightsContext,
 } from './PlanSections'
+import SharePlanModal from './SharePlanModal'
 import DownloadReminderModal from './DownloadReminderModal'
 import type { PlanData } from './planContent'
-import { downloadCampaignPlanPdf } from '../pdf/downloadCampaignPlanPdf'
+import {
+  downloadCampaignPlanPdf,
+  generateCampaignPlanPdfBlob,
+} from '../pdf/downloadCampaignPlanPdf'
+import { uploadCampaignPlanPdf } from '../pdf/sharePlanPdf'
 
 export type PlanDownloadSource = 'download-button' | 'reminder-modal'
 export type PlanContinueSource = 'button' | 'reminder-modal'
@@ -62,6 +67,7 @@ const PlanView = ({
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
   navStuckClassName,
 }: PlanViewProps): React.JSX.Element => {
+  const [shareOpen, setShareOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [hasDownloaded, setHasDownloaded] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
@@ -71,6 +77,39 @@ const PlanView = ({
   }, [])
 
   const liveUrl = typeof window !== 'undefined' ? window.location.href : ''
+
+  // Cache the generate+upload promise keyed by its inputs, compared inside
+  // the call (not via an invalidation effect — child effects run before
+  // parent effects, so the modal would re-resolve against a stale cache).
+  // Same inputs → same promise: reopening reuses the in-flight or finished
+  // upload. `plan` is rebuilt as async sources settle, so a cached upload
+  // from an earlier snapshot never outlives its inputs.
+  const shareCacheRef = useRef<{
+    plan: PlanData
+    liveUrl: string
+    promise: Promise<string>
+  } | null>(null)
+  const getShareUrl = useCallback(() => {
+    const cached = shareCacheRef.current
+    if (cached && cached.plan === plan && cached.liveUrl === liveUrl) {
+      return cached.promise
+    }
+    const promise: Promise<string> = (async () => {
+      const blob = await generateCampaignPlanPdfBlob(plan, {
+        liveUrl: liveUrl || undefined,
+      })
+      return uploadCampaignPlanPdf(blob)
+    })().catch((e) => {
+      // A failed attempt must not poison the session cache — but only
+      // clear it if a newer attempt hasn't already replaced it.
+      if (shareCacheRef.current?.promise === promise) {
+        shareCacheRef.current = null
+      }
+      throw e
+    })
+    shareCacheRef.current = { plan, liveUrl, promise }
+    return promise
+  }, [plan, liveUrl])
 
   const handleDownload = async (source: PlanDownloadSource) => {
     if (downloading || !planReady) return
@@ -117,6 +156,10 @@ const PlanView = ({
           race={plan.race}
           state={state}
           electionDate={plan.electionDate}
+          onShare={() => {
+            if (!planReady) return
+            setShareOpen(true)
+          }}
         />
 
         <div className="mt-8 sm:mt-14">
@@ -218,10 +261,17 @@ const PlanView = ({
             size="large"
             onClick={handleContinue}
           >
-            Campaign manager
+            Campaign Manager
           </Button>
         </div>
       </div>
+
+      <SharePlanModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        candidateName={plan.candidateName}
+        getShareUrl={getShareUrl}
+      />
 
       <DownloadReminderModal
         open={reminderOpen}

@@ -331,6 +331,7 @@ const BASE_TOKEN_NAMES = [
   'background',
   'muted-foreground',
   'muted',
+  'inactive',
   'border',
   'accent',
   'accent-foreground',
@@ -346,11 +347,20 @@ const BASE_TOKEN_NAMES = [
 
 const THEME_TOKEN_NAMES = [
   'primary',
+  'primary-light',
+  'primary-dark',
   'primary-foreground',
   'primary-focus',
   'secondary',
+  'secondary-light',
+  'secondary-dark',
   'secondary-foreground',
   'secondary-focus',
+  'tertiary',
+  'tertiary-light',
+  'tertiary-dark',
+  'tertiary-foreground',
+  'tertiary-focus',
   'destructive',
   'destructive-light',
   'destructive-dark',
@@ -383,7 +393,9 @@ const COMPONENT_TOKEN_NAMES = [
   'input-foreground',
   'input-border',
   'input-active',
+  'input-inactive',
   'input-focus',
+  'input-inactive-focus',
 ]
 
 const DATA_TOKEN_NAMES = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5']
@@ -408,11 +420,24 @@ const SIDEBAR_EXCLUDED = new Set(['primary', 'primary-foreground', 'ring'])
 const THEME_GROUPS = [
   [
     'primary',
+    'primary-light',
+    'primary-dark',
     'primary-foreground',
     'primary-focus',
+  ],
+  [
     'secondary',
+    'secondary-light',
+    'secondary-dark',
     'secondary-foreground',
     'secondary-focus',
+  ],
+  [
+    'tertiary',
+    'tertiary-light',
+    'tertiary-dark',
+    'tertiary-foreground',
+    'tertiary-focus',
   ],
   [
     'destructive',
@@ -446,13 +471,18 @@ const THEME_GROUP_SUB_LABELS = {
 
 const BASE_GROUPS = [
   ['background', 'foreground', 'surface', 'surface-foreground', 'border'],
-  ['muted', 'muted-foreground', 'accent', 'accent-foreground'],
+  ['muted', 'muted-foreground', 'inactive', 'accent', 'accent-foreground'],
   ['focus-ring', 'ring-offset', 'foreground-focus', 'foreground-dark-focus'],
 ]
 
 const COMPONENT_GROUPS = [
-  ['link'],
-  ['card-base', 'card-foreground', 'tooltip-base', 'tooltip-foreground'],
+  [
+    'card-base',
+    'card-foreground',
+    'tooltip-base',
+    'tooltip-foreground',
+    'link',
+  ],
   [
     'input-base',
     'input-foreground',
@@ -460,13 +490,14 @@ const COMPONENT_GROUPS = [
     'input-active',
     'input-focus',
   ],
+  ['input-inactive', 'input-inactive-focus'],
 ]
 
 const TOKEN_GROUP_META = {
   theme: {
     title: 'Theme',
     description:
-      'Branding tokens (primary, secondary) and semantic action colors (destructive, success, info, warning) with light/dark variants.',
+      'Branding tokens (primary, secondary, tertiary) and semantic action colors (destructive, success, info, warning) with light/dark variants.',
   },
   base: {
     title: 'Base',
@@ -677,31 +708,13 @@ export const BrandingColors = () => {
     setData({
       coreBrand: [
         {
-          name: 'Red',
-          hex: read('--goodparty-red'),
-          tailwindClass: 'bg-brand-red',
-        },
-        {
-          name: 'Red Light',
-          hex: read('--goodparty-red-light'),
-          tailwindClass: 'bg-brand-red-light',
-        },
-        {
-          name: 'Blue',
-          hex: read('--goodparty-blue'),
-          tailwindClass: 'bg-brand-blue',
-        },
-        {
-          name: 'Blue Light',
-          hex: read('--goodparty-blue-light'),
-          tailwindClass: 'bg-brand-blue-light',
-        },
-        {
           name: 'Cream',
           hex: read('--goodparty-cream'),
           tailwindClass: 'bg-brand-cream',
         },
       ],
+      brandRed: readScale('goodparty-red'),
+      brandBlue: readScale('goodparty-blue'),
       midnight: readScale('color-midnight'),
       lavender: readScale('color-lavender'),
       waxflower: readScale('color-waxflower'),
@@ -719,10 +732,7 @@ export const BrandingColors = () => {
         description="Colors that represent GoodParty.org's visual identity. Read from CSS custom properties defined in design-tokens.css."
       />
 
-      <Section
-        title="Core Brand"
-        description="Primary brand identifiers — logo, key surfaces."
-      >
+      <Section title="Neutrals">
         <SwatchRow>
           {data.coreBrand.map(({ name, hex, tailwindClass }) => (
             <Swatch
@@ -736,14 +746,9 @@ export const BrandingColors = () => {
       </Section>
 
       <ScaleRow
-        scaleName="Midnight"
-        prefix="bg-brand-midnight"
-        colors={data.midnight}
-      />
-      <ScaleRow
-        scaleName="Lavender"
-        prefix="bg-brand-lavender"
-        colors={data.lavender}
+        scaleName="Brand Red"
+        prefix="bg-brand-red"
+        colors={data.brandRed}
       />
       <ScaleRow
         scaleName="Waxflower"
@@ -751,14 +756,29 @@ export const BrandingColors = () => {
         colors={data.waxflower}
       />
       <ScaleRow
+        scaleName="Bright Yellow"
+        prefix="bg-brand-bright-yellow"
+        colors={data.brightYellow}
+      />
+      <ScaleRow
         scaleName="Halo Green"
         prefix="bg-brand-halo-green"
         colors={data.haloGreen}
       />
       <ScaleRow
-        scaleName="Bright Yellow"
-        prefix="bg-brand-bright-yellow"
-        colors={data.brightYellow}
+        scaleName="Brand Blue"
+        prefix="bg-brand-blue"
+        colors={data.brandBlue}
+      />
+      <ScaleRow
+        scaleName="Lavender"
+        prefix="bg-brand-lavender"
+        colors={data.lavender}
+      />
+      <ScaleRow
+        scaleName="Midnight"
+        prefix="bg-brand-midnight"
+        colors={data.midnight}
       />
     </div>
   )

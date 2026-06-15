@@ -24,9 +24,16 @@ describe('UseOrganizationGuard', () => {
 
   function buildContext(
     headers: Record<string, string> = {},
-    userId = 1,
+    userId: number | null = 1,
   ): ExecutionContext {
-    const req = { headers, user: { id: userId }, organization: undefined }
+    // null = unauthenticated: user is absent entirely on @PublicAccess
+    // requests. (null rather than undefined — an explicit undefined
+    // argument would re-trigger the default value.)
+    const req = {
+      headers,
+      user: userId === null ? undefined : { id: userId },
+      organization: undefined,
+    }
     return {
       switchToHttp: () => ({ getRequest: () => req }),
       getHandler: () => ({}),
@@ -124,6 +131,32 @@ describe('UseOrganizationGuard', () => {
       const result = await guard.canActivate(ctx)
 
       expect(result).toBe(true)
+    })
+  })
+
+  // Unauthenticated requests reach this guard on @PublicAccess routes
+  // (e.g. onboarding stats) — request.user is absent entirely.
+  describe('no authenticated user', () => {
+    it('continues without an org when continueIfNotFound, even with a slug header', async () => {
+      mockMetadata({ continueIfNotFound: true })
+
+      const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, null)
+      const result = await guard.canActivate(ctx)
+
+      expect(result).toBe(true)
+      expect(organizationsService.findFirst).not.toHaveBeenCalled()
+      const req = ctx.switchToHttp().getRequest() as {
+        organization?: unknown
+      }
+      expect(req.organization).toBeUndefined()
+    })
+
+    it('throws NotFoundException without continueIfNotFound', async () => {
+      mockMetadata()
+
+      const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, null)
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
     })
   })
 })

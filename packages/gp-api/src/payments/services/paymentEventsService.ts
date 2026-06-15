@@ -21,7 +21,6 @@ import { IS_PROD_DEPLOY } from 'src/shared/util/appEnvironment.util'
 import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { parseCampaignElectionDate } from '../../campaigns/util/parseCampaignElectionDate.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WrapperType } from 'src/shared/types/utility.types'
@@ -60,6 +59,8 @@ export class PaymentEventsService {
         return await this.customerSubscriptionCreatedHandler(event)
       case WebhookEventType.CheckoutSessionCompleted:
         return await this.checkoutSessionCompletedHandler(event)
+      case WebhookEventType.CheckoutSessionAsyncPaymentSucceeded:
+        return await this.checkoutSessionAsyncPaymentSucceededHandler(event)
       case WebhookEventType.CheckoutSessionExpired:
         return await this.checkoutSessionExpiredHandler(event)
       case WebhookEventType.CustomerSubscriptionDeleted:
@@ -88,23 +89,17 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.created; skipping',
       )
+      return
     }
 
-    const { id: campaignId, details: campaignDetails } = campaign
-
-    return this.campaignsService.update({
-      where: { id: campaignId },
-      data: {
-        details: {
-          ...campaignDetails,
-          subscriptionId,
-        },
-      },
+    return this.campaignsService.patchCampaignDetails(campaign.id, {
+      subscriptionId,
     })
   }
 
@@ -125,11 +120,13 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadGatewayException(
-        'No campaign found associated with given customerId',
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription.resumed; skipping',
       )
+      return
     }
     const { id: campaignId } = campaign
 
@@ -142,15 +139,16 @@ export class PaymentEventsService {
     await Promise.allSettled([
       this.sendProSubscriptionResumedSlackMessage(user, campaign),
       (async () => {
-        const district = campaign.organizationSlug
-          ? await this.organizationsService.getDistrictForOrgSlug(
+        const { district, ballotLevel } = campaign.organizationSlug
+          ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
               campaign.organizationSlug,
             )
-          : null
+          : { district: null, ballotLevel: null }
         await this.voterFileDownloadAccess.downloadAccessAlert(
           campaign,
           user,
           district,
+          ballotLevel,
         )
       })(),
     ])
@@ -211,6 +209,27 @@ export class PaymentEventsService {
   }
 
   /**
+   * Handles checkout.session.async_payment_succeeded — fired when a delayed
+   * payment method (e.g. ACH bank debit) settles, after the earlier
+   * checkout.session.completed where fulfillment was deferred because the
+   * payment was not yet confirmed. Async payments are always one-time
+   * payment-mode checkouts, and payment_status is now 'paid', so fulfillment
+   * proceeds (idempotently) via the same one-time-payment path.
+   */
+  private async checkoutSessionAsyncPaymentSucceededHandler(
+    event: Stripe.CheckoutSessionAsyncPaymentSucceededEvent,
+  ) {
+    // Pass the event's session as the prefetched session: it already carries the
+    // confirmed payment_status 'paid'. Re-fetching from Stripe here could read a
+    // stale 'unpaid' (eventual consistency) and silently defer, dropping the
+    // fulfillment with no retry.
+    return this.handleOneTimePaymentCheckoutCompleted(
+      event.data.object,
+      event.data.object,
+    )
+  }
+
+  /**
    * Handles checkout.session.completed events for subscription checkouts (Pro plan).
    */
   private async handleSubscriptionCheckoutCompleted(
@@ -237,18 +256,21 @@ export class PaymentEventsService {
         'No user found with given checkout session userId',
       )
     }
-    const campaign = await this.campaignsService.findByUserId(user.id)
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
-      throw new BadRequestException('No campaign found for user')
+      this.logger.warn(
+        { userId: user.id },
+        '[WEBHOOK] No active campaign on subscription checkout; skipping',
+      )
+      return
     }
 
+    // findActiveByUserId already guaranteed, via isActiveCampaign, a present and
+    // valid electionDate that has not passed by UTC calendar day. The previous
+    // instant `electionDate < new Date()` re-check wrongly 500'd an election-day
+    // checkout (the run is active through the whole day), and re-deriving the
+    // date here would duplicate the shared predicate.
     const { id: campaignId } = campaign
-    const electionDate = parseCampaignElectionDate(campaign)
-    if (!electionDate || electionDate < new Date()) {
-      throw new BadGatewayException(
-        'No electionDate or electionDate is in the past',
-      )
-    }
 
     // These have to happen in serial since setIsPro also mutates the JSONP details column
     await this.campaignsService.patchCampaignDetails(campaignId, {
@@ -305,15 +327,16 @@ export class PaymentEventsService {
     const results = await Promise.allSettled([
       this.sendProSignUpSlackMessage(user, campaign),
       (async () => {
-        const district = campaign.organizationSlug
-          ? await this.organizationsService.getDistrictForOrgSlug(
+        const { district, ballotLevel } = campaign.organizationSlug
+          ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
               campaign.organizationSlug,
             )
-          : null
+          : { district: null, ballotLevel: null }
         await this.voterFileDownloadAccess.downloadAccessAlert(
           campaign,
           user,
           district,
+          ballotLevel,
         )
       })(),
     ])
@@ -340,6 +363,7 @@ export class PaymentEventsService {
    */
   private async handleOneTimePaymentCheckoutCompleted(
     session: Stripe.Checkout.Session,
+    prefetchedSession?: Stripe.Checkout.Session,
   ) {
     const { id: sessionId, metadata } = session
 
@@ -364,9 +388,10 @@ export class PaymentEventsService {
 
     // Delegate to purchase service for post-purchase processing
     try {
-      await this.purchaseService.completeCheckoutSession({
-        checkoutSessionId: sessionId,
-      })
+      await this.purchaseService.completeCheckoutSession(
+        { checkoutSessionId: sessionId },
+        prefetchedSession,
+      )
     } catch (error) {
       this.logger.error(
         { error },

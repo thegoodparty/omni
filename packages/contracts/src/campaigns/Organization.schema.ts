@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OrganizationStatusSchema } from './enums'
 
 export const OrganizationSchema = z.object({
   createdAt: z.coerce.date(),
@@ -11,3 +12,11 @@ export const OrganizationSchema = z.object({
 })
 
 export type Organization = z.infer<typeof OrganizationSchema>
+
+export const OrganizationWithStatusSchema = OrganizationSchema.extend({
+  status: OrganizationStatusSchema,
+})
+
+export type OrganizationWithStatus = z.infer<
+  typeof OrganizationWithStatusSchema
+>

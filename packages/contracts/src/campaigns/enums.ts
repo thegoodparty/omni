@@ -72,6 +72,11 @@ export type GenerationStatus = (typeof GENERATION_STATUS_VALUES)[number]
 export const GenerationStatusSchema = z.enum(GENERATION_STATUS_VALUES)
 export const GenerationStatus = toEnumObject(GENERATION_STATUS_VALUES)
 
+export const ORGANIZATION_STATUS_VALUES = ['active', 'past'] as const
+export type OrganizationStatus = (typeof ORGANIZATION_STATUS_VALUES)[number]
+export const OrganizationStatusSchema = z.enum(ORGANIZATION_STATUS_VALUES)
+export const OrganizationStatus = toEnumObject(ORGANIZATION_STATUS_VALUES)
+
 export const COMPLIANCE_STAGE_VALUES = [
   'needs_profile',
   'needs_filing',

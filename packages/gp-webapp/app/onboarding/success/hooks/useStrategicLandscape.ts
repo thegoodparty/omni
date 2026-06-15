@@ -24,8 +24,14 @@ const strategicLandscapeQueryOptions = () =>
     // Stop polling as soon as the server returns `ready` (or errors out).
     refetchInterval: (query) =>
       query.state.data?.status === 'generating' ? POLL_INTERVAL_MS : false,
-    // Once we've got ready data, don't re-poll on remount.
+    // Within a mount, ready data stays fresh. Across mounts we ALWAYS
+    // re-poll (refetchOnMount below): the endpoint doubles as the
+    // race-change detector — gp-api compares the strategy row's race stamp
+    // to the campaign's current race on every call and resets stale
+    // content. Skipping the call on a plan-page visit would keep serving
+    // the previous race's cached sections after an office change.
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
     // 400 means the campaign has no race yet, 502 means election-api is down —

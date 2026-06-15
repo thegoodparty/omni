@@ -24,4 +24,17 @@ export class RacesController {
   ): Promise<FilingDetailsByBrHashResult> {
     return this.racesService.findFilingFeeByBrHashId(params.brHashId)
   }
+
+  /**
+   * Election-cadence lookup keyed on the same BallotReady race hash. gp-api's
+   * elected-office creation reads `Race.frequency` from here to derive a
+   * term length (Position carries no frequency, and `GET /races` can't be
+   * keyed by the position id we hold at creation time).
+   */
+  @Get('by-br-hash-id/:brHashId/frequency')
+  async getFrequencyByBrHashId(
+    @Param() params: GetRaceByBrHashIdParamsDTO,
+  ): Promise<{ frequency: number[]; electionDate: string | null }> {
+    return this.racesService.findFrequencyByBrHashId(params.brHashId)
+  }
 }

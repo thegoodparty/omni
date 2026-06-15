@@ -14,17 +14,21 @@ const iconButtonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'button-primary',
-        secondary: 'button-secondary',
+        default:
+          'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+        secondary:
+          'bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80',
         destructive:
-          'button-destructive focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
-        outline: 'button-outline focus-visible:ring-[3px]',
-        ghost: 'button-ghost focus-visible:ring-[3px]',
-        link: 'button-link',
+          'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
+        outline:
+          'bg-transparent text-foreground border-border hover:bg-muted focus-visible:ring-[3px]',
+        ghost:
+          'bg-transparent text-foreground border-transparent hover:bg-muted focus-visible:ring-[3px]',
+        link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
         whiteOutline:
-          'button-whiteOutline focus-visible:border-white focus-visible:ring-white/20 focus-visible:ring-[3px]',
+          'bg-transparent text-white border-white hover:bg-white/10 focus-visible:border-white focus-visible:ring-white/20 focus-visible:ring-[3px]',
         whiteGhost:
-          'button-whiteGhost focus-visible:border-white/20 focus-visible:ring-white/20 focus-visible:ring-[3px]',
+          'bg-transparent text-white border-transparent hover:bg-white/10 focus-visible:border-white/20 focus-visible:ring-white/20 focus-visible:ring-[3px]',
       },
       size: {
         xSmall: 'size-6',

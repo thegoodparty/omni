@@ -148,6 +148,54 @@ describe('deriveComplianceStage', () => {
     ).toBe(ComplianceStage.tcr_approved)
   })
 
+  // A live website is a precondition for submission, so it gates every
+  // submission-or-later stage. An `approved` record whose site is no longer
+  // live (or whose domain never verified) must report pending_website_live so
+  // the setup agent republishes/re-verifies instead of skipping those steps on
+  // the strength of a stale approval — the exact prod state behind campaign
+  // 21062 (approved TCR, unpublished website, unverified domain).
+  it('returns pending_website_live when approved but website is unpublished', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(WebsiteStatus.unpublished),
+        mockDomain(),
+        mockTcr({
+          status: TcrComplianceStatus.approved,
+          peerlyIdentityId: 'peerly-123',
+        }),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('returns pending_website_live when approved but domain registrant is unverified', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain({ registrantVerifiedAt: null }),
+        mockTcr({
+          status: TcrComplianceStatus.approved,
+          peerlyIdentityId: 'peerly-123',
+        }),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('returns pending_website_live when in review but website is unpublished', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(WebsiteStatus.unpublished),
+        mockDomain(),
+        mockTcr({
+          status: TcrComplianceStatus.pending,
+          peerlyIdentityId: 'peerly-123',
+        }),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
   it('returns tcr_rejected when status is rejected', () => {
     expect(
       deriveComplianceStage(

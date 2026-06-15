@@ -47,6 +47,7 @@ const campaignOrg: Organization = {
   district: null,
   electedOfficeId: null,
   campaignId: 1,
+  status: 'active',
 }
 
 const electedOfficeOrg: Organization = {

@@ -41,6 +41,7 @@ const minimalOrg: Organization = {
   district: null,
   electedOfficeId: null,
   campaignId: 1,
+  status: 'active',
 }
 
 beforeEach(() => {

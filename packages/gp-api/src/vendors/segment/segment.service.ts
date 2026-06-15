@@ -3,6 +3,7 @@ import Analytics, { TrackParams } from '@segment/analytics-node'
 import { pickKeys } from 'src/shared/util/objects.util'
 import { SEGMENT_KEYS } from './segment.schema'
 import {
+  SegmentGroupTraits,
   SegmentIdentityTraits,
   SegmentTrackEventProperties,
   UserContext,
@@ -91,6 +92,30 @@ export class SegmentService {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
       this.logger.error(error, `[SEGMENT] Failed to identify user: ${userId}`)
+      throw error
+    }
+  }
+
+  async group(
+    userId: number,
+    groupId: string,
+    traits: SegmentGroupTraits,
+  ): Promise<void> {
+    try {
+      await this.analytics.group({
+        userId: String(userId),
+        groupId,
+        traits,
+      })
+      this.logger.debug(
+        `[SEGMENT] User grouped - User: ${userId}, Group: ${groupId}`,
+      )
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      this.logger.error(
+        error,
+        `[SEGMENT] Failed to group user: ${userId} into ${groupId}`,
+      )
       throw error
     }
   }

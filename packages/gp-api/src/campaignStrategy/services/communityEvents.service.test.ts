@@ -87,7 +87,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events).toHaveLength(3)
     expect(result.events.map((e) => e.title)).toEqual(['A', 'B', 'C'])
@@ -96,7 +96,7 @@ describe('CommunityEventsService', () => {
       null,
       '456 Civic Ave, Anytown, CA 90210',
     ])
-    expect(persister.persist).toHaveBeenCalledWith(42, result)
+    expect(persister.persist).toHaveBeenCalledWith(42, 'hash-abc', result)
   })
 
   it('clamps to MAX_EVENTS = 3 when the model overshoots', async () => {
@@ -110,7 +110,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events.map((e) => e.title)).toEqual(['A', 'B', 'C'])
   })
@@ -124,7 +124,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events.map((e) => e.title)).toEqual(['Future'])
   })
@@ -143,7 +143,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events.map((e) => e.title)).toEqual(['OK'])
   })
@@ -156,7 +156,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events.map((e) => e.title)).toEqual(['OK'])
   })
@@ -164,12 +164,14 @@ describe('CommunityEventsService', () => {
   it('returns an empty events array when the model returns no qualifying events', async () => {
     gemini.generateStructured.mockResolvedValue({ events: [] })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events).toEqual([])
     // Persist still fires — the cache shape must distinguish "generated,
     // found nothing" (ready, empty) from "not yet generated" (no JSON).
-    expect(persister.persist).toHaveBeenCalledWith(42, { events: [] })
+    expect(persister.persist).toHaveBeenCalledWith(42, 'hash-abc', {
+      events: [],
+    })
   })
 
   it('normalizes optional url and address to null', async () => {
@@ -189,7 +191,7 @@ describe('CommunityEventsService', () => {
       ],
     })
 
-    const result = await service.generate(42, 99, 7, buildCtx())
+    const result = await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     expect(result.events.map((e) => e.url)).toEqual([null, null])
     expect(result.events.map((e) => e.address)).toEqual([null, null])
@@ -203,7 +205,7 @@ describe('CommunityEventsService', () => {
     })
     gemini.generateStructured.mockResolvedValue({ events: [] })
 
-    await service.generate(42, 99, 7, buildCtx())
+    await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
     const [structuredPrompt] = gemini.generateStructured.mock.calls[0]
     expect(structuredPrompt).toContain('EVENTS_FROM_BR')

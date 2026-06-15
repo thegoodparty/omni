@@ -7,6 +7,7 @@ export const segmentSchema = z.object({
   affiliation: z.string().optional(),
   pledged: z.boolean().optional(),
   isPro: z.boolean().optional(),
+  campaignId: z.number().optional(),
 })
 
 export type SegmentProperties = z.infer<typeof segmentSchema>

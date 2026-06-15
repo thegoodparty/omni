@@ -113,7 +113,7 @@ function AvatarIcon({
     <div
       data-slot="avatar-icon"
       className={cn(
-        'flex size-full items-center justify-center bg-muted border border-base-border',
+        'flex size-full items-center justify-center bg-muted border border-base-border text-foreground',
         shape === 'square' ? 'rounded-base' : 'rounded-full',
         iconSize[size],
         className,
