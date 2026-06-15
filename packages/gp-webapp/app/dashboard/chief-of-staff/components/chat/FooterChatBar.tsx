@@ -1,0 +1,74 @@
+'use client'
+
+import { IconButton } from '@styleguide'
+import {
+  ClockIcon,
+  MicIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
+
+interface Props {
+  firstName?: string
+  /** Open the chat surface. The dashboard owns the surface + its open state. */
+  onOpen: () => void
+}
+
+/**
+ * Persistent footer chat bar. Fixed to the bottom at all widths and offset by
+ * the dashboard sidebar (16rem) on md+ — the breakpoint where the sidebar
+ * becomes visible. Tapping the pill (or any of its buttons) opens the chat
+ * surface.
+ */
+export default function FooterChatBar({
+  firstName,
+  onOpen,
+}: Props): React.JSX.Element {
+  const placeholder = firstName
+    ? `Hi, ${firstName}, how can I help?`
+    : 'How can I help?'
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 md:left-64">
+      <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
+        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-border bg-card pl-1.5 pr-1.5">
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            aria-label="Chat history"
+            className="size-9"
+            onClick={onOpen}
+          >
+            <ClockIcon className="size-4" aria-hidden />
+          </IconButton>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="flex-1 truncate text-left text-[15px] font-medium text-muted-foreground"
+          >
+            {placeholder}
+          </button>
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            aria-label="Dictate a message"
+            className="size-9"
+            onClick={onOpen}
+          >
+            <MicIcon className="size-4" aria-hidden />
+          </IconButton>
+          <IconButton
+            type="button"
+            size="small"
+            aria-label="Open Chief of Staff chat"
+            className="size-9 bg-primary text-primary-foreground"
+            onClick={onOpen}
+          >
+            <SparklesIcon className="size-4" aria-hidden />
+          </IconButton>
+        </div>
+      </div>
+    </div>
+  )
+}
