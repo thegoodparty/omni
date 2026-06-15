@@ -150,10 +150,17 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
     .getByRole('radio')
     .first()
     .waitFor({ state: 'visible', timeout: 30_000 })
-  const differentOffice = officeGroup
-    .getByRole('radio')
-    .filter({ hasNotText: RACE.office })
-    .first()
+  // Need ≥2 results to pick a seat other than the held one; assert it so a
+  // single-office API response fails immediately and clearly instead of the
+  // hasNotText filter matching nothing and timing out with no signal.
+  const allOffices = officeGroup.getByRole('radio')
+  const officeCount = await allOffices.count()
+  if (officeCount < 2) {
+    throw new Error(
+      `zip ${RACE.zip} returned only ${officeCount} office(s) from the election API — need at least 2 to pick a different seat`,
+    )
+  }
+  const differentOffice = allOffices.filter({ hasNotText: RACE.office }).first()
   await expect(differentOffice).toBeVisible()
   await differentOffice.click()
   // Wait out the race-by-position hydration before the (creation) Continue.
