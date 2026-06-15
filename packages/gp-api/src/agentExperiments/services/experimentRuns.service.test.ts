@@ -53,7 +53,7 @@ describe('ExperimentRunsService', () => {
   })
 
   describe('dispatchRun', () => {
-    it('creates a RUNNING row and sends an SQS dispatch message', async () => {
+    it('creates a QUEUED row and sends an SQS dispatch message', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 
       const result = await service.dispatchRun({
@@ -73,7 +73,7 @@ describe('ExperimentRunsService', () => {
           runId: expect.any(String),
           experimentType: 'district_issue_pulse',
           organizationSlug: 'org-1',
-          status: ExperimentRunStatus.RUNNING,
+          status: ExperimentRunStatus.QUEUED,
           params: {
             state: 'CA',
             city: 'San Francisco',
@@ -109,7 +109,7 @@ describe('ExperimentRunsService', () => {
         runId: expect.any(String),
         experimentType: 'district_issue_pulse',
         organizationSlug: 'org-1',
-        status: ExperimentRunStatus.RUNNING,
+        status: ExperimentRunStatus.QUEUED,
       })
     })
 
@@ -217,6 +217,55 @@ describe('ExperimentRunsService', () => {
       expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
     })
 
+    it('creates the run as QUEUED and forwards priority in the SQS body', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+
+      const result = await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+        priority: 'HIGH',
+      })
+
+      expect(result?.status).toBe(ExperimentRunStatus.QUEUED)
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+        run_id: string
+      }
+      expect(body.priority).toBe('HIGH')
+      expect(body.run_id).toBe(result?.runId)
+    })
+
+    it('defaults priority to DEFAULT when not given', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+
+      await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+      })
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('DEFAULT')
+    })
+
     it('generates a unique run_id per dispatch', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 
@@ -319,7 +368,7 @@ describe('ExperimentRunsService', () => {
     }
 
     it(
-      'mints a NEW run_id, creates a RUNNING row with incremented ' +
+      'mints a NEW run_id, creates a QUEUED row with incremented ' +
         'resumeAttempts, and sends SQS with the new run_id and ' +
         'trigger=recovery_resume',
       async () => {
@@ -334,7 +383,7 @@ describe('ExperimentRunsService', () => {
         }
         expect(createCall.data.runId).toBeDefined()
         expect(createCall.data.runId).not.toBe(awaitingRun.runId)
-        expect(createCall.data.status).toBe(ExperimentRunStatus.RUNNING)
+        expect(createCall.data.status).toBe(ExperimentRunStatus.QUEUED)
         expect(createCall.data.experimentType).toBe(awaitingRun.experimentType)
         expect(createCall.data.resumeAttempts).toBe(
           awaitingRun.resumeAttempts + 1,

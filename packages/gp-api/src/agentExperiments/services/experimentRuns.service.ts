@@ -15,6 +15,8 @@ import { isJsonObject } from '@/shared/util/objects.util'
 
 const sqs = new SQS({})
 
+export type DispatchPriority = 'HIGH' | 'DEFAULT'
+
 export type ExperimentRunDispatchInput<
   ExperimentType extends keyof AgentJobContracts,
 > = {
@@ -22,6 +24,7 @@ export type ExperimentRunDispatchInput<
   organizationSlug: string
   clerkUserId: string
   params: AgentJobContracts[ExperimentType]['Input']
+  priority?: DispatchPriority
 }
 
 const STALE_THRESHOLD_MINUTES = 45
@@ -72,6 +75,7 @@ export class ExperimentRunsService extends createPrismaBase(
       experimentType: string
       clerkUserId: string
       params: unknown
+      priority: DispatchPriority
     },
   ) {
     const messageBody = {
@@ -80,6 +84,7 @@ export class ExperimentRunsService extends createPrismaBase(
       organization_slug: input.organizationSlug,
       experiment_type: input.experimentType,
       clerk_user_id: input.clerkUserId,
+      priority: input.priority,
     }
 
     await sqs.sendMessage({
@@ -95,6 +100,7 @@ export class ExperimentRunsService extends createPrismaBase(
     organizationSlug: string
     clerkUserId: string
     params: Prisma.InputJsonValue
+    priority?: DispatchPriority
     resumeAttempts?: number
     stage?: string | null
   }): Promise<ExperimentRun | undefined> {
@@ -111,7 +117,7 @@ export class ExperimentRunsService extends createPrismaBase(
         runId,
         experimentType: input.experimentType,
         organizationSlug: input.organizationSlug,
-        status: ExperimentRunStatus.RUNNING,
+        status: ExperimentRunStatus.QUEUED,
         params: input.params,
         resumeAttempts: input.resumeAttempts ?? 0,
         stage: input.stage ?? null,
@@ -124,6 +130,7 @@ export class ExperimentRunsService extends createPrismaBase(
         experimentType: input.experimentType,
         clerkUserId: input.clerkUserId,
         params: input.params,
+        priority: input.priority ?? 'DEFAULT',
       })
     } catch (error) {
       this.logger.error(
@@ -164,6 +171,7 @@ export class ExperimentRunsService extends createPrismaBase(
       experimentType: input.type,
       organizationSlug: input.organizationSlug,
       clerkUserId: input.clerkUserId,
+      priority: input.priority ?? 'DEFAULT',
       // AgentJobContracts inputs are JSON-serializable objects validated by Zod;
       // the assertion bridges the structural index-signature gap that InputJsonObject
       // requires but the generated contract types don't declare.
