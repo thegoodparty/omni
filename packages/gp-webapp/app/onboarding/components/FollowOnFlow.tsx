@@ -11,6 +11,7 @@ import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import type { Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
@@ -168,6 +169,14 @@ export default function FollowOnFlow({
     boolean | null
   >(null)
   const isAdvancingRef = useRef(false)
+  // Dedupe "viewed" analytics per step (mirrors OnboardingFlow's
+  // viewedStepsFiredRef): on the new-office path the user can navigate back to
+  // the intent step and forward again, which would otherwise re-fire the event.
+  const viewedStepsFiredRef = useRef<Set<OnboardingStepId>>(new Set())
+  // The intent decision is reported once, only after the step is successfully
+  // left. Guarding it avoids re-firing on a same-office creation retry and on
+  // new-office back-navigation to the intent step.
+  const intentCompletedFiredRef = useRef(false)
   // Early answers (party / ballot status) collected before the campaign
   // exists. If the post-creation flush fails, they're parked here and retried
   // on the next advance — Back is disabled after creation, so there's no other
@@ -218,6 +227,20 @@ export default function FollowOnFlow({
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [activeStepId])
+
+  useEffect(() => {
+    // activeStepId initializes to 'intent', so without the held-office gate
+    // this would fire on mount for every user — including no-office candidates,
+    // for whom the intent step is sliced out once eligibility resolves.
+    if (
+      (frozenHasHeldOffice ?? hasHeldOffice) === true &&
+      activeStepId === 'intent' &&
+      !viewedStepsFiredRef.current.has('intent')
+    ) {
+      viewedStepsFiredRef.current.add('intent')
+      trackEvent(EVENTS.OnboardingV2.NewCampaignContextViewed)
+    }
+  }, [activeStepId, frozenHasHeldOffice, hasHeldOffice])
 
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
@@ -439,6 +462,20 @@ export default function FollowOnFlow({
     if (shouldCreateOnLeaving(activeStep.id)) {
       const created = await createFollowOnCampaign()
       if (!created) return
+    }
+
+    // Report the intent only once the step is actually completed — after any
+    // campaign creation, so a failed same-office create (which returns above)
+    // doesn't emit it, and the ref guards against a repeat on back-navigation.
+    if (
+      activeStep.id === 'intent' &&
+      answers.followOnIntent &&
+      !intentCompletedFiredRef.current
+    ) {
+      intentCompletedFiredRef.current = true
+      trackEvent(EVENTS.OnboardingV2.NewCampaignContextCompleted, {
+        intent: answers.followOnIntent,
+      })
     }
 
     if (nextStep) setActiveStepId(nextStep.id)
