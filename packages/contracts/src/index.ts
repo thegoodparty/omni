@@ -377,3 +377,18 @@ export {
   BriefingAdminRowSchema,
   type BriefingAdminRow,
 } from './adminBriefings/AdminBriefing.schema'
+
+export {
+  DASHBOARD_CARD_TYPE_VALUES,
+  DashboardCardTypeSchema,
+  type DashboardCardType,
+  DASHBOARD_CARD_BUCKET_VALUES,
+  DashboardCardBucketSchema,
+  type DashboardCardBucket,
+  DashboardCardsQuerySchema,
+  type DashboardCardsQuery,
+  DashboardCardSchema,
+  type DashboardCard,
+  DashboardCardsResponseSchema,
+  type DashboardCardsResponse,
+} from './dashboard/DashboardCard.schema'
