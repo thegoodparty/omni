@@ -1,6 +1,10 @@
 import { expect, type Page, test } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { setupElectedOfficeUser } from 'src/helpers/organizations'
+import {
+  setupElectedOfficeUser,
+  openOrgSwitcher,
+  closeOrgSwitcher,
+} from 'src/helpers/organizations'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -18,17 +22,7 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-const HEADER = '[data-sidebar="header"]'
-
 const RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
-
-const openSwitcher = async (page: Page) => {
-  await page.locator(HEADER).getByRole('button').first().click()
-}
-
-const closeSwitcher = async (page: Page) => {
-  await page.keyboard.press('Escape')
-}
 
 const continueButton = (page: Page) =>
   page.getByRole('button', { name: /continue/i }).first()
@@ -81,7 +75,7 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
   // switcher and start the new-office flow.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   const newOfficeAction = page.getByRole('menuitem', {
     name: 'Run for a new office',
   })
@@ -217,7 +211,7 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
 
   // 7 (UI): the switcher shows the new campaign alongside the prior orgs.
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   await expect(
     page.getByRole('menuitem', { name: newCampaignOrg.name }).first(),
   ).toBeVisible({ timeout: 15_000 })
@@ -227,5 +221,5 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
   await expect(
     page.getByRole('menuitem', { name: electedOfficeOrg.name }).first(),
   ).toBeVisible({ timeout: 15_000 })
-  await closeSwitcher(page)
+  await closeOrgSwitcher(page)
 })

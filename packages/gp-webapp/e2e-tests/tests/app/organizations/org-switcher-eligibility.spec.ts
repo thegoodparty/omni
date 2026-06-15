@@ -1,6 +1,10 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { setupReelectionEligibleUser } from 'src/helpers/organizations'
+import {
+  setupReelectionEligibleUser,
+  openOrgSwitcher,
+  closeOrgSwitcher,
+} from 'src/helpers/organizations'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -17,16 +21,6 @@ import { eventually } from 'tests/utils/eventually'
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
-
-const HEADER = '[data-sidebar="header"]'
-
-const openSwitcher = async (page: Page) => {
-  await page.locator(HEADER).getByRole('button').first().click()
-}
-
-const closeSwitcher = async (page: Page) => {
-  await page.keyboard.press('Escape')
-}
 
 test('active-campaign user sees no run-for actions in the switcher', async ({
   page,
@@ -47,7 +41,7 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await eligibilitySettled
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
 
   const orgItems = page.getByRole('menuitem')
   await expect(orgItems.first()).toBeVisible({ timeout: 15_000 })
@@ -65,7 +59,7 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   await expect(
     page.getByRole('menuitem', { name: 'Run for a new office' }),
   ).toHaveCount(0)
-  await closeSwitcher(page)
+  await closeOrgSwitcher(page)
 })
 
 // @dev-only: setupReelectionEligibleUser hits live BallotReady election data
@@ -126,7 +120,7 @@ test('held-office user sees Past label and both run-for actions @dev-only', asyn
   // reload so the picker's org-list and eligibility queries refetch.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
 
   // exactly one org is labeled "Past" (the won campaign); the held office is the
   // only other org and is not labeled. toHaveCount polls because the switcher
@@ -160,7 +154,7 @@ test('held-office user sees Past label and both run-for actions @dev-only', asyn
   // new-office routes with new-office intent and no `from`.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   await page.getByRole('menuitem', { name: 'Run for a new office' }).click()
   await expect(page).toHaveURL(
     /\/onboarding\/office-selection\?intent=new-office$/,

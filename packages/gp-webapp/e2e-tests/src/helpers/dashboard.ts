@@ -12,29 +12,33 @@ export const dashboardGreetingHeading = (page: Page) =>
     .filter({ hasText: /Hi|Hello|until|General|Primary|Election|concluded/ })
     .first()
 
-// Wait for the campaign-gated dashboard chrome to be present and interactable:
-// no stray modal aria-hiding the page, and the greeting heading rendered.
-//
 // A task detail modal (e.g. the awareness "Fundraising ask" sheet) occasionally
 // ends up open on the dashboard home during setup. It is a modal Radix dialog,
 // so while open it sets aria-hidden on the rest of the page — which drops the
 // greeting, the org switcher, and the mobile menu trigger out of the
 // accessibility tree, making every role-based query resolve to zero elements.
-// It can open late (after hydration settles), so a one-shot check would miss a
-// dialog that appears after it runs. Retry on a loop instead: each attempt
-// closes any open dialog (it dismisses on Escape) and re-checks for the
-// greeting, so a dialog appearing at any point in the window is caught. The
-// window is generous because a cold preview deploy can lag the SSR campaign
-// fetch well past the default 15s expect timeout.
+// Close any open dialog (it dismisses on Escape) so the dashboard chrome is back
+// in the a11y tree. Call this inside a retry loop (see waitForDashboardReady),
+// because the dialog can open late — a one-shot close misses one that appears
+// after it runs.
+export const closeStrayDialog = async (page: Page) => {
+  const dialog = page.getByRole('dialog').first()
+  if (await dialog.isVisible().catch(() => false)) {
+    await page.keyboard.press('Escape')
+    await dialog
+      .waitFor({ state: 'hidden', timeout: 5_000 })
+      .catch(() => undefined)
+  }
+}
+
+// Wait for the campaign-gated dashboard chrome to be present and interactable:
+// no stray modal aria-hiding the page, and the greeting heading rendered. Retry
+// on a loop so a dialog opening at any point in the window is caught. The window
+// is generous because a cold preview deploy can lag the SSR campaign fetch well
+// past the default 15s expect timeout.
 export const waitForDashboardReady = async (page: Page) => {
   await expect(async () => {
-    const dialog = page.getByRole('dialog').first()
-    if (await dialog.isVisible().catch(() => false)) {
-      await page.keyboard.press('Escape')
-      await dialog
-        .waitFor({ state: 'hidden', timeout: 5_000 })
-        .catch(() => undefined)
-    }
+    await closeStrayDialog(page)
     await expect(dashboardGreetingHeading(page)).toBeVisible({ timeout: 1_000 })
   }).toPass({ timeout: 30_000 })
 }

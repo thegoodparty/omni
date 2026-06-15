@@ -5,7 +5,28 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
+import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
+
+const ORG_SWITCHER_HEADER = '[data-sidebar="header"]'
+
+// Open the org switcher. A stray task modal can be open on the dashboard home;
+// while open it aria-hides the page, so the switcher trigger isn't in the
+// accessibility tree and the click times out. Retry — closing any open dialog
+// each attempt — so a dialog open now or opening late is cleared before the
+// click lands. All org-switcher entry points go through this so the guard lives
+// in one place.
+export const openOrgSwitcher = async (page: Page) => {
+  const trigger = page.locator(ORG_SWITCHER_HEADER).getByRole('button').first()
+  await expect(async () => {
+    await closeStrayDialog(page)
+    await trigger.click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+}
+
+export const closeOrgSwitcher = async (page: Page) => {
+  await page.keyboard.press('Escape')
+}
 
 type SetupResult = {
   user: AuthenticatedUser
@@ -125,11 +146,7 @@ export const switchOrganization = async (
   page: Page,
   orgNameSubstring: string,
 ) => {
-  const trigger = page
-    .locator('[data-sidebar="header"]')
-    .getByRole('button')
-    .first()
-  await trigger.click()
+  await openOrgSwitcher(page)
 
   const item = page.getByRole('menuitem', { name: orgNameSubstring })
   await item.click()
@@ -146,11 +163,7 @@ export const getSelectedOrgName = async (page: Page): Promise<string> => {
 }
 
 export const getOrgPickerOptions = async (page: Page): Promise<string[]> => {
-  const trigger = page
-    .locator('[data-sidebar="header"]')
-    .getByRole('button')
-    .first()
-  await trigger.click()
+  await openOrgSwitcher(page)
 
   const items = page.getByRole('menuitem')
   await expect(items.first()).toBeVisible()
