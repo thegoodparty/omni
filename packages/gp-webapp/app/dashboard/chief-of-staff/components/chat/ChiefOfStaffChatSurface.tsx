@@ -3,11 +3,11 @@
 import { useCallback, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
   IconButton,
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from '@styleguide'
 import {
   ArrowLeftIcon,
@@ -41,9 +41,10 @@ function conversationLabel(title: string | null, createdAt: string): string {
 }
 
 /**
- * The Chief of Staff chat surface — a right-side Sheet (bottom on mobile) that
- * hosts the reusable chat body, a history list (the clock icon), and per-
- * conversation delete. New chats defer creation until the first message.
+ * The Chief of Staff chat surface — a bottom drawer (rising from the footer
+ * chat bar) that hosts the reusable chat body, a history list (the clock
+ * icon), and per-conversation delete. New chats defer creation until the first
+ * message.
  */
 export default function ChiefOfStaffChatSurface({
   open,
@@ -68,13 +69,12 @@ export default function ChiefOfStaffChatSurface({
   )
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full p-0 sm:max-w-md"
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
+        className="flex h-[80vh] flex-col p-0"
         aria-describedby={undefined}
       >
-        <SheetHeader className="flex flex-row items-center gap-2 border-b border-border p-4">
+        <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
           {view.mode === 'history' ? (
             <IconButton
               type="button"
@@ -90,9 +90,9 @@ export default function ChiefOfStaffChatSurface({
               <SparklesIcon className="size-4" aria-hidden />
             </span>
           )}
-          <SheetTitle className="flex-1">
+          <DrawerTitle className="flex-1">
             {view.mode === 'history' ? 'Chat history' : 'Chief of Staff'}
-          </SheetTitle>
+          </DrawerTitle>
           {view.mode !== 'history' && (
             <IconButton
               type="button"
@@ -104,7 +104,7 @@ export default function ChiefOfStaffChatSurface({
               <ClockIcon className="size-4" aria-hidden />
             </IconButton>
           )}
-        </SheetHeader>
+        </DrawerHeader>
 
         {view.mode === 'history' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
@@ -155,7 +155,7 @@ export default function ChiefOfStaffChatSurface({
             bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
           />
         )}
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   )
 }
