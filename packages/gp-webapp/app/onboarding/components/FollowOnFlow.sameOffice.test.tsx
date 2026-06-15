@@ -156,4 +156,43 @@ describe('FollowOnFlow — same office', () => {
       ),
     )
   })
+
+  it('fires the intent viewed event once even when navigating back to it', async () => {
+    // Held-office user who picks "new office": the campaign is not created on
+    // leaving intent (that happens at the office step), so Back stays enabled
+    // and the intent step is reachable a second time.
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <FollowOnFlow intent="new-office" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OnboardingV2.FollowOnIntentViewed,
+      ),
+    )
+
+    fireEvent.click(await screen.findByLabelText(/running for a new office/i))
+    const continueButton = await screen.findByRole('button', {
+      name: /continue/i,
+    })
+    await waitFor(() => expect(continueButton).toBeEnabled())
+    fireEvent.click(continueButton)
+
+    // Navigate back to the intent step.
+    fireEvent.click(await screen.findByRole('button', { name: /back/i }))
+    await screen.findByLabelText(/running for a new office/i)
+
+    const viewedCalls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        (call) => call[0] === EVENTS.OnboardingV2.FollowOnIntentViewed,
+      )
+    expect(viewedCalls).toHaveLength(1)
+  })
 })

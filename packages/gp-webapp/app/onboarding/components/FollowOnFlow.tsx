@@ -169,6 +169,10 @@ export default function FollowOnFlow({
     boolean | null
   >(null)
   const isAdvancingRef = useRef(false)
+  // Dedupe "viewed" analytics per step (mirrors OnboardingFlow's
+  // viewedStepsFiredRef): on the new-office path the user can navigate back to
+  // the intent step and forward again, which would otherwise re-fire the event.
+  const viewedStepsFiredRef = useRef<Set<OnboardingStepId>>(new Set())
   // Early answers (party / ballot status) collected before the campaign
   // exists. If the post-creation flush fails, they're parked here and retried
   // on the next advance — Back is disabled after creation, so there's no other
@@ -221,7 +225,11 @@ export default function FollowOnFlow({
   }, [activeStepId])
 
   useEffect(() => {
-    if (activeStepId === 'intent') {
+    if (
+      activeStepId === 'intent' &&
+      !viewedStepsFiredRef.current.has('intent')
+    ) {
+      viewedStepsFiredRef.current.add('intent')
       trackEvent(EVENTS.OnboardingV2.FollowOnIntentViewed)
     }
   }, [activeStepId])
