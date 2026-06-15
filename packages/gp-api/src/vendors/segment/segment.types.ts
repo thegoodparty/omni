@@ -46,6 +46,10 @@ export const EVENTS = {
   Polls: {
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
+  Campaigns: {
+    FollowOnCreated: 'Campaign - Follow-On Created',
+    FollowOnBlocked: 'Campaign - Follow-On Blocked',
+  },
   CampaignPlan: {
     //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for weekly task digest emails
     WeeklyTasksDigest: 'Campaign Plan - Weekly Tasks Digest',

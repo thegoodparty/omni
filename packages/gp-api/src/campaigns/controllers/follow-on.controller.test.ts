@@ -1,9 +1,16 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { CrmCampaignsService } from '../services/crmCampaigns.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
+
+const spyOnTrack = () => {
+  const analytics = service.app.get(AnalyticsService)
+  return vi.spyOn(analytics, 'track').mockResolvedValue({} as never)
+}
 
 describe('POST /v1/campaigns/follow-on', () => {
   beforeEach(() => {
@@ -281,5 +288,142 @@ describe('POST /v1/campaigns/follow-on', () => {
       positionId: 'pos-new',
       ownerId: service.user.id,
     })
+  })
+
+  it('fires FollowOnCreated with the resolved intent/isPro/electionDate', async () => {
+    const trackSpy = spyOnTrack()
+
+    // Previous (won) campaign that earned the office, carrying Pro — the
+    // isPro source inherited by the re-election.
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-90', ownerId: service.user.id },
+    })
+    const prevCampaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'prev-pro-run',
+        isPro: true,
+        didWin: true,
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-90',
+      },
+    })
+
+    // Held-office org with a future term end; the cadence-derived boundary
+    // becomes the event's electionDate.
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-created',
+        ownerId: service.user.id,
+        positionId: 'pos-created',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-created',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        campaignId: prevCampaign.id,
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-created',
+    })
+
+    expect(result.status).toBe(201)
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Campaigns.FollowOnCreated,
+      {
+        campaignId: result.data.id,
+        intent: 'same-office',
+        isPro: true,
+        inheritedFromOrganizationSlug: 'eo-created',
+        electionDate: '2099-01-05',
+      },
+    )
+  })
+
+  it('fires FollowOnBlocked active_campaign_exists on the 409 eligibility path', async () => {
+    const trackSpy = spyOnTrack()
+
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-91', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'active-blocking-run',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-91',
+      },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-blocked',
+        ownerId: service.user.id,
+        positionId: 'pos-blocked',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-blocked',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-blocked',
+    })
+
+    expect(result.status).toBe(409)
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Campaigns.FollowOnBlocked,
+      { intent: 'same-office', reason: 'active_campaign_exists' },
+    )
+  })
+
+  it('fires FollowOnBlocked invalid_source_org on the 400 non-EO source path', async () => {
+    const trackSpy = spyOnTrack()
+
+    // An owned campaign-* org passes the ownership guard but has no
+    // electedOffice, so a same-office inherit is rejected.
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-92',
+        ownerId: service.user.id,
+        positionId: 'pos-old',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'won-not-eo-run',
+        isPro: true,
+        didWin: true,
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-92',
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'campaign-92',
+    })
+
+    expect(result.status).toBe(400)
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Campaigns.FollowOnBlocked,
+      { intent: 'same-office', reason: 'invalid_source_org' },
+    )
   })
 })
