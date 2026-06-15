@@ -1,4 +1,6 @@
 import {
+  NextElectionForPosition,
+  NextElectionForPositionSchema,
   RaceFrequencyByBrHash,
   RaceFrequencyByBrHashSchema,
   RaceListItem,
@@ -505,6 +507,33 @@ export class ElectionsService {
       this.logger.warn(
         { error, brHashId },
         'Election API GET races/by-br-hash-id frequency failed',
+      )
+      return null
+    }
+  }
+
+  /**
+   * Resolve a position's next upcoming election day from election-api by
+   * internal position id. Used to date a re-election campaign at the position's
+   * nearest future general election. Returns null on a missing id or any
+   * election-api failure so the caller can fall back rather than block.
+   */
+  async getNextElectionForPosition(
+    positionId: string,
+  ): Promise<NextElectionForPosition | null> {
+    if (!positionId) return null
+    const route = ElectionApiRoutes.positions.nextElection
+    const path = `${route.path}/${positionId}/${route.suffix}`
+    try {
+      const result = await this.electionApiGet<NextElectionForPosition, object>(
+        path,
+        {},
+      )
+      return result ? NextElectionForPositionSchema.parse(result) : null
+    } catch (error) {
+      this.logger.warn(
+        { error, positionId },
+        'Election API GET positions/:id/next-election failed',
       )
       return null
     }
