@@ -82,6 +82,11 @@ import { isJsonObject } from '@/shared/util/objects.util'
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 
+const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
+  ExperimentRunStatus.COMPLETED,
+  ExperimentRunStatus.FAILED,
+]
+
 const buildIssueProperties = (
   issue: PollAnalysisIssue | undefined,
   index: number,
@@ -952,11 +957,7 @@ export class QueueConsumerService {
       return true
     }
 
-    const TERMINAL: ExperimentRunStatus[] = [
-      ExperimentRunStatus.COMPLETED,
-      ExperimentRunStatus.FAILED,
-    ]
-    if (TERMINAL.includes(run.status)) {
+    if (TERMINAL_STATUSES.includes(run.status)) {
       this.logger.info(
         { runId: data.runId, status: run.status },
         'Experiment run already terminal, skipping',
@@ -979,7 +980,7 @@ export class QueueConsumerService {
     const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
       { where: { runId: data.runId } },
       async (currentRun) => {
-        if (TERMINAL.includes(currentRun.status)) {
+        if (TERMINAL_STATUSES.includes(currentRun.status)) {
           this.logger.info(
             { runId: data.runId },
             'Experiment run already terminal, skipping',
@@ -1022,9 +1023,10 @@ export class QueueConsumerService {
     // failure surfaces (requeue + DLQ visibility) rather than silently acking
     // a COMPLETED run that never got its section persisted. This is for
     // visibility, not retry: onExperimentRunCompleted already calls markFailed
-    // before it rethrows, so on redelivery the status guard above (!= RUNNING)
-    // drops the message. That same guard bounds the requeue, so the raw throw
-    // can't infinite-redrive. The user-facing 'failed' state comes from
+    // before it rethrows, so on redelivery the status guard above
+    // (terminal-status check) drops the message. That same guard bounds the
+    // requeue, so the raw throw can't infinite-redrive. The user-facing
+    // 'failed' state comes from
     // markFailed (or, if markFailed itself faults, the isStuck grace-window
     // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
     // non-campaign-strategy runs, so this only throws on a real persist failure.
