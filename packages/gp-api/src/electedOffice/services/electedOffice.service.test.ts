@@ -17,6 +17,7 @@ describe('ElectedOfficeService', () => {
   let mockOrgCreate: ReturnType<typeof vi.fn>
   let mockEoCreate: ReturnType<typeof vi.fn>
   let mockOnElectedOfficeCreated: ReturnType<typeof vi.fn>
+  let mockSeedFromWin: ReturnType<typeof vi.fn>
   let mockModel: {
     create: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
@@ -61,9 +62,13 @@ describe('ElectedOfficeService', () => {
     }
 
     mockOnElectedOfficeCreated = vi.fn().mockResolvedValue(undefined)
-    service = new ElectedOfficeService({
-      onElectedOfficeCreated: mockOnElectedOfficeCreated,
-    } as never)
+    mockSeedFromWin = vi.fn().mockResolvedValue(undefined)
+    service = new ElectedOfficeService(
+      {
+        onElectedOfficeCreated: mockOnElectedOfficeCreated,
+      } as never,
+      { seedFromWin: mockSeedFromWin } as never,
+    )
     Object.defineProperty(service, 'model', {
       get: () => mockModel,
       configurable: true,
