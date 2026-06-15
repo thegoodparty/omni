@@ -71,4 +71,9 @@ export {
   HandHeart as HandHeartIcon,
   Megaphone as MegaphoneIcon,
   ScrollText as ScrollTextIcon,
+  Clock as ClockIcon,
+  Sparkles as SparklesIcon,
+  CircleHelp as CircleHelpIcon,
+  Archive as ArchiveIcon,
+  Gavel as GavelIcon,
 } from 'lucide-react'

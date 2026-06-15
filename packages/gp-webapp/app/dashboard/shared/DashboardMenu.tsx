@@ -25,6 +25,7 @@ import {
   LogOut,
   Send,
   Settings,
+  Sparkles,
   UserCog,
   UserRound,
   UsersRound,
@@ -223,6 +224,15 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
+  id: 'chief-of-staff-dashboard',
+  label: 'Chief of Staff',
+  link: '/dashboard/chief-of-staff',
+  icon: <MdAutoAwesome />,
+  v2Icon: Sparkles,
+  v2Category: 'elected-office',
+}
+
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
   label: 'Campaign Plan',
@@ -249,6 +259,13 @@ const getDashboardMenuItems = (
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
+  }
+
+  // Chief of Staff is the primary Serve tab (Serve home), so it sits above
+  // Briefing Assistant. Same gate as Briefing Assistant — the serve-access
+  // flag plus an elected office.
+  if (serveAccessEnabled && isElectedOffice) {
+    menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
   if (campaign?.hasCampaignStrategy) {

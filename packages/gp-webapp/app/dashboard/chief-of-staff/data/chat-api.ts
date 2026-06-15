@@ -1,0 +1,276 @@
+/**
+ * Real ChiefOfStaffChatClient — talks to gp-api's scope-generic chat over
+ * `/v1/chats` with `scope=chief_of_staff`. SSE parsing mirrors the briefing
+ * chat client.
+ *
+ * INTEGRATION SEAM: the `/v1/chats` routes are not yet in
+ * `gpApi/api-endpoints.ts` (slice 3 owns them), so every call here uses raw
+ * `fetch` through the same-origin `/api` proxy rather than `clientRequest`.
+ * The org-slug header is attached explicitly (the proxy does not inject it for
+ * these paths) so `@UseElectedOffice` resolves the office. At integration the
+ * JSON calls can move to `clientRequest`; the SSE call stays on raw `fetch`
+ * because `ofetch` buffers the response body.
+ */
+
+'use client'
+
+import { getCookie } from 'helpers/cookieHelper'
+import {
+  ORG_SLUG_COOKIE,
+  ORG_SLUG_HEADER,
+} from '@shared/organizations/constants'
+import { reportErrorToSentry } from '@shared/sentry'
+import type { ChiefOfStaffChatClient } from './chat-client'
+import type {
+  ChatConversationDto,
+  ChatConversationListResponse,
+  ChatConversationMessagesResponse,
+  ChatErrorCode,
+  ChatStreamEvent,
+} from './contracts'
+
+const SCOPE = 'chief_of_staff'
+
+function orgHeaders(): Record<string, string> {
+  const slug = getCookie(ORG_SLUG_COOKIE)
+  return slug ? { [ORG_SLUG_HEADER]: slug } : {}
+}
+
+function errorEvent(
+  code: ChatErrorCode,
+  message: string,
+  retryable: boolean,
+): ChatStreamEvent {
+  return { type: 'error', code, message, retryable }
+}
+
+function statusToErrorEvent(status: number, body: string): ChatStreamEvent {
+  if (status === 404) {
+    return errorEvent(
+      'conversation_not_found',
+      'This chat is unavailable. Try starting a new one.',
+      false,
+    )
+  }
+  if (status === 429) {
+    return errorEvent(
+      'rate_limited',
+      'Too many requests. Try again in a moment.',
+      true,
+    )
+  }
+  if (status >= 500) {
+    return errorEvent(
+      'upstream_unavailable',
+      'Chat is temporarily unavailable.',
+      true,
+    )
+  }
+  reportErrorToSentry(new Error(`cos-chat stream non-ok status ${status}`), {
+    surface: 'chief-of-staff-chat',
+    phase: 'stream',
+    status,
+    body,
+  })
+  return errorEvent(
+    'internal',
+    'Something went wrong. Please try again.',
+    false,
+  )
+}
+
+function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
+  if (!value || typeof value !== 'object') return false
+  const type = (value as { type?: unknown }).type
+  return (
+    type === 'text' ||
+    type === 'tool_call' ||
+    type === 'tool_result' ||
+    type === 'done' ||
+    type === 'error'
+  )
+}
+
+async function* parseSseStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<ChatStreamEvent, void, void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const frames = buf.split('\n\n')
+      buf = frames.pop() ?? ''
+      for (const frame of frames) {
+        const trimmed = frame.trim()
+        if (!trimmed || !trimmed.startsWith('data:')) continue
+        const json = trimmed.slice(5).trim()
+        if (!json) continue
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(json)
+        } catch {
+          continue
+        }
+        if (isChatStreamEvent(parsed)) {
+          yield parsed
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {
+      // ignore — lock may already be released
+    }
+  }
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...orgHeaders(),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`${path} responded ${res.status}`)
+  }
+  return (await res.json()) as T
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json', ...orgHeaders() },
+  })
+  if (!res.ok) {
+    throw new Error(`${path} responded ${res.status}`)
+  }
+  return (await res.json()) as T
+}
+
+export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
+  async createConversation() {
+    const data = await postJson<{ id: string }>('/v1/chats', { scope: SCOPE })
+    return { conversationId: data.id }
+  },
+
+  async listMessages(conversationId) {
+    const data = await getJson<ChatConversationMessagesResponse>(
+      `/v1/chats/${encodeURIComponent(conversationId)}`,
+    )
+    return data.messages
+  },
+
+  async listConversations(): Promise<ChatConversationDto[]> {
+    const data = await getJson<ChatConversationListResponse>(
+      `/v1/chats?scope=${SCOPE}`,
+    )
+    return data.conversations
+  },
+
+  async softDelete(conversationId) {
+    const res = await fetch(
+      `/api/v1/chats/${encodeURIComponent(conversationId)}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { Accept: 'application/json', ...orgHeaders() },
+      },
+    )
+    if (!res.ok) {
+      throw new Error(`delete conversation responded ${res.status}`)
+    }
+  },
+
+  async *streamMessage({ conversationId, content, clientMessageId, signal }) {
+    let res: Response
+    try {
+      res = await fetch(
+        `/api/v1/chats/${encodeURIComponent(conversationId)}/messages`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+            ...orgHeaders(),
+          },
+          body: JSON.stringify({ content, clientMessageId }),
+          signal,
+        },
+      )
+    } catch (err) {
+      const aborted =
+        err instanceof Error &&
+        (err.name === 'AbortError' || signal?.aborted === true)
+      if (!aborted) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'stream',
+          step: 'fetch',
+          conversationId,
+        })
+      }
+      yield errorEvent(
+        aborted ? 'aborted' : 'upstream_unavailable',
+        aborted ? 'Stream cancelled.' : 'Chat is temporarily unavailable.',
+        !aborted,
+      )
+      return
+    }
+
+    if (!res.ok) {
+      let bodyText = ''
+      try {
+        bodyText = await res.text()
+      } catch {
+        bodyText = ''
+      }
+      yield statusToErrorEvent(res.status, bodyText)
+      return
+    }
+
+    if (!res.body) {
+      yield errorEvent(
+        'internal',
+        'No response body returned from server.',
+        false,
+      )
+      return
+    }
+
+    try {
+      for await (const ev of parseSseStream(res.body)) {
+        yield ev
+        if (ev.type === 'done' || ev.type === 'error') return
+      }
+    } catch (err) {
+      const aborted =
+        err instanceof Error &&
+        (err.name === 'AbortError' || signal?.aborted === true)
+      if (!aborted) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'stream',
+          step: 'iterate',
+          conversationId,
+        })
+      }
+      yield errorEvent(
+        aborted ? 'aborted' : 'internal',
+        aborted ? 'Stream cancelled.' : 'Stream interrupted.',
+        false,
+      )
+    }
+  },
+}
