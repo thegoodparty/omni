@@ -13,14 +13,31 @@ import { TopVoterIssuesSection } from './TopVoterIssuesSection'
 const onboardingDistrictStatsQueryOptions = (params: {
   ballotReadyPositionId?: string
   districtId?: string
+  // Key-only discriminator: when the request is param-less (server derives
+  // the district from the org's position pointer), the org position UUID
+  // keys the cache so a race edit — which re-points the org — produces a
+  // fresh key and an immediate refetch instead of a stale cache hit.
+  orgPositionId?: string
 }) =>
   queryOptions({
     queryKey: ['onboarding-contacts-stats', params] as const,
-    enabled: Boolean(params.ballotReadyPositionId || params.districtId),
+    // Param-less mode is only useful when the org has a position to derive
+    // a district from (manual-office campaigns don't) — stay disabled
+    // otherwise rather than firing a guaranteed 400.
+    enabled: Boolean(
+      params.ballotReadyPositionId || params.districtId || params.orgPositionId,
+    ),
     queryFn: () =>
-      clientRequest('GET /v1/onboarding/contacts/stats', params).then(
-        (res) => res.data,
-      ),
+      clientRequest('GET /v1/onboarding/contacts/stats', {
+        // Prefer server-side derivation whenever the org pointer exists:
+        // it survives race edits, while a provided BR position id may be
+        // the stale onboarding snapshot. The id still participates in the
+        // cache key above for warm-cache alignment with onboarding.
+        ballotReadyPositionId: params.orgPositionId
+          ? undefined
+          : params.ballotReadyPositionId,
+        districtId: params.districtId,
+      }).then((res) => res.data),
   })
 
 export { onboardingDistrictStatsQueryOptions }
@@ -28,6 +45,10 @@ export { onboardingDistrictStatsQueryOptions }
 interface VoterDemographicsStepProps {
   ballotReadyPositionId?: string
   districtId?: string
+  // Enables param-less stats fetching: gp-api derives the district from
+  // the org's position pointer, which (unlike the onboarding snapshot)
+  // is kept current when the user edits their race.
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
@@ -38,6 +59,7 @@ interface VoterDemographicsStepProps {
 export const VoterDemographicsStep = ({
   ballotReadyPositionId,
   districtId,
+  orgPositionId,
   city,
   state,
   office,
@@ -45,7 +67,11 @@ export const VoterDemographicsStep = ({
   headingsAsSubsections = false,
 }: VoterDemographicsStepProps): React.JSX.Element => {
   const query = useQuery(
-    onboardingDistrictStatsQueryOptions({ ballotReadyPositionId, districtId }),
+    onboardingDistrictStatsQueryOptions({
+      ballotReadyPositionId,
+      districtId,
+      orgPositionId,
+    }),
   )
 
   useEffect(() => {
@@ -54,11 +80,14 @@ export const VoterDemographicsStep = ({
       context: 'onboarding.voterDemographics.fetchStats',
       ballotReadyPositionId,
       districtId,
+      // The only identifier present on the param-less (org-derived) path.
+      orgPositionId,
     })
-  }, [query.error, ballotReadyPositionId, districtId])
+  }, [query.error, ballotReadyPositionId, districtId, orgPositionId])
 
   const isLoading =
-    query.isPending && Boolean(ballotReadyPositionId || districtId)
+    query.isPending &&
+    Boolean(ballotReadyPositionId || districtId || orgPositionId)
   const error = query.error?.message
 
   const chartData = useMemo(
@@ -156,6 +185,7 @@ export const VoterDemographicsStep = ({
 
       <TopVoterIssuesSection
         ballotReadyPositionId={ballotReadyPositionId}
+        orgPositionId={orgPositionId}
         city={city}
         state={state}
         office={office}

@@ -149,6 +149,14 @@ export const EVENTS = {
     },
   },
 
+  // Multi-org dashboard switcher (ENG-10377). The follow-on funnel the
+  // "run for" actions open is tracked under OnboardingV2 (intent step) and,
+  // for the created/blocked outcome, server-side in gp-api.
+  OrgSwitcher: {
+    RunForOfficeClicked: 'Org Switcher - Run For Office Clicked',
+    OrganizationSwitched: 'Org Switcher - Organization Switched',
+  },
+
   Dashboard: {
     Viewed: 'Dashboard - Candidate Dashboard Viewed',
     CampaignPlan: {
@@ -597,6 +605,12 @@ export const EVENTS = {
   // never mix with historical data. Server-side generation is tracked
   // separately under `Campaign Plan V2 -` in gp-api.
   OnboardingV2: {
+    // Follow-on "new campaign context" screen (the multi-org re-election vs
+    // new-office choice). Only office-holders see it; candidates skip straight
+    // to welcome. The chosen path is carried as the `intent` property.
+    NewCampaignContextViewed: 'Onboarding V2 - New Campaign Context Viewed',
+    NewCampaignContextCompleted:
+      'Onboarding V2 - New Campaign Context Completed',
     WelcomeViewed: 'Onboarding V2 - Welcome Viewed',
     WelcomeCompleted: 'Onboarding V2 - Welcome Completed',
     BallotStatusViewed: 'Onboarding V2 - Ballot Status Viewed',

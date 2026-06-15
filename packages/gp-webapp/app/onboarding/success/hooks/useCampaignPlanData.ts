@@ -71,6 +71,17 @@ export const useCampaignPlanData = (
     campaign?.organization?.customPositionName ||
     campaign?.office ||
     ''
+  // Place-qualified position name ("Cook County Sheriff"), the same string
+  // family the onboarding snapshot froze — but resolved by gp-api from the
+  // org's CURRENT position pointer on every campaign fetch, so it tracks
+  // race edits. officialOfficeName is deliberately not in this chain: it's
+  // the bare ballot text ("County Sheriff"), wrong for the voter-insights
+  // headline.
+  const currentPositionName =
+    campaign?.positionName ||
+    campaign?.organization?.customPositionName ||
+    campaign?.office ||
+    ''
   const stateValue = campaign?.details?.state ?? campaign?.state ?? ''
   const city = campaign?.details?.city ?? campaign?.city ?? ''
   const district = campaign?.details?.district ?? ''
@@ -124,11 +135,12 @@ export const useCampaignPlanData = (
   // We also pull positionName / city / state from the same source for the
   // local-news query below so the cache key matches what
   // LocalNewsSourcesSection used during onboarding — see comment there.
-  const onboardingStructuredOffice = (
+  const snapshot = (
     campaign?.data as
       | {
           onboarding?: {
             structuredOffice?: {
+              raceId?: string
               positionId?: string
               positionName?: string
               city?: string
@@ -138,27 +150,31 @@ export const useCampaignPlanData = (
         }
       | undefined
   )?.onboarding?.structuredOffice
+  // The snapshot describes the race onboarding picked, and nothing updates
+  // it when the user later edits their race (campaign-details). Trust it
+  // only while the campaign is still on that race — otherwise its office,
+  // location, and BR position id would keep feeding the media and
+  // voter-insights queries the OLD race's inputs, serving stale content
+  // forever after an office change.
+  const onboardingStructuredOffice =
+    snapshot?.raceId && snapshot.raceId === campaign?.details?.raceId
+      ? snapshot
+      : undefined
   const ballotReadyPositionId = onboardingStructuredOffice?.positionId
 
-  // Cache-key alignment with onboarding: any query that was warmed by
-  // onboarding must use the SAME (office, city, state) tuple onboarding
-  // sent, otherwise React Query cold-misses and gp-api re-runs the
-  // upstream call. Two consumers below depend on this:
-  //
-  //   1. local-news query (Section 7 press outlets) — onboarding's
-  //      `LocalNewsSourcesSection` populated both React Query and
-  //      `campaign.data.onboarding.localMediaOutlets` using
-  //      `answers.structuredOffice.{positionName, city, state}`.
-  //   2. voter-issues query + `voterInsightsContext` (Section 3 + 4) —
-  //      onboarding's `TopVoterIssuesSection` populated React Query
-  //      with the same triple.
-  //
-  // The success page's polished `race` is election-api's
+  // Cache-key alignment with onboarding: the local-news query must use
+  // the SAME (office, city, state) tuple onboarding's
+  // `LocalNewsSourcesSection` sent (from
+  // `answers.structuredOffice.{positionName, city, state}`), otherwise
+  // React Query cold-misses and gp-api re-runs the expensive outlet
+  // generation. The success page's polished `race` is election-api's
   // `officialOfficeName` (e.g. "Anytown Council"), which differs from
-  // BR's `positionName` ("City Council Member") that onboarding used.
-  // Reading from `race` here would miss both warm caches. Pull from
-  // `onboardingStructuredOffice` first, fall back to the existing
-  // chain for manual-office-entry candidates who never populated it.
+  // BR's `positionName` ("City Council Member") that onboarding used —
+  // so pull from `onboardingStructuredOffice` first, falling back to
+  // the existing chain for manual-office-entry candidates.
+  //
+  // The voter-issues query and `voterInsightsContext` deliberately do
+  // NOT use this tuple — see the comment on `voterIssuesQuery`.
   //
   // The endpoints' Zod schemas reject empty-string fields (min 1
   // char). Pass `undefined` for empty values so the request shape
@@ -185,16 +201,20 @@ export const useCampaignPlanData = (
   const isLocalNewsGenerating =
     localNewsQuery.isPending || localNewsQuery.data?.status === 'pending'
 
-  // Same cache key as TopVoterIssuesSection in onboarding — keeps the PDF's
-  // Section 3 in sync with what the user already saw on screen. See the
-  // onboardingOffice/City/State derivation above for why we don't use
-  // `race`/`city`/`stateValue` directly.
+  // Same cache key as the on-screen TopVoterIssuesSection (Section 4) —
+  // keeps the PDF's Section 3 in sync with what the user sees. The tuple
+  // uses the CURRENT office (all maintained on race edits) rather than the
+  // frozen onboarding snapshot: the snapshot's name would label and key
+  // Section 4 with the pre-edit office forever. The ids are the real cache
+  // discriminators; the strings just need to match what PlanSections
+  // passes to the section components.
   const voterIssuesQuery = useQuery(
     voterIssuesQueryOptions({
       ballotReadyPositionId,
-      city: onboardingCity,
-      state: onboardingState,
-      office: onboardingOffice,
+      orgPositionId: campaign?.organization?.positionId ?? undefined,
+      city: city || undefined,
+      state: stateValue || undefined,
+      office: currentPositionName || undefined,
     }),
   )
   const voterIssuesFromApi = voterIssuesQuery.data?.issues
@@ -293,10 +313,21 @@ export const useCampaignPlanData = (
       isError: localNewsQuery.isError,
     },
     voterInsightsContext: {
+      // The snapshot's BR position id rides along for CACHE-KEY alignment
+      // with the queries onboarding warmed — but never decides what the
+      // stats request asks for: whenever orgPositionId is present the
+      // request goes param-less and gp-api derives the district from the
+      // org's position pointer, which (unlike the snapshot) is maintained
+      // on race edits.
       ballotReadyPositionId,
-      city: onboardingCity,
-      state: onboardingState,
-      office: onboardingOffice,
+      orgPositionId: campaign?.organization?.positionId ?? undefined,
+      // Display + key fields track the CURRENT office via
+      // currentPositionName — same text the snapshot froze, minus the
+      // staleness. Must stay identical to the voterIssuesQuery tuple
+      // above so Section 4's query shares its cache entry.
+      city: city || undefined,
+      state: stateValue || undefined,
+      office: currentPositionName || undefined,
     },
     strategy: {
       ready: strategy.data !== undefined,

@@ -315,6 +315,11 @@ const StepBody = ({
     return (
       <VoterDemographicsStep
         ballotReadyPositionId={answers.structuredOffice?.positionId}
+        // Keys the stats query identically to the path-to-victory prefetch
+        // (which includes the org position) so the warmed entry is the one
+        // this step reads — and keeps the query enabled when the snapshot
+        // id is missing.
+        orgPositionId={liveCampaign?.organization?.positionId ?? undefined}
         city={answers.structuredOffice?.city}
         state={answers.structuredOffice?.state}
         office={answers.structuredOffice?.positionName}
@@ -508,12 +513,18 @@ export default function OnboardingFlow({
   useEffect(() => {
     if (activeStepId !== 'path-to-victory') return
     const ballotReadyPositionId = answers.structuredOffice?.positionId
+    // The plan page keys this query by orgPositionId too — the prefetch
+    // must match or it warms a key the plan page never reads.
+    const orgPositionId = liveCampaign?.organization?.positionId ?? undefined
     const city = answers.structuredOffice?.city
     const state = answers.structuredOffice?.state
     const office = answers.structuredOffice?.positionName
-    if (ballotReadyPositionId) {
+    if (ballotReadyPositionId || orgPositionId) {
       void queryClient.prefetchQuery(
-        onboardingDistrictStatsQueryOptions({ ballotReadyPositionId }),
+        onboardingDistrictStatsQueryOptions({
+          ballotReadyPositionId,
+          orgPositionId,
+        }),
       )
     }
     if (state && office) {
@@ -527,6 +538,7 @@ export default function OnboardingFlow({
     answers.structuredOffice?.city,
     answers.structuredOffice?.state,
     answers.structuredOffice?.positionName,
+    liveCampaign?.organization?.positionId,
     queryClient,
   ])
 

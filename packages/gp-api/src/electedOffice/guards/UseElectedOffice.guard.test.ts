@@ -13,6 +13,11 @@ const mockEO: ElectedOffice = {
   userId: 1,
   campaignId: 100,
   swornInDate: null,
+  electedDate: null,
+  termStartAt: null,
+  termEndAt: null,
+  termLengthDays: null,
+  isActive: true,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

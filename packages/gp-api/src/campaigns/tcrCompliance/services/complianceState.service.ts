@@ -59,7 +59,7 @@ export const deriveComplianceStage = (
   campaign: Pick<Campaign, 'formattedAddress'>,
   website: Pick<Website, 'status'> | null,
   domain: Pick<Domain, 'status' | 'registrantVerifiedAt'> | null,
-  tcrCompliance: Pick<TcrCompliance, 'status' | 'peerlyIdentityId'> | null,
+  tcrCompliance: Pick<TcrCompliance, 'status'> | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
     return campaign.formattedAddress
@@ -67,23 +67,20 @@ export const deriveComplianceStage = (
       : ComplianceStage.needs_profile
   }
 
-  if (tcrCompliance.status === TcrComplianceStatus.approved) {
-    return ComplianceStage.tcr_approved
-  }
   if (
     tcrCompliance.status === TcrComplianceStatus.rejected ||
     tcrCompliance.status === TcrComplianceStatus.error
   ) {
     return ComplianceStage.tcr_rejected
   }
-  if (tcrCompliance.status === TcrComplianceStatus.pending) {
-    return ComplianceStage.tcr_in_review
-  }
 
-  if (tcrCompliance.peerlyIdentityId) {
-    return ComplianceStage.awaiting_pin
-  }
-
+  // A live website is a hard precondition for submitting to Peerly, so it
+  // gates every submission-or-later stage. A submission-era TCR status
+  // (submitted/pending/approved) does not prove the site is currently serving:
+  // a previously-published site can be unpublished, and `approved` can predate
+  // a domain that never verified. Deriving from the live site here means a
+  // stale `approved` reports `pending_website_live`, so the setup agent
+  // republishes and re-verifies instead of skipping those steps.
   const domainRegistered = Boolean(
     domain && DOMAIN_REGISTERED_STATUSES.includes(domain.status),
   )
@@ -94,7 +91,16 @@ export const deriveComplianceStage = (
   const websiteLive =
     website?.status === WebsiteStatus.published &&
     Boolean(domain?.registrantVerifiedAt)
-  return websiteLive
-    ? ComplianceStage.awaiting_pin
-    : ComplianceStage.pending_website_live
+  if (!websiteLive) {
+    return ComplianceStage.pending_website_live
+  }
+
+  if (tcrCompliance.status === TcrComplianceStatus.approved) {
+    return ComplianceStage.tcr_approved
+  }
+  if (tcrCompliance.status === TcrComplianceStatus.pending) {
+    return ComplianceStage.tcr_in_review
+  }
+
+  return ComplianceStage.awaiting_pin
 }

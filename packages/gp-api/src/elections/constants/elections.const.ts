@@ -37,6 +37,15 @@ export const ElectionApiRoutes = {
       path: 'races/by-br-hash-id',
       filingFeeSuffix: 'filing-fee',
     },
+    frequencyByBrHashId: {
+      // Election cadence (Race.frequency) keyed by the same BR race hash on
+      // campaign.details.raceId. Source for elected-office term derivation —
+      // Position carries no frequency, and GET /races can't be keyed by the
+      // position id we hold at office creation.
+      // Full path: /races/by-br-hash-id/:brHashId/frequency
+      path: 'races/by-br-hash-id',
+      frequencySuffix: 'frequency',
+    },
   },
   campaignStrategyContext: {
     // POST /campaign-strategy-context — looks up a Race by br_hash_id and

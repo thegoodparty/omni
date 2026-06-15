@@ -1,4 +1,6 @@
 import {
+  RaceFrequencyByBrHash,
+  RaceFrequencyByBrHashSchema,
   RaceListItem,
   RaceListItemArraySchema,
   ZipCodesArraySchema,
@@ -475,6 +477,34 @@ export class ElectionsService {
       this.logger.warn(
         { error, brHashId },
         'Election API GET races/by-br-hash-id filing-fee failed',
+      )
+      return null
+    }
+  }
+
+  /**
+   * Resolve a position's election cadence (`Race.frequency`) and election day
+   * by BR race hash (the hash gp-api stores on `campaign.details.raceId`).
+   * Feeds elected-office term derivation. Returns null on a missing hash or
+   * any election-api failure — the caller leaves term fields unset rather
+   * than blocking office creation on this enrichment.
+   */
+  async getElectionFrequencyByBrHashId(
+    brHashId: string,
+  ): Promise<RaceFrequencyByBrHash | null> {
+    if (!brHashId) return null
+    const route = ElectionApiRoutes.races.frequencyByBrHashId
+    const path = `${route.path}/${encodeURIComponent(brHashId)}/${route.frequencySuffix}`
+    try {
+      const result = await this.electionApiGet<RaceFrequencyByBrHash, object>(
+        path,
+        {},
+      )
+      return result ? RaceFrequencyByBrHashSchema.parse(result) : null
+    } catch (error) {
+      this.logger.warn(
+        { error, brHashId },
+        'Election API GET races/by-br-hash-id frequency failed',
       )
       return null
     }

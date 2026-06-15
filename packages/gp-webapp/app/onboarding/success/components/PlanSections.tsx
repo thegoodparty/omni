@@ -25,6 +25,7 @@ export type PressOutletsState = StrategyState
 
 export interface VoterInsightsContext {
   ballotReadyPositionId?: string
+  orgPositionId?: string
   city?: string
   state?: string
   office?: string
@@ -675,6 +676,7 @@ const PlanSections = ({
         >
           <VoterDemographicsStep
             ballotReadyPositionId={voterInsightsContext?.ballotReadyPositionId}
+            orgPositionId={voterInsightsContext?.orgPositionId}
             city={voterInsightsContext?.city}
             state={voterInsightsContext?.state}
             office={voterInsightsContext?.office}

@@ -43,10 +43,13 @@ export type {
   AgentRunDetail,
   AgentRunsListQuery,
   ExperimentRunStatus,
+  Eligibility,
+  OrganizationStatus,
 } from '@goodparty_org/contracts'
 
 export {
   USER_ROLE_VALUES,
+  ORGANIZATION_STATUS_VALUES,
   WHY_BROWSING_VALUES,
   CAMPAIGN_TIER_VALUES,
   BALLOT_READY_POSITION_LEVEL_VALUES,

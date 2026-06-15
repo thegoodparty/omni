@@ -16,6 +16,7 @@ import {
 import { CustomCheckoutSessionPayload, PaymentType } from '../payments.types'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PinoLogger } from 'nestjs-pino'
+import Stripe from 'stripe'
 
 const { WEBAPP_ROOT_URL } = process.env
 
@@ -197,13 +198,43 @@ export class PurchaseService {
    */
   async completeCheckoutSession(
     dto: CompleteCheckoutSessionDto,
-  ): Promise<{ alreadyProcessed: boolean; result?: unknown }> {
-    const session = await this.stripeService.retrieveCheckoutSession(
-      dto.checkoutSessionId,
-    )
+    // Callers with an already-confirmed session (the async_payment_succeeded
+    // webhook payload) pass it here so we don't re-fetch. The Stripe API object
+    // is only eventually consistent with the webhook, so a re-fetch could still
+    // read payment_status 'unpaid' and silently defer — dropping fulfillment.
+    prefetchedSession?: Stripe.Checkout.Session,
+  ): Promise<{
+    alreadyProcessed: boolean
+    deferred?: boolean
+    result?: unknown
+  }> {
+    const session =
+      prefetchedSession ??
+      (await this.stripeService.retrieveCheckoutSession(dto.checkoutSessionId))
 
     if (session.status !== 'complete') {
       throw new Error(`Checkout session not completed: ${session.status}`)
+    }
+
+    // Do not deliver value until the payment is actually confirmed. For
+    // delayed-notification methods (e.g. ACH bank debit) Stripe fires
+    // checkout.session.completed with payment_status still 'unpaid'; the funds
+    // settle later and emit checkout.session.async_payment_succeeded, which
+    // re-invokes this handler with payment_status 'paid'. We require 'paid'
+    // specifically: these one-time checkouts always create a PaymentIntent, so a
+    // 'paid' session has the payment_intent the idempotency check below relies
+    // on — anything else is deferred.
+    if (session.payment_status !== 'paid') {
+      this.logger.info({
+        sessionId: dto.checkoutSessionId,
+        paymentStatus: session.payment_status,
+        msg: 'Checkout session payment not confirmed — deferring fulfillment',
+      })
+      // `deferred` distinguishes this not-yet-paid case from a completed
+      // fulfillment (which also returns alreadyProcessed: false) so callers —
+      // e.g. the client redirect handler — can show a pending state instead of
+      // success.
+      return { alreadyProcessed: false, deferred: true }
     }
 
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
