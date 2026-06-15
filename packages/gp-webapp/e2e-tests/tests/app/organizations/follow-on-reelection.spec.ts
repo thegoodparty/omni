@@ -1,6 +1,10 @@
 import { expect, type Page, test } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { setupReelectionEligibleUser } from 'src/helpers/organizations'
+import {
+  setupReelectionEligibleUser,
+  openOrgSwitcher,
+  closeOrgSwitcher,
+} from 'src/helpers/organizations'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -16,16 +20,6 @@ import { eventually } from 'tests/utils/eventually'
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
-
-const HEADER = '[data-sidebar="header"]'
-
-const openSwitcher = async (page: Page) => {
-  await page.locator(HEADER).getByRole('button').first().click()
-}
-
-const closeSwitcher = async (page: Page) => {
-  await page.keyboard.press('Escape')
-}
 
 const continueButton = (page: Page) =>
   page.getByRole('button', { name: /continue/i }).first()
@@ -90,7 +84,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   // switcher and start the re-election flow.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   const reelectionAction = page.getByRole('menuitem', {
     name: 'Run for re-election',
   })
@@ -194,7 +188,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   // 7 (UI): the switcher shows the new campaign without a "Past" label; only the
   // original won campaign is "Past".
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   const orgItems = page.getByRole('menuitem')
   await expect(orgItems.first()).toBeVisible({ timeout: 15_000 })
   // toHaveCount polls (the switcher refetches the org list independently of the
@@ -210,7 +204,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   await expect(
     page.getByRole('menuitem', { name: 'Run for a new office' }),
   ).toHaveCount(0, { timeout: 15_000 })
-  await closeSwitcher(page)
+  await closeOrgSwitcher(page)
 
   // 8 (produced state): wait for eligibility to settle to canStartCampaign:false
   // first (the only async step), so the duplicate follow-on below is then

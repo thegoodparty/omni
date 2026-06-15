@@ -1,11 +1,14 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { setupReelectionEligibleUser } from 'src/helpers/organizations'
+import {
+  setupReelectionEligibleUser,
+  openOrgSwitcher,
+  closeOrgSwitcher,
+} from 'src/helpers/organizations'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually } from 'tests/utils/eventually'
 
 // Locks down the org switcher's eligibility-gated states (ENG-10389 task 10):
@@ -18,24 +21,6 @@ import { eventually } from 'tests/utils/eventually'
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
-
-const HEADER = '[data-sidebar="header"]'
-
-const openSwitcher = async (page: Page) => {
-  const trigger = page.locator(HEADER).getByRole('button').first()
-  // A stray task modal can be open on the dashboard home; while open it
-  // aria-hides the page, so the switcher trigger isn't in the accessibility
-  // tree and the click times out. Retry — closing any open dialog each attempt
-  // — so a dialog open now or opening late is cleared before the click lands.
-  await expect(async () => {
-    await closeStrayDialog(page)
-    await trigger.click({ timeout: 2_000 })
-  }).toPass({ timeout: 30_000 })
-}
-
-const closeSwitcher = async (page: Page) => {
-  await page.keyboard.press('Escape')
-}
 
 test('active-campaign user sees no run-for actions in the switcher', async ({
   page,
@@ -56,7 +41,7 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await eligibilitySettled
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
 
   const orgItems = page.getByRole('menuitem')
   await expect(orgItems.first()).toBeVisible({ timeout: 15_000 })
@@ -74,7 +59,7 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   await expect(
     page.getByRole('menuitem', { name: 'Run for a new office' }),
   ).toHaveCount(0)
-  await closeSwitcher(page)
+  await closeOrgSwitcher(page)
 })
 
 // @dev-only: setupReelectionEligibleUser hits live BallotReady election data
@@ -135,7 +120,7 @@ test('held-office user sees Past label and both run-for actions @dev-only', asyn
   // reload so the picker's org-list and eligibility queries refetch.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
 
   // exactly one org is labeled "Past" (the won campaign); the held office is the
   // only other org and is not labeled. toHaveCount polls because the switcher
@@ -169,7 +154,7 @@ test('held-office user sees Past label and both run-for actions @dev-only', asyn
   // new-office routes with new-office intent and no `from`.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
-  await openSwitcher(page)
+  await openOrgSwitcher(page)
   await page.getByRole('menuitem', { name: 'Run for a new office' }).click()
   await expect(page).toHaveURL(
     /\/onboarding\/office-selection\?intent=new-office$/,
