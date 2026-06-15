@@ -401,3 +401,8 @@ export {
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
 } from './dashboard/DashboardCard.schema'
+
+export {
+  SupportEstimateSchema,
+  type SupportEstimate,
+} from './dashboard/SupportEstimate.schema'
