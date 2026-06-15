@@ -28,6 +28,7 @@ import { MeetingsModule } from '@/meetings/meetings.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
 import { PollsModule } from '@/polls/polls.module'
+import { PrioritiesModule } from '@/priorities/priorities.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
@@ -89,6 +90,7 @@ import { loggerModule } from './observability/logging/logger-module'
     ContactsModule,
     ContactEngagementModule,
     PollsModule,
+    PrioritiesModule,
     MeetingsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
