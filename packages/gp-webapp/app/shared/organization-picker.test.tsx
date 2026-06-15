@@ -552,7 +552,7 @@ describe('OrganizationPicker', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.OrgSwitcher.RunForOfficeClicked,
-      { intent: 'new-office', fromOrganizationSlug: undefined },
+      { intent: 'new-office' },
     )
   })
 })

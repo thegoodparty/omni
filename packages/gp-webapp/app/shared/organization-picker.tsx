@@ -190,7 +190,7 @@ export const OrganizationPicker = () => {
   ) => {
     trackEvent(EVENTS.OrgSwitcher.RunForOfficeClicked, {
       intent,
-      fromOrganizationSlug,
+      ...(fromOrganizationSlug ? { fromOrganizationSlug } : {}),
     })
     const params = new URLSearchParams({ intent })
     if (fromOrganizationSlug) params.set('from', fromOrganizationSlug)

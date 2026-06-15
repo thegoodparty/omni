@@ -233,14 +233,14 @@ export default function FollowOnFlow({
     // this would fire on mount for every user — including no-office candidates,
     // for whom the intent step is sliced out once eligibility resolves.
     if (
-      frozenHasHeldOffice === true &&
+      (frozenHasHeldOffice ?? hasHeldOffice) === true &&
       activeStepId === 'intent' &&
       !viewedStepsFiredRef.current.has('intent')
     ) {
       viewedStepsFiredRef.current.add('intent')
       trackEvent(EVENTS.OnboardingV2.FollowOnIntentViewed)
     }
-  }, [activeStepId, frozenHasHeldOffice])
+  }, [activeStepId, frozenHasHeldOffice, hasHeldOffice])
 
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
