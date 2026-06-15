@@ -332,6 +332,16 @@ export class ExperimentRunsService extends createPrismaBase(
     }
   }
 
+  // The scheduler emits `started` when it actually launches the Fargate task.
+  // Guarded on QUEUED so it is idempotent: a RUNNING/AWAITING_RESUME row is left
+  // untouched, and only a still-queued run advances to RUNNING.
+  markStarted(runId: string) {
+    return this.model.updateMany({
+      where: { runId, status: ExperimentRunStatus.QUEUED },
+      data: { status: ExperimentRunStatus.RUNNING },
+    })
+  }
+
   // Flip a run to FAILED after the fact, e.g. when a result arrived but the
   // caller couldn't load/persist its artifact. Truncate the error to match the
   // queue-consumer's column bound.
@@ -345,6 +355,8 @@ export class ExperimentRunsService extends createPrismaBase(
   @Cron('*/15 * * * *')
   async sweepStaleRuns() {
     const cutoff = subMinutes(new Date(), STALE_THRESHOLD_MINUTES)
+    // Scoped to RUNNING only: QUEUED rows are waiting in the priority queue, not
+    // executing, so their age must not count against the callback timeout.
     const result = await this.model.updateMany({
       where: {
         status: { in: [ExperimentRunStatus.RUNNING] },

@@ -247,8 +247,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
 
     expect(result).toBe(true)
     expect(logger.info).toHaveBeenCalledWith(
-      { runId: RUN_ID },
-      'Experiment run already completed, skipping',
+      { runId: RUN_ID, status: ExperimentRunStatus.COMPLETED },
+      'Experiment run already terminal, skipping',
     )
     expect(experimentRunsService.optimisticLockingUpdate).not.toHaveBeenCalled()
   })

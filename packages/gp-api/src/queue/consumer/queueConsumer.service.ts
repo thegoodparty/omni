@@ -952,11 +952,24 @@ export class QueueConsumerService {
       return true
     }
 
-    if (run.status !== ExperimentRunStatus.RUNNING) {
+    const TERMINAL: ExperimentRunStatus[] = [
+      ExperimentRunStatus.COMPLETED,
+      ExperimentRunStatus.FAILED,
+    ]
+    if (TERMINAL.includes(run.status)) {
       this.logger.info(
-        { runId: data.runId },
-        'Experiment run already completed, skipping',
+        { runId: data.runId, status: run.status },
+        'Experiment run already terminal, skipping',
       )
+      return true
+    }
+
+    // The scheduler emits `started` when it actually launches the Fargate task.
+    // Move QUEUED -> RUNNING so the 45-minute stale sweep measures execution
+    // time, not queue-wait time. Idempotent: a RUNNING/AWAITING_RESUME row is
+    // left untouched.
+    if (data.status === 'started') {
+      await this.experimentRunsService.markStarted(data.runId)
       return true
     }
 
@@ -966,12 +979,12 @@ export class QueueConsumerService {
     const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
       { where: { runId: data.runId } },
       async (currentRun) => {
-        if (currentRun.status !== ExperimentRunStatus.RUNNING) {
+        if (TERMINAL.includes(currentRun.status)) {
           this.logger.info(
             { runId: data.runId },
-            'Experiment run already completed, skipping',
+            'Experiment run already terminal, skipping',
           )
-          throw new Error('Experiment run already completed')
+          throw new Error('Experiment run already terminal')
         }
         return {
           status: successPatch
