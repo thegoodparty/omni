@@ -543,7 +543,14 @@ export class CampaignStrategyService
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    if (run?.status === ExperimentRunStatus.RUNNING) return 'inflight'
+    // QUEUED (waiting to launch) and RUNNING are both in flight — neither should
+    // be re-dispatched.
+    if (
+      run?.status === ExperimentRunStatus.QUEUED ||
+      run?.status === ExperimentRunStatus.RUNNING
+    ) {
+      return 'inflight'
+    }
     // COMPLETED but unpersisted: in-flight until the grace window (waiting for
     // its rows to land), then treated as stuck and re-dispatched.
     if (

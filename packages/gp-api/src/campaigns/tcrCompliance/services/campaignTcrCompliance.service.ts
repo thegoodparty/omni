@@ -889,7 +889,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         })
         if (
           existingRun &&
-          (existingRun.status === ExperimentRunStatus.RUNNING ||
+          (existingRun.status === ExperimentRunStatus.QUEUED ||
+            existingRun.status === ExperimentRunStatus.RUNNING ||
             existingRun.status === ExperimentRunStatus.COMPLETED)
         ) {
           this.logger.info(

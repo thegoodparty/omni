@@ -316,6 +316,17 @@ describe('AdminAgentRunsService', () => {
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
+    it('rejects with 409 and never dispatches when the run is still QUEUED', async () => {
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({ status: ExperimentRunStatus.QUEUED }),
+      )
+
+      await expect(service.retry('run-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
     it('rejects with 400 (wrong-type message) for a realistic non-retryable run, never dispatching', async () => {
       // A real meeting_briefing run carries no clerk_user_id; the type guard
       // must fire first so the message names the actual reason. Asserting the

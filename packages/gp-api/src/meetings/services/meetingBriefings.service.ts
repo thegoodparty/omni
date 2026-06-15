@@ -228,6 +228,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         experimentType: SCHEDULE_EXPERIMENT_TYPE,
         status: {
           in: [
+            ExperimentRunStatus.QUEUED,
             ExperimentRunStatus.RUNNING,
             ExperimentRunStatus.AWAITING_RESUME,
             ExperimentRunStatus.COMPLETED,
