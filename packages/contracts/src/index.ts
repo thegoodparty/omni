@@ -377,3 +377,28 @@ export {
   BriefingAdminRowSchema,
   type BriefingAdminRow,
 } from './adminBriefings/AdminBriefing.schema'
+
+export {
+  CreateChatRequestSchema,
+  type CreateChatRequest,
+  CreateChatResponseSchema,
+  type CreateChatResponse,
+  CHAT_MESSAGE_MAX_LENGTH,
+  SendChatMessageRequestSchema,
+  type SendChatMessageRequest,
+  ChatMessageSchema,
+  type ChatMessage,
+  ChatConversationSchema,
+  type ChatConversation,
+  ChatHistoryItemSchema,
+  type ChatHistoryItem,
+  ChatHistoryResponseSchema,
+  type ChatHistoryResponse,
+  ChatHistoryQuerySchema,
+  type ChatHistoryQuery,
+  CHAT_STREAM_ERROR_CODE_VALUES,
+  ChatStreamErrorCodeSchema,
+  type ChatStreamErrorCode,
+  ChatStreamEventSchema,
+  type ChatStreamEvent,
+} from './chats/Chat.schema'

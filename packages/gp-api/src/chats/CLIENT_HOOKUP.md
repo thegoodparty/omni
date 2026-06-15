@@ -14,6 +14,26 @@ DELETE /v1/briefing-chats/:annotationId            # 204 soft-delete
 
 `annotationId` is the cuid of an `Annotation` row with `kind=chat` and `resourceType=briefing`. The annotation must be created (and its `chatConversationId` set) by the annotation owner's API before any chat traffic is possible. Our endpoints never lazy-create a `ChatConversation` — if the FK isn't set, you get `404 Conversation not initialized for this annotation`.
 
+### General chats — scope-keyed (Chief of Staff)
+
+```
+POST   /v1/chats                                  # find-or-create a conversation for a scope
+GET    /v1/chats?scope=chief_of_staff             # history list (conversations + titles)
+POST   /v1/chats/:conversationId/messages?scope=… # SSE, sends a user message
+GET    /v1/chats/:conversationId?scope=…          # conversation + history (replay)
+DELETE /v1/chats/:conversationId?scope=…          # 204 soft-delete
+```
+
+Scope-generic surface. v1 registers one scope: `chief_of_staff`. All routes
+require the `X-Organization-Slug` header (resolves the caller's elected office
+via `@UseElectedOffice`). The SSE chunk shapes and error codes are identical to
+the briefing chat (see below). `scope` is a required query param on every route
+except `POST /v1/chats`, where it is in the body. `POST /v1/chats` is
+find-or-create: it returns `{ conversationId, created }` for the
+`(owner, organizationSlug, scope)` key. The first user message auto-titles the
+conversation (truncated to 80 chars). CoS runs Anthropic-only (sensitive scope);
+the chain is `claude-sonnet-4-6` → `claude-opus-4-7`, fail-closed.
+
 ## Authentication
 
 All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`) — see `docs/adr/0004-clerk-m2m-auth.md`.

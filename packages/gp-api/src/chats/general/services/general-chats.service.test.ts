@@ -1,0 +1,242 @@
+import { NotFoundException } from '@nestjs/common'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ChatScope } from '../../../generated/prisma'
+import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import { GeneralChatsService } from './general-chats.service'
+import { ChatScopeRegistry } from './chatScopeRegistry.service'
+import { GeneralChatStoreService } from './generalChatStore.prisma'
+import { ChatScopeHandler } from '../types/chatScopeHandler'
+
+const SCOPE = ChatScope.chief_of_staff
+const USER_ID = 7
+const ORG = 'eo-123'
+
+const buildHandler = (
+  overrides: Partial<ChatScopeHandler> = {},
+): ChatScopeHandler =>
+  ({
+    scope: SCOPE,
+    isSensitive: true,
+    models: ['claude-sonnet-4-6'],
+    resolveConversation: vi.fn(() =>
+      Promise.resolve({ conversationId: 'conv-new', created: true }),
+    ),
+    loadContext: vi.fn(() => Promise.resolve({})),
+    buildSystemPrompt: vi.fn(() => 'system'),
+    buildTools: vi.fn(() => ({})),
+    ...overrides,
+  }) as unknown as ChatScopeHandler
+
+const buildRegistry = (handler: ChatScopeHandler): ChatScopeRegistry =>
+  ({
+    has: (s: ChatScope) => s === handler.scope,
+    get: (s: ChatScope) => (s === handler.scope ? handler : undefined),
+  }) as unknown as ChatScopeRegistry
+
+const buildStore = (
+  overrides: Partial<GeneralChatStoreService> = {},
+): GeneralChatStoreService =>
+  ({
+    findScopedConversation: vi.fn(),
+    createScopedConversation: vi.fn(),
+    listByScope: vi.fn(() => Promise.resolve([])),
+    findOwnedConversation: vi.fn(),
+    setTitleIfUnset: vi.fn(() => Promise.resolve()),
+    ...overrides,
+  }) as unknown as GeneralChatStoreService
+
+const collect = async (
+  iterable: AsyncIterable<ChatStreamChunk>,
+): Promise<ChatStreamChunk[]> => {
+  const out: ChatStreamChunk[] = []
+  for await (const c of iterable) out.push(c)
+  return out
+}
+
+describe('GeneralChatsService', () => {
+  let handler: ChatScopeHandler
+  let store: GeneralChatStoreService
+
+  beforeEach(() => {
+    handler = buildHandler()
+    store = buildStore()
+  })
+
+  it('routes resolveConversation to the scope handler', async () => {
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      {} as never,
+    )
+    const result = await service.resolveConversation(
+      { scope: SCOPE, organizationSlug: ORG },
+      USER_ID,
+    )
+    expect(result).toEqual({ conversationId: 'conv-new', created: true })
+    expect(handler.resolveConversation).toHaveBeenCalledWith(
+      { scope: SCOPE, organizationSlug: ORG },
+      USER_ID,
+    )
+  })
+
+  it('rejects an unregistered scope', async () => {
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      {} as never,
+    )
+    expect(() =>
+      service.resolveConversation(
+        { scope: ChatScope.campaign_assistant, organizationSlug: ORG },
+        USER_ID,
+      ),
+    ).toThrowError(NotFoundException)
+  })
+
+  it('lists scoped conversations with titles', async () => {
+    const now = new Date('2026-06-15T00:00:00Z')
+    store = buildStore({
+      listByScope: vi.fn(() =>
+        Promise.resolve([
+          {
+            id: 'c1',
+            title: 'My first question',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]),
+      ) as never,
+    })
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      {} as never,
+    )
+    const list = await service.listConversations({
+      scope: SCOPE,
+      userId: USER_ID,
+      organizationSlug: ORG,
+    })
+    expect(list).toEqual([
+      {
+        conversationId: 'c1',
+        title: 'My first question',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+  })
+
+  it('soft-deletes an owned conversation via the shared store', async () => {
+    const softDelete = vi.fn(() => Promise.resolve())
+    store = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: null }),
+      ) as never,
+    })
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      { softDeleteConversation: softDelete } as never,
+      {} as never,
+    )
+    await service.deleteConversation('c1', SCOPE, USER_ID)
+    expect(softDelete).toHaveBeenCalledWith('c1', USER_ID)
+  })
+
+  it('404s deleting a conversation the user does not own', async () => {
+    store = buildStore({
+      findOwnedConversation: vi.fn(() => Promise.resolve(null)) as never,
+    })
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      {} as never,
+    )
+    await expect(
+      service.deleteConversation('c1', SCOPE, USER_ID),
+    ).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it(
+    'streams with the handler prompt + tools + claude-only models, ' +
+      'and titles from the first message',
+    async () => {
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const streamArgs: { value?: unknown } = {}
+      const chatStream = {
+        stream: vi.fn((args: unknown) => {
+          streamArgs.value = args
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield { type: 'text', delta: 'hi' } as ChatStreamChunk
+              yield { type: 'done' } as ChatStreamChunk
+            },
+          }
+        }),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+      )
+      const chunks = await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          userMessage: 'What should I do about the housing vote?',
+        }),
+      )
+      expect(chunks.map((c) => c.type)).toEqual(['text', 'done'])
+      expect(store.setTitleIfUnset).toHaveBeenCalledWith(
+        'c1',
+        'What should I do about the housing vote?',
+      )
+      expect(handler.buildSystemPrompt).toHaveBeenCalled()
+      expect(handler.buildTools).toHaveBeenCalled()
+      expect(streamArgs.value).toMatchObject({
+        conversationId: 'c1',
+        systemPrompt: 'system',
+        models: ['claude-sonnet-4-6'],
+      })
+    },
+  )
+
+  it('yields conversation_not_found when streaming a missing conversation', async () => {
+    store = buildStore({
+      findOwnedConversation: vi.fn(() => Promise.resolve(null)) as never,
+    })
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      {} as never,
+    )
+    const chunks = await collect(
+      service.sendMessage({
+        conversationId: 'missing',
+        scope: SCOPE,
+        userId: USER_ID,
+        userMessage: 'hi',
+      }),
+    )
+    expect(chunks).toEqual([
+      {
+        type: 'error',
+        code: 'conversation_not_found',
+        message: 'Conversation not found.',
+        retryable: false,
+      },
+    ])
+  })
+})
