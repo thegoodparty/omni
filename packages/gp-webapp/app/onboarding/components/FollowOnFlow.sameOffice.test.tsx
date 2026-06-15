@@ -194,7 +194,12 @@ describe('FollowOnFlow — same office', () => {
     // Back to intent, then forward again — neither event should re-fire.
     fireEvent.click(await screen.findByRole('button', { name: /back/i }))
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
-    await screen.findByRole('button', { name: /back/i })
+    // The intent step renders a *disabled* Back button, so anchor on Back
+    // becoming enabled — that only happens once we land back on welcome, i.e.
+    // after the second navigation (and any stray track call) has completed.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /back/i })).toBeEnabled(),
+    )
 
     const countOf = (name: string) =>
       vi.mocked(trackEvent).mock.calls.filter((call) => call[0] === name).length
