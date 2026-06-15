@@ -477,6 +477,29 @@ describe('GET /v1/organizations', () => {
     )
     expect(campaignOrg.status).toBe('past')
   })
+
+  it('marks a primary-loss campaign "past" despite a future election date', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-602', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'primary-loss-run',
+        primaryResult: 'lost',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-602',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-602',
+    )
+    expect(campaignOrg.status).toBe('past')
+  })
 })
 
 describe('GET /v1/organizations/:slug', () => {
