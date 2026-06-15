@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { clientFetch } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import FollowOnFlow from './FollowOnFlow'
 
 // Module mocks (rather than MSW) so the legacy updateCampaign clientFetch
@@ -11,6 +12,12 @@ import FollowOnFlow from './FollowOnFlow'
 vi.mock('gpApi/clientFetch', () => ({ clientFetch: vi.fn() }))
 vi.mock('gpApi/typed-request', () => ({ clientRequest: vi.fn() }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+// Keep EVENTS real; stub the network-bound tracker.
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 const mockClientFetch = vi.mocked(clientFetch)
 const mockClientRequest = vi.mocked(clientRequest)
@@ -63,6 +70,8 @@ beforeEach(() => {
   // Every updateCampaign (PUT /campaigns/mine) succeeds, so the per-step save
   // path advances rather than halting on a false return.
   mockClientFetch.mockResolvedValue({ data: { id: 4242 }, ok: true } as never)
+
+  vi.mocked(trackEvent).mockClear()
 })
 
 describe('FollowOnFlow — same office', () => {
@@ -116,6 +125,34 @@ describe('FollowOnFlow — same office', () => {
         expect.objectContaining({
           details: expect.objectContaining({ party: 'nonpartisan' }),
         }),
+      ),
+    )
+  })
+
+  it('tracks the intent step viewed on mount and completed on advance', async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />
+      </QueryClientProvider>,
+    )
+
+    // The office-holder lands on the intent step; viewed fires once it renders.
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OnboardingV2.FollowOnIntentViewed,
+      ),
+    )
+
+    // Advancing past intent commits the choice with the resolved intent.
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OnboardingV2.FollowOnIntentCompleted,
+        { intent: 'same-office' },
       ),
     )
   })

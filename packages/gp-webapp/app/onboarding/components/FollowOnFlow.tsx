@@ -11,6 +11,7 @@ import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import type { Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
@@ -219,6 +220,12 @@ export default function FollowOnFlow({
     window.scrollTo(0, 0)
   }, [activeStepId])
 
+  useEffect(() => {
+    if (activeStepId === 'intent') {
+      trackEvent(EVENTS.OnboardingV2.FollowOnIntentViewed)
+    }
+  }, [activeStepId])
+
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
   }
@@ -394,6 +401,15 @@ export default function FollowOnFlow({
     if (pendingEarlyAttrsRef.current && liveCampaign) {
       const ok = await flushEarlyAttrs(pendingEarlyAttrsRef.current)
       if (!ok) return
+    }
+
+    // The intent decision is committed on advancing past the intent step (for
+    // same-office this is also where the campaign is created). canContinue
+    // already required a chosen intent, so this fires once with the final pick.
+    if (activeStep.id === 'intent' && answers.followOnIntent) {
+      trackEvent(EVENTS.OnboardingV2.FollowOnIntentCompleted, {
+        intent: answers.followOnIntent,
+      })
     }
 
     // Persist per-step edits once the new campaign exists (mirrors the

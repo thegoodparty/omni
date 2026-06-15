@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
 import {
@@ -167,6 +168,10 @@ export const OrganizationPicker = () => {
 
   const handleOrgSwitch = (org: Organization) => {
     if (org.slug === selected.slug) return
+    trackEvent(EVENTS.OrgSwitcher.OrganizationSwitched, {
+      toStatus: org.status,
+      isElectedOfficeOrg: Boolean(org.electedOfficeId),
+    })
     setSelectedSlug(org.slug)
 
     const isOnSharedPage = SHARED_PATHS.some((p) => pathname?.startsWith(p))
@@ -183,6 +188,10 @@ export const OrganizationPicker = () => {
     intent: 'same-office' | 'new-office',
     fromOrganizationSlug?: string,
   ) => {
+    trackEvent(EVENTS.OrgSwitcher.RunForOfficeClicked, {
+      intent,
+      fromOrganizationSlug,
+    })
     const params = new URLSearchParams({ intent })
     if (fromOrganizationSlug) params.set('from', fromOrganizationSlug)
     router.push(`/onboarding/office-selection?${params.toString()}`)

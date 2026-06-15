@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
 import {
   OrganizationProvider,
@@ -46,6 +47,14 @@ vi.mock('helpers/cookieHelper', () => ({
   deleteCookie: vi.fn(),
 }))
 
+// Keep EVENTS real (asserting on the registered name strings) but stub the
+// network-bound tracker.
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
 const orgs: Organization[] = [
   {
     slug: 'org-one',
@@ -84,6 +93,7 @@ beforeEach(() => {
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
   mockRouterReplace.mockClear()
+  vi.mocked(trackEvent).mockClear()
 })
 
 describe('OrganizationProvider', () => {
@@ -476,6 +486,75 @@ describe('OrganizationPicker', () => {
 
     expect(mockRouterPush).toHaveBeenCalledWith(
       '/onboarding/office-selection?intent=new-office',
+    )
+  })
+
+  it('tracks an organization switch with the target status and office flag', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Three is past and not an elected-office org.
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        { toStatus: 'past', isElectedOfficeOrg: false },
+      )
+    })
+  })
+
+  it('does not track a switch when re-selecting the already-active org', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    // Re-click the currently selected org (org-one) in the open dropdown
+    // (index 0 is the trigger label, index 1 is the dropdown item).
+    const dropdownItem = screen.getAllByText('Organization One').at(1)
+    if (!dropdownItem) throw new Error('expected org-one dropdown item')
+    await user.click(dropdownItem)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.OrgSwitcher.OrganizationSwitched,
+      expect.anything(),
+    )
+  })
+
+  it('tracks the run-for CTA with intent and source office on re-election', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: 'eo-held',
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for re-election'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.OrgSwitcher.RunForOfficeClicked,
+      { intent: 'same-office', fromOrganizationSlug: 'eo-held' },
+    )
+  })
+
+  it('tracks the run-for CTA with no source office on a new-office run', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: null,
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for a new office'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.OrgSwitcher.RunForOfficeClicked,
+      { intent: 'new-office', fromOrganizationSlug: undefined },
     )
   })
 })
