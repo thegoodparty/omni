@@ -1,4 +1,5 @@
 enum ExperimentRunStatus {
+  QUEUED
   RUNNING
   AWAITING_RESUME
   COMPLETED
