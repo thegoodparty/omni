@@ -340,7 +340,12 @@ describe('CampaignsService - Organization positionId sync', () => {
         data: { isPro: true },
       })
 
-      expect(mockIdentify).toHaveBeenCalledWith(42, { isPro: true })
+      // campaignId rides the identify so the warehouse can attribute the
+      // per-campaign isPro value rather than overwriting it across campaigns.
+      expect(mockIdentify).toHaveBeenCalledWith(42, {
+        isPro: true,
+        campaignId: 10,
+      })
     })
   })
 
