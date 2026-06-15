@@ -11,7 +11,7 @@ caller (gp-api service)
    │
    │  ExperimentRunsService.dispatchRun({ type, organizationSlug, params })
    ▼
-DB: INSERT experiment_run (status=RUNNING)      SQS: agent-dispatch-{env}.fifo
+DB: INSERT experiment_run (status=QUEUED)       SQS: agent-dispatch-{env}.fifo
                                                          │
                                                          ▼
                                                 Lambda → Fargate (PMF Engine)
@@ -33,23 +33,26 @@ status RUNNING → COMPLETED | FAILED,  artifactKey/Bucket, durationSeconds, err
 ### Lifecycle
 
 ```
-RUNNING ──► COMPLETED        (result.status = "success")
-        └─► FAILED           (result.status = "failed" or "contract_violation",
+QUEUED  ──► RUNNING           (result.status = "started" — scheduler launched
+        │                      the Fargate task)
+        │
+RUNNING ──► COMPLETED         (result.status = "success")
+        └─► FAILED            (result.status = "failed" or "contract_violation",
                               or sweeper timeout at 45 min, or SQS dispatch error)
 ```
 
-Three terminal states only. `contract_violation` at the queue boundary collapses to `FAILED` — the distinction belongs (if anywhere) in the `error` column, not the enum.
+Runs are created `QUEUED` and advance to `RUNNING` only when the scheduler emits the `started` callback. `COMPLETED`/`FAILED` are the two terminal states. `contract_violation` at the queue boundary collapses to `FAILED` — the distinction belongs (if anywhere) in the `error` column, not the enum. A run that is enqueued but never started is reclaimed by `sweepStuckQueuedRuns` (fails `QUEUED` rows older than 6h).
 
 ### Callback idempotency
 
-`handleAgentExperimentResult` uses `optimisticLockingUpdate` on `updatedAt` and guards on `status === RUNNING` before patching. A duplicate result for an already-terminal run is logged and dropped.
+`handleAgentExperimentResult` uses `optimisticLockingUpdate` on `updatedAt` and guards on a terminal status (`COMPLETED`/`FAILED`) before patching — so a still-`QUEUED` run can still receive a terminal result (covers the agent-side sweeper failing a never-dispatched job). A duplicate result for an already-terminal run is logged and dropped.
 
 ## Files
 
-| File                                 | Purpose                                                                |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `agentExperiments.module.ts`         | Nest module — exports `ExperimentRunsService`                          |
-| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepStaleRuns()` (`@Cron`), + inherited Prisma CRUD |
+| File                                 | Purpose                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `agentExperiments.module.ts`         | Nest module — exports `ExperimentRunsService`                                                     |
+| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepStaleRuns()` + `sweepStuckQueuedRuns()` (`@Cron`), + inherited Prisma CRUD |
 
 No controller, no schemas, no other services. HTTP surface is a caller concern.
 

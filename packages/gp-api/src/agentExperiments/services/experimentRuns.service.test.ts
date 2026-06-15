@@ -356,6 +356,73 @@ describe('ExperimentRunsService', () => {
     })
   })
 
+  describe('sweepStuckQueuedRuns', () => {
+    it('fails a QUEUED row older than the 6-hour threshold', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.sweepStuckQueuedRuns()
+
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          status: ExperimentRunStatus.QUEUED,
+          updatedAt: { lt: expect.any(Date) },
+        },
+        data: {
+          status: ExperimentRunStatus.FAILED,
+          error: expect.stringContaining('360 minutes'),
+        },
+      })
+
+      const cutoff = mockModel.updateMany.mock.calls[0][0].where.updatedAt
+        .lt as Date
+      const sixHoursAgo = Date.now() - 360 * 60 * 1000
+      expect(Math.abs(cutoff.getTime() - sixHoursAgo)).toBeLessThan(5000)
+    })
+
+    it('does not sweep a fresh QUEUED row (cutoff is 6h in the past)', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.sweepStuckQueuedRuns()
+
+      const cutoff = mockModel.updateMany.mock.calls[0][0].where.updatedAt
+        .lt as Date
+      // A row created now has updatedAt ~= now, which is well after the cutoff,
+      // so the `updatedAt < cutoff` predicate excludes it.
+      expect(cutoff.getTime()).toBeLessThan(Date.now())
+      expect(Date.now() - cutoff.getTime()).toBeGreaterThan(60 * 60 * 1000)
+    })
+
+    it('only targets QUEUED, never RUNNING or terminal states', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.sweepStuckQueuedRuns()
+
+      const where = mockModel.updateMany.mock.calls[0][0].where as {
+        status: ExperimentRunStatus
+      }
+      expect(where.status).toBe(ExperimentRunStatus.QUEUED)
+    })
+
+    it('logs a warning with the swept count when rows are found', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 4 })
+
+      await service.sweepStuckQueuedRuns()
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ count: 4 }),
+        expect.stringContaining('stuck QUEUED'),
+      )
+    })
+
+    it('stays quiet when there is nothing to sweep', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.sweepStuckQueuedRuns()
+
+      expect(logger.warn).not.toHaveBeenCalled()
+    })
+  })
+
   describe('resumeRun', () => {
     const awaitingRun = {
       runId: 'run-abc-123',
