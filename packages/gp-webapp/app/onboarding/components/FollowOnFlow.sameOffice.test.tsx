@@ -157,7 +157,7 @@ describe('FollowOnFlow — same office', () => {
     )
   })
 
-  it('fires the intent viewed event once even when navigating back to it', async () => {
+  it('fires the intent viewed and completed events once across back-navigation', async () => {
     // Held-office user who picks "new office": the campaign is not created on
     // leaving intent (that happens at the office step), so Back stays enabled
     // and the intent step is reachable a second time.
@@ -182,17 +182,23 @@ describe('FollowOnFlow — same office', () => {
       name: /continue/i,
     })
     await waitFor(() => expect(continueButton).toBeEnabled())
+    // intent -> welcome (no creation on the new-office intent step).
     fireEvent.click(continueButton)
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OnboardingV2.FollowOnIntentCompleted,
+        { intent: 'new-office' },
+      ),
+    )
 
-    // Navigate back to the intent step.
+    // Back to intent, then forward again — neither event should re-fire.
     fireEvent.click(await screen.findByRole('button', { name: /back/i }))
-    await screen.findByLabelText(/running for a new office/i)
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+    await screen.findByRole('button', { name: /back/i })
 
-    const viewedCalls = vi
-      .mocked(trackEvent)
-      .mock.calls.filter(
-        (call) => call[0] === EVENTS.OnboardingV2.FollowOnIntentViewed,
-      )
-    expect(viewedCalls).toHaveLength(1)
+    const countOf = (name: string) =>
+      vi.mocked(trackEvent).mock.calls.filter((call) => call[0] === name).length
+    expect(countOf(EVENTS.OnboardingV2.FollowOnIntentViewed)).toBe(1)
+    expect(countOf(EVENTS.OnboardingV2.FollowOnIntentCompleted)).toBe(1)
   })
 })

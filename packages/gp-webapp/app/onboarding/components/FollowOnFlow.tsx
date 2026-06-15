@@ -173,6 +173,10 @@ export default function FollowOnFlow({
   // viewedStepsFiredRef): on the new-office path the user can navigate back to
   // the intent step and forward again, which would otherwise re-fire the event.
   const viewedStepsFiredRef = useRef<Set<OnboardingStepId>>(new Set())
+  // The intent decision is reported once, only after the step is successfully
+  // left. Guarding it avoids re-firing on a same-office creation retry and on
+  // new-office back-navigation to the intent step.
+  const intentCompletedFiredRef = useRef(false)
   // Early answers (party / ballot status) collected before the campaign
   // exists. If the post-creation flush fails, they're parked here and retried
   // on the next advance — Back is disabled after creation, so there's no other
@@ -411,15 +415,6 @@ export default function FollowOnFlow({
       if (!ok) return
     }
 
-    // The intent decision is committed on advancing past the intent step (for
-    // same-office this is also where the campaign is created). canContinue
-    // already required a chosen intent, so this fires once with the final pick.
-    if (activeStep.id === 'intent' && answers.followOnIntent) {
-      trackEvent(EVENTS.OnboardingV2.FollowOnIntentCompleted, {
-        intent: answers.followOnIntent,
-      })
-    }
-
     // Persist per-step edits once the new campaign exists (mirrors the
     // standard flow editing an existing campaign).
     if (
@@ -463,6 +458,20 @@ export default function FollowOnFlow({
     if (shouldCreateOnLeaving(activeStep.id)) {
       const created = await createFollowOnCampaign()
       if (!created) return
+    }
+
+    // Report the intent only once the step is actually completed — after any
+    // campaign creation, so a failed same-office create (which returns above)
+    // doesn't emit it, and the ref guards against a repeat on back-navigation.
+    if (
+      activeStep.id === 'intent' &&
+      answers.followOnIntent &&
+      !intentCompletedFiredRef.current
+    ) {
+      intentCompletedFiredRef.current = true
+      trackEvent(EVENTS.OnboardingV2.FollowOnIntentCompleted, {
+        intent: answers.followOnIntent,
+      })
     }
 
     if (nextStep) setActiveStepId(nextStep.id)
