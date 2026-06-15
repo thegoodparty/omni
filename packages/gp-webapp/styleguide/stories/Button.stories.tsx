@@ -32,7 +32,6 @@ type PlaygroundArgs = {
   children: string
   showIcon: boolean
   iconPosition: 'left' | 'right'
-  iconOnly: boolean
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -45,7 +44,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     children: 'Button',
     showIcon: false,
     iconPosition: 'left',
-    iconOnly: false,
   },
   argTypes: {
     variant: {
@@ -109,23 +107,16 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       options: ['left', 'right'],
       if: { arg: 'showIcon', truthy: true },
     },
-    iconOnly: {
-      name: 'Icon only',
-      description: 'Hides the label and renders a square icon-only button.',
-      control: 'boolean',
-      if: { arg: 'showIcon', truthy: true },
-    },
     disabled: {
       name: 'Disabled',
       control: 'boolean',
     },
   },
-  render: ({ showIcon, iconOnly, children, loadingText, ...buttonArgs }) => (
+  render: ({ showIcon, children, loadingText, ...buttonArgs }) => (
     <Button
       {...buttonArgs}
       loadingText={loadingText || undefined}
       icon={showIcon ? <DownloadIcon /> : undefined}
-      iconOnly={showIcon ? iconOnly : false}
     >
       {children}
     </Button>
@@ -246,32 +237,10 @@ export const States: Story = {
 
 export const Sizes: Story = {
   render: () => (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-4">
-        <Button size="small">Small</Button>
-        <Button size="medium">Medium</Button>
-        <Button size="large">Large</Button>
-      </div>
-      <div className="flex items-center gap-4">
-        <Button
-          size="small"
-          icon={<DownloadIcon />}
-          iconOnly
-          aria-label="Small"
-        />
-        <Button
-          size="medium"
-          icon={<DownloadIcon />}
-          iconOnly
-          aria-label="Medium"
-        />
-        <Button
-          size="large"
-          icon={<DownloadIcon />}
-          iconOnly
-          aria-label="Large"
-        />
-      </div>
+    <div className="flex items-center gap-4">
+      <Button size="small">Small</Button>
+      <Button size="medium">Medium</Button>
+      <Button size="large">Large</Button>
     </div>
   ),
 }

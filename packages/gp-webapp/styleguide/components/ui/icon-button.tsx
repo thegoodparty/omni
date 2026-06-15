@@ -21,9 +21,9 @@ const iconButtonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
         outline:
-          'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/10 focus-visible:ring-[3px]',
+          'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
         ghost:
-          'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/10 focus-visible:ring-[3px]',
+          'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
         link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
         neutral:
           'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',

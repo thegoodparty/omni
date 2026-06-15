@@ -37,21 +37,11 @@ const buttonVariants = cva(
         left: '',
         right: '',
       },
-      iconOnly: {
-        true: '',
-        false: '',
-      },
     },
-    compoundVariants: [
-      { size: 'small', iconOnly: true, className: 'w-8 px-0' },
-      { size: 'medium', iconOnly: true, className: 'w-10 px-0' },
-      { size: 'large', iconOnly: true, className: 'w-12 px-0' },
-    ],
     defaultVariants: {
       variant: 'default',
       size: 'medium',
       iconPosition: 'left',
-      iconOnly: false,
     },
   },
 )
@@ -63,7 +53,6 @@ interface ButtonProps
   loadingText?: string
   icon?: React.ReactNode
   iconPosition?: 'left' | 'right'
-  iconOnly?: boolean
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -77,7 +66,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       loadingText,
       icon,
       iconPosition = 'left',
-      iconOnly = false,
       children,
       disabled,
       ...props
@@ -98,7 +86,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               variant,
               size,
               iconPosition,
-              iconOnly,
               className,
             }),
           )}
@@ -113,10 +100,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const content = loading ? (
       <>
         <LoadingSpinner className="size-4" />
-        {!iconOnly && (loadingText || children)}
+        {loadingText || children}
       </>
-    ) : iconOnly ? (
-      icon
     ) : (
       <>
         {icon && iconPosition === 'left' && icon}
@@ -131,7 +116,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-slot="button"
         data-loading={loading}
         className={cn(
-          buttonVariants({ variant, size, iconPosition, iconOnly, className }),
+          buttonVariants({ variant, size, iconPosition, className }),
         )}
         {...props}
         disabled={isDisabled}
