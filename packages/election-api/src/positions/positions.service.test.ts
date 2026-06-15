@@ -722,6 +722,30 @@ describe('PositionsService', () => {
       expect(result.electionDate).toBeNull()
     })
 
+    it('returns null when the position has only primary or runoff races', async () => {
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: 'place-1',
+        name: 'Mayor',
+      })
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2998-03-05'),
+          isPrimary: true,
+          isRunoff: false,
+        },
+        {
+          electionDate: new Date('2998-06-10'),
+          isPrimary: false,
+          isRunoff: true,
+        },
+      ])
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBeNull()
+    })
+
     it('returns null when the position has no placeId', async () => {
       findUnique.mockResolvedValue({
         id: 'pos-1',
