@@ -115,6 +115,42 @@ describe('EligibilityService', () => {
     expect(result.canStartCampaign).toBe(true)
   })
 
+  it('treats a primary loss as concluded even with a future general election', async () => {
+    const service = await buildService(
+      [
+        buildCampaign({
+          didWin: null,
+          primaryResult: 'lost',
+          details: { electionDate: FUTURE_ELECTION_DATE },
+        }),
+      ],
+      [],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.hasActiveCampaign).toBe(false)
+    expect(result.canStartCampaign).toBe(true)
+  })
+
+  it('keeps a primary winner active until the general election', async () => {
+    const service = await buildService(
+      [
+        buildCampaign({
+          didWin: null,
+          primaryResult: 'won',
+          details: { electionDate: FUTURE_ELECTION_DATE },
+        }),
+      ],
+      [],
+    )
+
+    const result = await service.evaluate(1)
+
+    expect(result.hasActiveCampaign).toBe(true)
+    expect(result.canStartCampaign).toBe(false)
+  })
+
   it('treats a campaign as active at midday on election day', async () => {
     const today = '2026-11-03'
     vi.setSystemTime(new Date(`${today}T14:00:00Z`))

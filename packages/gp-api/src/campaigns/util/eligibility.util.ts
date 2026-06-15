@@ -9,6 +9,11 @@ import { Campaign, ElectedOffice } from '../../generated/prisma'
 
 export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
   if (campaign.isDemo) return false
+  // A primary loss ends the race even though didWin stays null and the general
+  // electionDate is still in the future — mirrors the webapp's electionOver
+  // (usePostElectionState). A primary win leaves the campaign active until the
+  // general concludes via the didWin / electionDate checks below.
+  if (campaign.primaryResult === 'lost') return false
   const electionDate = campaign.details?.electionDate
   if (!electionDate) return false
   const parsed = parseIsoDateAsUTC(electionDate)
