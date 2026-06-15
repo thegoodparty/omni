@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { PrioritiesModule } from '@/priorities/priorities.module'
 import {
   TavilySearchProvider,
   type SearchProvider,
@@ -11,7 +12,7 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
-import { PlaceholderPrioritiesAdapter } from './services/placeholderPriorities.adapter'
+import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
 
 export { CHIEF_OF_STAFF_MODELS }
@@ -25,17 +26,16 @@ const searchProviderFactory = (): SearchProvider | null => {
 // Registers the chief_of_staff scope handler. The handler is exported so the
 // general chats module can collect it into the scope registry.
 @Module({
+  imports: [PrioritiesModule],
   providers: [
     ChiefOfStaffHandler,
     ChiefOfStaffContextService,
     ChiefOfStaffBriefingsService,
     GeneralChatStoreService,
-    // INTEGRATION SEAM: at merge, swap PlaceholderPrioritiesAdapter for slice
-    // 1's PrioritiesService (which already satisfies PrioritiesToolPort) and
-    // delete the adapter. See placeholderPriorities.adapter.ts.
+    PrioritiesServiceAdapter,
     {
       provide: PRIORITIES_PORT,
-      useClass: PlaceholderPrioritiesAdapter,
+      useClass: PrioritiesServiceAdapter,
     },
     {
       provide: COS_SEARCH_PROVIDER,
