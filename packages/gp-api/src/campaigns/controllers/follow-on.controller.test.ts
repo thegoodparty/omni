@@ -26,6 +26,12 @@ describe('POST /v1/campaigns/follow-on', () => {
     // That sync is incidental to the follow-on behavior under test, so stub it.
     const crm = service.app.get(CrmCampaignsService)
     vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    // Default the next-election lookup to null ("election-api unreachable") so
+    // same-office tests deterministically fall back to the office term end;
+    // tests that need a resolved date or a definitive no-election override it.
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue(null)
   })
 
   it('inherits the held office position and carries isPro on a same-office run', async () => {
@@ -58,7 +64,7 @@ describe('POST /v1/campaigns/follow-on', () => {
         organizationSlug: 'eo-source',
         userId: service.user.id,
         isActive: true,
-        termEndAt: null,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
         campaignId: prevCampaign.id,
       },
     })
@@ -125,6 +131,148 @@ describe('POST /v1/campaigns/follow-on', () => {
     expect(campaignCount).toBe(1)
   })
 
+  it('uses the election-api next-election date over the term end on same-office', async () => {
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
+      electionDate: '2100-11-02',
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-next',
+        ownerId: service.user.id,
+        positionId: 'pos-next',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-next',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-next',
+    })
+
+    expect(result.status).toBe(201)
+    // election-api's resolved date wins over the term-end proxy.
+    expect(result.data.details.electionDate).toBe('2100-11-02')
+  })
+
+  it('honors a definitive no-election from election-api over the term end', async () => {
+    // election-api is reachable and answers { electionDate: null } (the
+    // position has no upcoming general). That authoritative "none" must win
+    // over the term-end proxy, so the guard rejects rather than dating the
+    // campaign to the cadence guess.
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
+      electionDate: null,
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-definitive',
+        ownerId: service.user.id,
+        positionId: 'pos-definitive',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-definitive',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-definitive',
+    })
+
+    expect(result.status).toBe(400)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(0)
+  })
+
+  it('ignores a client-injected electionDate on same-office and still rejects', async () => {
+    // election-api definitively has no upcoming election, so the server resolves
+    // none. A client-supplied details.electionDate must not slip past the guard.
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
+      electionDate: null,
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-injected',
+        ownerId: service.user.id,
+        positionId: 'pos-injected',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-injected',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-injected',
+      details: { electionDate: '2099-11-03' },
+    })
+
+    expect(result.status).toBe(400)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(0)
+  })
+
+  it('rejects a same-office run with no resolvable election date', async () => {
+    // election-api yields nothing (default stub) and the office has no term end
+    // to fall back to — the guard must refuse rather than create a campaign
+    // that derive-on-read would immediately mark "past".
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-noelection',
+        ownerId: service.user.id,
+        positionId: 'pos-noelection',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-noelection',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-noelection',
+    })
+
+    expect(result.status).toBe(400)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(0)
+  })
+
   it('blocks a second follow-on once the first created an active campaign', async () => {
     await service.prisma.organization.create({
       data: {
@@ -138,7 +286,7 @@ describe('POST /v1/campaigns/follow-on', () => {
         organizationSlug: 'eo-repeat',
         userId: service.user.id,
         isActive: true,
-        termEndAt: null,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -188,7 +336,7 @@ describe('POST /v1/campaigns/follow-on', () => {
         organizationSlug: 'eo-source-2',
         userId: service.user.id,
         isActive: true,
-        termEndAt: null,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
       },
     })
 

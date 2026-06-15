@@ -4,7 +4,7 @@ import { HttpService } from '@nestjs/axios'
 import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
-import { of } from 'rxjs'
+import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PositionWithOptionalDistrict } from '../types/elections.types'
 import { ElectionsService } from './elections.service'
@@ -217,6 +217,37 @@ describe('ElectionsService', () => {
       mockHttpGet.mockReturnValue(of({ data: null, status: 200 }))
 
       const result = await service.getPositionByBallotReadyId('br-nonexistent')
+
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('getNextElectionForPosition', () => {
+    it('returns the parsed next election for a position', async () => {
+      mockHttpGet.mockReturnValue(
+        of({ data: { electionDate: '2100-11-02' }, status: 200 }),
+      )
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result).toEqual({ electionDate: '2100-11-02' })
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('positions/pos-1/next-election'),
+        expect.anything(),
+      )
+    })
+
+    it('returns null for an empty positionId without calling the API', async () => {
+      const result = await service.getNextElectionForPosition('')
+
+      expect(result).toBeNull()
+      expect(mockHttpGet).not.toHaveBeenCalled()
+    })
+
+    it('returns null when election-api fails', async () => {
+      mockHttpGet.mockReturnValue(throwError(() => new Error('network')))
+
+      const result = await service.getNextElectionForPosition('pos-1')
 
       expect(result).toBeNull()
     })

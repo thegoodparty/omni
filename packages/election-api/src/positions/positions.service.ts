@@ -15,6 +15,7 @@ import { ProjectedTurnoutService } from 'src/projectedTurnout/projectedTurnout.s
 import { PositionWithOptionalDistrict } from './positions.types'
 import { extractFilingFee, FilingFeeResult } from './util/filingFee.util'
 import { pickRelevantRace } from './util/pickRelevantRace.util'
+import { pickNextUpcomingRace } from './util/pickNextUpcomingRace.util'
 
 type PositionLookupOptions = {
   includeDistrict?: boolean
@@ -278,6 +279,40 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
         projectedTurnout: projectedTurnout ?? null,
       },
       ...filingFeeFields,
+    }
+  }
+
+  // Resolves the position's next upcoming election date (yyyy-mm-dd), used by
+  // gp-api to date a re-election campaign. Reuses the same Position->Race join
+  // as the filing-fee lookup (no FK; shared placeId + name match against
+  // Race.positionNames). electionDate is null when the position has no future
+  // race, so the caller never dates a campaign to a past election.
+  async getNextElectionForPosition(
+    id: string,
+  ): Promise<{ electionDate: string | null }> {
+    const position = await this.model.findUnique({
+      where: { id },
+      select: { id: true, placeId: true, name: true },
+    })
+    if (!position) {
+      throw new NotFoundException(`Position not found for id=${id}`)
+    }
+    if (!position.placeId || !position.name) {
+      return { electionDate: null }
+    }
+
+    const races = await this.client.race.findMany({
+      where: {
+        placeId: position.placeId,
+        positionNames: { has: position.name },
+      },
+      select: { electionDate: true, isPrimary: true, isRunoff: true },
+    })
+    const chosen = pickNextUpcomingRace(races, new Date())
+    return {
+      electionDate: chosen
+        ? chosen.electionDate.toISOString().slice(0, 10)
+        : null,
     }
   }
 

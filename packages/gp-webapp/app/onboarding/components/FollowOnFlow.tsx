@@ -333,6 +333,30 @@ export default function FollowOnFlow({
           return false
         }
       }
+      // The server refuses a same-office run it can't date (no upcoming
+      // election resolvable for the held office) with a specific errorCode.
+      // Retrying won't help, so give an actionable message — but only for that
+      // exact case: the same path also 400s for a missing/invalid source org,
+      // which should fall through to the generic handler.
+      const errorCode =
+        error instanceof FetchError &&
+        error.data &&
+        typeof error.data === 'object' &&
+        'errorCode' in error.data
+          ? (error.data as { errorCode?: string }).errorCode
+          : undefined
+      if (errorCode === 'UNRESOLVED_ELECTION_DATE') {
+        reportErrorToSentry(error, {
+          context: 'followOn.createFollowOnCampaign.unresolvedElection',
+          intent: answers.followOnIntent,
+        })
+        setErrorMessage(
+          "We couldn't find an upcoming election for this office yet. " +
+            'Please contact support@goodparty.org and we will help you ' +
+            'start your re-election campaign.',
+        )
+        return false
+      }
       reportErrorToSentry(error, {
         context: 'followOn.createFollowOnCampaign',
         intent: answers.followOnIntent,
