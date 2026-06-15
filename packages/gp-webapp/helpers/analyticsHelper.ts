@@ -605,10 +605,12 @@ export const EVENTS = {
   // never mix with historical data. Server-side generation is tracked
   // separately under `Campaign Plan V2 -` in gp-api.
   OnboardingV2: {
-    // Follow-on intent screen (multi-org re-election / new-office choice).
-    // Only office-holders see it; candidates skip straight to welcome.
-    FollowOnIntentViewed: 'Onboarding V2 - Follow-On Intent Viewed',
-    FollowOnIntentCompleted: 'Onboarding V2 - Follow-On Intent Completed',
+    // Follow-on "new campaign context" screen (the multi-org re-election vs
+    // new-office choice). Only office-holders see it; candidates skip straight
+    // to welcome. The chosen path is carried as the `intent` property.
+    NewCampaignContextViewed: 'Onboarding V2 - New Campaign Context Viewed',
+    NewCampaignContextCompleted:
+      'Onboarding V2 - New Campaign Context Completed',
     WelcomeViewed: 'Onboarding V2 - Welcome Viewed',
     WelcomeCompleted: 'Onboarding V2 - Welcome Completed',
     BallotStatusViewed: 'Onboarding V2 - Ballot Status Viewed',

@@ -143,7 +143,7 @@ describe('FollowOnFlow — same office', () => {
     // The office-holder lands on the intent step; viewed fires once it renders.
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.OnboardingV2.FollowOnIntentViewed,
+        EVENTS.OnboardingV2.NewCampaignContextViewed,
       ),
     )
 
@@ -151,7 +151,7 @@ describe('FollowOnFlow — same office', () => {
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.OnboardingV2.FollowOnIntentCompleted,
+        EVENTS.OnboardingV2.NewCampaignContextCompleted,
         { intent: 'same-office' },
       ),
     )
@@ -173,7 +173,7 @@ describe('FollowOnFlow — same office', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.OnboardingV2.FollowOnIntentViewed,
+        EVENTS.OnboardingV2.NewCampaignContextViewed,
       ),
     )
 
@@ -186,7 +186,7 @@ describe('FollowOnFlow — same office', () => {
     fireEvent.click(continueButton)
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.OnboardingV2.FollowOnIntentCompleted,
+        EVENTS.OnboardingV2.NewCampaignContextCompleted,
         { intent: 'new-office' },
       ),
     )
@@ -203,7 +203,7 @@ describe('FollowOnFlow — same office', () => {
 
     const countOf = (name: string) =>
       vi.mocked(trackEvent).mock.calls.filter((call) => call[0] === name).length
-    expect(countOf(EVENTS.OnboardingV2.FollowOnIntentViewed)).toBe(1)
-    expect(countOf(EVENTS.OnboardingV2.FollowOnIntentCompleted)).toBe(1)
+    expect(countOf(EVENTS.OnboardingV2.NewCampaignContextViewed)).toBe(1)
+    expect(countOf(EVENTS.OnboardingV2.NewCampaignContextCompleted)).toBe(1)
   })
 })

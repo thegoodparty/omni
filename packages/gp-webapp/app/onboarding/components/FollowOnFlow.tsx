@@ -238,7 +238,7 @@ export default function FollowOnFlow({
       !viewedStepsFiredRef.current.has('intent')
     ) {
       viewedStepsFiredRef.current.add('intent')
-      trackEvent(EVENTS.OnboardingV2.FollowOnIntentViewed)
+      trackEvent(EVENTS.OnboardingV2.NewCampaignContextViewed)
     }
   }, [activeStepId, frozenHasHeldOffice, hasHeldOffice])
 
@@ -473,7 +473,7 @@ export default function FollowOnFlow({
       !intentCompletedFiredRef.current
     ) {
       intentCompletedFiredRef.current = true
-      trackEvent(EVENTS.OnboardingV2.FollowOnIntentCompleted, {
+      trackEvent(EVENTS.OnboardingV2.NewCampaignContextCompleted, {
         intent: answers.followOnIntent,
       })
     }
