@@ -163,6 +163,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
       type: 'meeting_schedule',
       organizationSlug: expect.stringMatching(/^eo-/) as string,
       clerkUserId: service.user.clerkId!,
+      priority: 'HIGH',
       params: {
         elected_office_id: res.data.id as string,
         state: 'MN',
@@ -1237,6 +1238,55 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     )
   })
 
+  it('dispatches a manual briefing at HIGH priority', async () => {
+    const orgSlug = `eo-manual-briefing-high-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-manual-b-high' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'manual-dispatch-run' } as ExperimentRun)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .dispatchManual(eo.id, 'briefing', false)
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ priority: 'HIGH' }),
+    )
+  })
+
+  it('dispatches a manual schedule at HIGH priority', async () => {
+    const orgSlug = `eo-manual-schedule-high-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-manual-s-high' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .dispatchManual(eo.id, 'schedule')
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ priority: 'HIGH' }),
+    )
+  })
+
   it('does not dispatch a briefing manually when no schedule exists', async () => {
     const orgSlug = `eo-manual-no-sched-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-manual-no-sched' })
@@ -1401,6 +1451,7 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       type: 'meeting_briefing',
       organizationSlug: orgSlug,
       clerkUserId: service.user.clerkId!,
+      priority: 'HIGH',
       params: {
         officialName: `${service.user.firstName} ${service.user.lastName}`,
         state: 'MN',
