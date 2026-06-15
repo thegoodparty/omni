@@ -1,11 +1,11 @@
 import { expect, type Page, test } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { setupElectedOfficeUser } from 'src/helpers/organizations'
+import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { eventually } from 'tests/utils/eventually'
+import { eventually, wait } from 'tests/utils/eventually'
 
 // Regression coverage for the ENG-10396 fix: a same-office re-election follow-on
 // derives its electionDate from the held office's termEndAt, so the new campaign
@@ -57,36 +57,92 @@ const getCampaignOrgSlugs = async (
     .filter((slug) => slug.startsWith('campaign-'))
 }
 
+const RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
+
+type RaceListItem = {
+  id: string
+  brPositionId: string
+  position: { name: string }
+  election: { electionDay: string }
+}
+
+// Build a held-office user whose elected office has a DERIVED termEndAt, so the
+// same-office follow-on can in turn derive a future electionDate (the whole
+// point of ENG-10396). The shared api-registration helper creates the campaign
+// straight from races-by-year and stores race.id — a ZipToPosition id — as
+// details.raceId; EO term derivation looks the cadence up by Race.brHashId, so
+// that id never resolves and termEndAt stays null. Mirror the real onboarding
+// office picker instead: hydrate the race via race-by-position (whose data.id IS
+// the BallotReady race hash) and repoint details.raceId at it BEFORE winning, so
+// EO creation derives the term.
+const setupReelectionEligibleUser = async (
+  page: Page,
+): Promise<AxiosInstance> => {
+  const { client } = await authenticateTestUser(page, {
+    isolated: true,
+    race: RACE,
+  })
+
+  const { data: races } = await client.get<RaceListItem[]>(
+    '/v1/elections/races-by-year',
+    { params: { zipcode: RACE.zip } },
+  )
+  const race = races.find((r) => r.position.name === RACE.office)
+  if (!race) throw new Error(`Race not found: ${RACE.office}`)
+
+  const { data: hydrated } = await client.get<{ id: string }>(
+    '/v1/elections/race-by-position',
+    {
+      params: {
+        brPositionId: race.brPositionId,
+        zip: RACE.zip,
+        electionDate: race.election.electionDay,
+      },
+    },
+  )
+  // client header is campaign-<id> after authenticateTestUser, so this repoints
+  // the just-created campaign's raceId at the BallotReady race hash.
+  await client.put('/v1/campaigns/mine', { details: { raceId: hydrated.id } })
+
+  // Win the race -> create the elected office (now with a derivable term).
+  await page.goto('/dashboard/election-result')
+  await wait(250)
+  await page
+    .getByRole('button', { name: 'I won my race' })
+    .click({ timeout: 10_000 })
+  await page.waitForURL('**/dashboard/briefings', { timeout: 15_000 })
+
+  return client
+}
+
 test('same-office re-election follow-on: derived date, active org, duplicate blocked', async ({
   page,
 }) => {
   test.setTimeout(180_000)
 
-  const { client } = await setupElectedOfficeUser(page)
-  const electedOfficeOrg = await getElectedOfficeOrg(client)
+  const client = await setupReelectionEligibleUser(page)
+  const electedOfficeOrg = await eventually(
+    { that: 'the elected office organization exists' },
+    () => getElectedOfficeOrg(client),
+  )
   const eoSlug = electedOfficeOrg.slug
   const campaignSlugsBefore = await getCampaignOrgSlugs(client)
 
   // A held-office user is only eligible for re-election once the prior campaign
-  // is concluded. setupElectedOfficeUser navigates straight to the result screen
-  // and wins on a freshly launched campaign whose electionDate is still in the
-  // future, and "I won my race" sets only details.wonGeneral (never the didWin
-  // column) — so the won campaign still reads "active" and canStartCampaign stays
-  // false, hiding the action. Backdate its electionDate (the production state
-  // once the election has happened) so eligibility opens up; this also makes the
-  // won campaign org read "Past". PUT /v1/campaigns/mine merges details, so only
-  // electionDate changes.
-  // Set the same direct header key setupElectedOfficeUser uses — axios lets a
-  // direct defaults.headers key override defaults.headers.common, so .common
-  // here would be ignored and the PUT would target the EO org (no campaign ->
-  // 404). /v1/campaigns/mine resolves the campaign from x-organization-slug.
+  // is concluded. The win happens on a freshly launched campaign whose
+  // electionDate is still in the future, and "I won my race" sets only
+  // details.wonGeneral (never the didWin column) — so the won campaign still
+  // reads "active" and canStartCampaign stays false, hiding the action. Backdate
+  // its electionDate (the production state once the election has happened) so
+  // eligibility opens up; this also makes the won campaign org read "Past". PUT
+  // /v1/campaigns/mine merges details, so only electionDate changes, and
+  // resolves the campaign from x-organization-slug.
   const wonCampaignSlug = campaignSlugsBefore[0]
   if (!wonCampaignSlug) throw new Error('No won campaign org found after setup')
   client.defaults.headers['x-organization-slug'] = wonCampaignSlug
   await client.put('/v1/campaigns/mine', {
     details: { electionDate: '2020-11-03' },
   })
-  client.defaults.headers['x-organization-slug'] = eoSlug
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the re-election flow.
@@ -214,27 +270,9 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   ).toHaveCount(0, { timeout: 15_000 })
   await closeSwitcher(page)
 
-  // 8 (produced state): a direct second follow-on is rejected with 409.
-  await eventually(
-    { that: 'a second same-office follow-on is rejected with 409' },
-    async () => {
-      try {
-        await client.post('/v1/campaigns/follow-on', {
-          intent: 'same-office',
-          fromOrganizationSlug: eoSlug,
-        })
-        throw new Error('Expected the second follow-on to be rejected')
-      } catch (error) {
-        const status = (error as { response?: { status?: number } }).response
-          ?.status
-        if (status !== 409) {
-          throw new Error(`Expected 409, got ${status ?? 'no response'}`)
-        }
-      }
-    },
-  )
-
-  // eligibility endpoint agrees the user can no longer start a campaign.
+  // 8 (produced state): wait for eligibility to settle to canStartCampaign:false
+  // first (the only async step), so the duplicate follow-on below is then
+  // deterministically rejected.
   await eventually(
     { that: 'eligibility reports canStartCampaign:false' },
     async () => {
@@ -246,4 +284,21 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
       }
     },
   )
+
+  // Assert the duplicate is rejected exactly once (not under eventually) — a
+  // retried POST that unexpectedly succeeds would spawn extra campaigns, and a
+  // non-HTTP error must surface rather than be masked as "not 409".
+  let secondFollowOnStatus: number | undefined
+  try {
+    await client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: eoSlug,
+    })
+    secondFollowOnStatus = 201
+  } catch (error) {
+    const response = (error as { response?: { status?: number } }).response
+    if (!response) throw error
+    secondFollowOnStatus = response.status
+  }
+  expect(secondFollowOnStatus).toBe(409)
 })
