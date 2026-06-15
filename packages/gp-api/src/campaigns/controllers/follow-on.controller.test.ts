@@ -2,6 +2,8 @@ import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { ConflictException } from '@nestjs/common'
+import { CampaignsService } from '../services/campaigns.service'
 import { CrmCampaignsService } from '../services/crmCampaigns.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -425,5 +427,56 @@ describe('POST /v1/campaigns/follow-on', () => {
       EVENTS.Campaigns.FollowOnBlocked,
       { intent: 'same-office', reason: 'invalid_source_org' },
     )
+  })
+
+  it('fires FollowOnBlocked concurrent_active_campaign on the in-transaction race re-check', async () => {
+    const trackSpy = spyOnTrack()
+
+    // The in-transaction re-check only runs when a request reaches the service
+    // having passed the controller's eligibility gate while no active campaign
+    // existed, then loses the advisory lock to a concurrent request that
+    // committed one first. The controller guard intercepts any sequential
+    // second request, so this branch is reached by calling the service
+    // directly with a canStartCampaign:true eligibility and a pre-seeded
+    // active campaign — the deterministic stand-in for the losing racer.
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-93', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'race-active-run',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-93',
+      },
+    })
+
+    const campaigns = service.app.get(CampaignsService)
+
+    await expect(
+      campaigns.createFollowOn(
+        service.user,
+        { intent: 'new-office', ballotReadyPositionId: 'br-race' },
+        {
+          hasActiveCampaign: true,
+          holdsOffice: false,
+          canStartCampaign: true,
+          canGainOffice: true,
+          reelectionOfficeSlug: null,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException)
+
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Campaigns.FollowOnBlocked,
+      { intent: 'new-office', reason: 'concurrent_active_campaign' },
+    )
+
+    // The losing racer created nothing — only the pre-seeded campaign remains.
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(1)
   })
 })
