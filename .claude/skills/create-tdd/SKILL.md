@@ -1,6 +1,6 @@
 ---
 name: create-tdd
-description: Write a GoodParty Technical Design Doc (TDD) for a big-rock feature — a human-reviewable design of the system changes, posted to the ClickUp TDD folder, with deeper detail split into an Implementation Notes subpage. Use when the user wants to design a feature, write a tech design / design doc / TDD, or turn a scoped problem into a reviewable technical design. Not for small features or bugs.
+description: Write a GoodParty Technical Design Doc (TDD) for a big-rock feature: a human-reviewable design of the system changes, posted to the ClickUp TDD folder, with deeper detail split into an Implementation Notes subpage. Use when the user wants to design a feature, write a tech design / design doc / TDD, or turn a scoped problem into a reviewable technical design. Not for small features or bugs.
 ---
 
 # Write a GoodParty Technical Design Doc
@@ -20,14 +20,14 @@ exactly that. Don't.
 ## Gate: is this even a TDD?
 
 TDDs are for **big rocks only**. Rough test (theirs): does the work touch **more
-than one system, or more than one team's surface area**? If no — a one-screen UI
-change, a bug, a small feature — there is no TDD. Say so and route it to the pod's
+than one system, or more than one team's surface area**? If no (a one-screen UI
+change, a bug, a small feature), there is no TDD. Say so and route it to the pod's
 normal queue. Don't manufacture ceremony.
 
 ## Process (the human owns the thinking)
 
 1. **Brainstorm first.** If the `superpowers:brainstorming` skill is available,
-   run it before drafting. Never produce the full doc before the dialogue — that's
+   run it before drafting. Never produce the full doc before the dialogue; that's
    how you get the 15-page nobody-thought-about-it doc.
 2. **Surface the forks; let the human decide.** Your value is finding the real
    design decisions and arguing the tradeoffs, not resolving them. Put load-bearing
@@ -39,8 +39,8 @@ normal queue. Don't manufacture ceremony.
 
 ## The Orange bias (apply to every component)
 
-GoodParty is a **pre-PMF startup**. On a Red→Violet scale — Red is "one dev yoloing
-vibe-code to prod," Violet is "AWS/Google battle-tested and bulletproof" — we are at
+GoodParty is a **pre-PMF startup**. On a Red→Violet scale (Red is "one dev yoloing
+vibe-code to prod," Violet is "AWS/Google battle-tested and bulletproof") we are at
 **Orange**: lean, simple, reuse what exists. For each piece of the design ask "what's
 the simplest thing that works at Orange?"
 
@@ -54,28 +54,28 @@ the simplest thing that works at Orange?"
 
 Follow the existing template (don't restructure it). What belongs in each:
 
-- **Summary** — 2-4 sentences, prose. What we're building and why. No decision list,
+- **Summary**: 2-4 sentences, prose. What we're building and why. No decision list,
   no bullets. Link the prototype, the scope doc, and any related TDDs (e.g. a
   dependency design).
-- **Scope / Not in this doc** — what this covers and what's deferred or owned
+- **Scope / Not in this doc**: what this covers and what's deferred or owned
   elsewhere. If a separate scope doc exists, link it and note only the deltas.
-- **Proposed Solution** — the bulk of the doc. **Decompose into the 2-5 real
+- **Proposed Solution**: the bulk of the doc. **Decompose into the 2-5 real
   subproblems and give each its own subsection.** Organize by subproblem, _never_
   by repo/stack. Per subproblem, include the load-bearing detail and nothing past
   the decision:
-  - **Full Prisma models** for new/changed tables (always — schema is design).
+  - **Full Prisma models** for new/changed tables (always; schema is design).
   - The **shape** of any contract crossing a service boundary (the shape, not every
     field; field-level contracts go to the subpage).
   - The **key choice and why**. A **diagram** where the data flow isn't obvious.
-- **API surface** — a single table of new endpoints: `method & path | purpose |
+- **API surface**: a single table of new endpoints: `method & path | purpose |
 consumers | MCP-enabled?`. Cheap to write, and it makes the access patterns legible
   at a glance. Mark which endpoints are exposed as MCP tools for agents.
-- **Key Takeaways** — bulleted. The load-bearing decisions a reviewer must leave
+- **Key Takeaways**: bulleted. The load-bearing decisions a reviewer must leave
   with. **Decisions live here, not in the Summary.**
-- **Alternatives Considered** — approaches you rejected and why, a short paragraph
+- **Alternatives Considered**: approaches you rejected and why, a short paragraph
   each. This is where reviewers challenge the thinking, so make the rejected paths
   and their reasons explicit.
-- **Open Questions** — genuine unknowns, and things deliberately deferred to
+- **Open Questions**: genuine unknowns, and things deliberately deferred to
   implementation. Reviewers add to this during the call.
 
 ## Two tiers: the TDD and the Implementation Notes subpage
@@ -115,28 +115,22 @@ TDDs live in the **Technical Design Docs folder**: parent page `2ky4jq2q-81493`,
 doc `2ky4jq2q-20493`, workspace `90132012119`. The section template is page
 `2ky4jq2q-81513` (read it for the current skeleton).
 
-Keep a local working copy under `scratch/<feature>/` and mirror to ClickUp via the
-API with `$CLICKUP_API_TOKEN`. Docs are markdown over the API (`content_format=text/md`).
+Keep a local working copy under `scratch/<feature>/` and mirror to ClickUp through
+the **ClickUp MCP server** (configured in `.mcp.json`, authorized via OAuth, see
+`docs/mcp.md`). There is no ClickUp API token in this repo; don't shell out to the
+REST API.
 
-```bash
-# read a page (and save locally)
-curl -s -H "Authorization: $CLICKUP_API_TOKEN" \
-  "https://api.clickup.com/api/v3/workspaces/90132012119/docs/2ky4jq2q-20493/pages/<PAGE_ID>?content_format=text/md"
+ClickUp is **read-only by default** (`docs/mcp.md`): reads are free, but **ask the
+user before creating or updating any page**, and **read the remote page first** before
+an update so you can surface any human edits instead of clobbering them.
 
-# update a page (full replace) — pipe the local .md through jq to build the body
-jq -Rs '{content: ., content_format: "text/md", content_edit_mode: "replace"}' draft.md | \
-  curl -s -X PUT -H "Authorization: $CLICKUP_API_TOKEN" -H "Content-Type: application/json" -d @- \
-  "https://api.clickup.com/api/v3/workspaces/90132012119/docs/2ky4jq2q-20493/pages/<PAGE_ID>"
-
-# create the TDD page (parent = the TDD folder), or the Implementation Notes
-# subpage (parent = the TDD page id)
-curl -s -X POST -H "Authorization: $CLICKUP_API_TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"<Title>","parent_page_id":"<PARENT>","content":"...","content_format":"text/md"}' \
-  "https://api.clickup.com/api/v3/workspaces/90132012119/docs/2ky4jq2q-20493/pages"
-```
-
-The Implementation Notes page is a **child of the TDD page** (`parent_page_id` = the
-TDD's page id). Link the two from each other.
+- Read the template page `2ky4jq2q-81513` for the current skeleton.
+- Create the TDD page in the folder: a ClickUp MCP create-page call with
+  `parent_page_id` = the TDD folder (`2ky4jq2q-81493`).
+- Create the **Implementation Notes** page as a **child of the TDD page**
+  (`parent_page_id` = the TDD page id from the step above). Cross-link the two.
+- Update a page: read it, diff against your local draft, confirm with the user, then
+  update.
 
 ## Before declaring done
 
