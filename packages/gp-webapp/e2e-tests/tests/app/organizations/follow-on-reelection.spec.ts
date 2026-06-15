@@ -1,11 +1,11 @@
 import { expect, type Page, test } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { authenticateTestUser } from 'tests/utils/api-registration'
+import { setupReelectionEligibleUser } from 'src/helpers/organizations'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { eventually, wait } from 'tests/utils/eventually'
+import { eventually } from 'tests/utils/eventually'
 
 // Regression coverage for the ENG-10396 fix: a same-office re-election follow-on
 // derives its electionDate from the held office's termEndAt, so the new campaign
@@ -55,64 +55,6 @@ const getCampaignOrgSlugs = async (
   return data.organizations
     .map((o) => o.slug)
     .filter((slug) => slug.startsWith('campaign-'))
-}
-
-const RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
-
-type RaceListItem = {
-  id: string
-  brPositionId: string
-  position: { name: string }
-  election: { electionDay: string }
-}
-
-// Build a held-office user whose elected office has a DERIVED termEndAt, so the
-// same-office follow-on can in turn derive a future electionDate (the whole
-// point of ENG-10396). The shared api-registration helper creates the campaign
-// straight from races-by-year and stores race.id — a ZipToPosition id — as
-// details.raceId; EO term derivation looks the cadence up by Race.brHashId, so
-// that id never resolves and termEndAt stays null. Mirror the real onboarding
-// office picker instead: hydrate the race via race-by-position (whose data.id IS
-// the BallotReady race hash) and repoint details.raceId at it BEFORE winning, so
-// EO creation derives the term.
-const setupReelectionEligibleUser = async (
-  page: Page,
-): Promise<AxiosInstance> => {
-  const { client } = await authenticateTestUser(page, {
-    isolated: true,
-    race: RACE,
-  })
-
-  const { data: races } = await client.get<RaceListItem[]>(
-    '/v1/elections/races-by-year',
-    { params: { zipcode: RACE.zip } },
-  )
-  const race = races.find((r) => r.position.name === RACE.office)
-  if (!race) throw new Error(`Race not found: ${RACE.office}`)
-
-  const { data: hydrated } = await client.get<{ id: string }>(
-    '/v1/elections/race-by-position',
-    {
-      params: {
-        brPositionId: race.brPositionId,
-        zip: RACE.zip,
-        electionDate: race.election.electionDay,
-      },
-    },
-  )
-  // client header is campaign-<id> after authenticateTestUser, so this repoints
-  // the just-created campaign's raceId at the BallotReady race hash.
-  await client.put('/v1/campaigns/mine', { details: { raceId: hydrated.id } })
-
-  // Win the race -> create the elected office (now with a derivable term).
-  await page.goto('/dashboard/election-result')
-  await wait(250)
-  await page
-    .getByRole('button', { name: 'I won my race' })
-    .click({ timeout: 10_000 })
-  await page.waitForURL('**/dashboard/briefings', { timeout: 15_000 })
-
-  return client
 }
 
 test('same-office re-election follow-on: derived date, active org, duplicate blocked', async ({
