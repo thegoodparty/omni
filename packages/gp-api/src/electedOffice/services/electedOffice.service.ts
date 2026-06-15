@@ -12,6 +12,7 @@ import {
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
 
 export type CreateElectedOfficeArgs = {
@@ -32,6 +33,8 @@ export class ElectedOfficeService extends createPrismaBase(
   constructor(
     @Inject(forwardRef(() => MeetingBriefingsService))
     private readonly meetingBriefings: MeetingBriefingsService,
+    @Inject(forwardRef(() => PrioritiesService))
+    private readonly priorities: PrioritiesService,
   ) {
     super()
   }
@@ -68,7 +71,7 @@ export class ElectedOfficeService extends createPrismaBase(
           },
         })
 
-        return tx.electedOffice.create({
+        const office = await tx.electedOffice.create({
           data: {
             id,
             swornInDate: args.swornInDate,
@@ -77,6 +80,10 @@ export class ElectedOfficeService extends createPrismaBase(
             organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
           },
         })
+
+        await this.priorities.seedFromWin(office.id, tx)
+
+        return office
       })
     } catch (err) {
       // A concurrent create that wins the race trips the userId unique
