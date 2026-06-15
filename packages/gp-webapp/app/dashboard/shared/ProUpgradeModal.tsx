@@ -197,7 +197,6 @@ export function ProUpgradeModal({
         <Button
           asChild
           size="large"
-          variant="neutral"
           className="mt-8"
           onClick={handleUpgradeLinkClick}
           {...trackingAttrs}

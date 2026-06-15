@@ -25,14 +25,14 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
   return (
     <div className="fixed bottom-4 flex justify-center w-full">
       <div
-        className="bg-secondary text-white p-4 flex max-w-[440px] mx-8 rounded-lg"
+        className="bg-tertiary-light text-tertiary-dark p-4 flex max-w-[440px] mx-8 rounded-lg"
         data-testid="cookie-snackbar"
       >
         <Body2>
           By continuing to browse this site, you consent to the use of cookies.
         </Body2>
         <Button
-          className="ml-6 self-center border-white text-white hover:bg-white/5"
+          className="ml-6 self-center"
           variant="outline"
           size="medium"
           onClick={handleAccept}

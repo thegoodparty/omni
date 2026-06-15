@@ -100,12 +100,7 @@ export default function InstructionsStep({
         <Button size="large" variant="neutral" onClick={closeCallback}>
           Cancel
         </Button>
-        <Button
-          size="large"
-          variant="neutral"
-          onClick={nextCallback}
-          {...trackingAttrs}
-        >
+        <Button size="large" onClick={nextCallback} {...trackingAttrs}>
           Next
         </Button>
       </div>
