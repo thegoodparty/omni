@@ -53,6 +53,11 @@ import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ScheduleModule } from '@nestjs/schedule'
 import { loggerModule } from './observability/logging/logger-module'
+// Imported last (after all feature modules) so its transitive import chain
+// (ElectedOfficeModule -> MeetingsModule/OrganizationsModule) doesn't force
+// early ESM evaluation of campaigns/analytics modules, which surfaces a
+// circular-dependency "undefined at runtime" error in CampaignsService.
+import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 
 @Module({
   imports: [
@@ -103,6 +108,7 @@ import { loggerModule } from './observability/logging/logger-module'
     SpeechModule,
     BriefingChatsModule,
     DashboardModule,
+    GeneralChatsModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.
