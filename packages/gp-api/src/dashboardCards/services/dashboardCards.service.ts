@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { formatInTimeZone } from 'date-fns-tz'
-import { endOfWeek, startOfWeek } from 'date-fns'
+import { endOfWeek, parseISO, startOfWeek } from 'date-fns'
 import {
   DashboardCard,
   DashboardCardType,
@@ -175,6 +175,12 @@ export class DashboardCardsService extends createPrismaBase(
     bucket: DashboardCardBucket,
   ): Prisma.DashboardCardWhereInput {
     const now = new Date()
+    // dueDate holds the meeting date at UTC midnight (it derives from a
+    // @db.Date). Compare against the start of today in UTC so a card stays
+    // active through its whole meeting day. A local-timezone startOfDay would
+    // shift the boundary off the stored UTC-midnight value and drop same-day
+    // cards in any timezone west of UTC.
+    const today = parseISO(`${formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')}T00:00:00Z`)
     switch (bucket) {
       case 'skipped':
         return { electedOfficeId, dismissedAt: { not: null } }
@@ -182,7 +188,7 @@ export class DashboardCardsService extends createPrismaBase(
         return {
           electedOfficeId,
           dismissedAt: null,
-          dueDate: { lt: now },
+          dueDate: { lt: today },
         }
       case 'this_week':
         return {
@@ -196,7 +202,7 @@ export class DashboardCardsService extends createPrismaBase(
         return {
           electedOfficeId,
           dismissedAt: null,
-          dueDate: { gte: now },
+          dueDate: { gte: today },
         }
     }
   }

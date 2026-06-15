@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { DashboardCardType } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
-import { addDays, startOfWeek, subDays } from 'date-fns'
+import { addDays, parseISO, startOfWeek, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 
 const service = useTestService()
 
@@ -87,6 +88,23 @@ describe('GET /v1/dashboard/cards', () => {
       soon.id,
       later.id,
     ])
+  })
+
+  it('active includes a card whose meeting is today', async () => {
+    const orgSlug = 'eo-cards-today'
+    const eo = await seedElectedOffice(orgSlug)
+    const todayUtc = parseISO(
+      `${formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')}T00:00:00Z`,
+    )
+    const today = await seedCard(eo.id, { dueDate: todayUtc })
+
+    const res = await service.client.get(
+      '/v1/dashboard/cards',
+      orgHeader(orgSlug),
+    )
+    expect(res.data.cards.map((c: { id: string }) => c.id)).toContain(
+      today.id,
+    )
   })
 
   it('defaults to the active bucket when none is given', async () => {
