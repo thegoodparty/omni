@@ -14,6 +14,11 @@ const spyOnTrack = () => {
   return vi.spyOn(analytics, 'track').mockResolvedValue({} as never)
 }
 
+const spyOnGroup = () => {
+  const analytics = service.app.get(AnalyticsService)
+  return vi.spyOn(analytics, 'group').mockResolvedValue(undefined)
+}
+
 describe('POST /v1/campaigns/follow-on', () => {
   beforeEach(() => {
     // createForUser fires a CRM sync that resolves the new org's position and
@@ -346,6 +351,51 @@ describe('POST /v1/campaigns/follow-on', () => {
         inheritedFromOrganizationSlug: 'eo-created',
         electionDate: '2099-01-05',
       },
+    )
+  })
+
+  it('groups the new campaign slug with derived traits and still fires FollowOnCreated', async () => {
+    const trackSpy = spyOnTrack()
+    const groupSpy = spyOnGroup()
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-grouped',
+        ownerId: service.user.id,
+        positionId: 'pos-grouped',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-grouped',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-grouped',
+    })
+
+    expect(result.status).toBe(201)
+
+    // The new campaign gets its own org-scoped group carrying the derived
+    // election date — it never overwrites the prior campaign's user identity.
+    expect(groupSpy).toHaveBeenCalledWith(
+      service.user.id,
+      `campaign-${result.data.id}`,
+      { officeElectionDate: '2099-01-05' },
+    )
+    // The ENG-10403 event still fires alongside the group.
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Campaigns.FollowOnCreated,
+      expect.objectContaining({
+        campaignId: result.data.id,
+        intent: 'same-office',
+      }),
     )
   })
 

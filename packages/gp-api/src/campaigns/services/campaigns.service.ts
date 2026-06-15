@@ -54,6 +54,7 @@ import {
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
 import { isActiveCampaign } from '../util/eligibility.util'
+import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
@@ -337,6 +338,16 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     await this.crm.trackCampaign(newCampaign.id)
 
+    // The new campaign gets its own org-scoped group so its facts don't
+    // overwrite the prior campaign's on the user identity.
+    void this.analytics
+      .group(
+        user.id,
+        newCampaign.organizationSlug,
+        toCampaignGroupTraits(newCampaign.details ?? {}),
+      )
+      .catch(() => undefined)
+
     void this.analytics
       .track(user.id, EVENTS.Campaigns.FollowOnCreated, {
         campaignId: newCampaign.id,
@@ -449,7 +460,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     })
     const isPro = args?.data?.isPro
     if (isPro) {
-      await this.analytics.identify(campaign?.userId, { isPro })
+      await this.analytics.identify(campaign?.userId, {
+        isPro,
+        campaignId: campaign?.id,
+      })
     }
     await this.crm.trackCampaign(campaign.id)
     return campaign
@@ -556,6 +570,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (scalarFields?.isPro) {
         await this.analytics.identify(updatedCampaign.userId, {
           isPro: scalarFields.isPro,
+          campaignId: updatedCampaign.id,
         })
       }
       await this.crm.trackCampaign(updatedCampaign.id)
@@ -648,7 +663,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     if (trackCampaign) {
       const updatedIsPro = campaign?.isPro
       if (updatedIsPro) {
-        await this.analytics.identify(campaign?.userId, { isPro: updatedIsPro })
+        await this.analytics.identify(campaign?.userId, {
+          isPro: updatedIsPro,
+          campaignId: campaign?.id,
+        })
       }
       await this.crm.trackCampaign(campaignId)
     }

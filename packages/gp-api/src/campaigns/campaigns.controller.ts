@@ -54,6 +54,7 @@ import { CampaignsService } from './services/campaigns.service'
 import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
+import { toCampaignGroupTraits } from './util/campaignGroupTraits.util'
 
 class ListCampaignsPaginationDto extends createZodDto(
   ListCampaignsPaginationSchema,
@@ -268,14 +269,20 @@ export class CampaignsController {
       })
 
       if (body?.details) {
-        const { city, electionDate, pledged, party } = body.details
+        const { pledged } = body.details
 
-        await this.analytics.identify(campaign.userId, {
-          ...(city && { officeMunicipality: city }),
-          ...(electionDate && { officeElectionDate: electionDate }),
-          ...(party && { affiliation: party }),
-          ...(pledged && { pledged }),
-        })
+        if (pledged) {
+          await this.analytics.identify(campaign.userId, { pledged })
+        }
+
+        // Office / election date / party are per-campaign facts. Pinning them
+        // to the user identity overwrites a prior campaign's values when the
+        // user runs again, so they ride the org-scoped group() instead.
+        await this.analytics.group(
+          campaign.userId,
+          campaign.organizationSlug,
+          toCampaignGroupTraits(body.details),
+        )
       }
     } else if (!campaign) throw new NotFoundException('Campaign not found')
 
