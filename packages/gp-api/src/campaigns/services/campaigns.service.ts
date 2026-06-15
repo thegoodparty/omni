@@ -426,12 +426,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       }
 
       // The re-election runs in the position's next upcoming election. Resolve
-      // that real date from election-api; fall back to the held office's
-      // term-end boundary (a cadence-derived proxy) only when election-api
-      // can't answer. The guard then refuses to create a campaign with neither:
-      // derive-on-read marks an electionDate-less campaign "past", mislabeling
-      // the switcher and leaving canStartCampaign true (unlimited duplicate
-      // re-elections).
+      // that real date from election-api. The term-end proxy is only a fallback
+      // for when election-api can't answer (null = unreachable / no position):
+      // a definitive { electionDate: null } means the position has no upcoming
+      // general, so honor that null rather than overriding it with the cadence
+      // guess — the guard below then refuses to create a campaign with no
+      // electionDate (derive-on-read would mark it "past", mislabeling the
+      // switcher and leaving canStartCampaign true for unlimited duplicates).
       const nextElection = sourceOrg.positionId
         ? await this.elections.getNextElectionForPosition(sourceOrg.positionId)
         : null
@@ -444,9 +445,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         },
         isPro: sourceOrg.electedOffice.campaign?.isPro ?? false,
         electionDate:
-          nextElection?.electionDate ??
-          toDateOnlyString(sourceOrg.electedOffice.termEndAt) ??
-          null,
+          nextElection !== null
+            ? nextElection.electionDate
+            : (toDateOnlyString(sourceOrg.electedOffice.termEndAt) ?? null),
       }
     }
 

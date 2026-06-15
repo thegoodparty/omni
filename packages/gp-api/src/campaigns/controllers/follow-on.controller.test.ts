@@ -27,13 +27,11 @@ describe('POST /v1/campaigns/follow-on', () => {
     const crm = service.app.get(CrmCampaignsService)
     vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
 
-    // election-api isn't reachable in the harness. Default the next-election
-    // lookup to "no upcoming race" so same-office tests deterministically fall
-    // back to the office term end; tests that need a resolved date override it.
+    // Default the next-election lookup to null ("election-api unreachable") so
+    // same-office tests deterministically fall back to the office term end;
+    // tests that need a resolved date or a definitive no-election override it.
     const elections = service.app.get(ElectionsService)
-    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
-      electionDate: null,
-    })
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue(null)
   })
 
   it('inherits the held office position and carries isPro on a same-office run', async () => {
@@ -163,6 +161,45 @@ describe('POST /v1/campaigns/follow-on', () => {
     expect(result.status).toBe(201)
     // election-api's resolved date wins over the term-end proxy.
     expect(result.data.details.electionDate).toBe('2100-11-02')
+  })
+
+  it('honors a definitive no-election from election-api over the term end', async () => {
+    // election-api is reachable and answers { electionDate: null } (the
+    // position has no upcoming general). That authoritative "none" must win
+    // over the term-end proxy, so the guard rejects rather than dating the
+    // campaign to the cadence guess.
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
+      electionDate: null,
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-definitive',
+        ownerId: service.user.id,
+        positionId: 'pos-definitive',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-definitive',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2099-01-05T00:00:00Z'),
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-definitive',
+    })
+
+    expect(result.status).toBe(400)
+
+    const campaignCount = await service.prisma.campaign.count({
+      where: { userId: service.user.id },
+    })
+    expect(campaignCount).toBe(0)
   })
 
   it('rejects a same-office run with no resolvable election date', async () => {
