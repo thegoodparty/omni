@@ -321,6 +321,12 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         where: { userId: user.id },
       })
       if (existing.some((campaign) => isActiveCampaign(campaign, now))) {
+        void this.analytics
+          .track(user.id, EVENTS.Campaigns.FollowOnBlocked, {
+            intent: body.intent,
+            reason: 'concurrent_active_campaign',
+          })
+          .catch(() => undefined)
         throw new ConflictException(
           'User is not eligible to start a new campaign',
         )
@@ -330,6 +336,16 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     })
 
     await this.crm.trackCampaign(newCampaign.id)
+
+    void this.analytics
+      .track(user.id, EVENTS.Campaigns.FollowOnCreated, {
+        campaignId: newCampaign.id,
+        intent: body.intent,
+        isPro,
+        inheritedFromOrganizationSlug: body.fromOrganizationSlug,
+        electionDate,
+      })
+      .catch(() => undefined)
 
     return newCampaign
   }
@@ -369,6 +385,12 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // pass the ownership guard but inherit the wrong position and silently
       // strip isPro (no electedOffice.campaign to read it from).
       if (!sourceOrg.electedOffice) {
+        void this.analytics
+          .track(user.id, EVENTS.Campaigns.FollowOnBlocked, {
+            intent: body.intent,
+            reason: 'invalid_source_org',
+          })
+          .catch(() => undefined)
         throw new BadRequestException(
           'fromOrganizationSlug must reference an elected-office organization',
         )

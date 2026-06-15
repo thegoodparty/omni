@@ -37,6 +37,7 @@ import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { userHasRole } from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
 import { ReqCampaign } from './decorators/ReqCampaign.decorator'
@@ -228,6 +229,12 @@ export class CampaignsController {
   ) {
     const eligibility = await this.eligibility.evaluate(user.id)
     if (!eligibility.canStartCampaign) {
+      void this.analytics
+        .track(user.id, EVENTS.Campaigns.FollowOnBlocked, {
+          intent: body.intent,
+          reason: 'active_campaign_exists',
+        })
+        .catch(() => undefined)
       throw new ConflictException(
         'User is not eligible to start a new campaign',
       )
