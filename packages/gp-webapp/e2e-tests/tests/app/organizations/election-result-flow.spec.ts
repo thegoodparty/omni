@@ -8,6 +8,7 @@ import {
   getSelectedOrgName,
   getOrgPickerOptions,
 } from 'src/helpers/organizations'
+import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { wait } from 'tests/utils/eventually'
 
 test.beforeEach(async ({ page }) => {
@@ -24,6 +25,10 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
 
   await NavigationHelper.navigateToPage(page, '/dashboard')
   await NavigationHelper.dismissOverlays(page)
+  // The dashboard home can have a stray task modal open that aria-hides the
+  // sidebar, so the org switcher button isn't in the a11y tree. Settle the
+  // dashboard (and close any such modal) before opening the picker.
+  await waitForDashboardReady(page)
 
   const orgsBefore = await getOrgPickerOptions(page)
   expect(orgsBefore).toHaveLength(1)
