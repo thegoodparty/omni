@@ -34,7 +34,18 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   // authenticateTestUser creates and launches a campaign for a future race, so
   // the user has an active campaign and canStartCampaign is false.
   await authenticateTestUser(page)
+
+  // OrganizationPicker fetches eligibility in a separate query with no SSR
+  // initialData, so the gated actions are absent until that request settles.
+  // Asserting their absence before then would pass vacuously (they simply
+  // haven't rendered yet). Wait for the eligibility response so the absence
+  // assertions reflect the resolved canStartCampaign:false state and a
+  // regression flipping it to true would actually surface.
+  const eligibilitySettled = page.waitForResponse(
+    (r) => r.url().includes('/v1/eligibility') && r.ok(),
+  )
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await eligibilitySettled
   await NavigationHelper.dismissOverlays(page)
   await openSwitcher(page)
 
@@ -46,7 +57,8 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
     page.getByRole('menuitem').filter({ hasText: 'Past' }),
   ).toHaveCount(0)
 
-  // neither gated action renders for a user with an active campaign.
+  // eligibility has resolved, so the dropdown reflects canStartCampaign:false —
+  // neither gated action renders.
   await expect(
     page.getByRole('menuitem', { name: 'Run for re-election' }),
   ).toHaveCount(0)
