@@ -324,9 +324,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           reason: 'unresolved_election_date',
         })
         .catch(() => undefined)
-      throw new BadRequestException(
-        'Could not determine the next election date for this office',
-      )
+      throw new BadRequestException({
+        message: 'Could not determine the next election date for this office',
+        errorCode: 'UNRESOLVED_ELECTION_DATE',
+      })
     }
 
     const newCampaign = await this.client.$transaction(async (tx) => {

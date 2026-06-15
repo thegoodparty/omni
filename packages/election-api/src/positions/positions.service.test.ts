@@ -722,6 +722,27 @@ describe('PositionsService', () => {
       expect(result.electionDate).toBeNull()
     })
 
+    it('still returns election day after UTC midnight passes on that day', async () => {
+      vi.setSystemTime(new Date('2998-11-07T18:00:00Z'))
+      findUnique.mockResolvedValue({
+        id: 'pos-1',
+        placeId: 'place-1',
+        name: 'Mayor',
+      })
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2998-11-07T00:00:00Z'),
+          isPrimary: false,
+          isRunoff: false,
+        },
+      ])
+
+      const result = await service.getNextElectionForPosition('pos-1')
+
+      expect(result.electionDate).toBe('2998-11-07')
+      vi.useRealTimers()
+    })
+
     it('returns null when the position has only primary or runoff races', async () => {
       findUnique.mockResolvedValue({
         id: 'pos-1',

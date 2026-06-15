@@ -15,9 +15,18 @@ export const pickNextUpcomingRace = (
   races: RaceForNextElection[],
   now: Date,
 ): RaceForNextElection | null => {
+  // Compare on the UTC calendar day, not the instant. electionDate is stored at
+  // UTC midnight, so an instant comparison would flip a same-day election to
+  // "past" once the UTC clock ticks past midnight on election day — while polls
+  // are still open across US timezones. Truncate now to its UTC midnight.
+  const todayUtc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  )
   const future = races
     .filter((r) => !r.isPrimary && !r.isRunoff)
-    .filter((r) => r.electionDate.getTime() >= now.getTime())
+    .filter((r) => r.electionDate.getTime() >= todayUtc)
     .sort((a, b) => a.electionDate.getTime() - b.electionDate.getTime())
   return future[0] ?? null
 }

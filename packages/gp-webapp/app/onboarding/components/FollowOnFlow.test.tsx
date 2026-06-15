@@ -192,7 +192,10 @@ describe('FollowOnFlow', () => {
     mswServer.use(
       http.post('/api/v1/campaigns/follow-on', () =>
         HttpResponse.json(
-          { message: 'Could not determine the next election date' },
+          {
+            message: 'Could not determine the next election date',
+            errorCode: 'UNRESOLVED_ELECTION_DATE',
+          },
           { status: 400 },
         ),
       ),
