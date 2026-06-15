@@ -377,3 +377,8 @@ export {
   BriefingAdminRowSchema,
   type BriefingAdminRow,
 } from './adminBriefings/AdminBriefing.schema'
+
+export {
+  SupportEstimateSchema,
+  type SupportEstimate,
+} from './dashboard/SupportEstimate.schema'
