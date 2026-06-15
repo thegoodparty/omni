@@ -5,6 +5,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually } from 'tests/utils/eventually'
 
 // Locks down the org switcher's eligibility-gated states (ENG-10389 task 10):
@@ -21,7 +22,15 @@ test.beforeEach(async ({ page }) => {
 const HEADER = '[data-sidebar="header"]'
 
 const openSwitcher = async (page: Page) => {
-  await page.locator(HEADER).getByRole('button').first().click()
+  const trigger = page.locator(HEADER).getByRole('button').first()
+  // A stray task modal can be open on the dashboard home; while open it
+  // aria-hides the page, so the switcher trigger isn't in the accessibility
+  // tree and the click times out. Retry — closing any open dialog each attempt
+  // — so a dialog open now or opening late is cleared before the click lands.
+  await expect(async () => {
+    await closeStrayDialog(page)
+    await trigger.click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 const closeSwitcher = async (page: Page) => {
