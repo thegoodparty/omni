@@ -377,3 +377,12 @@ export {
   BriefingAdminRowSchema,
   type BriefingAdminRow,
 } from './adminBriefings/AdminBriefing.schema'
+
+export {
+  PrioritySchema,
+  type Priority,
+  CreatePriorityInputSchema,
+  type CreatePriorityInput,
+  UpdatePriorityInputSchema,
+  type UpdatePriorityInput,
+} from './priorities/Priority.schema'
