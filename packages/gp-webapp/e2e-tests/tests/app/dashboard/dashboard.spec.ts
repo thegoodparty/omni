@@ -1,21 +1,11 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-
-/**
- * Greeting line after client campaign/user hydration (HeaderSection).
- * Avoids matching unrelated h1s; works with legacy layout and sidebar inset.
- */
-function campaignPageGreetingHeading(page: Page) {
-  return page
-    .getByRole('heading', { level: 1 })
-    .filter({ hasText: /Hi|Hello|until|General|Primary|Election|concluded/ })
-    .first()
-}
+import { waitForDashboardReady } from 'src/helpers/dashboard'
 
 test.describe('Dashboard Functionality', () => {
   test.beforeEach(async ({ page }) => {
@@ -36,9 +26,7 @@ test.describe('Dashboard Functionality', () => {
 
     await expect(page).toHaveURL(/\/dashboard$/)
 
-    await expect(campaignPageGreetingHeading(page)).toBeVisible({
-      timeout: 15000,
-    })
+    await waitForDashboardReady(page)
     console.log('✅ Dashboard accessible')
 
     await page.goto('/dashboard/campaign-assistant')
