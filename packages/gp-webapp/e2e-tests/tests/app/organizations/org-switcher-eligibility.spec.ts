@@ -68,7 +68,10 @@ test('active-campaign user sees no run-for actions in the switcher', async ({
   await closeSwitcher(page)
 })
 
-test('held-office user sees Past label and both run-for actions', async ({
+// @dev-only: setupReelectionEligibleUser hits live BallotReady election data
+// and drives the async elected-office creation pipeline, which a per-PR preview
+// can't run. Executes on the post-merge develop e2e.
+test('held-office user sees Past label and both run-for actions @dev-only', async ({
   page,
 }) => {
   test.setTimeout(180_000)
