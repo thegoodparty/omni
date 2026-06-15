@@ -22,6 +22,11 @@ export const ElectionApiRoutes = {
     findById: {
       path: 'positions',
     },
+    nextElection: {
+      // Full path: /positions/:id/next-election
+      path: 'positions',
+      suffix: 'next-election',
+    },
     zipCodes: {
       path: 'positions/by-ballotready-id',
     },
