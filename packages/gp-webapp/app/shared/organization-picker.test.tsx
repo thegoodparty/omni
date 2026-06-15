@@ -516,10 +516,8 @@ describe('OrganizationPicker', () => {
     if (!dropdownItem) throw new Error('expected org-one dropdown item')
     await user.click(dropdownItem)
 
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.OrgSwitcher.OrganizationSwitched,
-      expect.anything(),
-    )
+    // No analytics event should fire at all on a same-org re-click.
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   it('tracks the run-for CTA with intent and source office on re-election', async () => {

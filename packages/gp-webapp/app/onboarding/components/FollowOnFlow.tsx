@@ -229,14 +229,18 @@ export default function FollowOnFlow({
   }, [activeStepId])
 
   useEffect(() => {
+    // activeStepId initializes to 'intent', so without the held-office gate
+    // this would fire on mount for every user — including no-office candidates,
+    // for whom the intent step is sliced out once eligibility resolves.
     if (
+      frozenHasHeldOffice === true &&
       activeStepId === 'intent' &&
       !viewedStepsFiredRef.current.has('intent')
     ) {
       viewedStepsFiredRef.current.add('intent')
       trackEvent(EVENTS.OnboardingV2.FollowOnIntentViewed)
     }
-  }, [activeStepId])
+  }, [activeStepId, frozenHasHeldOffice])
 
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
