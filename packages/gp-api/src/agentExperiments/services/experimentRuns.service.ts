@@ -148,13 +148,20 @@ export class ExperimentRunsService extends createPrismaBase(
         },
         'Failed to send dispatch message to SQS',
       )
-      await this.model.update({
-        where: { runId },
-        data: {
-          status: ExperimentRunStatus.FAILED,
-          error: 'SQS dispatch failed',
-        },
-      })
+      try {
+        await this.model.update({
+          where: { runId },
+          data: {
+            status: ExperimentRunStatus.FAILED,
+            error: 'SQS dispatch failed',
+          },
+        })
+      } catch (updateError) {
+        this.logger.error(
+          { updateError, runId },
+          'Failed to mark run FAILED after SQS dispatch error — row stuck QUEUED until sweeper',
+        )
+      }
       throw new BadGatewayException(
         'Failed to dispatch experiment. Please try again.',
       )

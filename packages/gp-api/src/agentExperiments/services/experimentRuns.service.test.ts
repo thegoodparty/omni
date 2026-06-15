@@ -197,6 +197,33 @@ describe('ExperimentRunsService', () => {
       expect(logger.error).toHaveBeenCalled()
     })
 
+    it('still throws BadGateway (not the update error) when the compensating FAILED update also throws', async () => {
+      sqsMock.on(SendMessageCommand).rejects(new Error('SQS unavailable'))
+      mockModel.update.mockRejectedValue(new Error('db pool exhausted'))
+
+      await expect(
+        service.dispatchRun({
+          type: 'district_issue_pulse',
+          organizationSlug: 'org-1',
+          clerkUserId: 'user_test_dispatch',
+          params: {
+            state: 'CA',
+            city: 'San Francisco',
+            l2DistrictType: 'city',
+            l2DistrictName: 'San Francisco',
+          },
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          updateError: expect.any(Error),
+          runId: expect.any(String),
+        }),
+        expect.stringContaining('stuck QUEUED'),
+      )
+    })
+
     it('does not send to SQS when the DB create fails', async () => {
       mockModel.create.mockRejectedValue(new Error('db down'))
 
