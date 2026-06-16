@@ -19,8 +19,20 @@ import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
   const [chatOpen, setChatOpen] = useState(false)
+  const [initialConversationId, setInitialConversationId] = useState<
+    string | null
+  >(null)
 
   const firstName = user?.firstName || undefined
+
+  const openNewChat = () => {
+    setInitialConversationId(null)
+    setChatOpen(true)
+  }
+  const openConversation = (id: string) => {
+    setInitialConversationId(id)
+    setChatOpen(true)
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
@@ -40,13 +52,21 @@ export default function DashboardContent(): React.JSX.Element {
               <span className="hidden sm:inline">Archive</span>
             </Link>
           </div>
-          <OnboardingCards onOpenChat={() => setChatOpen(true)} />
+          <OnboardingCards onOpenChat={openNewChat} />
           <TaskList />
         </section>
       </div>
 
-      <FooterChatBar firstName={firstName} onOpen={() => setChatOpen(true)} />
-      <ChiefOfStaffChatSurface open={chatOpen} onOpenChange={setChatOpen} />
+      <FooterChatBar
+        firstName={firstName}
+        onOpen={openNewChat}
+        onOpenConversation={openConversation}
+      />
+      <ChiefOfStaffChatSurface
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        initialConversationId={initialConversationId}
+      />
     </div>
   )
 }

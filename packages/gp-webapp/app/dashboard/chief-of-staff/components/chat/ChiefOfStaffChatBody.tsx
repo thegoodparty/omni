@@ -13,6 +13,7 @@ import type {
   ChatStreamEvent,
 } from '../../data/contracts'
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
+import ChatHistoryPopover from './ChatHistoryPopover'
 
 interface Props {
   /**
@@ -24,6 +25,8 @@ interface Props {
   active?: boolean
   /** Fires once the deferred create resolves with the real conversation id. */
   onConversationCreated?: (conversationId: string) => void
+  /** Open a past conversation picked from the input pill's history popover. */
+  onSelectConversation?: (conversationId: string) => void
   bodyClassName?: string
 }
 
@@ -87,6 +90,7 @@ export default function ChiefOfStaffChatBody({
   conversationIdOverride,
   active = true,
   onConversationCreated,
+  onSelectConversation,
   bodyClassName,
 }: Props): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -470,7 +474,10 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       <div className="border-t border-border px-3 py-3">
-        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-4 pr-1.5">
+        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
+          {onSelectConversation && (
+            <ChatHistoryPopover onSelect={onSelectConversation} />
+          )}
           <Input
             value={composer}
             onChange={(e) => setComposer(e.target.value)}
@@ -483,7 +490,7 @@ export default function ChiefOfStaffChatBody({
             placeholder="How can I help?"
             disabled={busy}
             aria-label="Ask a question"
-            className="h-9 flex-1 border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
+            className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
           />
           <IconButton
             type="button"

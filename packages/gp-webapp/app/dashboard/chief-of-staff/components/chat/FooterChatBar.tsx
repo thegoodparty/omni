@@ -1,16 +1,15 @@
 'use client'
 
 import { IconButton } from '@styleguide'
-import {
-  ClockIcon,
-  MicIcon,
-  SparklesIcon,
-} from '@styleguide/components/ui/icons'
+import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import ChatHistoryPopover from './ChatHistoryPopover'
 
 interface Props {
   firstName?: string
-  /** Open the chat surface. The dashboard owns the surface + its open state. */
+  /** Open the chat surface (new conversation). */
   onOpen: () => void
+  /** Open the chat surface into a past conversation (from the clock popover). */
+  onOpenConversation: (conversationId: string) => void
 }
 
 /**
@@ -23,6 +22,7 @@ interface Props {
 export default function FooterChatBar({
   firstName,
   onOpen,
+  onOpenConversation,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
@@ -32,16 +32,7 @@ export default function FooterChatBar({
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
         <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
-          <IconButton
-            type="button"
-            size="small"
-            variant="ghost"
-            aria-label="Chat history"
-            className="size-9"
-            onClick={onOpen}
-          >
-            <ClockIcon className="size-4" aria-hidden />
-          </IconButton>
+          <ChatHistoryPopover onSelect={onOpenConversation} />
           <button
             type="button"
             onClick={onOpen}
