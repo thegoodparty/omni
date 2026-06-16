@@ -18,25 +18,21 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 1. **Decide whether to instrument.**
 
-   <!-- v0 — PENDING PRODUCT FEEDBACK. These lists are a draft adopted from the rubric doc
-        (rubric circulated to #product 2026-06-09). Revise this section when feedback lands;
-        the rest of the skill is stable. -->
-
    The rule everything serves: **every event must answer a question you would put on a dashboard. If you cannot name the question, do not fire the event.** More events is not more insight; un-asked events are noise.
 
    **Instrument** these moments:
-   - Funnel steps, viewed and completed (so we can see drop-off).
-   - Conversions and primary calls to action (the action a screen exists to drive).
-   - Activation moments (first time a user reaches core value).
-   - Outcomes (the user produced the thing the feature makes).
+   - Funnel steps and multi-step workflows, viewed and completed (so we can see drop-off). Any flow with more than one step counts, not just classic onboarding funnels.
+   - Primary calls to action: the main action a screen exists to drive.
+   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published).
    - Blockers and errors that stop a user (they explain drop-off).
-   - First-time adoption of a feature we want to drive.
+
+   **Capture the core action; let the higher-level metric be derived.** Do not mint separate `Activated`, `Converted`, or `First-Time` events. Activation and conversion are metrics defined on top of the action events above. Which specific action counts as activation or conversion for a product (for example, a poll sent in Win) is a product designation that can change without re-instrumenting, and Amplitude derives first-occurrence-per-user from any event automatically. Your job is to make sure the underlying core action is tracked.
 
    **Skip** these:
-   - Pure UI state toggles (open/close, expand/collapse, show/hide).
-   - In-page navigation with no decision (tab switches, scrolling, carousel arrows).
+   - Pure UI state toggles (open/close, expand/collapse, show/hide). Exception: opening an AI chat and sending a message are real engagement, not chrome. Track both (chat opened and message sent) so we can see the open-to-send drop-off.
+   - In-page navigation with no decision (tab switches, scrolling, carousel arrows). Main navigation destinations are already captured as page views (the root `RouteTracker` fires a Segment `page()` call on every route change), so do not add click events for them unless you need the entry point or source and can name the question it answers.
    - Hover, focus, mouseover.
-   - Anything a page view already captures (route changes are tracked separately — do not double-track).
+   - Anything a page view already captures (route changes auto-fire a `page()` call via the root `RouteTracker`; do not double-track).
    - A variation that a property could capture instead (one event with a `channel` prop beats one event per channel).
 
 2. **Decide where it fires — frontend or backend.**
@@ -61,7 +57,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    Polls - Poll Results Overview Viewed
    ```
 
-   - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend).
+   - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
    - If it is something the user *is* or *has* (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
 
 4. **Register it in the `EVENTS` map.**
