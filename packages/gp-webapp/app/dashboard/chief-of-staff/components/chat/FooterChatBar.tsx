@@ -31,34 +31,36 @@ export default function FooterChatBar({
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
-        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
-          <ChatHistoryPopover onSelect={onOpenConversation} />
-          <button
-            type="button"
-            onClick={onOpen}
-            className="flex-1 truncate text-left text-[15px] font-medium text-muted-foreground"
-          >
-            {placeholder}
-          </button>
-          <IconButton
-            type="button"
-            size="small"
-            variant="ghost"
-            aria-label="Dictate a message"
-            className="size-9"
-            onClick={onOpen}
-          >
-            <MicIcon className="size-4" aria-hidden />
-          </IconButton>
-          <IconButton
-            type="button"
-            size="small"
-            aria-label="Open Chief of Staff chat"
-            className="size-9 bg-primary text-primary-foreground"
-            onClick={onOpen}
-          >
-            <SparklesIcon className="size-4" aria-hidden />
-          </IconButton>
+        <div className="relative w-full rounded-full bg-gradient-to-r from-primary to-info p-px">
+          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+            <ChatHistoryPopover onSelect={onOpenConversation} />
+            <button
+              type="button"
+              onClick={onOpen}
+              className="flex-1 truncate text-left text-[15px] font-medium text-muted-foreground"
+            >
+              {placeholder}
+            </button>
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Dictate a message"
+              className="size-9"
+              onClick={onOpen}
+            >
+              <MicIcon className="size-4" aria-hidden />
+            </IconButton>
+            <IconButton
+              type="button"
+              size="small"
+              aria-label="Open Chief of Staff chat"
+              className="size-9 bg-primary text-primary-foreground"
+              onClick={onOpen}
+            >
+              <SparklesIcon className="size-4" aria-hidden />
+            </IconButton>
+          </div>
         </div>
       </div>
     </div>

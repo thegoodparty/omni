@@ -541,35 +541,37 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       <div className="border-t border-border px-3 py-3">
-        <div className="relative mx-auto flex h-12 w-full max-w-[608px] items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
-          {onSelectConversation && (
-            <ChatHistoryPopover onSelect={onSelectConversation} />
-          )}
-          <Input
-            value={composer}
-            onChange={(e) => setComposer(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void onSend()
-              }
-            }}
-            placeholder="How can I help?"
-            disabled={busy}
-            aria-label="Ask a question"
-            className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
-          />
-          <IconButton
-            type="button"
-            size="small"
-            aria-label="Send"
-            className="size-9 shrink-0 bg-primary text-primary-foreground"
-            onClick={() => void onSend()}
-            disabled={composer.trim().length === 0 || busy}
-            loading={busy}
-          >
-            <SparklesIcon className="size-4" aria-hidden />
-          </IconButton>
+        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-primary to-info p-px">
+          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+            {onSelectConversation && (
+              <ChatHistoryPopover onSelect={onSelectConversation} />
+            )}
+            <Input
+              value={composer}
+              onChange={(e) => setComposer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void onSend()
+                }
+              }}
+              placeholder="How can I help?"
+              disabled={busy}
+              aria-label="Ask a question"
+              className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
+            />
+            <IconButton
+              type="button"
+              size="small"
+              aria-label="Send"
+              className="size-9 shrink-0 bg-primary text-primary-foreground"
+              onClick={() => void onSend()}
+              disabled={composer.trim().length === 0 || busy}
+              loading={busy}
+            >
+              <SparklesIcon className="size-4" aria-hidden />
+            </IconButton>
+          </div>
         </div>
       </div>
     </div>
