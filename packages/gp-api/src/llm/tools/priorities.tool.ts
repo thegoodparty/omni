@@ -27,26 +27,17 @@ export interface PrioritiesToolProvider {
   archive: (id: string) => Promise<boolean>
 }
 
-const crudPrioritiesInputSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('list') }),
-  z.object({
-    action: z.literal('create'),
-    title: z.string().min(1),
-    description: z.string().min(1),
-    targetDate: z.string().date().nullish(),
-  }),
-  z.object({
-    action: z.literal('update'),
-    id: z.string().min(1),
-    title: z.string().min(1).optional(),
-    description: z.string().min(1).optional(),
-    targetDate: z.string().date().nullish(),
-  }),
-  z.object({
-    action: z.literal('archive'),
-    id: z.string().min(1),
-  }),
-])
+// Flat object schema (not a discriminatedUnion on `action`): Anthropic tool
+// input_schema must be a top-level `type: "object"`, and a union serializes to
+// `anyOf` with no top-level type, which the API rejects. Per-action required
+// fields are enforced in execute.
+const crudPrioritiesInputSchema = z.object({
+  action: z.enum(['list', 'create', 'update', 'archive']),
+  id: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  targetDate: z.string().date().nullish(),
+})
 
 export type CrudPrioritiesInput = z.infer<typeof crudPrioritiesInputSchema>
 
@@ -66,12 +57,16 @@ export const buildCrudPrioritiesTool = (deps: {
       case 'list':
         return deps.provider.list()
       case 'create':
+        if (!input.title || !input.description) {
+          return { error: 'create requires both title and description' }
+        }
         return deps.provider.create({
           title: input.title,
           description: input.description,
           targetDate: input.targetDate,
         })
       case 'update': {
+        if (!input.id) return { error: 'update requires id' }
         const updated = await deps.provider.update(input.id, {
           title: input.title,
           description: input.description,
@@ -80,6 +75,7 @@ export const buildCrudPrioritiesTool = (deps: {
         return updated ?? { error: 'Priority not found', id: input.id }
       }
       case 'archive': {
+        if (!input.id) return { error: 'archive requires id' }
         const archived = await deps.provider.archive(input.id)
         return archived
           ? { archived: true, id: input.id }
