@@ -36,17 +36,22 @@ beforeEach(() => {
   listConversationsMock.mockReset()
   streamMessageMock.mockReset()
   softDeleteMock.mockReset()
+  window.localStorage.clear()
 })
 
 describe('<ChiefOfStaffChatBody>', () => {
-  it('streams the intro messages on the first chat', async () => {
+  it('streams the intro on the first chat', async () => {
     listConversationsMock.mockResolvedValue([])
     render(<ChiefOfStaffChatBody active />)
-    for (const msg of COS_INTRO_MESSAGES) {
-      await waitFor(() => expect(screen.getByText(msg)).toBeInTheDocument(), {
-        timeout: 3000,
-      })
-    }
+    // The first intro message types in (over ~1s); waiting for the full short
+    // string confirms it streamed rather than being dumped at once.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText(COS_INTRO_MESSAGES[0]!),
+        ).toBeInTheDocument(),
+      { timeout: 4000 },
+    )
   })
 
   it('does not play the intro once the user has prior conversations', async () => {

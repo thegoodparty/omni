@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, IconButton, Input } from '@styleguide'
@@ -73,6 +73,8 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
   return null
 }
 
+const INTRO_SEEN_KEY = 'cos-intro-streamed'
+
 const ASSISTANT_BUBBLE =
   'self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground ' +
   'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_strong]:font-semibold ' +
@@ -102,7 +104,7 @@ export default function ChiefOfStaffChatBody({
   const [error, setError] = useState<ErrorState | null>(null)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
-  const [introRevealed, setIntroRevealed] = useState(0)
+  const [introProgress, setIntroProgress] = useState(0)
 
   const abortRef = useRef<AbortController | null>(null)
   const loadRequestedRef = useRef(false)
@@ -110,8 +112,9 @@ export default function ChiefOfStaffChatBody({
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  // The intro only plays on the user's first chat — i.e. they have no prior
-  // conversations — and streams the messages in one at a time.
+  // The intro only plays on the user's first chat — they have no prior
+  // conversations — and only once ever (a localStorage flag), typing the
+  // messages in character by character like a streamed assistant reply.
   const { data: priorConversations } = useChatHistory(
     active && !conversationIdOverride,
   )
@@ -120,14 +123,54 @@ export default function ChiefOfStaffChatBody({
     priorConversations !== undefined &&
     priorConversations.length === 0
 
+  const introTotal = useMemo(
+    () => COS_INTRO_MESSAGES.reduce((sum, m) => sum + m.length, 0),
+    [],
+  )
+
+  // Type the intro in with a single counter + interval. A counter is
+  // StrictMode-safe (the discarded first mount only advances it; no duplicate
+  // bubbles or interleaved chains like a recursive setTimeout closure).
   useEffect(() => {
     if (!isFirstChat) return
-    setIntroRevealed(0)
-    const timers = COS_INTRO_MESSAGES.map((_, i) =>
-      setTimeout(() => setIntroRevealed(i + 1), 700 * (i + 1)),
-    )
-    return () => timers.forEach(clearTimeout)
-  }, [isFirstChat])
+    let seen = false
+    try {
+      seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
+    } catch {
+      seen = false
+    }
+    if (seen) return
+
+    const step = Math.max(2, Math.ceil(introTotal / 120))
+    const id = setInterval(() => {
+      // Mark seen once typing actually begins — set here, not at effect entry,
+      // so StrictMode's discarded first mount (whose interval is cleared
+      // before it ticks) doesn't suppress the real run.
+      try {
+        window.localStorage.setItem(INTRO_SEEN_KEY, '1')
+      } catch {
+        // private mode / storage disabled — still stream this session
+      }
+      setIntroProgress((p) => {
+        const next = Math.min(p + step, introTotal)
+        if (next >= introTotal) clearInterval(id)
+        return next
+      })
+    }, 28)
+    return () => clearInterval(id)
+  }, [isFirstChat, introTotal])
+
+  // Per-message visible slices derived from the single progress counter.
+  const introParts = useMemo(() => {
+    let remaining = introProgress
+    const parts: string[] = []
+    for (const message of COS_INTRO_MESSAGES) {
+      if (remaining <= 0) break
+      parts.push(message.slice(0, remaining))
+      remaining -= message.length
+    }
+    return parts
+  }, [introProgress])
 
   // Override path — replay an existing conversation's messages once on mount.
   const loadExisting = useCallback(async () => {
@@ -395,35 +438,18 @@ export default function ChiefOfStaffChatBody({
           <div className="text-sm text-muted-foreground">Loading chat...</div>
         )}
 
-        {showIntro && (
-          <>
-            {COS_INTRO_MESSAGES.slice(0, introRevealed).map((text, i) => (
-              <div
-                key={i}
-                className="flex max-w-full items-start gap-2 self-start"
-              >
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <SparklesIcon className="size-3.5" aria-hidden />
-                </span>
-                <div className={ASSISTANT_BUBBLE}>{text}</div>
-              </div>
-            ))}
-            {introRevealed < COS_INTRO_MESSAGES.length && (
-              <div className="flex max-w-full items-start gap-2 self-start">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <SparklesIcon className="size-3.5" aria-hidden />
-                </span>
-                <div className={ASSISTANT_BUBBLE}>
-                  <span className="flex gap-1 py-1">
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0.15s]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0.3s]" />
-                  </span>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+        {showIntro &&
+          introParts.map((text, i) => (
+            <div
+              key={i}
+              className="flex max-w-full items-start gap-2 self-start"
+            >
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <SparklesIcon className="size-3.5" aria-hidden />
+              </span>
+              <div className={ASSISTANT_BUBBLE}>{text}</div>
+            </div>
+          ))}
 
         {history.map((item) =>
           item.kind === 'user' ? (
