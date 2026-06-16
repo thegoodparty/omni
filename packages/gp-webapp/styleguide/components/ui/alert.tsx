@@ -4,16 +4,16 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@styleguide/lib/utils'
 
 const alertVariants = cva(
-  'relative w-full rounded-lg border px-4 py-3 text-sm grid gap-y-0.5 items-start',
+  'relative w-full rounded-lg border px-4 py-3 text-sm grid gap-y-0.5 items-start bg-background',
   {
     variants: {
       variant: {
         default:
-          'bg-card text-card-foreground border-neutral-400 [&>svg]:text-muted-foreground',
-        info: 'bg-card text-blue-900 border-blue-400 [&>svg]:text-blue-900',
-        success:
-          'bg-card text-brand-halo-green-900 border-brand-halo-green-400 [&>svg]:text-brand-halo-green-900',
-        destructive: 'bg-card text-red-900 border-red-400 [&>svg]:text-red-900',
+          'border-tertiary text-tertiary-dark [&>svg]:text-tertiary-dark',
+        info: 'border-info text-info-dark [&>svg]:text-info',
+        success: 'border-success text-success-dark [&>svg]:text-success',
+        destructive:
+          'border-destructive text-destructive-dark [&>svg]:text-destructive',
       },
     },
     defaultVariants: {
@@ -76,4 +76,17 @@ function AlertDescription({
   )
 }
 
-export { Alert, AlertTitle, AlertDescription }
+function AlertAction({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="alert-action"
+      className={cn(
+        'col-start-2 mt-2 min-[600px]:col-start-3 min-[600px]:mt-0 min-[600px]:row-start-1 min-[600px]:row-span-2 min-[600px]:self-center',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Alert, AlertTitle, AlertDescription, AlertAction }
