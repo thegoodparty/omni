@@ -27,6 +27,7 @@ export interface CreateOutreachPayload {
   voterFileFilterId?: number
   audienceRequest?: string | null
   phoneListId?: number
+  campaignPlanDueDate?: string
 }
 
 /** VoterFileFilter as returned when included on Outreach (scalars only, from Prisma) */

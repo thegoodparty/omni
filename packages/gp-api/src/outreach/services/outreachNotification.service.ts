@@ -4,6 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import {
   WEBAPP_API_PATH,
@@ -75,6 +76,7 @@ export class OutreachNotificationService {
   constructor(
     private readonly slack: SlackService,
     private readonly campaignsService: CampaignsService,
+    private readonly tcrCompliance: CampaignTcrComplianceService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly logger: PinoLogger,
@@ -123,6 +125,20 @@ export class OutreachNotificationService {
       ? await this.crmCampaigns.getCrmCompanyOwnerName(crmCompanyId)
       : ''
 
+    // Best-effort: a lookup failure must not suppress the Slack notification.
+    let peerlyIdentityId: string | undefined
+    try {
+      const tcr = await this.tcrCompliance.findFirst({
+        where: { campaignId: campaign.id },
+      })
+      peerlyIdentityId = tcr?.peerlyIdentityId ?? undefined
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        'TCR compliance lookup for Peerly identity ID failed',
+      )
+    }
+
     try {
       await this.slack.message(
         buildSlackBlocks({
@@ -140,6 +156,8 @@ export class OutreachNotificationService {
           formattedAudience: this.formatAudienceFiltersForSlack(audience),
           audienceRequest,
           peerlyJobUrl,
+          peerlyJobId: outreach.projectId ?? undefined,
+          peerlyIdentityId,
           campaignPlanDueDate,
         }),
         TARGET_CHANNEL,

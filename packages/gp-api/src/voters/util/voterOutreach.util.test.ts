@@ -16,21 +16,24 @@ const collectTextElementGroups = (node: unknown): TextNode[][] => {
   return elements.flatMap(collectTextElementGroups)
 }
 
-const findDueDateValue = (
+const findLabeledValue = (
   blocks: ReturnType<typeof buildSlackBlocks>['blocks'],
+  label: string,
 ): string | undefined => {
   const groups = blocks.flatMap(collectTextElementGroups)
   const group = groups.find((els) =>
-    els.some(
-      (e) => e.type === SlackMessageType.TEXT && e.text === 'Due Date: ',
-    ),
+    els.some((e) => e.type === SlackMessageType.TEXT && e.text === label),
   )
   if (!group) return undefined
   const labelIdx = group.findIndex(
-    (e) => e.type === SlackMessageType.TEXT && e.text === 'Due Date: ',
+    (e) => e.type === SlackMessageType.TEXT && e.text === label,
   )
   return group[labelIdx + 1]?.text
 }
+
+const findDueDateValue = (
+  blocks: ReturnType<typeof buildSlackBlocks>['blocks'],
+): string | undefined => findLabeledValue(blocks, 'Due Date: ')
 
 describe('buildSlackBlocks - campaignPlanDueDate', () => {
   const baseParams = {
@@ -51,5 +54,51 @@ describe('buildSlackBlocks - campaignPlanDueDate', () => {
     const { blocks } = buildSlackBlocks(baseParams)
 
     expect(findDueDateValue(blocks)).toBe('N/A')
+  })
+})
+
+describe('buildSlackBlocks - Peerly IDs', () => {
+  const baseParams = {
+    type: OutreachType.p2p,
+    formattedAudience: [],
+  }
+
+  it('renders the raw Peerly Job ID when provided', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyJobId: 'peerly-job-123',
+    })
+
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('peerly-job-123')
+  })
+
+  it('renders the Peerly Identity ID when provided', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyIdentityId: 'identity-789',
+    })
+
+    expect(findLabeledValue(blocks, 'Peerly Identity ID: ')).toBe(
+      'identity-789',
+    )
+  })
+
+  it('renders "N/A" for both Peerly IDs when omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('N/A')
+    expect(findLabeledValue(blocks, 'Peerly Identity ID: ')).toBe('N/A')
+  })
+
+  it('keeps the clickable Peerly Job Link alongside the raw Job ID', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyJobId: 'peerly-job-123',
+      peerlyJobUrl: 'https://peerly.com/jobs/peerly-job-123',
+    })
+
+    const blob = JSON.stringify(blocks)
+    expect(blob).toContain('View Job in Peerly')
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('peerly-job-123')
   })
 })

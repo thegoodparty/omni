@@ -8,6 +8,7 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
@@ -23,6 +24,7 @@ const mockSlackMessage = vi.fn()
 const mockCampaignsUpdate = vi.fn()
 const mockGetCrmCompanyOwnerName = vi.fn()
 const mockVoterFileFilterToAudience = vi.fn()
+const mockTcrFindFirst = vi.fn()
 
 const mockUser = {
   id: 1,
@@ -77,6 +79,7 @@ describe('OutreachNotificationService', () => {
     mockCampaignsUpdate.mockReset().mockResolvedValue({})
     mockGetCrmCompanyOwnerName.mockReset().mockResolvedValue('Test PA')
     mockVoterFileFilterToAudience.mockReset().mockResolvedValue({})
+    mockTcrFindFirst.mockReset().mockResolvedValue(null)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,6 +88,10 @@ describe('OutreachNotificationService', () => {
         {
           provide: CampaignsService,
           useValue: { update: mockCampaignsUpdate },
+        },
+        {
+          provide: CampaignTcrComplianceService,
+          useValue: { findFirst: mockTcrFindFirst },
         },
         {
           provide: CrmCampaignsService,
@@ -153,6 +160,80 @@ describe('OutreachNotificationService', () => {
 
       const [blocks] = mockSlackMessage.mock.calls[0]
       expect(JSON.stringify(blocks)).not.toContain('peerly.com')
+    })
+
+    it('includes the campaign plan due date', async () => {
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+        campaignPlanDueDate: '2026-07-01',
+      })
+
+      const [blocks] = mockSlackMessage.mock.calls[0]
+      expect(JSON.stringify(blocks)).toContain('2026-07-01')
+    })
+
+    it('includes the raw Peerly Job ID', async () => {
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      const [blocks] = mockSlackMessage.mock.calls[0]
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Peerly Job ID')
+      expect(blob).toContain('peerly-job-123')
+    })
+
+    it('looks up and includes the Peerly Identity ID from TCR compliance', async () => {
+      mockTcrFindFirst.mockResolvedValueOnce({
+        peerlyIdentityId: 'identity-789',
+      })
+
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      expect(mockTcrFindFirst).toHaveBeenCalledWith({
+        where: { campaignId: baseCampaign.id },
+      })
+      const [blocks] = mockSlackMessage.mock.calls[0]
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Peerly Identity ID')
+      expect(blob).toContain('identity-789')
+    })
+
+    it('shows N/A for the Peerly Identity ID when no TCR record exists', async () => {
+      mockTcrFindFirst.mockResolvedValueOnce(null)
+
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      const [blocks] = mockSlackMessage.mock.calls[0]
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Peerly Identity ID')
+      expect(blob).toContain('N/A')
+    })
+
+    it('still sends the notification when the TCR lookup fails', async () => {
+      mockTcrFindFirst.mockRejectedValueOnce(new Error('db down'))
+
+      await expect(
+        service.notifySuccess({
+          user: mockUser,
+          campaign: baseCampaign,
+          outreach: baseOutreach,
+        }),
+      ).resolves.toBeUndefined()
+
+      expect(mockSlackMessage).toHaveBeenCalledTimes(1)
     })
 
     it('looks up assignedPa when hubspotId is present', async () => {

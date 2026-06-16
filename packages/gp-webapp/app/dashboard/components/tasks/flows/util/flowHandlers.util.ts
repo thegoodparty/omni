@@ -49,6 +49,7 @@ interface CreateOutreachParams {
   type: OutreachType
   state: FlowState
   campaignId: number
+  campaignPlanDueDate?: string
   outreaches?: Outreach[]
   setOutreaches?: (outreaches: Outreach[]) => void
   errorSnackbar?: (message: string) => void
@@ -92,6 +93,7 @@ export const handleCreateOutreach =
     type,
     state: { script, schedule, image, voterFileFilter, audience, phoneListId },
     campaignId,
+    campaignPlanDueDate,
     outreaches = [],
     setOutreaches = noop,
     errorSnackbar = noop,
@@ -124,6 +126,7 @@ export const handleCreateOutreach =
         ...(p2pUxEnabled && phoneListId && phoneListId > 0
           ? { phoneListId }
           : {}),
+        ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
       },
       image || null,
     )

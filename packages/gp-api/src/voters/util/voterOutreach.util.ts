@@ -36,6 +36,8 @@ type SlackBlocksParams = {
   formattedAudience: Array<AudienceSlackBlock>
   audienceRequest?: string
   peerlyJobUrl?: string
+  peerlyJobId?: string
+  peerlyIdentityId?: string
   campaignPlanDueDate?: string
 }
 
@@ -54,6 +56,8 @@ export function buildSlackBlocks({
   formattedAudience,
   audienceRequest,
   peerlyJobUrl,
+  peerlyJobId,
+  peerlyIdentityId,
   campaignPlanDueDate,
 }: SlackBlocksParams) {
   const blocks = [
@@ -211,6 +215,38 @@ export function buildSlackBlocks({
                 {
                   type: SlackMessageType.TEXT,
                   text: campaignPlanDueDate || 'N/A',
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: 'Peerly Job ID: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text: peerlyJobId || 'N/A',
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: 'Peerly Identity ID: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text: peerlyIdentityId || 'N/A',
                 },
               ],
             },
