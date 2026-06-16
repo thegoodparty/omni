@@ -157,6 +157,30 @@ describe('ContactEngagement routes', () => {
       expect(result.data.nextCursor).toBeNull()
     })
 
+    it('returns an empty page for a non-numeric cursor instead of 500ing', async () => {
+      await service.prisma.voterOutreachActivity.create({
+        data: {
+          campaignId: campaign.id,
+          lalVoterId,
+          outreachType: OutreachType.doorKnocking,
+          attributionSource: VoterOutreachAttributionSource.recipient,
+          occurredAt: new Date('2026-01-10T10:00:00Z'),
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/activities`,
+        {
+          params: { after: 'not-a-number' },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toEqual([])
+      expect(result.data.nextCursor).toBeNull()
+    })
+
     it('does not return another campaign activities for the same voter', async () => {
       const otherOrgSlug = `campaign-other-${Date.now()}`
       await service.prisma.organization.create({

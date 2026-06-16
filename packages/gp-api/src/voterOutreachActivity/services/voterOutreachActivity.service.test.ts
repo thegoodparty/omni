@@ -126,4 +126,61 @@ describe('VoterOutreachActivityService', () => {
     expect(result[0].campaignId).toBe(campaignId)
     expect(result[0].lalVoterId).toBe('LAL-match')
   })
+
+  it('bounds the page with take and pages forward with the id cursor', async () => {
+    const campaignId = await seedCampaign('campaign-e')
+
+    const seed = (occurredAt: string) =>
+      activities.recordActivity({
+        campaignId,
+        lalVoterId: 'LAL-page',
+        outreachType: OutreachType.text,
+        attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        occurredAt: new Date(occurredAt),
+      })
+    await seed('2026-01-01T00:00:00.000Z')
+    await seed('2026-02-01T00:00:00.000Z')
+    await seed('2026-03-01T00:00:00.000Z')
+
+    const firstTwo = await activities.getActivityForVoter(
+      campaignId,
+      'LAL-page',
+      2,
+    )
+    expect(firstTwo).toHaveLength(2)
+    expect(firstTwo.map((a) => a.occurredAt)).toEqual([
+      new Date('2026-03-01T00:00:00.000Z'),
+      new Date('2026-02-01T00:00:00.000Z'),
+    ])
+
+    const afterSecond = await activities.getActivityForVoter(
+      campaignId,
+      'LAL-page',
+      2,
+      String(firstTwo[1].id),
+    )
+    expect(afterSecond.map((a) => a.occurredAt)).toEqual([
+      new Date('2026-01-01T00:00:00.000Z'),
+    ])
+  })
+
+  it('returns an empty page for a non-numeric cursor', async () => {
+    const campaignId = await seedCampaign('campaign-f')
+    await activities.recordActivity({
+      campaignId,
+      lalVoterId: 'LAL-nan',
+      outreachType: OutreachType.text,
+      attributionSource: VoterOutreachAttributionSource.segmentDerived,
+      occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+    })
+
+    const result = await activities.getActivityForVoter(
+      campaignId,
+      'LAL-nan',
+      2,
+      'not-a-number',
+    )
+
+    expect(result).toEqual([])
+  })
 })
