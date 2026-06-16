@@ -3,7 +3,8 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { Organization } from 'gpApi/api-endpoints'
+import { Eligibility, Organization } from 'gpApi/api-endpoints'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
 import {
   OrganizationProvider,
@@ -46,6 +47,14 @@ vi.mock('helpers/cookieHelper', () => ({
   deleteCookie: vi.fn(),
 }))
 
+// Keep EVENTS real (asserting on the registered name strings) but stub the
+// network-bound tracker.
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
 const orgs: Organization[] = [
   {
     slug: 'org-one',
@@ -55,6 +64,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: null,
     campaignId: 1,
+    status: 'active',
   },
   {
     slug: 'org-two',
@@ -64,6 +74,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: 'eo-1',
     campaignId: 2,
+    status: 'active',
   },
   {
     slug: 'org-three',
@@ -73,6 +84,7 @@ const orgs: Organization[] = [
     district: null,
     electedOfficeId: null,
     campaignId: null,
+    status: 'past',
   },
 ]
 
@@ -81,6 +93,7 @@ beforeEach(() => {
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
   mockRouterReplace.mockClear()
+  vi.mocked(trackEvent).mockClear()
 })
 
 describe('OrganizationProvider', () => {
@@ -264,14 +277,28 @@ describe('OrganizationProvider', () => {
   })
 })
 
-const renderPicker = (initialOrganizations: Organization[] = orgs) =>
-  render(
+// Default: ineligible, so existing picker tests render no "run for" actions.
+const ineligible: Eligibility = {
+  hasActiveCampaign: true,
+  holdsOffice: false,
+  canStartCampaign: false,
+  canGainOffice: true,
+  reelectionOfficeSlug: null,
+}
+
+const renderPicker = (
+  initialOrganizations: Organization[] = orgs,
+  eligibility: Eligibility = ineligible,
+) => {
+  api.mock('GET /v1/eligibility', { status: 200, data: eligibility })
+  return render(
     <SidebarProvider>
       <OrganizationProvider initialOrganizations={initialOrganizations}>
         <OrganizationPicker />
       </OrganizationProvider>
     </SidebarProvider>,
   )
+}
 
 describe('OrganizationPicker', () => {
   it('renders nothing when there are no organizations', () => {
@@ -346,6 +373,7 @@ describe('OrganizationPicker', () => {
         district: null,
         electedOfficeId: null,
         campaignId: 10,
+        status: 'active',
       },
     ]
 
@@ -367,6 +395,165 @@ describe('OrganizationPicker', () => {
     testQueryClient.setDefaultOptions({
       queries: { staleTime: 1000 * 60 * 5, retry: 2 },
     })
+  })
+
+  it('renders past organizations grayed with a "Past" label', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+
+    // Organization Three is the only `status: 'past'` org in the fixture.
+    expect(screen.getByText('Past')).toBeInTheDocument()
+    expect(screen.getByText('Organization Three')).toHaveClass(
+      'text-muted-foreground',
+    )
+    expect(screen.getAllByText('Organization One')[1]).not.toHaveClass(
+      'text-muted-foreground',
+    )
+  })
+
+  it('shows both run-for actions when eligible with a re-election office', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: 'eo-1',
+    })
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(await screen.findByText('Run for re-election')).toBeInTheDocument()
+    expect(screen.getByText('Run for a new office')).toBeInTheDocument()
+  })
+
+  it('hides both run-for actions when not eligible to start a campaign', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, { ...ineligible, reelectionOfficeSlug: 'eo-1' })
+
+    await user.click(screen.getByText('Organization One'))
+
+    // Wait for the dropdown to be open (org list visible) before asserting absence.
+    expect(screen.getByText('Organization Two')).toBeInTheDocument()
+    expect(screen.queryByText('Run for re-election')).not.toBeInTheDocument()
+    expect(screen.queryByText('Run for a new office')).not.toBeInTheDocument()
+  })
+
+  it('shows only "Run for a new office" when there is no re-election office', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: null,
+    })
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(await screen.findByText('Run for a new office')).toBeInTheDocument()
+    expect(screen.queryByText('Run for re-election')).not.toBeInTheDocument()
+  })
+
+  it('navigates to the follow-on entry with the same-office intent on re-election', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: 'eo-held',
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for re-election'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/onboarding/office-selection?intent=same-office&from=eo-held',
+    )
+  })
+
+  it('navigates to the follow-on entry with the new-office intent', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: null,
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for a new office'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/onboarding/office-selection?intent=new-office',
+    )
+  })
+
+  it('tracks an organization switch with the target status and office flag', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Three is past and not an elected-office org.
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        { toStatus: 'past', isElectedOfficeOrg: false },
+      )
+    })
+  })
+
+  it('does not track a switch when re-selecting the already-active org', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    // Re-click the currently selected org (org-one) in the open dropdown
+    // (index 0 is the trigger label, index 1 is the dropdown item).
+    const dropdownItem = screen.getAllByText('Organization One').at(1)
+    if (!dropdownItem) throw new Error('expected org-one dropdown item')
+    await user.click(dropdownItem)
+
+    // No analytics event should fire at all on a same-org re-click.
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('tracks the run-for CTA with intent and source office on re-election', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: 'eo-held',
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for re-election'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.OrgSwitcher.RunForOfficeClicked,
+      { intent: 'same-office', fromOrganizationSlug: 'eo-held' },
+    )
+  })
+
+  it('tracks the run-for CTA with no source office on a new-office run', async () => {
+    const user = userEvent.setup()
+    renderPicker(orgs, {
+      ...ineligible,
+      hasActiveCampaign: false,
+      canStartCampaign: true,
+      reelectionOfficeSlug: null,
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(await screen.findByText('Run for a new office'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.OrgSwitcher.RunForOfficeClicked,
+      { intent: 'new-office' },
+    )
   })
 })
 

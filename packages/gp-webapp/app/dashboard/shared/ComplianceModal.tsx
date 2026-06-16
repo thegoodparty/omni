@@ -8,6 +8,12 @@ import Link from 'next/link'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrComplianceStatus } from 'helpers/types'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import {
+  useProUpgrade3Flag,
+  PRO_UPGRADE_ENTRY_PATH,
+} from '@shared/experiments/proUpgrade3Flag'
+
+const PROFILE_COMPLIANCE_PATH = '/dashboard/profile#texting-compliance'
 
 interface ComplianceModalProps {
   open: boolean
@@ -22,6 +28,33 @@ export function ComplianceModal({
 }: ComplianceModalProps): React.JSX.Element {
   const { ready, enabled } = useProUpgradeFlag()
   const phase1Enabled = ready && enabled
+
+  // Only the default "Start Registration" branch links into the
+  // compliance/upgrade flow. The pending/submitted/rejected/error statuses are
+  // not registration prompts: pending/rejected/error use a mailto or no href,
+  // and submitted (no dedicated case) falls through to the default branch, so
+  // it must be excluded here to avoid mislabeling an already-submitted user as
+  // needing to register.
+  const isRegistrationCase =
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.PENDING &&
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.SUBMITTED &&
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.REJECTED &&
+    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.ERROR
+
+  // The callers mount this modal unconditionally (open or not), so only count
+  // experiment exposure when the registration CTA is actually rendered and on
+  // screen.
+  const { ready: proUpgrade3Ready, enabled: proUpgrade3Enabled } =
+    useProUpgrade3Flag(open && isRegistrationCase)
+
+  // pro-upgrade3 cohort enters the new wizard; the off cohort and the
+  // not-yet-resolved window both keep the profile texting-compliance section
+  // (routing through the wizard before the flag resolves would bounce an
+  // off-cohort user to pro-sign-up, not back here).
+  const registrationHref =
+    isRegistrationCase && proUpgrade3Ready && proUpgrade3Enabled
+      ? PRO_UPGRADE_ENTRY_PATH
+      : PROFILE_COMPLIANCE_PATH
 
   const helpTrailer = (
     <>
@@ -81,7 +114,7 @@ export function ComplianceModal({
         </>
       )
       cta = 'Start Registration'
-      ctaHref = '/dashboard/profile#texting-compliance'
+      ctaHref = registrationHref
       break
   }
 

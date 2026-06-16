@@ -225,12 +225,17 @@ export class CrmCampaignsService {
       isProUpdatedAt,
     } = campaignDetails || {}
 
-    const district = campaign.organizationSlug
-      ? await this.organizations.getDistrictForOrgSlug(
-          campaign.organizationSlug,
-        )
-      : null
-    const canDownloadVoterFile = this.voterFile.canDownload(campaign, district)
+    const { district, ballotLevel: authoritativeBallotLevel } =
+      campaign.organizationSlug
+        ? await this.organizations.getDistrictAndBallotLevelForOrgSlug(
+            campaign.organizationSlug,
+          )
+        : { district: null, ballotLevel: null }
+    const canDownloadVoterFile = this.voterFile.canDownload(
+      campaign,
+      district,
+      authoritativeBallotLevel,
+    )
 
     const lastPortalVisit = formatDateForCRM(user.metaData?.lastVisited)
     const sessionCount = user.metaData?.sessionCount

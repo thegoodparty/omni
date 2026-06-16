@@ -81,4 +81,15 @@ describe('updateCampaignBodySchema', () => {
 
     expect(result.details).not.toHaveProperty('primaryResult')
   })
+
+  it.each([true, false])(
+    'persists details.wonGeneral "%s" so the election result is recorded',
+    (wonGeneral) => {
+      const result = updateCampaignBodySchema.parse({
+        details: { wonGeneral },
+      })
+
+      expect(result.details).toHaveProperty('wonGeneral', wonGeneral)
+    },
+  )
 })

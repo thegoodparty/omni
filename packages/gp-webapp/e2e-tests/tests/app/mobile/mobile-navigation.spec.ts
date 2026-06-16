@@ -1,17 +1,14 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
-
-function campaignPageGreetingHeading(page: Page) {
-  return page
-    .getByRole('heading', { level: 1 })
-    .filter({ hasText: /Hi|Hello|until|General|Primary|Election|concluded/ })
-    .first()
-}
+import {
+  dashboardGreetingHeading,
+  waitForDashboardReady,
+} from 'src/helpers/dashboard'
 
 test.describe('Mobile Navigation', () => {
   // Configure mobile viewport
@@ -24,6 +21,9 @@ test.describe('Mobile Navigation', () => {
     await authenticateTestUser(page)
     await page.goto('/dashboard')
     await NavigationHelper.dismissOverlays(page)
+    // Ensure the campaign-gated dashboard has rendered and no stray task modal is
+    // aria-hiding it before any test reaches for the greeting or the mobile menu.
+    await waitForDashboardReady(page)
   })
 
   test('should display mobile dashboard', async ({ page }) => {
@@ -31,9 +31,7 @@ test.describe('Mobile Navigation', () => {
     await WaitHelper.waitForPageReady(page)
     await expect(page).toHaveURL(/\/dashboard$/)
 
-    await expect(campaignPageGreetingHeading(page)).toBeVisible({
-      timeout: 15000,
-    })
+    await expect(dashboardGreetingHeading(page)).toBeVisible()
 
     console.log('✅ Mobile dashboard accessible')
   })

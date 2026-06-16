@@ -1,4 +1,5 @@
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { forwardRef, Global, Module } from '@nestjs/common'
@@ -25,6 +26,7 @@ import { CampaignPositionsService } from './positions/campaignPositions.service'
 import { CampaignPlanVersionsService } from './services/campaignPlanVersions.service'
 import { CampaignsService } from './services/campaigns.service'
 import { CrmCampaignsService } from './services/crmCampaigns.service'
+import { EligibilityService } from './services/eligibility.service'
 import { CampaignTasksController } from './tasks/campaignTasks.controller'
 import { CampaignTasksService } from './tasks/services/campaignTasks.service'
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
@@ -36,6 +38,7 @@ import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDig
 import { CampaignUpdateHistoryController } from './updateHistory/campaignUpdateHistory.controller'
 import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHistory.service'
 import { PublicCampaignsController } from './controllers/public-campaigns.controller'
+import { EligibilityController } from './controllers/eligibility.controller'
 import { PublicCampaignsService } from './services/public-campaigns.service'
 
 @Global()
@@ -60,6 +63,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     QueueProducerModule,
     SlackModule,
     AgentExperimentsModule,
+    ElectedOfficeModule,
   ],
   controllers: [
     CampaignsController,
@@ -68,6 +72,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTasksController,
     CampaignTcrComplianceController,
     PublicCampaignsController,
+    EligibilityController,
   ],
   providers: [
     CampaignsService,
@@ -83,6 +88,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
     PublicCampaignsService,
+    EligibilityService,
   ],
   exports: [
     CampaignsService,
@@ -92,6 +98,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTasksService,
     AiGenerationService,
     WeeklyTasksDigestHandlerService,
+    EligibilityService,
   ],
 })
 export class CampaignsModule {}

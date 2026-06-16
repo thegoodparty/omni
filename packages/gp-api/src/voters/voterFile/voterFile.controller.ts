@@ -102,12 +102,18 @@ export class VoterFileController {
     @ReqCampaign()
     campaign?: Campaign,
   ) {
-    const district = campaign?.organizationSlug
-      ? await this.organizationsService.getDistrictForOrgSlug(
+    const { district, ballotLevel } = campaign?.organizationSlug
+      ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
           campaign.organizationSlug,
         )
-      : null
-    return this.voterFileDownloadAccess.canDownload(campaign, district)
+      : { district: null, ballotLevel: null }
+    // Use the server-determined ballot level (same as CanDownloadVoterFileGuard)
+    // so this eligibility signal can't be flipped by editing details.ballotLevel.
+    return this.voterFileDownloadAccess.canDownload(
+      campaign,
+      district,
+      ballotLevel,
+    )
   }
 
   @Post('filter')

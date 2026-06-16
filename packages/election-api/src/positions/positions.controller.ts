@@ -27,6 +27,13 @@ export class PositionsController {
     })
   }
 
+  @Get(':id/next-election')
+  async getNextElectionForPosition(
+    @Param() params: GetPositionByIdParamsDTO,
+  ): Promise<{ electionDate: string | null }> {
+    return this.positions.getNextElectionForPosition(params.id)
+  }
+
   @Get(':id')
   async getPositionById(
     @Param() params: GetPositionByIdParamsDTO,

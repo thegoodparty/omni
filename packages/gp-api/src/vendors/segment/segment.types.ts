@@ -46,6 +46,10 @@ export const EVENTS = {
   Polls: {
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
+  Campaigns: {
+    FollowOnCreated: 'Campaign - Follow-On Created',
+    FollowOnBlocked: 'Campaign - Follow-On Blocked',
+  },
   CampaignPlan: {
     //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for weekly task digest emails
     WeeklyTasksDigest: 'Campaign Plan - Weekly Tasks Digest',
@@ -87,3 +91,13 @@ export type SegmentTrackEventProperties = Record<string, unknown>
 //  for a generic type here and should need Record<string, unknown>
 //  https://goodparty.atlassian.net/browse/WEB-4530
 export type SegmentIdentityTraits = Record<string, unknown>
+
+// Campaign-scoped facts carried on a Segment group() keyed on the org slug.
+// These are per-campaign, not person-level, so they must never be written to
+// the user identify (that overwrites a prior campaign's values on a user who
+// runs again).
+export type SegmentGroupTraits = {
+  officeMunicipality?: string
+  officeElectionDate?: string
+  affiliation?: string
+}

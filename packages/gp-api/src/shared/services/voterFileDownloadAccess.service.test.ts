@@ -10,9 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 describe('VoterFileDownloadAccessService - canDownload', () => {
   let service: VoterFileDownloadAccessService
   let mockLogger: PinoLogger
+  let mockSlackService: {
+    message: ReturnType<typeof vi.fn>
+    errorMessage: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
-    const mockSlackService = {
+    mockSlackService = {
       message: vi.fn(),
       errorMessage: vi.fn(),
     }
@@ -343,6 +347,95 @@ describe('VoterFileDownloadAccessService - canDownload', () => {
         canDownloadFederal: false,
       })
       expect(service.canDownload(campaign)).toBe(true)
+    })
+  })
+
+  describe('Server-authoritative ballot level (download-gate bypass fix)', () => {
+    it('denies a FEDERAL race even when the user set details.ballotLevel to CITY', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+        canDownloadFederal: false,
+      })
+
+      expect(
+        service.canDownload(campaign, null, BallotReadyPositionLevel.FEDERAL),
+      ).toBe(false)
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        { id: campaign.id },
+        'Campaign is not eligible for download.',
+      )
+    })
+
+    it('allows a genuinely local authoritative level over a stale FEDERAL in details', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        canDownloadFederal: false,
+      })
+
+      expect(
+        service.canDownload(campaign, null, BallotReadyPositionLevel.CITY),
+      ).toBe(true)
+    })
+
+    it('falls back to the declared level when there is no authoritative level', () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+      })
+
+      expect(service.canDownload(campaign, null, null)).toBe(true)
+    })
+  })
+
+  describe('downloadAccessAlert (Pro-upgrade eligibility alert)', () => {
+    const user = { id: 1, email: 'pro@example.com' } as Parameters<
+      typeof service.downloadAccessAlert
+    >[1]
+
+    it('forwards the authoritative ballot level to the eligibility check', async () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+        canDownloadFederal: false,
+      })
+      const spy = vi.spyOn(service, 'canDownload').mockReturnValue(true)
+
+      await service.downloadAccessAlert(
+        campaign,
+        user,
+        null,
+        BallotReadyPositionLevel.FEDERAL,
+      )
+
+      // The alert must judge eligibility by the server-determined level, not the
+      // user-editable details.ballotLevel — otherwise a spoofed CITY would
+      // suppress the "Pro but blocked" alert for a FEDERAL race.
+      expect(spy).toHaveBeenCalledWith(
+        campaign,
+        null,
+        BallotReadyPositionLevel.FEDERAL,
+      )
+    })
+
+    it('fires the Slack alert when the authoritative level blocks download', async () => {
+      const campaign = createMockCampaign({
+        details: { ballotLevel: BallotReadyPositionLevel.CITY },
+        canDownloadFederal: false,
+      })
+      vi.spyOn(service, 'canDownload').mockReturnValue(false)
+      const message = vi.fn().mockResolvedValue(undefined)
+      // The class uses property-injection for the logger but not the slack
+      // dependency in this test harness, so wire the Slack client directly.
+      ;(service as unknown as { slack: { message: typeof message } }).slack = {
+        message,
+      }
+
+      await service.downloadAccessAlert(
+        campaign,
+        user,
+        null,
+        BallotReadyPositionLevel.FEDERAL,
+      )
+
+      expect(message).toHaveBeenCalled()
     })
   })
 })

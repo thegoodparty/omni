@@ -1,201 +1,202 @@
-import { PrismaClient } from '../../generated/prisma'
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-  type MockedFunction,
-} from 'vitest'
-import {
-  CreateElectedOfficeArgs,
-  ElectedOfficeService,
-} from './electedOffice.service'
+import { useTestService } from '@/test-service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { addYears } from 'date-fns'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElectedOfficeService } from './electedOffice.service'
 
-describe('ElectedOfficeService', () => {
-  let service: ElectedOfficeService
-  let mockOrgCreate: ReturnType<typeof vi.fn>
-  let mockEoCreate: ReturnType<typeof vi.fn>
-  let mockOnElectedOfficeCreated: ReturnType<typeof vi.fn>
-  let mockModel: {
-    create: ReturnType<typeof vi.fn>
-    update: ReturnType<typeof vi.fn>
-    delete: ReturnType<typeof vi.fn>
-    findUnique: ReturnType<typeof vi.fn>
-    findFirst: ReturnType<typeof vi.fn>
-    count: ReturnType<typeof vi.fn>
-    findMany: ReturnType<typeof vi.fn>
-  }
+const service = useTestService()
+
+describe('ElectedOfficeService.create', () => {
+  let electedOffices: ElectedOfficeService
+  let elections: ElectionsService
 
   beforeEach(() => {
-    mockOrgCreate = vi.fn().mockResolvedValue({})
-    mockEoCreate = vi.fn().mockResolvedValue({
-      id: 'mock-uuid',
-      userId: 1,
-      campaignId: 1,
-      organizationSlug: 'eo-mock-uuid',
-    })
+    electedOffices = service.app.get(ElectedOfficeService)
+    elections = service.app.get(ElectionsService)
+    // The schedule dispatch is an external (queue) side effect; stub it so the
+    // tests stay hermetic. create() swallows dispatch errors anyway.
+    vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    ).mockResolvedValue(undefined as never)
+  })
 
-    const mockTransaction = vi.fn(
-      async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
-        const tx = {
-          organization: { create: mockOrgCreate },
-          electedOffice: { create: mockEoCreate },
-        }
-        return callback(
-          tx as unknown as Parameters<
-            Parameters<PrismaClient['$transaction']>[0]
-          >[0],
-        )
+  const seedCampaignWithRace = async (raceId: string) => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-1', ownerId: service.user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'candidate-campaign',
+        details: { raceId },
+        organizationSlug: 'campaign-1',
       },
-    ) as MockedFunction<PrismaClient['$transaction']>
-
-    mockModel = {
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-      findUnique: vi.fn(),
-      findFirst: vi.fn(),
-      count: vi.fn(),
-      findMany: vi.fn(),
-    }
-
-    mockOnElectedOfficeCreated = vi.fn().mockResolvedValue(undefined)
-    service = new ElectedOfficeService({
-      onElectedOfficeCreated: mockOnElectedOfficeCreated,
-    } as never)
-    Object.defineProperty(service, 'model', {
-      get: () => mockModel,
-      configurable: true,
     })
-    Object.defineProperty(service, '_prisma', {
-      get: () => ({ $transaction: mockTransaction }),
-      configurable: true,
+    return campaign.id
+  }
+
+  it('derives term fields from the position frequency and creates the org', async () => {
+    vi.spyOn(elections, 'getElectionFrequencyByBrHashId').mockResolvedValue({
+      frequency: [4],
+      electionDate: '2024-11-05T00:00:00.000Z',
     })
-    vi.clearAllMocks()
+    const campaignId = await seedCampaignWithRace('br-hash-4yr')
+
+    const office = await electedOffices.create({
+      userId: service.user.id,
+      campaignId,
+      orgData: {
+        positionId: 'br-pos-7',
+        customPositionName: 'City Council',
+        overrideDistrictId: 'district-7',
+      },
+    })
+
+    expect(office.isActive).toBe(true)
+    expect(office.electedDate).toEqual(new Date('2024-11-05T00:00:00.000Z'))
+    expect(office.termStartAt).toEqual(new Date('2024-11-05T00:00:00.000Z'))
+    expect(office.termEndAt).toEqual(new Date('2028-11-05T00:00:00.000Z'))
+    expect(office.termLengthDays).toBe(1461)
+
+    const org = await service.prisma.organization.findUnique({
+      where: { slug: office.organizationSlug },
+    })
+    expect(org).toMatchObject({
+      ownerId: service.user.id,
+      positionId: 'br-pos-7',
+      customPositionName: 'City Council',
+      overrideDistrictId: 'district-7',
+    })
   })
 
-  describe('create', () => {
-    it('returns the existing elected office without creating a new one', async () => {
-      const createArgs: CreateElectedOfficeArgs = {
-        userId: 1,
-        campaignId: 1,
-      }
-      const existing = {
-        id: 'existing',
-        userId: 1,
-        campaignId: 1,
+  it('uses the longest gap for a staggered [2, 4] cadence', async () => {
+    vi.spyOn(elections, 'getElectionFrequencyByBrHashId').mockResolvedValue({
+      frequency: [2, 4],
+      electionDate: '2024-11-05T00:00:00.000Z',
+    })
+    const campaignId = await seedCampaignWithRace('br-hash-staggered')
+
+    const office = await electedOffices.create({
+      userId: service.user.id,
+      campaignId,
+    })
+
+    expect(office.termEndAt).toEqual(new Date('2028-11-05T00:00:00.000Z'))
+    expect(office.termLengthDays).toBe(1461)
+  })
+
+  it('leaves term fields null when no frequency resolves', async () => {
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(office.isActive).toBe(true)
+    expect(office.termEndAt).toBeNull()
+    expect(office.termLengthDays).toBeNull()
+  })
+
+  it('returns the held office without creating a second active one', async () => {
+    const dispatch = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
+    await service.prisma.organization.create({
+      data: { slug: 'eo-existing', ownerId: service.user.id },
+    })
+    const existing = await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
         organizationSlug: 'eo-existing',
-      }
-
-      mockModel.findFirst.mockResolvedValue(existing)
-
-      const result = await service.create(createArgs)
-
-      expect(result).toBe(existing)
-      expect(mockModel.findFirst).toHaveBeenCalledWith({
-        where: { userId: 1 },
-      })
-      expect(mockOrgCreate).not.toHaveBeenCalled()
-      expect(mockEoCreate).not.toHaveBeenCalled()
-      // The schedule dispatch is the only recovery path for an office whose
-      // earlier create committed but never dispatched, so it must still fire.
-      expect(mockOnElectedOfficeCreated).toHaveBeenCalledWith(existing)
+        isActive: true,
+        termEndAt: addYears(new Date(), 2),
+      },
     })
 
-    it('creates organization with default org data and elected office in transaction', async () => {
-      const createArgs: CreateElectedOfficeArgs = {
-        userId: 1,
-        campaignId: 1,
-      }
+    const result = await electedOffices.create({ userId: service.user.id })
 
-      mockModel.findFirst.mockResolvedValue(null)
-
-      await service.create(createArgs)
-
-      expect(mockOrgCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          slug: expect.stringMatching(/^eo-/),
-          ownerId: 1,
-          positionId: null,
-          customPositionName: null,
-          overrideDistrictId: null,
-        }),
-      })
-      expect(mockEoCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          userId: 1,
-          campaignId: 1,
-          organizationSlug: expect.stringMatching(/^eo-/),
-        }),
-      })
-    })
-
-    it('uses orgData directly when provided', async () => {
-      const createArgs: CreateElectedOfficeArgs = {
-        userId: 1,
-        campaignId: 1,
-        orgData: {
-          positionId: 'org-header-position-id',
-          customPositionName: 'City Council',
-          overrideDistrictId: 'org-header-district-id',
-        },
-      }
-
-      mockModel.findFirst.mockResolvedValue(null)
-
-      await service.create(createArgs)
-
-      expect(mockOrgCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          slug: expect.stringMatching(/^eo-/),
-          ownerId: 1,
-          positionId: 'org-header-position-id',
-          customPositionName: 'City Council',
-          overrideDistrictId: 'org-header-district-id',
-        }),
-      })
-    })
-
-    it('links elected office to organization via matching slug', async () => {
-      const createArgs: CreateElectedOfficeArgs = {
-        userId: 1,
-        campaignId: 1,
-      }
-
-      mockModel.findFirst.mockResolvedValue(null)
-
-      await service.create(createArgs)
-
-      const orgSlug = mockOrgCreate.mock.calls[0][0].data.slug as string
-      const eoOrgSlug = mockEoCreate.mock.calls[0][0].data
-        .organizationSlug as string
-      expect(orgSlug).toBe(eoOrgSlug)
-    })
+    expect(result.id).toBe(existing.id)
+    expect(await service.prisma.electedOffice.count()).toBe(1)
+    expect(
+      await service.prisma.organization.count({
+        where: { ownerId: service.user.id },
+      }),
+    ).toBe(1)
+    // The idempotent return path must still re-dispatch the schedule: a prior
+    // call may have committed the row but died before dispatching, and that
+    // dispatch is the only recovery path. Guards against the dispatch being
+    // gated on the fresh-create branch.
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: existing.id }),
+    )
   })
 
-  describe('update', () => {
-    it('delegates to model.update', async () => {
-      const mockElectedOffice = {
-        id: 'office-1',
-        userId: 1,
-        campaignId: 1,
-        swornInDate: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      const updateArgs = {
-        where: { id: 'office-1' },
-        data: { swornInDate: new Date('2024-01-15') },
-      }
-
-      mockModel.update.mockResolvedValue(mockElectedOffice)
-
-      const result = await service.update(updateArgs)
-
-      expect(mockModel.update).toHaveBeenCalledWith(updateArgs)
-      expect(result).toEqual(mockElectedOffice)
+  it('still creates an office when the user only holds past offices', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'eo-past', ownerId: service.user.id },
     })
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: 'eo-past',
+        isActive: true,
+        termEndAt: addYears(new Date(), -1),
+      },
+    })
+
+    await electedOffices.create({ userId: service.user.id })
+
+    expect(await service.prisma.electedOffice.count()).toBe(2)
+  })
+
+  it('serializes concurrent creates into a single active office', async () => {
+    // Two simultaneous first-office submits for the same user. The advisory
+    // lock + in-transaction held-office recheck must collapse them to one
+    // office and one organization — task 01 removed the unique constraint
+    // that used to backstop this, so the lock is the only guard.
+    const [a, b] = await Promise.all([
+      electedOffices.create({ userId: service.user.id }),
+      electedOffices.create({ userId: service.user.id }),
+    ])
+
+    expect(a.id).toBe(b.id)
+    expect(await service.prisma.electedOffice.count()).toBe(1)
+    expect(
+      await service.prisma.organization.count({
+        where: { ownerId: service.user.id },
+      }),
+    ).toBe(1)
+  })
+
+  it('dispatches the schedule after creating an office', async () => {
+    const dispatch = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: office.id }),
+    )
+  })
+})
+
+describe('ElectedOfficeService.update', () => {
+  it('updates an office field through the real model', async () => {
+    const electedOffices = service.app.get(ElectedOfficeService)
+    await service.prisma.organization.create({
+      data: { slug: 'eo-update', ownerId: service.user.id },
+    })
+    const office = await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: 'eo-update' },
+    })
+
+    const swornInDate = new Date('2025-01-06T00:00:00.000Z')
+    const updated = await electedOffices.update({
+      where: { id: office.id },
+      data: { swornInDate },
+    })
+
+    expect(updated.swornInDate).toEqual(swornInDate)
   })
 })

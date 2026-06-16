@@ -1,0 +1,48 @@
+{
+  "_fixture_note": "WS2 regression proving a blocklisted claim_type is NOT embedding-rescued. item_001 carries a budget_number claim (on the embedding_rescue_blocklist). Its display.summary is a faithful paraphrase of the source extract that scores LOW on lexical signals (TF-IDF + containment) but HIGH on embedding cosine — exactly the case the embedding rescue would normally save. Because budget_number is blocklisted, the rescue must be refused and the item stays below_threshold. Pairs with a non-blocklisted control (see ws2_blocklist_rescuable.json). Synthetic and PII-free.",
+  "experiment_id": "meeting_briefing",
+  "briefing_type": "city_council_meeting",
+  "briefing_status": "briefing_ready",
+  "generated_at": "2026-05-30T00:00:00Z",
+  "official_name": "Fixture Official",
+  "meeting_name": "Town Council",
+  "location": "Town Hall",
+  "meeting_date": "2026-06-01",
+  "estimated_read_minutes": 5,
+  "executive_summary": {"lead_in": "The following items on your agenda require action:"},
+  "run_metadata": {"agenda_packet_url": null, "source_bundle_retrieved_at": "2026-05-30T00:00:00Z"},
+  "items": [
+    {
+      "id": "item_001",
+      "item_number": "1",
+      "title": "Stadium Bond Authorization",
+      "tier": "featured",
+      "vote_required": true,
+      "tier_reason": ["vote_required"],
+      "display": {"summary": "Lawmakers greenlit borrowing for the new arena venture."},
+      "research": {"raw_context": [], "full_treatment": null}
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim_001",
+      "item_id": "item_001",
+      "claim_type": "budget_number",
+      "claim_weight": "high",
+      "claim_text": "The committee approved a $5,000,000 bond for the new stadium project.",
+      "source_ids": ["src_1"],
+      "source_extracts": [
+        {"text": "The committee approved a $5,000,000 bond for the new stadium project.", "extract_type": "quote"}
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "src_1",
+      "source_type": "agenda_packet",
+      "retrieved_text_or_snapshot": "The committee approved a $5,000,000 bond for the new stadium project."
+    }
+  ],
+  "required_data_points": [],
+  "disclosure": "Synthetic fixture for QA spine WS2 regression testing."
+}
