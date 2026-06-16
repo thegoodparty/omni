@@ -87,6 +87,7 @@ export const Playground: Story = {
 }
 
 export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex w-full flex-col gap-10">
       <div>
