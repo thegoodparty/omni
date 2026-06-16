@@ -65,7 +65,7 @@ function WebsiteCard({
             <Button
               asChild
               className="flex-1 min-w-[150px] flex justify-center items-center"
-              variant="secondary"
+              variant="neutral"
             >
               <Link href="/dashboard/website/editor">Edit website</Link>
             </Button>

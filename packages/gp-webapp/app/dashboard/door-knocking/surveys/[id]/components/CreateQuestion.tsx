@@ -164,7 +164,7 @@ export default function CreateQuestion(): React.JSX.Element {
                   />
                   <div className="ml-2 min-w-[112px]">
                     <Button
-                      variant="secondary"
+                      variant="neutral"
                       onClick={handleNewOption}
                       className="w-full"
                     >
@@ -198,7 +198,7 @@ export default function CreateQuestion(): React.JSX.Element {
             }
           />
           <div className="flex justify-end mt-6 items-center pt-4 border-t border-gray-200">
-            <Button variant="secondary" onClick={() => setIsOpen(false)}>
+            <Button variant="neutral" onClick={() => setIsOpen(false)}>
               Cancel
             </Button>
             <Button

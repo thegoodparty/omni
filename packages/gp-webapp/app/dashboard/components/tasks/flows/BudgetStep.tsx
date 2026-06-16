@@ -89,7 +89,7 @@ export default function BudgetStep({
           </div>
           <div className="col-span-6 text-left mt-6">
             <Button
-              variant="secondary"
+              variant="neutral"
               onClick={isTel ? closeCallback : backCallback}
             >
               {isTel ? 'Cancel' : 'Back'}

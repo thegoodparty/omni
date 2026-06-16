@@ -18,7 +18,7 @@ export const FooterButtonLink = ({
     return (
       <Button
         asChild
-        variant="secondary"
+        variant="neutral"
         id={id}
         className="focus-visible:outline-white/40 !text-base"
       >
@@ -32,7 +32,7 @@ export const FooterButtonLink = ({
   return (
     <Button
       asChild
-      variant="secondary"
+      variant="neutral"
       id={id}
       className="focus-visible:outline-white/40 !text-base"
     >

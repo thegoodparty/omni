@@ -221,9 +221,7 @@
   --base-surface-foreground: #ffffff;
   --base-focus-ring: var(--tw-neutral-500);
   --base-ring-offset: #ffffff;
-  --base-foreground-focus: #a3a3a380;
   --base-foreground-dark: var(--tw-neutral-950);
-  --base-foreground-dark-focus: #ffffff80;
   --base-background-dark: #ffffff;
 
   /*
@@ -232,31 +230,31 @@
    * Semantic: main = 300 | light = 800 | dark = 200
    * ==========================================================================
    */
-  --theme-primary: var(--goodparty-blue-300);
-  --theme-primary-light: var(--goodparty-blue-900);
-  --theme-primary-dark: var(--goodparty-blue-200);
+  --theme-primary: var(--color-brand-blue-300);
+  --theme-primary-light: var(--color-brand-blue-950);
+  --theme-primary-dark: var(--color-brand-blue-100);
   --theme-primary-foreground: var(--tw-neutral-950);
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--goodparty-blue-300) 50%,
+    var(--color-brand-blue-300) 50%,
     transparent
   );
-  --theme-secondary: var(--goodparty-cream);
-  --theme-secondary-light: var(--color-midnight-900);
-  --theme-secondary-dark: var(--goodparty-cream);
+  --theme-secondary: var(--color-lavender-400);
+  --theme-secondary-light: var(--color-lavender-950);
+  --theme-secondary-dark: var(--color-lavender-200);
   --theme-secondary-foreground: var(--tw-neutral-950);
   --theme-secondary-focus: color-mix(
     in srgb,
-    var(--goodparty-cream) 50%,
+    var(--color-lavender-400) 50%,
     transparent
   );
-  --theme-tertiary: var(--tw-slate-300);
-  --theme-tertiary-light: var(--tw-slate-900);
+  --theme-tertiary: var(--tw-slate-400);
+  --theme-tertiary-light: var(--tw-slate-800);
   --theme-tertiary-dark: var(--tw-slate-200);
   --theme-tertiary-foreground: #0a0a0a;
   --theme-tertiary-focus: color-mix(
     in srgb,
-    var(--tw-slate-300) 50%,
+    var(--tw-slate-400) 50%,
     transparent
   );
   --theme-destructive: var(--tw-red-300);
@@ -297,9 +295,13 @@
    * COMPONENT TOKENS (dark mode)
    * ==========================================================================
    */
-  --component-link: var(--tw-blue-300);
+  --component-link: var(--color-brand-blue-300);
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
+  --component-card-border: var(--tw-neutral-600);
+  --component-input-active: var(--color-brand-blue-300);
+  --component-input-foreground: var(--tw-white);
+  --component-input-base: var(--tw-neutral-950);
   --component-input-inactive: var(--tw-neutral-300);
   --component-input-inactive-focus: color-mix(
     in srgb,
@@ -394,6 +396,21 @@
   --accent-foreground: var(--base-accent-foreground);
   --color-accent: var(--base-accent);
   --color-accent-foreground: var(--base-accent-foreground);
+
+  /* Secondary */
+  --secondary: var(--theme-secondary);
+  --secondary-foreground: var(--theme-secondary-foreground);
+  --color-secondary: var(--theme-secondary);
+  --color-secondary-foreground: var(--theme-secondary-foreground);
+
+  /* Tertiary */
+  --color-tertiary: var(--theme-tertiary);
+  --color-tertiary-light: var(--theme-tertiary-light);
+  --color-tertiary-dark: var(--theme-tertiary-dark);
+  --color-tertiary-foreground: var(--theme-tertiary-foreground);
+
+  /* Link */
+  --color-link: var(--component-link);
 
   /* Destructive */
   --destructive: var(--theme-destructive);

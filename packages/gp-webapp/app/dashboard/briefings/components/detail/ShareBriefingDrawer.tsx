@@ -267,7 +267,7 @@ export default function ShareBriefingDrawer({
           <Button
             type="button"
             variant="default"
-            size="xSmall"
+            size="small"
             // Use the design-system `primary` token (mapped to GoodParty's
             // brand blue) rather than the raw Tailwind palette, per the
             // root CLAUDE.md design-tokens rule. The Copy CTA stays
