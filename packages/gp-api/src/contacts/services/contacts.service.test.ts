@@ -73,6 +73,9 @@ describe('ContactsService', () => {
       getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
     }
     let voterFileDownloadAccess: VoterFileDownloadAccessService
+    let mockFeaturesService: {
+      isFeatureEnabled: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -105,6 +108,9 @@ describe('ContactsService', () => {
       } as never)
       ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
         createMockLogger()
+      mockFeaturesService = {
+        isFeatureEnabled: vi.fn().mockResolvedValue(true),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
@@ -113,6 +119,7 @@ describe('ContactsService', () => {
         mockCampaignsService as never,
         mockOrganizationsService as never,
         voterFileDownloadAccess,
+        mockFeaturesService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
