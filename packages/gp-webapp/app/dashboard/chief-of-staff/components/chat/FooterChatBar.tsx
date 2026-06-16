@@ -31,7 +31,7 @@ export default function FooterChatBar({
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
-        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-border bg-card pl-1.5 pr-1.5">
+        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
           <IconButton
             type="button"
             size="small"
