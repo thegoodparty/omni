@@ -21,23 +21,20 @@ const buttonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
         outline:
-          'bg-transparent text-foreground border-border hover:bg-muted focus-visible:ring-[3px]',
+          'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
         ghost:
-          'bg-transparent text-foreground border-transparent hover:bg-muted focus-visible:ring-[3px]',
+          'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
         link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
-        whiteOutline:
-          'bg-transparent text-white border-white hover:bg-white/10 focus-visible:border-white focus-visible:ring-white/20 focus-visible:ring-[3px]',
-        whiteGhost:
-          'bg-transparent text-white border-transparent hover:bg-white/10 focus-visible:border-white/20 focus-visible:ring-white/20 focus-visible:ring-[3px]',
+        neutral:
+          'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',
       },
       size: {
-        xSmall: 'h-6 px-3 py-1.5 text-xs tracking-wide has-[>svg]:px-2',
         small: 'h-8 px-4 py-2 text-sm tracking-wide has-[>svg]:px-3',
         medium: 'h-10 px-5 py-2.5 text-base tracking-wide has-[>svg]:px-4',
         large: 'h-12 px-6 py-3 text-base tracking-wide has-[>svg]:px-5',
       },
       iconPosition: {
-        left: '', // Default flex direction
+        left: '',
         right: '',
       },
     },
@@ -85,7 +82,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           data-slot="button"
           data-loading={loading}
           className={cn(
-            buttonVariants({ variant, size, iconPosition, className }),
+            buttonVariants({
+              variant,
+              size,
+              iconPosition,
+              className,
+            }),
           )}
           {...props}
           disabled={isDisabled}
@@ -94,6 +96,19 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </Comp>
       )
     }
+
+    const content = loading ? (
+      <>
+        <LoadingSpinner className="size-4" />
+        {loadingText || children}
+      </>
+    ) : (
+      <>
+        {icon && iconPosition === 'left' && icon}
+        {children}
+        {icon && iconPosition === 'right' && icon}
+      </>
+    )
 
     return (
       <Comp
@@ -106,10 +121,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
         disabled={isDisabled}
       >
-        {!loading && icon && iconPosition === 'left' && icon}
-        {loading && <LoadingSpinner className="size-4" />}
-        {loading ? loadingText || children : children}
-        {!loading && icon && iconPosition === 'right' && icon}
+        {content}
       </Comp>
     )
   },

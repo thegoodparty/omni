@@ -64,7 +64,7 @@ const TranslateAction = ({
           </Select>
           <div className="mt-16 flex w-full justify-end">
             <Button
-              variant="secondary"
+              variant="neutral"
               onClick={() => {
                 setShowTranslate?.(false)
               }}

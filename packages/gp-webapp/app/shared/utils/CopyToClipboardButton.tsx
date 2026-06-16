@@ -27,13 +27,13 @@ const variantMap: Record<LegacyVariant, ButtonProps['variant']> = {
 const colorMap: Record<LegacyColor, ButtonProps['variant']> = {
   primary: 'default',
   secondary: 'secondary',
-  tertiary: 'secondary',
+  tertiary: 'neutral',
   info: 'default',
   success: 'default',
   warning: 'destructive',
   error: 'destructive',
-  neutral: 'secondary',
-  white: 'whiteOutline',
+  neutral: 'neutral',
+  white: 'outline',
 }
 
 interface CopyToClipboardButtonProps {

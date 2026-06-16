@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useGlobals } from 'storybook/preview-api'
 import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
 
 // design-tokens.css is the source of truth. The chain label under each swatch
@@ -14,6 +15,35 @@ import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
 function readVarChain(varName, isDark) {
   let darkChain = null
   let lightChain = null
+
+  // inLight/inDark track whether we're inside a :root or .dark ancestor rule.
+  // PostCSS wraps color-mix() focus tokens in @supports blocks, which causes
+  // properties after those blocks to land in CSSNestedDeclarations rather than
+  // the parent rule's .style. We propagate context so those nested declarations
+  // are read regardless of their rule type.
+  function scan(rules, inLight, inDark) {
+    for (const rule of rules) {
+      let ruleLight = inLight
+      let ruleDark = inDark
+      if (rule instanceof CSSStyleRule) {
+        const selector = rule.selectorText || ''
+        if (/(^|,\s*):root\b/.test(selector)) ruleLight = true
+        if (/\.dark\b/.test(selector)) ruleDark = true
+      }
+      if ((ruleLight || ruleDark) && rule.style) {
+        const raw = rule.style.getPropertyValue(varName).trim()
+        if (raw) {
+          const match = raw.match(/^var\(\s*(--[a-zA-Z0-9-]+)/)
+          if (match) {
+            if (ruleDark) darkChain = match[1]
+            else lightChain = match[1]
+          }
+        }
+      }
+      if (rule.cssRules) scan(rule.cssRules, ruleLight, ruleDark)
+    }
+  }
+
   for (const sheet of document.styleSheets) {
     let rules
     try {
@@ -22,20 +52,9 @@ function readVarChain(varName, isDark) {
       // Cross-origin stylesheet — skip (won't have our tokens anyway).
       continue
     }
-    for (const rule of rules) {
-      if (!(rule instanceof CSSStyleRule)) continue
-      const selector = rule.selectorText || ''
-      const isDarkRule = /\.dark\b/.test(selector)
-      const isLightRule = /(^|,\s*):root\b/.test(selector)
-      if (!isDarkRule && !isLightRule) continue
-      const raw = rule.style.getPropertyValue(varName).trim()
-      if (!raw) continue
-      const match = raw.match(/^var\(\s*(--[a-zA-Z0-9-]+)/)
-      if (!match) continue
-      if (isDarkRule) darkChain = match[1]
-      else lightChain = match[1]
-    }
+    scan(rules, false, false)
   }
+
   return isDark ? (darkChain ?? lightChain) : lightChain
 }
 
@@ -188,7 +207,7 @@ function Swatch({
   return (
     <div
       style={{
-        width: 160,
+        width: 200,
         height: cardHeight ?? 220,
         border: `1px solid ${_borderColor}`,
         borderRadius: 4,
@@ -339,8 +358,6 @@ const BASE_TOKEN_NAMES = [
   'surface-foreground',
   'focus-ring',
   'ring-offset',
-  'foreground-focus',
-  'foreground-dark-focus',
   'foreground-dark',
   'background-dark',
 ]
@@ -384,18 +401,19 @@ const THEME_TOKEN_NAMES = [
 ]
 
 const COMPONENT_TOKEN_NAMES = [
-  'link',
   'card-base',
   'card-foreground',
-  'tooltip-base',
-  'tooltip-foreground',
+  'card-border',
   'input-base',
   'input-foreground',
   'input-border',
   'input-active',
-  'input-inactive',
   'input-focus',
+  'input-inactive',
   'input-inactive-focus',
+  'tooltip-base',
+  'tooltip-foreground',
+  'link',
 ]
 
 const DATA_TOKEN_NAMES = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5']
@@ -472,25 +490,14 @@ const THEME_GROUP_SUB_LABELS = {
 const BASE_GROUPS = [
   ['background', 'foreground', 'surface', 'surface-foreground', 'border'],
   ['muted', 'muted-foreground', 'inactive', 'accent', 'accent-foreground'],
-  ['focus-ring', 'ring-offset', 'foreground-focus', 'foreground-dark-focus'],
+  ['focus-ring', 'ring-offset'],
 ]
 
 const COMPONENT_GROUPS = [
-  [
-    'card-base',
-    'card-foreground',
-    'tooltip-base',
-    'tooltip-foreground',
-    'link',
-  ],
-  [
-    'input-base',
-    'input-foreground',
-    'input-border',
-    'input-active',
-    'input-focus',
-  ],
-  ['input-inactive', 'input-inactive-focus'],
+  ['card-base', 'card-foreground', 'card-border'],
+  ['input-base', 'input-foreground', 'input-border'],
+  ['input-active', 'input-focus', 'input-inactive', 'input-inactive-focus'],
+  ['tooltip-base', 'tooltip-foreground', 'link'],
 ]
 
 const TOKEN_GROUP_META = {
@@ -518,10 +525,11 @@ const TOKEN_GROUP_META = {
   },
 }
 
-export const ThemeColors = ({ mode }) => {
+export const ThemeColors = () => {
   const containerRef = useRef(null)
   const [tokens, setTokens] = useState(null)
-  const isDark = mode === 'dark'
+  const [globals] = useGlobals()
+  const isDark = globals.colorScheme === 'dark'
 
   const baseRefs = {
     base: buildBaseRefMap('base', BASE_TOKEN_NAMES, isDark),
@@ -580,8 +588,8 @@ export const ThemeColors = ({ mode }) => {
               marginTop: 4,
             }}
           >
-            Core theme tokens read from CSS custom properties. Use the Mode
-            control above to toggle between light and dark.
+            Core theme tokens read from CSS custom properties. Use the toolbar
+            color scheme switcher to toggle between light and dark.
           </p>
         </div>
 
@@ -622,9 +630,7 @@ export const ThemeColors = ({ mode }) => {
                             const token = tokens[groupKey]?.[name]
                             if (!token) return null
                             const baseRef = baseRefs[groupKey]?.[name]
-                            const alias = baseRef
-                              ? `${token.ref} → ${baseRef}`
-                              : token.ref
+                            const alias = baseRef ?? null
                             return (
                               <Swatch
                                 key={name}
@@ -653,9 +659,7 @@ export const ThemeColors = ({ mode }) => {
                       )
                       .map(([name, { hex, ref: tokenRef }]) => {
                         const baseRef = baseRefs[groupKey]?.[name]
-                        const alias = baseRef
-                          ? `${tokenRef} → ${baseRef}`
-                          : tokenRef
+                        const alias = baseRef ?? null
                         return (
                           <Swatch
                             key={name}
@@ -681,14 +685,6 @@ export const ThemeColors = ({ mode }) => {
   )
 }
 
-ThemeColors.args = { mode: 'light' }
-ThemeColors.argTypes = {
-  mode: {
-    control: { type: 'radio' },
-    options: ['light', 'dark'],
-    description: 'Toggle between light and dark mode token values',
-  },
-}
 ThemeColors.parameters = {
   layout: 'fullscreen',
   backgrounds: { disable: true },

@@ -31,7 +31,7 @@ export default function CopyScriptButton({
     <CopyToClipboard text={scriptText} onCopy={handleOnCopy}>
       <Button
         size="large"
-        variant="secondary"
+        variant="neutral"
         className="flex items-center"
         {...trackingAttrs}
       >

@@ -97,15 +97,10 @@ export default function InstructionsStep({
         ))}
       </ol>
       <div className="flex justify-between">
-        <Button size="large" variant="secondary" onClick={closeCallback}>
+        <Button size="large" variant="neutral" onClick={closeCallback}>
           Cancel
         </Button>
-        <Button
-          size="large"
-          variant="secondary"
-          onClick={nextCallback}
-          {...trackingAttrs}
-        >
+        <Button size="large" onClick={nextCallback} {...trackingAttrs}>
           Next
         </Button>
       </div>

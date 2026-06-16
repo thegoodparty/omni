@@ -52,7 +52,7 @@ function Stepper(props: StepperProps) {
                   'flex size-10 shrink-0 items-center justify-center rounded-full',
                   isActive
                     ? 'bg-slate-600 text-base-foreground-dark'
-                    : 'bg-blue-50 text-blue-400',
+                    : 'bg-tertiary-light text-tertiary-dark',
                 )}
               >
                 {stepNumber}

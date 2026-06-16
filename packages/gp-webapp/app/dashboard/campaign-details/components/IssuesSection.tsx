@@ -204,7 +204,7 @@ const IssuesSection = (props: IssuesSectionProps): React.JSX.Element => {
                     Edit
                   </Button>
                   <Button
-                    variant="secondary"
+                    variant="neutral"
                     size="medium"
                     onClick={() => {
                       trackEvent(EVENTS.Profile.TopIssues.ClickDelete)
