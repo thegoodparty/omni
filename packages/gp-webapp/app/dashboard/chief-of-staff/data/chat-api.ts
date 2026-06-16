@@ -3,13 +3,12 @@
  * `/v1/chats` with `scope=chief_of_staff`. SSE parsing mirrors the briefing
  * chat client.
  *
- * INTEGRATION SEAM: the `/v1/chats` routes are not yet in
- * `gpApi/api-endpoints.ts` (slice 3 owns them), so every call here uses raw
- * `fetch` through the same-origin `/api` proxy rather than `clientRequest`.
- * The org-slug header is attached explicitly (the proxy does not inject it for
- * these paths) so `@UseElectedOffice` resolves the office. At integration the
- * JSON calls can move to `clientRequest`; the SSE call stays on raw `fetch`
- * because `ofetch` buffers the response body.
+ * The JSON calls (create / list / get / delete) go through the typed
+ * `clientRequest` helper against the routes registered in
+ * `gpApi/api-endpoints.ts`. The streaming call stays on raw `fetch` through the
+ * same-origin `/api` proxy because `ofetch` (clientRequest's transport) buffers
+ * the whole response body, which would defeat SSE — so it attaches the org-slug
+ * header explicitly.
  */
 
 'use client'
@@ -19,12 +18,11 @@ import {
   ORG_SLUG_COOKIE,
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
+import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { ChiefOfStaffChatClient } from './chat-client'
 import type {
   ChatConversationDto,
-  ChatConversationListResponse,
-  ChatConversationMessagesResponse,
   ChatErrorCode,
   ChatStreamEvent,
 } from './contracts'
@@ -129,70 +127,30 @@ async function* parseSseStream(
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...orgHeaders(),
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    throw new Error(`${path} responded ${res.status}`)
-  }
-  return (await res.json()) as T
-}
-
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: { Accept: 'application/json', ...orgHeaders() },
-  })
-  if (!res.ok) {
-    throw new Error(`${path} responded ${res.status}`)
-  }
-  return (await res.json()) as T
-}
-
 export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
   async createConversation() {
-    const data = await postJson<{ conversationId: string; created: boolean }>(
-      '/v1/chats',
-      { scope: SCOPE },
-    )
+    const { data } = await clientRequest('POST /v1/chats', { scope: SCOPE })
     return { conversationId: data.conversationId }
   },
 
   async listMessages(conversationId) {
-    const data = await getJson<ChatConversationMessagesResponse>(
-      `/v1/chats/${encodeURIComponent(conversationId)}?scope=${SCOPE}`,
-    )
+    const { data } = await clientRequest('GET /v1/chats/:id', {
+      id: conversationId,
+      scope: SCOPE,
+    })
     return data.messages
   },
 
   async listConversations(): Promise<ChatConversationDto[]> {
-    const data = await getJson<ChatConversationListResponse>(
-      `/v1/chats?scope=${SCOPE}`,
-    )
+    const { data } = await clientRequest('GET /v1/chats', { scope: SCOPE })
     return data.conversations
   },
 
   async softDelete(conversationId) {
-    const res = await fetch(
-      `/api/v1/chats/${encodeURIComponent(conversationId)}?scope=${SCOPE}`,
-      {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { Accept: 'application/json', ...orgHeaders() },
-      },
-    )
-    if (!res.ok) {
-      throw new Error(`delete conversation responded ${res.status}`)
-    }
+    await clientRequest('DELETE /v1/chats/:id', {
+      id: conversationId,
+      scope: SCOPE,
+    })
   },
 
   async *streamMessage({ conversationId, content, clientMessageId, signal }) {

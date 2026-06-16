@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api } from 'helpers/test-utils/api-mocking'
 import { chiefOfStaffChatApi } from './chat-api'
-import type { ChatStreamEvent } from './contracts'
+import type {
+  ChatConversationDto,
+  ChatMessageDto,
+  ChatScope,
+  ChatStreamEvent,
+} from './contracts'
 
 type FetchMock = ReturnType<typeof vi.fn>
 
@@ -30,19 +36,6 @@ function sse(event: ChatStreamEvent): string {
 }
 
 describe('chiefOfStaffChatApi', () => {
-  let fetchMock: FetchMock
-
-  beforeEach(() => {
-    fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    // No org-slug cookie in jsdom by default; the client tolerates that.
-    document.cookie = ''
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
   async function collect(
     iter: AsyncIterable<ChatStreamEvent>,
   ): Promise<ChatStreamEvent[]> {
@@ -53,23 +46,23 @@ describe('chiefOfStaffChatApi', () => {
 
   describe('createConversation', () => {
     it('POSTs to /v1/chats with the chief_of_staff scope and returns the id', async () => {
-      fetchMock.mockResolvedValueOnce(
-        asJsonResponse(200, { conversationId: 'conv_1', created: false }),
-      )
+      let body: { scope: ChatScope } | undefined
+      api.mock('POST /v1/chats', (req) => {
+        body = req.body
+        return {
+          status: 200,
+          data: { conversationId: 'conv_1', created: false },
+        }
+      })
 
       const result = await chiefOfStaffChatApi.createConversation()
 
       expect(result).toEqual({ conversationId: 'conv_1' })
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe('/api/v1/chats')
-      expect(init.method).toBe('POST')
-      expect(JSON.parse(init.body as string)).toEqual({
-        scope: 'chief_of_staff',
-      })
+      expect(body).toEqual({ scope: 'chief_of_staff' })
     })
 
     it('throws on a non-2xx response', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(500, { message: 'boom' }))
+      api.mock('POST /v1/chats', { status: 500, data: { message: 'boom' } })
       await expect(chiefOfStaffChatApi.createConversation()).rejects.toThrow(
         /500/,
       )
@@ -78,33 +71,37 @@ describe('chiefOfStaffChatApi', () => {
 
   describe('listMessages', () => {
     it('GETs the conversation endpoint and returns its messages', async () => {
-      const messages = [
+      const messages: ChatMessageDto[] = [
         {
           id: 'm1',
           conversationId: 'conv_1',
-          role: 'user' as const,
+          role: 'user',
           content: 'hi',
           createdAt: '2026-06-15T00:00:00.000Z',
         },
       ]
-      fetchMock.mockResolvedValueOnce(
-        asJsonResponse(200, { conversationId: 'conv_1', messages }),
-      )
+      let capturedId: string | undefined
+      let capturedScope: ChatScope | undefined
+      api.mock('GET /v1/chats/:id', ({ params, query }) => {
+        capturedId = params.id
+        capturedScope = query.scope
+        return { status: 200, data: { conversationId: 'conv_1', messages } }
+      })
 
       const result = await chiefOfStaffChatApi.listMessages('conv_1')
 
       expect(result).toEqual(messages)
-      const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/chats/conv_1?scope=chief_of_staff')
+      expect(capturedId).toBe('conv_1')
+      expect(capturedScope).toBe('chief_of_staff')
     })
   })
 
   describe('listConversations', () => {
     it('GETs /v1/chats scoped to chief_of_staff and returns conversations', async () => {
-      const conversations = [
+      const conversations: ChatConversationDto[] = [
         {
-          id: 'conv_1',
-          scope: 'chief_of_staff' as const,
+          conversationId: 'conv_1',
+          scope: 'chief_of_staff',
           title: 'Budget questions',
           organizationSlug: 'eo-1',
           ownerUserId: 7,
@@ -113,36 +110,60 @@ describe('chiefOfStaffChatApi', () => {
           updatedAt: '2026-06-14T00:00:00.000Z',
         },
       ]
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, { conversations }))
+      let capturedScope: ChatScope | undefined
+      api.mock('GET /v1/chats', ({ query }) => {
+        capturedScope = query.scope
+        return { status: 200, data: { conversations } }
+      })
 
       const result = await chiefOfStaffChatApi.listConversations()
 
       expect(result).toEqual(conversations)
-      const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/chats?scope=chief_of_staff')
+      expect(capturedScope).toBe('chief_of_staff')
     })
   })
 
   describe('softDelete', () => {
-    it('DELETEs the conversation endpoint', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, {}))
+    it('DELETEs the conversation endpoint scoped to chief_of_staff', async () => {
+      let capturedId: string | undefined
+      let capturedScope: ChatScope | undefined
+      api.mock('DELETE /v1/chats/:id', ({ params, query }) => {
+        capturedId = params.id
+        capturedScope = query.scope
+        return { status: 200, data: undefined }
+      })
+
       await expect(
         chiefOfStaffChatApi.softDelete('conv_1'),
       ).resolves.toBeUndefined()
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe('/api/v1/chats/conv_1?scope=chief_of_staff')
-      expect(init.method).toBe('DELETE')
+      expect(capturedId).toBe('conv_1')
+      expect(capturedScope).toBe('chief_of_staff')
     })
 
     it('throws on a non-2xx response', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(404, {}))
+      api.mock('DELETE /v1/chats/:id', { status: 404, data: {} })
       await expect(chiefOfStaffChatApi.softDelete('conv_x')).rejects.toThrow(
         /404/,
       )
     })
   })
 
+  // The streaming call stays on raw `fetch` (ofetch buffers the body), so these
+  // tests stub the global fetch instead of going through the typed mocker.
   describe('streamMessage', () => {
+    let fetchMock: FetchMock
+
+    beforeEach(() => {
+      fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      // No org-slug cookie in jsdom by default; the client tolerates that.
+      document.cookie = ''
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
     it('POSTs to the messages endpoint and parses text + done frames', async () => {
       fetchMock.mockResolvedValueOnce(
         asSseResponse(200, [

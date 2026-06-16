@@ -1,15 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { api } from 'helpers/test-utils/api-mocking'
 import { dashboardApi } from './dashboard-api'
-import type { DashboardCard, SupportEstimate } from './contracts'
-
-type FetchMock = ReturnType<typeof vi.fn>
-
-function asJsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
+import type {
+  DashboardCard,
+  DashboardCardBucket,
+  SupportEstimate,
+} from './contracts'
 
 const ESTIMATE: SupportEstimate = {
   likelySupport: 1200,
@@ -34,65 +30,63 @@ const CARD: DashboardCard = {
 }
 
 describe('dashboardApi', () => {
-  let fetchMock: FetchMock
-
-  beforeEach(() => {
-    fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
   describe('getSupportEstimate', () => {
     it('GETs the support-estimate endpoint and returns the estimate', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, ESTIMATE))
+      api.mock('GET /v1/dashboard/support-estimate', {
+        status: 200,
+        data: ESTIMATE,
+      })
 
-      const result = await dashboardApi.getSupportEstimate()
-
-      expect(result).toEqual(ESTIMATE)
-      const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/dashboard/support-estimate')
+      expect(await dashboardApi.getSupportEstimate()).toEqual(ESTIMATE)
     })
 
     it('throws on a non-2xx response', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(500, {}))
+      api.mock('GET /v1/dashboard/support-estimate', { status: 500, data: {} })
       await expect(dashboardApi.getSupportEstimate()).rejects.toThrow(/500/)
     })
   })
 
   describe('getCards', () => {
     it('GETs the cards endpoint with the bucket query and unwraps the list', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, { cards: [CARD] }))
+      let capturedBucket: DashboardCardBucket | undefined
+      api.mock('GET /v1/dashboard/cards', ({ query }) => {
+        capturedBucket = query.bucket
+        return { status: 200, data: { cards: [CARD] } }
+      })
 
-      const result = await dashboardApi.getCards('active')
-
-      expect(result).toEqual([CARD])
-      const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/dashboard/cards?bucket=active')
+      expect(await dashboardApi.getCards('active')).toEqual([CARD])
+      expect(capturedBucket).toBe('active')
     })
 
     it('passes the requested bucket through to the query string', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, { cards: [] }))
+      let capturedBucket: DashboardCardBucket | undefined
+      api.mock('GET /v1/dashboard/cards', ({ query }) => {
+        capturedBucket = query.bucket
+        return { status: 200, data: { cards: [] } }
+      })
+
       await dashboardApi.getCards('skipped')
-      const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/dashboard/cards?bucket=skipped')
+      expect(capturedBucket).toBe('skipped')
     })
   })
 
   describe('dismissCard', () => {
     it('PUTs to the dismiss endpoint for the given card id', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, {}))
+      let capturedId: string | undefined
+      api.mock('PUT /v1/dashboard/cards/:id/dismiss', ({ params }) => {
+        capturedId = params.id
+        return { status: 200, data: undefined }
+      })
 
       await expect(dashboardApi.dismissCard('card_1')).resolves.toBeUndefined()
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe('/api/v1/dashboard/cards/card_1/dismiss')
-      expect(init.method).toBe('PUT')
+      expect(capturedId).toBe('card_1')
     })
 
     it('throws on a non-2xx response', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(500, {}))
+      api.mock('PUT /v1/dashboard/cards/:id/dismiss', {
+        status: 500,
+        data: {},
+      })
       await expect(dashboardApi.dismissCard('card_x')).rejects.toThrow(/500/)
     })
   })
