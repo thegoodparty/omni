@@ -253,6 +253,14 @@ describe('ContactEngagement routes', () => {
 
       expect(result.status).toBe(404)
     })
+
+    it('rejects with 404 when the X-Organization-Slug header is absent', async () => {
+      const result = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/activities`,
+      )
+
+      expect(result.status).toBe(404)
+    })
   })
 
   describe('GET /contact-engagement/:id/activities (elected office context)', () => {
@@ -299,6 +307,40 @@ describe('ContactEngagement routes', () => {
         type: ConstituentActivityType.POLL_INTERACTIONS,
         data: { pollId: poll.id, pollTitle: 'Community Survey' },
       })
+    })
+  })
+
+  describe('GET /contact-engagement/:id/issues', () => {
+    it('returns empty issues for a campaign context', async () => {
+      const result = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/issues`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data).toEqual({ nextCursor: null, results: [] })
+    })
+
+    it('routes to the poll-issues path for an elected office', async () => {
+      const eoOrgSlug = `eo-issues-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: service.user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          campaignId: campaign.id,
+          organizationSlug: eoOrgSlug,
+        },
+      })
+
+      const result = await service.client.get(
+        '/v1/contact-engagement/person-456/issues',
+        { headers: { 'x-organization-slug': eoOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data).toEqual({ nextCursor: null, results: [] })
     })
   })
 })
