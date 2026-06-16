@@ -14,6 +14,7 @@ import type {
 } from '../../data/contracts'
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
+import { useChatHistory } from '../../data/use-chat-history'
 
 interface Props {
   /**
@@ -101,12 +102,32 @@ export default function ChiefOfStaffChatBody({
   const [error, setError] = useState<ErrorState | null>(null)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
+  const [introRevealed, setIntroRevealed] = useState(0)
 
   const abortRef = useRef<AbortController | null>(null)
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  // The intro only plays on the user's first chat — i.e. they have no prior
+  // conversations — and streams the messages in one at a time.
+  const { data: priorConversations } = useChatHistory(
+    active && !conversationIdOverride,
+  )
+  const isFirstChat =
+    !conversationIdOverride &&
+    priorConversations !== undefined &&
+    priorConversations.length === 0
+
+  useEffect(() => {
+    if (!isFirstChat) return
+    setIntroRevealed(0)
+    const timers = COS_INTRO_MESSAGES.map((_, i) =>
+      setTimeout(() => setIntroRevealed(i + 1), 700 * (i + 1)),
+    )
+    return () => timers.forEach(clearTimeout)
+  }, [isFirstChat])
 
   // Override path — replay an existing conversation's messages once on mount.
   const loadExisting = useCallback(async () => {
@@ -358,7 +379,7 @@ export default function ChiefOfStaffChatBody({
 
   const busy = sending || creating
   const showIntro =
-    !conversationIdOverride && history.length === 0 && !streaming && !error
+    isFirstChat && history.length === 0 && !streaming && !error
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -374,15 +395,35 @@ export default function ChiefOfStaffChatBody({
           <div className="text-sm text-muted-foreground">Loading chat...</div>
         )}
 
-        {showIntro &&
-          COS_INTRO_MESSAGES.map((text, i) => (
-            <div
-              key={i}
-              className="self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground"
-            >
-              {text}
-            </div>
-          ))}
+        {showIntro && (
+          <>
+            {COS_INTRO_MESSAGES.slice(0, introRevealed).map((text, i) => (
+              <div
+                key={i}
+                className="flex max-w-full items-start gap-2 self-start"
+              >
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <SparklesIcon className="size-3.5" aria-hidden />
+                </span>
+                <div className={ASSISTANT_BUBBLE}>{text}</div>
+              </div>
+            ))}
+            {introRevealed < COS_INTRO_MESSAGES.length && (
+              <div className="flex max-w-full items-start gap-2 self-start">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <SparklesIcon className="size-3.5" aria-hidden />
+                </span>
+                <div className={ASSISTANT_BUBBLE}>
+                  <span className="flex gap-1 py-1">
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0.15s]" />
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0.3s]" />
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {history.map((item) =>
           item.kind === 'user' ? (

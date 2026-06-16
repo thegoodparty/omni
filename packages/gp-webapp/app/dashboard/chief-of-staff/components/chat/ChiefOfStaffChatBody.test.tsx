@@ -39,11 +39,27 @@ beforeEach(() => {
 })
 
 describe('<ChiefOfStaffChatBody>', () => {
-  it('plays the hard-coded intro messages on first open', () => {
+  it('streams the intro messages on the first chat', async () => {
+    listConversationsMock.mockResolvedValue([])
     render(<ChiefOfStaffChatBody active />)
     for (const msg of COS_INTRO_MESSAGES) {
-      expect(screen.getByText(msg)).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByText(msg)).toBeInTheDocument(), {
+        timeout: 3000,
+      })
     }
+  })
+
+  it('does not play the intro once the user has prior conversations', async () => {
+    listConversationsMock.mockResolvedValue([
+      {
+        conversationId: 'c1',
+        title: 'Old chat',
+        createdAt: '2026-06-14T00:00:00.000Z',
+      },
+    ])
+    render(<ChiefOfStaffChatBody active />)
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalled())
+    expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
   })
 
   it('does NOT create a conversation on mount (deferred create)', () => {
