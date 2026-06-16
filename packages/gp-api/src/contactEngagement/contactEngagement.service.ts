@@ -1,4 +1,5 @@
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
+import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
 import {
   Poll,
@@ -13,17 +14,64 @@ import {
   ConstituentActivityEventType,
   ConstituentActivityType,
   ConstituentIssue,
+  GetCampaignActivitiesResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  OutreachConstituentActivity,
 } from './contactEngagement.types'
 
 type PollIndividualMessageWithPoll = PollIndividualMessage & { poll: Poll }
+
+type CampaignActivityInput = {
+  campaignId: number
+  lalVoterId: string
+  take?: number
+  after?: string
+}
 
 @Injectable()
 export class ContactEngagementService {
   constructor(
     private readonly pollIndividualMessage: PollIndividualMessageService,
+    private readonly voterOutreachActivity: VoterOutreachActivityService,
   ) {}
+
+  async getCampaignActivities(
+    input: CampaignActivityInput,
+  ): Promise<GetCampaignActivitiesResponse> {
+    const { campaignId, lalVoterId, take, after } = input
+    const limit = take ?? 20
+
+    // Newest-first, backed by the (campaignId, lalVoterId, occurredAt) index.
+    const activities = await this.voterOutreachActivity.getActivityForVoter(
+      campaignId,
+      lalVoterId,
+    )
+
+    const allActivities: OutreachConstituentActivity[] = activities.map(
+      (activity) => ({
+        type: ConstituentActivityType.OUTREACH,
+        date: activity.occurredAt.toISOString(),
+        data: {
+          activityId: activity.id,
+          outreachType: activity.outreachType,
+          attributionSource: activity.attributionSource,
+        },
+      }),
+    )
+
+    const startIndex = after
+      ? allActivities.findIndex((a) => String(a.data.activityId) === after) + 1
+      : 0
+    const page = allActivities.slice(startIndex, startIndex + limit + 1)
+    const results = page.slice(0, limit)
+    const nextCursor =
+      page.length > limit
+        ? (results[results.length - 1]?.data.activityId.toString() ?? null)
+        : null
+
+    return { nextCursor, results }
+  }
 
   async getIndividualActivities(
     input: IndividualActivityInput,

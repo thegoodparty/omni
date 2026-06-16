@@ -1,4 +1,4 @@
-import { ElectedOffice } from '../../generated/prisma'
+import { Campaign, ElectedOffice } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactEngagementController } from '../contactEngagement.controller'
 import { ContactEngagementService } from '../contactEngagement.service'
@@ -35,6 +35,10 @@ describe('ContactEngagementController', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
+
+    // EO context: the campaign arg is never read (the controller branches on
+    // the elected office), so the poll-path tests pass it as absent.
+    const noCampaign = undefined as unknown as Campaign
 
     const mockParams = {
       id: 'person-123',
@@ -74,6 +78,7 @@ describe('ContactEngagementController', () => {
         mockParams,
         mockQuery,
         mockElectedOffice,
+        noCampaign,
       )
 
       expect(
@@ -113,6 +118,7 @@ describe('ContactEngagementController', () => {
         mockParams,
         mockQuery,
         differentElectedOffice,
+        noCampaign,
       )
 
       expect(
