@@ -11,11 +11,24 @@ export class VoterOutreachActivityService extends createPrismaBase(
   }
 
   // Person-timeline read: newest first, backed by the
-  // (campaignId, lalVoterId, occurredAt) index.
-  getActivityForVoter(campaignId: number, lalVoterId: string) {
+  // (campaignId, lalVoterId, occurredAt) index. When `take` is given the page
+  // is bounded at the DB; `cursor` (an activity id) pages forward without
+  // loading earlier rows. The `id` tiebreak keeps the order total so cursor
+  // paging is deterministic when two activities share an occurredAt.
+  getActivityForVoter(
+    campaignId: number,
+    lalVoterId: string,
+    take?: number,
+    cursor?: string,
+  ) {
     return this.model.findMany({
       where: { campaignId, lalVoterId },
-      orderBy: { occurredAt: Prisma.SortOrder.desc },
+      orderBy: [
+        { occurredAt: Prisma.SortOrder.desc },
+        { id: Prisma.SortOrder.desc },
+      ],
+      ...(take !== undefined ? { take } : {}),
+      ...(cursor ? { cursor: { id: parseInt(cursor, 10) }, skip: 1 } : {}),
     })
   }
 }

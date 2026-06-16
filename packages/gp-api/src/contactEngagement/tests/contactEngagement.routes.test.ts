@@ -78,6 +78,85 @@ describe('ContactEngagement routes', () => {
       })
     })
 
+    it('pages forward with the activityId cursor', async () => {
+      await service.prisma.voterOutreachActivity.createMany({
+        data: [
+          {
+            campaignId: campaign.id,
+            lalVoterId,
+            outreachType: OutreachType.doorKnocking,
+            attributionSource: VoterOutreachAttributionSource.recipient,
+            occurredAt: new Date('2026-01-10T10:00:00Z'),
+          },
+          {
+            campaignId: campaign.id,
+            lalVoterId,
+            outreachType: OutreachType.phoneBanking,
+            attributionSource: VoterOutreachAttributionSource.segmentDerived,
+            occurredAt: new Date('2026-02-15T10:00:00Z'),
+          },
+          {
+            campaignId: campaign.id,
+            lalVoterId,
+            outreachType: OutreachType.text,
+            attributionSource: VoterOutreachAttributionSource.segmentDerived,
+            occurredAt: new Date('2026-03-20T10:00:00Z'),
+          },
+        ],
+      })
+
+      const page1 = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/activities`,
+        {
+          params: { take: 2 },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(page1.status).toBe(200)
+      expect(page1.data.results).toHaveLength(2)
+      expect(page1.data.results[0].date).toBe('2026-03-20T10:00:00.000Z')
+      expect(page1.data.results[1].date).toBe('2026-02-15T10:00:00.000Z')
+      expect(page1.data.nextCursor).not.toBeNull()
+
+      const page2 = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/activities`,
+        {
+          params: { take: 2, after: page1.data.nextCursor },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(page2.status).toBe(200)
+      expect(page2.data.results).toHaveLength(1)
+      expect(page2.data.results[0].date).toBe('2026-01-10T10:00:00.000Z')
+      expect(page2.data.nextCursor).toBeNull()
+    })
+
+    it('returns an empty page for a stale cursor instead of looping', async () => {
+      await service.prisma.voterOutreachActivity.create({
+        data: {
+          campaignId: campaign.id,
+          lalVoterId,
+          outreachType: OutreachType.doorKnocking,
+          attributionSource: VoterOutreachAttributionSource.recipient,
+          occurredAt: new Date('2026-01-10T10:00:00Z'),
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${lalVoterId}/activities`,
+        {
+          params: { after: '999999' },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toEqual([])
+      expect(result.data.nextCursor).toBeNull()
+    })
+
     it('does not return another campaign activities for the same voter', async () => {
       const otherOrgSlug = `campaign-other-${Date.now()}`
       await service.prisma.organization.create({

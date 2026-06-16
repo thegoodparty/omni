@@ -1,4 +1,8 @@
-import { PollIndividualMessageSender } from '../../generated/prisma'
+import {
+  OutreachType,
+  PollIndividualMessageSender,
+  VoterOutreachAttributionSource,
+} from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ConstituentActivityEventType,
@@ -645,6 +649,129 @@ describe('ContactEngagementService', () => {
 
       expect(result.results).toHaveLength(1)
       expect(result.results[0].issueTitle).toBe('Only')
+      expect(result.nextCursor).toBeNull()
+    })
+  })
+
+  describe('getCampaignActivities', () => {
+    let campaignService: ContactEngagementService
+    let mockVoterOutreachActivityService: {
+      getActivityForVoter: ReturnType<typeof vi.fn>
+    }
+
+    beforeEach(() => {
+      mockVoterOutreachActivityService = {
+        getActivityForVoter: vi.fn(),
+      }
+
+      campaignService = {
+        voterOutreachActivity: mockVoterOutreachActivityService,
+        getCampaignActivities:
+          ContactEngagementService.prototype.getCampaignActivities,
+      } as unknown as ContactEngagementService
+
+      campaignService.getCampaignActivities =
+        campaignService.getCampaignActivities.bind(campaignService)
+
+      vi.clearAllMocks()
+    })
+
+    const baseInput = {
+      campaignId: 7,
+      lalVoterId: 'LAL-1',
+    }
+
+    it('maps outreach rows to OUTREACH activities, newest first', async () => {
+      mockVoterOutreachActivityService.getActivityForVoter.mockResolvedValue([
+        {
+          id: 2,
+          occurredAt: new Date('2026-02-20T10:00:00Z'),
+          outreachType: OutreachType.text,
+          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        },
+        {
+          id: 1,
+          occurredAt: new Date('2026-01-10T10:00:00Z'),
+          outreachType: OutreachType.doorKnocking,
+          attributionSource: VoterOutreachAttributionSource.recipient,
+        },
+      ])
+
+      const result = await campaignService.getCampaignActivities(baseInput)
+
+      expect(
+        mockVoterOutreachActivityService.getActivityForVoter,
+      ).toHaveBeenCalledWith(7, 'LAL-1', 21, undefined)
+      expect(result.nextCursor).toBeNull()
+      expect(result.results).toEqual([
+        {
+          type: ConstituentActivityType.OUTREACH,
+          date: '2026-02-20T10:00:00.000Z',
+          data: {
+            activityId: 2,
+            outreachType: OutreachType.text,
+            attributionSource: VoterOutreachAttributionSource.segmentDerived,
+          },
+        },
+        {
+          type: ConstituentActivityType.OUTREACH,
+          date: '2026-01-10T10:00:00.000Z',
+          data: {
+            activityId: 1,
+            outreachType: OutreachType.doorKnocking,
+            attributionSource: VoterOutreachAttributionSource.recipient,
+          },
+        },
+      ])
+    })
+
+    it('returns nextCursor and trims the oversampled row when more exist', async () => {
+      mockVoterOutreachActivityService.getActivityForVoter.mockResolvedValue([
+        {
+          id: 3,
+          occurredAt: new Date('2026-03-01T10:00:00Z'),
+          outreachType: OutreachType.text,
+          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        },
+        {
+          id: 2,
+          occurredAt: new Date('2026-02-01T10:00:00Z'),
+          outreachType: OutreachType.text,
+          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        },
+        {
+          id: 1,
+          occurredAt: new Date('2026-01-01T10:00:00Z'),
+          outreachType: OutreachType.text,
+          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        },
+      ])
+
+      const result = await campaignService.getCampaignActivities({
+        ...baseInput,
+        take: 2,
+      })
+
+      expect(
+        mockVoterOutreachActivityService.getActivityForVoter,
+      ).toHaveBeenCalledWith(7, 'LAL-1', 3, undefined)
+      expect(result.results).toHaveLength(2)
+      expect(result.nextCursor).toBe('2')
+    })
+
+    it('forwards the after cursor to the read', async () => {
+      mockVoterOutreachActivityService.getActivityForVoter.mockResolvedValue([])
+
+      const result = await campaignService.getCampaignActivities({
+        ...baseInput,
+        take: 5,
+        after: '42',
+      })
+
+      expect(
+        mockVoterOutreachActivityService.getActivityForVoter,
+      ).toHaveBeenCalledWith(7, 'LAL-1', 6, '42')
+      expect(result.results).toEqual([])
       expect(result.nextCursor).toBeNull()
     })
   })

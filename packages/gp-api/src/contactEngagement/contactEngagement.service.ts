@@ -42,31 +42,28 @@ export class ContactEngagementService {
     const { campaignId, lalVoterId, take, after } = input
     const limit = take ?? 20
 
-    // Newest-first, backed by the (campaignId, lalVoterId, occurredAt) index.
+    // Oversample by 1 to detect a next page. Pagination is bounded at the DB
+    // via cursor; a stale/foreign `after` matches no row and yields an empty
+    // page (no in-memory reset, so no infinite-loop on a bad cursor).
     const activities = await this.voterOutreachActivity.getActivityForVoter(
       campaignId,
       lalVoterId,
+      limit + 1,
+      after,
     )
 
-    const allActivities: OutreachConstituentActivity[] = activities.map(
-      (activity) => ({
-        type: ConstituentActivityType.OUTREACH,
-        date: activity.occurredAt.toISOString(),
-        data: {
-          activityId: activity.id,
-          outreachType: activity.outreachType,
-          attributionSource: activity.attributionSource,
-        },
-      }),
-    )
-
-    const startIndex = after
-      ? allActivities.findIndex((a) => String(a.data.activityId) === after) + 1
-      : 0
-    const page = allActivities.slice(startIndex, startIndex + limit + 1)
-    const results = page.slice(0, limit)
+    const page = activities.slice(0, limit)
+    const results: OutreachConstituentActivity[] = page.map((activity) => ({
+      type: ConstituentActivityType.OUTREACH,
+      date: activity.occurredAt.toISOString(),
+      data: {
+        activityId: activity.id,
+        outreachType: activity.outreachType,
+        attributionSource: activity.attributionSource,
+      },
+    }))
     const nextCursor =
-      page.length > limit
+      activities.length > limit
         ? (results[results.length - 1]?.data.activityId.toString() ?? null)
         : null
 
