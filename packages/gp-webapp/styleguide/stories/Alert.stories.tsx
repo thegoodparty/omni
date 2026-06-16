@@ -7,14 +7,6 @@ const meta: Meta<typeof Alert> = {
   title: 'Components/Alert',
   component: Alert,
   tags: ['autodocs'],
-  argTypes: {
-    variant: {
-      control: 'select',
-      options: ['default', 'info', 'success', 'destructive'],
-      description:
-        'Visual treatment. Sets border, text, and icon colors for the alert tone.',
-    },
-  },
 }
 
 export default meta
@@ -42,6 +34,12 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     description: 'You can add components and dependencies to your app.',
   },
   argTypes: {
+    variant: {
+      control: 'select',
+      options: ['default', 'info', 'success', 'destructive'],
+      description:
+        'Visual treatment. Sets border, text, and icon colors for the alert tone.',
+    },
     showIcon: {
       control: 'boolean',
       description: 'Render an icon to the left of the title and description.',
@@ -60,59 +58,47 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   ),
 }
 
-export const Default: Story = {
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Alert>
-      <AlertTitle>Heads up!</AlertTitle>
-      <AlertDescription>
-        You can add components and dependencies to your app using the cli.
-      </AlertDescription>
-    </Alert>
-  ),
-}
+    <div className="flex w-full flex-col gap-4">
+      <Alert>
+        <AlertTitle>Default</AlertTitle>
+        <AlertDescription>
+          Used for neutral messages that don&apos;t carry a specific tone.
+        </AlertDescription>
+      </Alert>
 
-export const Info: Story = {
-  render: () => (
-    <Alert variant="info" icon={<InfoIcon />}>
-      <AlertTitle>Alert Title</AlertTitle>
-      <AlertDescription>This is an alert description.</AlertDescription>
-    </Alert>
-  ),
-}
+      <Alert variant="info" icon={<InfoIcon />}>
+        <AlertTitle>Info</AlertTitle>
+        <AlertDescription>
+          Provides helpful context or guidance to the user.
+        </AlertDescription>
+      </Alert>
 
-export const Success: Story = {
-  render: () => (
-    <Alert variant="success" icon={<CheckCircleIcon />}>
-      <AlertTitle>Success! Your changes have been saved.</AlertTitle>
-      <AlertDescription>
-        This is an alert with icon, title and description.
-      </AlertDescription>
-    </Alert>
-  ),
-}
+      <Alert variant="success" icon={<CheckCircleIcon />}>
+        <AlertTitle>Success</AlertTitle>
+        <AlertDescription>
+          Confirms that an action completed successfully.
+        </AlertDescription>
+      </Alert>
 
-export const Destructive: Story = {
-  render: () => (
-    <Alert variant="destructive" icon={<XCircleIcon />}>
-      <AlertTitle>Something went wrong!</AlertTitle>
-      <AlertDescription>
-        Your session has expired. Please log in again.
-      </AlertDescription>
-    </Alert>
-  ),
-}
+      <Alert variant="destructive" icon={<XCircleIcon />}>
+        <AlertTitle>Destructive</AlertTitle>
+        <AlertDescription>
+          Signals an error or action that requires attention.
+        </AlertDescription>
+      </Alert>
 
-export const WithAction: Story = {
-  render: () => (
-    <Alert>
-      <AlertTitle>New feature available!</AlertTitle>
-      <AlertDescription>
-        Check out our new dashboard feature. It&apos;s now available for all
-        users.
-      </AlertDescription>
-      <Button size="small" className="col-start-2 mt-2 w-fit">
-        Learn more
-      </Button>
-    </Alert>
+      <Alert>
+        <AlertTitle>With action</AlertTitle>
+        <AlertDescription>
+          An optional action button can follow the description.
+        </AlertDescription>
+        <Button size="small" className="col-start-2 mt-2 w-fit">
+          Learn more
+        </Button>
+      </Alert>
+    </div>
   ),
 }
