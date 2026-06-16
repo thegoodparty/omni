@@ -31,7 +31,7 @@ export default function FooterChatBar({
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
-        <div className="relative w-full rounded-full bg-gradient-to-r from-primary to-info p-px">
+        <div className="relative w-full rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             <ChatHistoryPopover onSelect={onOpenConversation} />
             <button

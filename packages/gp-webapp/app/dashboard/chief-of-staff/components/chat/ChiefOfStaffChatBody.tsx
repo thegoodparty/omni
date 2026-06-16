@@ -90,12 +90,28 @@ const CHAT_SUGGESTIONS = [
   'What are constituents saying?',
 ]
 
+// Markdown rendered inside a chat bubble inherits flex/whitespace from the
+// message layout, which breaks <p>/<strong>/<a> onto their own lines. The
+// !block / !inline / !whitespace-normal overrides neutralize that (same set
+// the briefing chat uses) so prose, lists, headings and tables render cleanly.
 const ASSISTANT_BUBBLE =
   'self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground ' +
-  'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_strong]:font-semibold ' +
-  '[&_em]:italic [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 ' +
-  '[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:my-0 ' +
-  '[&_code]:rounded [&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs'
+  'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
+  '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
+  '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
+  '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
+  '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
+  '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
+  '[&_ul]:space-y-1 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
+  '[&_ol]:space-y-1 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
+  '[&_h2]:!block [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:!block ' +
+  '[&_h3]:text-sm [&_h3]:font-semibold [&_table]:!table [&_table]:!w-full ' +
+  '[&_table]:!border-collapse [&_table]:my-2 [&_thead]:!table-header-group ' +
+  '[&_tbody]:!table-row-group [&_tr]:!table-row [&_tr]:!border-b ' +
+  '[&_tr]:border-foreground/15 [&_th]:!table-cell [&_th]:px-2 [&_th]:py-1.5 ' +
+  '[&_th]:text-left [&_th]:font-semibold [&_th]:!border-b-2 ' +
+  '[&_th]:!border-foreground/30 [&_td]:!table-cell [&_td]:px-2 [&_td]:py-1.5 ' +
+  '[&_td]:align-top'
 
 /**
  * The reusable Chief of Staff chat surface body — separate from the briefing
@@ -577,7 +593,7 @@ export default function ChiefOfStaffChatBody({
       )}
 
       <div className="border-t border-border px-3 py-3">
-        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-primary to-info p-px">
+        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             {onSelectConversation && (
               <ChatHistoryPopover onSelect={onSelectConversation} />
