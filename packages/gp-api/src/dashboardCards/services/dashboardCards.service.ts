@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { formatInTimeZone } from 'date-fns-tz'
-import { endOfWeek, parseISO, startOfWeek } from 'date-fns'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { endOfWeek, startOfWeek } from 'date-fns'
 import {
   DashboardCard,
   DashboardCardType,
@@ -61,8 +61,16 @@ export class DashboardCardsService extends createPrismaBase(
     }
 
     const artifact = parsed.data
-    const dueDate = briefing.meetingDate
-    const dateSlug = formatInTimeZone(dueDate, 'UTC', 'yyyy-MM-dd')
+    const dateSlug = formatInTimeZone(briefing.meetingDate, 'UTC', 'yyyy-MM-dd')
+    // dueDate is the instant the meeting day ends in the meeting's own
+    // timezone, so a card stays active through the whole meeting day and the
+    // active/missed split is a plain now() comparison. meetingDate is a
+    // calendar date stored at UTC midnight; reinterpret it in the briefing's
+    // timezone and take the end of that day.
+    const dueDate = fromZonedTime(
+      `${dateSlug}T23:59:59.999`,
+      briefing.meetingTimezone || 'UTC',
+    )
     const summary =
       artifact.executive_summary?.subheadline ??
       artifact.executive_summary?.headline ??
@@ -175,12 +183,6 @@ export class DashboardCardsService extends createPrismaBase(
     bucket: DashboardCardBucket,
   ): Prisma.DashboardCardWhereInput {
     const now = new Date()
-    // dueDate holds the meeting date at UTC midnight (it derives from a
-    // @db.Date). Compare against the start of today in UTC so a card stays
-    // active through its whole meeting day. A local-timezone startOfDay would
-    // shift the boundary off the stored UTC-midnight value and drop same-day
-    // cards in any timezone west of UTC.
-    const today = parseISO(`${formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')}T00:00:00Z`)
     switch (bucket) {
       case 'skipped':
         return { electedOfficeId, dismissedAt: { not: null } }
@@ -188,7 +190,7 @@ export class DashboardCardsService extends createPrismaBase(
         return {
           electedOfficeId,
           dismissedAt: null,
-          dueDate: { lt: today },
+          dueDate: { lt: now },
         }
       case 'this_week':
         return {
@@ -202,7 +204,7 @@ export class DashboardCardsService extends createPrismaBase(
         return {
           electedOfficeId,
           dismissedAt: null,
-          dueDate: { gte: today },
+          dueDate: { gte: now },
         }
     }
   }
