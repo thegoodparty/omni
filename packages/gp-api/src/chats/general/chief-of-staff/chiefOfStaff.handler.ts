@@ -20,7 +20,10 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { buildConstituentDataScope } from './services/constituentDataScope'
+import {
+  buildConstituentDataScope,
+  ConstituentTableConfig,
+} from './services/constituentDataScope'
 import { buildCrudPrioritiesTool } from './services/crudPriorities.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
@@ -39,16 +42,19 @@ export const CHIEF_OF_STAFF_MODELS = [
 
 export const COS_SEARCH_PROVIDER = 'COS_SEARCH_PROVIDER'
 
-// Token for the SCOPED, aggregate-only Databricks provider. Distinct from the
-// briefing chat's broad provider. Bound to a factory that returns null unless a
-// dedicated SERVE_DATABRICKS_* credential is configured, so the tool stays
-// unregistered until that scoped key is deployed.
+// Token for the aggregate-only Databricks provider. Bound to a factory that
+// reads the SAME shared DATABRICKS_* credential the briefing chat uses, so the
+// tool stays unregistered until that key is configured.
 export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 
-// Prod enablement = deploying the scoped SERVE_DATABRICKS_* credential (and the
-// approved table/dimensions). There is NO Amplitude gate on the hard register
-// path, so a local key-swap turns the tool on without touching Amplitude. This
-// flag is kept only for optional product-side metering/visibility.
+// Token for the app-layer table/dimension allowlist (lever 1). Injected so prod
+// uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
+export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
+
+// Prod enablement = configuring the shared DATABRICKS_* credential AND adding an
+// approved table to CONSTITUENT_TABLES. There is NO Amplitude gate on the hard
+// register path. This flag is kept only for optional product-side
+// metering/visibility.
 export { CONSTITUENT_DATA_TOOL_FLAG } from '@/llm/tools/queryConstituentData.tool'
 
 @Injectable()
@@ -63,6 +69,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly briefings: ChiefOfStaffBriefingsService,
     @Inject(PRIORITIES_PORT)
     private readonly priorities: PrioritiesToolPort,
+    @Inject(CONSTITUENT_TABLES_CONFIG)
+    private readonly constituentTables: ConstituentTableConfig[],
     @Optional()
     @Inject(COS_SEARCH_PROVIDER)
     private readonly searchProvider?: SearchProvider,
@@ -146,12 +154,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     }
 
     // Aggregate-only constituent data. Registers ONLY when all three hold: the
-    // scoped provider is configured (SERVE_DATABRICKS_* present), the user's
-    // district resolved into server-bound filters, and an approved table is
-    // configured. Any one missing keeps the tool off — prod/local stay off
-    // until the scoped key is deployed.
+    // provider is configured (shared DATABRICKS_* present), the user's district
+    // resolved into server-bound filters, and an approved table is in the
+    // in-code allowlist. Any one missing keeps the tool off.
     if (this.constituentProvider && ctx.districtFilters) {
-      const scope = buildConstituentDataScope(ctx.districtFilters)
+      const scope = buildConstituentDataScope(
+        ctx.districtFilters,
+        this.constituentTables,
+      )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
           provider: this.constituentProvider,

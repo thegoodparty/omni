@@ -18,10 +18,12 @@ import {
   CHIEF_OF_STAFF_MODELS,
   ChiefOfStaffHandler,
   CONSTITUENT_DATA_PROVIDER,
+  CONSTITUENT_TABLES_CONFIG,
   COS_SEARCH_PROVIDER,
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
+import { CONSTITUENT_TABLES } from './services/constituentDataScope'
 import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
 
@@ -33,28 +35,24 @@ const searchProviderFactory = (): SearchProvider | null => {
   return new TavilySearchProvider({ apiKey })
 }
 
-// Scoped, aggregate-only Databricks provider for the constituent-data tool.
-// DISTINCT from the briefing chat's broad DATABRICKS_* credential: it reads its
-// own SERVE_DATABRICKS_* env set so the tool can only ever talk to a
-// narrowly-scoped "Serve agent" warehouse identity. Returns null unless EVERY
-// var is set, so with no scoped key configured the tool never registers and
-// prod/local stay off until the key is deployed. NEVER point this at the broad
-// briefing key.
+// Aggregate-only Databricks provider for the constituent-data tool. Reads the
+// SAME shared DATABRICKS_* credential the briefing chat uses (same hostname,
+// path, token, catalog, and schema). Returns null unless host/path/token are
+// set, so with no key configured the tool never registers and prod/local stay
+// off until the key is deployed. The aggregate-only safety comes from the
+// app-layer scope (allowlist + forbidden columns + cell-size floor), not from a
+// separate warehouse identity.
 const constituentDataProviderFactory = (): DatabricksProvider | null => {
-  const hostname = process.env.SERVE_DATABRICKS_SERVER_HOSTNAME
-  const httpPath = process.env.SERVE_DATABRICKS_HTTP_PATH
-  const accessToken = process.env.SERVE_DATABRICKS_API_KEY
-  const catalog = process.env.SERVE_DATABRICKS_CATALOG
-  const schema = process.env.SERVE_DATABRICKS_SCHEMA
-  if (!hostname || !httpPath || !accessToken || !catalog || !schema) {
-    return null
-  }
+  const hostname = process.env.DATABRICKS_SERVER_HOSTNAME
+  const httpPath = process.env.DATABRICKS_HTTP_PATH
+  const accessToken = process.env.DATABRICKS_API_KEY
+  if (!hostname || !httpPath || !accessToken) return null
   return new DatabricksSqlProvider({
     hostname,
     httpPath,
     accessToken,
-    catalog,
-    schema,
+    catalog: 'goodparty_data_catalog',
+    schema: 'dbt',
   })
 }
 
@@ -80,6 +78,10 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     {
       provide: CONSTITUENT_DATA_PROVIDER,
       useFactory: constituentDataProviderFactory,
+    },
+    {
+      provide: CONSTITUENT_TABLES_CONFIG,
+      useValue: CONSTITUENT_TABLES,
     },
   ],
   exports: [ChiefOfStaffHandler],

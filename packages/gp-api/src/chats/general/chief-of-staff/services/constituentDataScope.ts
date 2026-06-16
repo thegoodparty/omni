@@ -5,20 +5,18 @@ import type { ConstituentDataScope } from '@/llm/tools/queryConstituentData.tool
 // any result reaches the model (anti-differencing backstop).
 const CONSTITUENT_MIN_CELL_SIZE = 100
 
-// Approved table + coarse breakdown dimensions are env-supplied and EMPTY by
-// default. The tool only registers once a real table is configured, so leaving
-// these unset keeps the tool off in prod/local until the credential AND the
-// approved schema are deployed together.
-// TODO(data-team): provide the single approved aggregate table name (set
-// SERVE_CONSTITUENT_TABLE) and the coarse, non-quasi-identifier breakdown
-// dimensions (set SERVE_CONSTITUENT_DIMENSIONS as a comma-separated list).
-const parseCsvEnv = (raw: string | undefined): string[] => {
-  if (!raw) return []
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+export interface ConstituentTableConfig {
+  table: string
+  dimensions: string[]
 }
+
+// App-layer allowlist (lever 1): a deliberate, code-reviewed security control
+// kept in code (typed, reviewed, covered by bypass tests) NOT env. Add a table
+// here only when the data team approves it (one reviewed line). Empty by
+// default, so the tool stays unregistered until an approved table lands.
+// TODO(data-team): add the approved aggregate table(s), e.g.
+//   { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] }
+export const CONSTITUENT_TABLES: ConstituentTableConfig[] = []
 
 // Hard legal line: these columns must NEVER appear in any clause. App-side
 // defensive backstop layered on top of the warehouse credential's column
@@ -40,11 +38,10 @@ const FORBIDDEN_COLUMNS = new Set([
 
 export const buildConstituentDataScope = (
   districtFilters: MandatoryFilter[],
+  tables: ConstituentTableConfig[],
 ): ConstituentDataScope => ({
-  allowedTables: new Set(parseCsvEnv(process.env.SERVE_CONSTITUENT_TABLE)),
-  allowedDimensions: new Set(
-    parseCsvEnv(process.env.SERVE_CONSTITUENT_DIMENSIONS),
-  ),
+  allowedTables: new Set(tables.map((t) => t.table)),
+  allowedDimensions: new Set(tables.flatMap((t) => t.dimensions)),
   forbiddenColumns: FORBIDDEN_COLUMNS,
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,

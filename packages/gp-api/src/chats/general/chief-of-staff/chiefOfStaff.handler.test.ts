@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -29,6 +29,10 @@ const buildBriefings = (): ChiefOfStaffBriefingsService =>
     })),
   }) as unknown as ChiefOfStaffBriefingsService
 
+const TEST_TABLES = [
+  { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
+]
+
 describe('ChiefOfStaffHandler', () => {
   let store: GeneralChatStoreService
   let context: ChiefOfStaffContextService
@@ -57,11 +61,6 @@ describe('ChiefOfStaffHandler', () => {
     } as unknown as ChiefOfStaffContextService
   })
 
-  afterEach(() => {
-    delete process.env.SERVE_CONSTITUENT_TABLE
-    delete process.env.SERVE_CONSTITUENT_DIMENSIONS
-  })
-
   const buildResolver = (): DistrictResolverService =>
     ({
       resolveByUserId: vi.fn(() =>
@@ -83,6 +82,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
     )
     expect(handler.scope).toBe(ChatScope.chief_of_staff)
     expect(handler.isSensitive).toBe(true)
@@ -99,6 +99,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
     )
     const result = await handler.resolveConversation(
       { scope: ChatScope.chief_of_staff, organizationSlug: ORG },
@@ -118,6 +119,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
     )
     const result = await handler.resolveConversation(
       { scope: ChatScope.chief_of_staff, organizationSlug: ORG },
@@ -137,6 +139,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
@@ -154,6 +157,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
       { search: vi.fn(() => Promise.resolve([])) },
     )
     const ctx = await handler.loadContext('c1', USER_ID)
@@ -166,6 +170,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      [],
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
@@ -174,13 +179,12 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('registers constituent-data tools when provider + filters + table', async () => {
-    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
-    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
     const handler = new ChiefOfStaffHandler(
       store,
       context,
       buildBriefings(),
       port,
+      TEST_TABLES,
       undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
@@ -192,13 +196,12 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('omits constituent-data tools without a scoped provider', async () => {
-    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
-    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
     const handler = new ChiefOfStaffHandler(
       store,
       context,
       buildBriefings(),
       port,
+      TEST_TABLES,
       undefined,
       undefined,
       buildResolver(),
@@ -210,13 +213,12 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('omits constituent-data tools when no table is configured', async () => {
-    delete process.env.SERVE_CONSTITUENT_TABLE
-    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
     const handler = new ChiefOfStaffHandler(
       store,
       context,
       buildBriefings(),
       port,
+      [],
       undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
@@ -228,8 +230,6 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('omits constituent-data tools when the district does not resolve', async () => {
-    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
-    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
     const resolver = {
       resolveByUserId: vi.fn(() => Promise.resolve(null)),
       toMandatoryFilters: vi.fn(),
@@ -239,6 +239,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
+      TEST_TABLES,
       undefined,
       new InMemoryDatabricksProvider(new Map()),
       resolver,
