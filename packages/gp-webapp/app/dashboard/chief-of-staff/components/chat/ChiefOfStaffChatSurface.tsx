@@ -117,13 +117,13 @@ export default function ChiefOfStaffChatSurface({
             ) : (
               conversations.map((c) => (
                 <div
-                  key={c.id}
+                  key={c.conversationId}
                   className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-muted"
                 >
                   <button
                     type="button"
                     onClick={() =>
-                      setView({ mode: 'conversation', conversationId: c.id })
+                      setView({ mode: 'conversation', conversationId: c.conversationId })
                     }
                     className="flex-1 truncate py-1.5 text-left text-sm text-foreground"
                   >
@@ -134,7 +134,7 @@ export default function ChiefOfStaffChatSurface({
                     size="small"
                     variant="ghost"
                     aria-label="Delete chat"
-                    onClick={() => handleDelete(c.id)}
+                    onClick={() => handleDelete(c.conversationId)}
                     disabled={deleteConversation.isPending}
                   >
                     <Trash2Icon className="size-4" aria-hidden />

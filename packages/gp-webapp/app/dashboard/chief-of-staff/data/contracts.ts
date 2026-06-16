@@ -75,7 +75,7 @@ export interface ChatMessageDto {
 }
 
 export interface ChatConversationDto {
-  id: string
+  conversationId: string
   scope: ChatScope
   title: string | null
   organizationSlug: string | null

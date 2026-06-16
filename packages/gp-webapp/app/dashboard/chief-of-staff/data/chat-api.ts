@@ -160,8 +160,11 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
   async createConversation() {
-    const data = await postJson<{ id: string }>('/v1/chats', { scope: SCOPE })
-    return { conversationId: data.id }
+    const data = await postJson<{ conversationId: string; created: boolean }>(
+      '/v1/chats',
+      { scope: SCOPE },
+    )
+    return { conversationId: data.conversationId }
   },
 
   async listMessages(conversationId) {

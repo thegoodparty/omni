@@ -53,7 +53,9 @@ describe('chiefOfStaffChatApi', () => {
 
   describe('createConversation', () => {
     it('POSTs to /v1/chats with the chief_of_staff scope and returns the id', async () => {
-      fetchMock.mockResolvedValueOnce(asJsonResponse(200, { id: 'conv_1' }))
+      fetchMock.mockResolvedValueOnce(
+        asJsonResponse(200, { conversationId: 'conv_1', created: false }),
+      )
 
       const result = await chiefOfStaffChatApi.createConversation()
 
