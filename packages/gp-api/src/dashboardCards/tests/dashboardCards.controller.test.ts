@@ -98,9 +98,7 @@ describe('GET /v1/dashboard/cards', () => {
       '/v1/dashboard/cards',
       orgHeader(orgSlug),
     )
-    expect(res.data.cards.map((c: { id: string }) => c.id)).toContain(
-      today.id,
-    )
+    expect(res.data.cards.map((c: { id: string }) => c.id)).toContain(today.id)
   })
 
   it('defaults to the active bucket when none is given', async () => {
