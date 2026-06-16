@@ -286,6 +286,27 @@ export const validateConstituentSql = (
   return sql
 }
 
+// The cell-size floor keys off the row-count column. Rather than guess its name
+// from a fixed alias list (which rejects a perfectly valid COUNT(*) the model
+// happened to alias differently), read the COUNT aggregate's alias straight off
+// the parsed SELECT. Returns the alias when the COUNT is aliased, else null
+// (an unaliased COUNT(*) lands on Spark's default `count(1)` name, handled by
+// the caller's fallback).
+export const findCountAlias = (sql: string): string | null => {
+  const parsed = parseSingleSelect(sql)
+  if (!parsed) return null
+  const columns = parsed.stmt.columns
+  if (!Array.isArray(columns)) return null
+  for (const col of columns) {
+    if (!isRecord(col)) continue
+    const expr = col.expr
+    if (isRecord(expr) && aggregateFunctionName(expr) === 'COUNT') {
+      return typeof col.as === 'string' && col.as.length > 0 ? col.as : null
+    }
+  }
+  return null
+}
+
 const clampMaxRows = (requested?: number): number => {
   if (requested === undefined) return DEFAULT_MAX_ROWS
   return Math.min(requested, HARD_MAX_ROWS)
@@ -328,7 +349,7 @@ Approved breakdown / filter dimensions (the ONLY columns you may SELECT, GROUP B
 RULES:
   - Single SELECT statement only.
   - Every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a GROUP BY column.
-  - ALWAYS include COUNT(*) AS count in the SELECT list (alias it exactly "count") — queries without a recognized count column are rejected, because the cell-size floor can only be enforced when the row count is present.
+  - ALWAYS include COUNT(*) in the SELECT list (e.g. COUNT(*) AS count) — queries with no COUNT are rejected, because the cell-size floor can only be enforced when the row count is present. Any alias is fine.
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
   - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
@@ -347,17 +368,21 @@ export const buildQueryConstituentDataTool = (deps: {
     const limit = clampMaxRows(maxRows)
 
     const result = await deps.provider.query(validatedSql)
+    const countAlias = findCountAlias(validatedSql)
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
+      // The COUNT's own alias (any name) plus Spark's default name for an
+      // unaliased COUNT(*), so a valid count is found regardless of how the
+      // model named it.
+      countColumnAliases: countAlias ? [countAlias, 'count(1)'] : ['count(1)'],
     })
     // Fail closed: scrubResults can only enforce the cell-size floor when it
-    // finds the row-count column. If it can't (the query omitted COUNT(*) or
-    // used an unrecognized alias), we cannot prove every cell is above the
-    // floor, so returning the rows could leak small / individual-level cells.
+    // finds the row-count column. If it still can't (the query has no COUNT at
+    // all), we cannot prove every cell is above the floor, so returning the
+    // rows could leak small / individual-level cells.
     if (scrubbed.reason === 'no_count_column') {
       throw new SqlRejected(
-        'every query must include COUNT(*) AS count so cell sizes can be ' +
-          'enforced',
+        'every query must include COUNT(*) so cell sizes can be enforced',
       )
     }
     const truncated = scrubbed.kept.length > limit

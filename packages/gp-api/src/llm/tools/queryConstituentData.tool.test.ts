@@ -359,6 +359,22 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     )
   })
 
+  it('accepts a COUNT alias other than the default names (regression)', async () => {
+    // A valid COUNT(*) the model aliased to a non-default name must NOT be
+    // rejected — the floor keys off the alias read from the parsed SQL.
+    const sql = `SELECT age_band, COUNT(*) AS turnout FROM ${TABLE} ${scopeWhere}
+      GROUP BY age_band`
+    const provider = fakeProvider([
+      { age_band: '25-34', turnout: 800 },
+      { age_band: '45-54', turnout: 12 },
+    ])
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    const out = await tool.execute({ sql })
+    expect(out.rowsReturned).toBe(1)
+    expect(out.rowsSuppressed).toBe(1)
+    expect(out.rows).toEqual([{ age_band: '25-34', turnout: 800 }])
+  })
+
   it('never calls the provider when validation rejects the query', async () => {
     const provider = fakeProvider([])
     const tool = buildQueryConstituentDataTool({ provider, scope })
