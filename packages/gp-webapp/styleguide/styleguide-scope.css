@@ -214,6 +214,7 @@
   --base-muted-foreground: var(--tw-neutral-400);
   --base-muted: var(--tw-neutral-800);
   --base-inactive: var(--tw-neutral-700);
+  --color-inactive: var(--tw-neutral-700);
   --base-border: var(--tw-neutral-600);
   --base-accent: var(--tw-neutral-700);
   --base-accent-foreground: #ffffff;
