@@ -55,6 +55,15 @@ export {
   ArtifactReviewVerdictSchema,
 } from './generated/enums'
 
+export {
+  PersonSchema,
+  type Person,
+  PeopleListPaginationSchema,
+  type PeopleListPagination,
+  PeopleListResponseSchema,
+  type PeopleListResponse,
+} from './people/Person.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'

@@ -1,64 +1,9 @@
+import type { Person } from '@goodparty_org/contracts'
 import { BaseDbPerson } from '../people.select'
 
-export type PersonOutputFormat = {
-  id: string
-  lalVoterId: string
-  firstName: string | null
-  middleName: string | null
-  lastName: string | null
-  nameSuffix: string | null
-  age: number | null
-  state: string
-  address: {
-    line1: string | null
-    line2: string | null
-    city: string | null
-    state: string | null
-    zip: string | null
-    zipPlus4: string | null
-    latitude: string | null
-    longitude: string | null
-  }
-  cellPhone: string | null
-  landline: string | null
-  gender: 'Male' | 'Female' | null
-  politicalParty: 'Independent' | 'Democratic' | 'Republican' | 'Other'
-  registeredVoter: 'Yes' | 'No'
-  estimatedIncomeAmount: number | null
-  voterStatus:
-    | 'Super'
-    | 'Likely'
-    | 'Unreliable'
-    | 'Unlikely'
-    | 'First Time'
-    | null
-  maritalStatus:
-    | 'Likely Married'
-    | 'Likely Single'
-    | 'Married'
-    | 'Single'
-    | null
-  hasChildrenUnder18: 'Yes' | 'No' | null
-  veteranStatus: 'Yes' | null
-  homeowner: 'Yes' | 'Likely' | 'No' | null
-  businessOwner: 'Yes' | null
-  levelOfEducation:
-    | 'None'
-    | 'High School Diploma'
-    | 'Technical School'
-    | 'Some College'
-    | 'College Degree'
-    | 'Graduate Degree'
-    | null
-  ethnicityGroup:
-    | 'Asian'
-    | 'European'
-    | 'Hispanic'
-    | 'African American'
-    | 'Other'
-    | null
-  language: 'English' | 'Spanish' | 'Other'
-}
+// people-api is the producer of this shape; the canonical definition lives in
+// @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
+export type PersonOutputFormat = Person
 
 const mapAge = (person: BaseDbPerson): PersonOutputFormat['age'] => {
   if (typeof person.Age_Int === 'number' && Number.isFinite(person.Age_Int))
