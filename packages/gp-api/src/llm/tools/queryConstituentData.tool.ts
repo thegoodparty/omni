@@ -328,6 +328,7 @@ Approved breakdown / filter dimensions (the ONLY columns you may SELECT, GROUP B
 RULES:
   - Single SELECT statement only.
   - Every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a GROUP BY column.
+  - ALWAYS include COUNT(*) AS count in the SELECT list (alias it exactly "count") — queries without a recognized count column are rejected, because the cell-size floor can only be enforced when the row count is present.
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
   - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
@@ -349,6 +350,16 @@ export const buildQueryConstituentDataTool = (deps: {
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
     })
+    // Fail closed: scrubResults can only enforce the cell-size floor when it
+    // finds the row-count column. If it can't (the query omitted COUNT(*) or
+    // used an unrecognized alias), we cannot prove every cell is above the
+    // floor, so returning the rows could leak small / individual-level cells.
+    if (scrubbed.reason === 'no_count_column') {
+      throw new SqlRejected(
+        'every query must include COUNT(*) AS count so cell sizes can be ' +
+          'enforced',
+      )
+    }
     const truncated = scrubbed.kept.length > limit
     const rows = truncated ? scrubbed.kept.slice(0, limit) : scrubbed.kept
 

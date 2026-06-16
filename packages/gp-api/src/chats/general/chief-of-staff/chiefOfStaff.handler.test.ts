@@ -39,6 +39,11 @@ const buildFeatures = (enabled: boolean): FeaturesService =>
     isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
   }) as unknown as FeaturesService
 
+const buildThrowingFeatures = (): FeaturesService =>
+  ({
+    isFeatureEnabled: vi.fn(() => Promise.reject(new Error('amplitude down'))),
+  }) as unknown as FeaturesService
+
 describe('ChiefOfStaffHandler', () => {
   let store: GeneralChatStoreService
   let context: ChiefOfStaffContextService
@@ -213,6 +218,25 @@ describe('ChiefOfStaffHandler', () => {
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildFeatures(false),
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    expect(ctx.constituentToolEnabled).toBe(false)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'query_constituent_data',
+    )
+  })
+
+  it('keeps the chat working (tool off) when the flag service throws', async () => {
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      TEST_TABLES,
+      undefined,
+      new InMemoryDatabricksProvider(new Map()),
+      buildResolver(),
+      buildThrowingFeatures(),
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(ctx.constituentToolEnabled).toBe(false)

@@ -123,16 +123,27 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const constituentToolEnabled =
       !!this.constituentProvider &&
       this.constituentTables.length > 0 &&
-      !!this.features &&
-      (await this.features.isFeatureEnabled({
-        user: userId,
-        feature: CONSTITUENT_DATA_TOOL_FLAG,
-      }))
+      (await this.isConstituentToolFlagOn(userId))
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       districtFilters,
       constituentToolEnabled,
+    }
+  }
+
+  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
+  // value. Resolving the flag is on the critical path of every CoS message, so
+  // a flag-service outage must degrade to "tool off", never take down the chat.
+  private async isConstituentToolFlagOn(userId: number): Promise<boolean> {
+    if (!this.features) return false
+    try {
+      return await this.features.isFeatureEnabled({
+        user: userId,
+        feature: CONSTITUENT_DATA_TOOL_FLAG,
+      })
+    } catch {
+      return false
     }
   }
 

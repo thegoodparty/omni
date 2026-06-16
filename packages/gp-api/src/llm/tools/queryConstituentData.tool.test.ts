@@ -349,6 +349,16 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     expect(out.truncated).toBe(false)
   })
 
+  it('fails closed when the result has no recognized count column', async () => {
+    // Unrecognized count alias -> scrubResults can't enforce the cell-size
+    // floor, so the tool must reject rather than return possibly-small cells.
+    const provider = fakeProvider([{ age_band: '45-54', headcount: 3 }])
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    await expect(tool.execute({ sql: happySql })).rejects.toBeInstanceOf(
+      SqlRejected,
+    )
+  })
+
   it('never calls the provider when validation rejects the query', async () => {
     const provider = fakeProvider([])
     const tool = buildQueryConstituentDataTool({ provider, scope })
