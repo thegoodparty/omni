@@ -1,9 +1,13 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
+import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
-import { Organization } from '../../generated/prisma'
+import { PinoLogger } from 'nestjs-pino'
+import { Campaign, Organization } from '../../generated/prisma'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
 
 vi.mock('@nestjs/axios', () => ({
   HttpService: vi.fn(),
@@ -13,6 +17,15 @@ const SEARCH_REQUIRES_PRO_MSG = 'Search is only available for pro campaigns'
 const OVERRIDE_DISTRICT_ID = 'override-district-uuid'
 const POSITION_ID_FIXTURE = 'position-uuid'
 const PEOPLE_V1_PATH = '/v1/people'
+
+// A district that carries L2 location data, so the real download-access rule
+// (VoterFileDownloadAccessService.canDownload) treats the campaign as eligible.
+const ELIGIBLE_DISTRICT = {
+  id: 'eligible-district-uuid',
+  state: 'CA',
+  l2Type: 'City',
+  l2Name: 'Springfield',
+}
 
 const makeOrganization = (
   overrides: Partial<Organization> = {},
@@ -27,6 +40,17 @@ const makeOrganization = (
     updatedAt: new Date(),
     ...overrides,
   }) as Organization
+
+const makeCampaign = (overrides: Partial<Campaign> = {}): Campaign =>
+  ({
+    id: 1,
+    slug: 'test-campaign',
+    organizationSlug: 'campaign-1',
+    isPro: true,
+    canDownloadFederal: false,
+    details: {},
+    ...overrides,
+  }) as Campaign
 
 describe('ContactsService', () => {
   describe('findContacts and downloadContacts', () => {
@@ -45,6 +69,10 @@ describe('ContactsService', () => {
     let mockCampaignsService: {
       findFirst: ReturnType<typeof vi.fn>
     }
+    let mockOrganizationsService: {
+      getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
+    }
+    let voterFileDownloadAccess: VoterFileDownloadAccessService
 
     beforeEach(() => {
       mockHttpService = {
@@ -63,12 +91,28 @@ describe('ContactsService', () => {
       mockCampaignsService = {
         findFirst: vi.fn().mockResolvedValue(null),
       }
+      mockOrganizationsService = {
+        getDistrictAndBallotLevelForOrgSlug: vi.fn().mockResolvedValue({
+          district: ELIGIBLE_DISTRICT,
+          ballotLevel: null,
+        }),
+      }
+
+      // Drive the real eligibility rule rather than mocking canDownload away,
+      // so the federal/state tests verify the actual download-gate logic.
+      voterFileDownloadAccess = new VoterFileDownloadAccessService({
+        message: vi.fn(),
+      } as never)
+      ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
+        createMockLogger()
 
       service = new ContactsService(
         mockHttpService as never,
         mockVoterFileFilterService as never,
         mockElectionsService as never,
         mockCampaignsService as never,
+        mockOrganizationsService as never,
+        voterFileDownloadAccess,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -578,6 +622,105 @@ describe('ContactsService', () => {
           }),
           expect.any(Object),
         )
+      })
+    })
+
+    describe('voter-data eligibility (Win federal/state alignment)', () => {
+      const getErrorBody = async (promise: Promise<unknown>) => {
+        try {
+          await promise
+          throw new Error('expected promise to reject')
+        } catch (err) {
+          expect(err).toBeInstanceOf(BadRequestException)
+          return (err as BadRequestException).getResponse() as {
+            errorCode?: string
+          }
+        }
+      }
+
+      it('tags an unresolved district with a stable error code', async () => {
+        const org = makeOrganization()
+
+        const body = await getErrorBody(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        )
+
+        expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
+        expect(VOTER_DATA_UNAVAILABLE_ERROR_CODE).toBe('VOTER_DATA_UNAVAILABLE')
+      })
+
+      it('rejects a FEDERAL campaign without canDownloadFederal or L2 data', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: false,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+        mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+          { district: null, ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        )
+
+        const body = await getErrorBody(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        )
+
+        expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('allows a FEDERAL campaign that has canDownloadFederal', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: true,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+        mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+          { district: null, ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
+        expect(mockHttpService.post).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not gate elected-office orgs on eligibility', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: false,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
+        expect(
+          mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug,
+        ).not.toHaveBeenCalled()
       })
     })
 
