@@ -16,16 +16,15 @@ export const metadata = meta
 
 export const dynamic = 'force-dynamic'
 
-interface PageProps {
-  params: Record<string, string>
-  searchParams: { generate?: string }
+interface PageParams {
+  searchParams: Promise<{ generate?: string }>
 }
 
 export default async function Page({
   searchParams,
-}: PageProps): Promise<React.JSX.Element> {
+}: PageParams): Promise<React.JSX.Element> {
   await candidateAccess()
-  const { generate } = searchParams
+  const { generate } = await searchParams
 
   const campaign = await fetchUserCampaign()
   const candidatePositions = campaign

@@ -40,9 +40,9 @@ module.exports = [
     ],
   },
 
-  // Next.js (next/core-web-vitals) + mdx, loaded via FlatCompat since
-  // eslint-config-next and eslint-plugin-mdx don't ship native flat presets.
-  ...compat.extends('next/core-web-vitals'),
+  // eslint-config-next v16 ships a native flat config, so consume it directly.
+  // mdx still lacks a flat preset, so it stays on FlatCompat.
+  ...require('eslint-config-next/core-web-vitals'),
   ...compat.extends('plugin:mdx/recommended'),
 
   {
@@ -72,7 +72,12 @@ module.exports = [
 
     rules: {
       '@stylistic/semi': ['error', 'never'],
-      'react/jsx-uses-react': 'error',
+      // Automatic JSX runtime (tsconfig jsx: react-jsx) — JSX no longer needs
+      // `React` in scope. Turn off the classic-runtime rules so they don't
+      // mask the unused-imports rule from stripping vestigial `import React`
+      // lines (and so tsc's noUnusedLocals and eslint agree).
+      'react/jsx-uses-react': 'off',
+      'react/react-in-jsx-scope': 'off',
       'react/jsx-uses-vars': 'error',
       'unused-imports/no-unused-imports': 'error',
       'no-restricted-imports': [
@@ -158,6 +163,26 @@ module.exports = [
           varsIgnorePattern: '^_',
         },
       ],
+    },
+  },
+
+  {
+    // eslint-config-next v16 bundles react-hooks v6, whose React Compiler
+    // correctness rules newly flag ~114 pre-existing call sites (mostly in
+    // vendored styleguide/ui components). Adopting them is a repo-wide cleanup
+    // tracked separately, not part of the framework bump — so downgrade to
+    // 'warn' to keep them visible without gating CI (`lint` runs --quiet, which
+    // ignores warnings). Remove these overrides as the violations are fixed.
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/set-state-in-render': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/globals': 'warn',
+      'react-hooks/use-memo': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
     },
   },
 ]

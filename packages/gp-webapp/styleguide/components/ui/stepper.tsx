@@ -1,6 +1,5 @@
 'use client'
 
-import * as React from 'react'
 import { cn } from '@styleguide/lib/utils'
 
 type StepperVariant = 'bar' | 'vertical'

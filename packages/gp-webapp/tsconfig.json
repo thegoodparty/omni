@@ -15,7 +15,7 @@
       "@styleguide": ["styleguide"],
       "@styleguide/*": ["styleguide/*"]
     },
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -44,7 +44,8 @@
     "**/*.tsx",
     "next-env.d.ts",
     ".next/types/**/*.ts",
-    "types/**/*.d.ts"
+    "types/**/*.d.ts",
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": ["node_modules", ".next", "e2e-tests", "styleguide/stories"]
 }

@@ -35,7 +35,7 @@ npm run test -w packages/gp-webapp                                              
 
 ## Architecture
 
-Next.js 15 App Router deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
+Next.js 16 App Router (Turbopack) deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
 
 ### Deployment
 

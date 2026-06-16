@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { ReactNode, HTMLAttributes } from 'react'
+import { ReactNode, HTMLAttributes } from 'react'
 
 interface PaperProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
