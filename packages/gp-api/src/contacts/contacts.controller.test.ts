@@ -152,4 +152,57 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
     // eo- orgs bypass the win-voter-data flag entirely.
     expect(isFeatureEnabled).not.toHaveBeenCalled()
   })
+
+  // The gate is wired on all four contacts endpoints, but only listContacts
+  // is covered above. A 403 with flag off + a pro org proves the gate runs on
+  // these handlers too — only assertContactsAccess reads the flag, so no
+  // pre-existing pro check could produce it. Each data method is stubbed so a
+  // wiring regression fails as a clean non-403 instead of a real network call.
+  const SOME_UUID = '00000000-0000-0000-0000-000000000000'
+  const gatedEndpoints: Array<{
+    name: string
+    path: string
+    serviceMethod: 'downloadContacts' | 'getDistrictStats' | 'findPerson'
+  }> = [
+    {
+      name: 'download',
+      path: '/v1/contacts/download',
+      serviceMethod: 'downloadContacts',
+    },
+    {
+      name: 'stats',
+      path: '/v1/contacts/stats',
+      serviceMethod: 'getDistrictStats',
+    },
+    {
+      name: 'get by id',
+      path: `/v1/contacts/${SOME_UUID}`,
+      serviceMethod: 'findPerson',
+    },
+  ]
+
+  it.each(gatedEndpoints)(
+    'gates $name behind win-voter-data',
+    async ({ path, serviceMethod }) => {
+      await seedOrgWithCampaign({
+        slug: WIN_SLUG,
+        ownerId: service.user.id,
+        isPro: true,
+      })
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+      const method = vi
+        .spyOn(service.app.get(ContactsService), serviceMethod)
+        .mockResolvedValue(undefined as never)
+
+      const result = await service.client.get(path, {
+        headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
+      })
+
+      expect(result.status).toBe(403)
+      expect(method).not.toHaveBeenCalled()
+    },
+  )
 })
