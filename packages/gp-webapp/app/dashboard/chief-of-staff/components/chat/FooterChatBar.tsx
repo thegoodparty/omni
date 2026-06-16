@@ -15,8 +15,9 @@ interface Props {
 
 /**
  * Persistent footer chat bar. Fixed to the bottom at all widths and offset by
- * the dashboard sidebar (16rem) on md+ — the breakpoint where the sidebar
- * becomes visible. Tapping the pill (or any of its buttons) opens the chat
+ * the dashboard sidebar (16rem) on lg+ — the breakpoint where the sidebar
+ * rail appears (below lg it collapses to a mobile sheet, so the bar spans the
+ * full width). Tapping the pill (or any of its buttons) opens the chat
  * surface.
  */
 export default function FooterChatBar({
@@ -28,7 +29,7 @@ export default function FooterChatBar({
     : 'How can I help?'
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 md:left-64">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
         <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-border bg-card pl-1.5 pr-1.5">
           <IconButton
