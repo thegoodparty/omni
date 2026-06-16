@@ -63,6 +63,8 @@
   --destructive-foreground: var(--theme-destructive-foreground); /* #FFFFFF */
   --color-destructive: var(--theme-destructive);
   --color-destructive-foreground: var(--theme-destructive-foreground);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
 
   /* Card */
   --card: var(--brand-surface-primary); /* #FFFFFF */
@@ -417,6 +419,18 @@
   --destructive-foreground: var(--theme-destructive-foreground);
   --color-destructive: var(--theme-destructive);
   --color-destructive-foreground: var(--theme-destructive-foreground);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
+
+  /* Info */
+  --color-info: var(--theme-info);
+  --color-info-dark: var(--theme-info-dark);
+  --color-info-contrast: var(--theme-info-foreground);
+
+  /* Success */
+  --color-success: var(--theme-success);
+  --color-success-dark: var(--theme-success-dark);
+  --color-success-contrast: var(--theme-success-foreground);
 
   /* Card */
   --card: var(--component-card-base);

@@ -1,7 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { Alert, AlertAction, AlertDescription, AlertTitle } from '../components/ui/alert'
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from '../components/ui/alert'
 import { Button } from '../components/ui/button'
-import { CheckCircleIcon, InfoIcon, TriangleAlertIcon, XCircleIcon } from '../components/ui/icons'
+import {
+  CheckCircleIcon,
+  InfoIcon,
+  TriangleAlertIcon,
+  XCircleIcon,
+} from '../components/ui/icons'
 
 const meta: Meta<typeof Alert> = {
   title: 'Components/Alert',
@@ -35,6 +45,7 @@ type PlaygroundArgs = {
   description: string
   showAction: boolean
   actionLabel: string
+  actionVariant: 'alertOutline' | 'alertFilled'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -46,6 +57,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     description: 'You can add components and dependencies to your app.',
     showAction: false,
     actionLabel: 'Learn more',
+    actionVariant: 'alertOutline',
   },
   argTypes: {
     showIcon: {
@@ -59,7 +71,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     description: {
       control: 'text',
-      description: 'Supporting description (only rendered when showDescription is true).',
+      description:
+        'Supporting description (only rendered when showDescription is true).',
     },
     showAction: {
       control: 'boolean',
@@ -67,16 +80,35 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     actionLabel: {
       control: 'text',
-      description: 'Label for the action button (only rendered when showAction is true).',
+      description:
+        'Label for the action button (only rendered when showAction is true).',
+    },
+    actionVariant: {
+      control: 'select',
+      options: ['alertOutline', 'alertFilled'],
+      description:
+        "Button style for the action. Both variants automatically use the alert's accent color.",
     },
   },
-  render: ({ variant, showIcon, title, showDescription, description, showAction, actionLabel }) => (
-    <Alert variant={variant} icon={showIcon ? variantIcons[variant] : undefined}>
+  render: ({
+    variant,
+    showIcon,
+    title,
+    showDescription,
+    description,
+    showAction,
+    actionLabel,
+    actionVariant,
+  }) => (
+    <Alert
+      variant={variant}
+      icon={showIcon ? variantIcons[variant] : undefined}
+    >
       <AlertTitle>{title}</AlertTitle>
       {showDescription && <AlertDescription>{description}</AlertDescription>}
       {showAction && (
         <AlertAction>
-          <Button variant="outline" size="small">
+          <Button variant={actionVariant} size="small">
             {actionLabel}
           </Button>
         </AlertAction>
