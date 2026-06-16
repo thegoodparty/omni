@@ -1,6 +1,6 @@
 import { BsChatDots } from 'react-icons/bs'
 import Image from 'next/image'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 
 interface LoadingAnimationProps {
   title?: string | ReactNode

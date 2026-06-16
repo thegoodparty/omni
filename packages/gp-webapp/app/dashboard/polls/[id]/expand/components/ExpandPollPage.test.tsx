@@ -1,4 +1,3 @@
-import React from 'react'
 import { it } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import ExpandPollPage from './ExpandPollPage'

@@ -1,5 +1,5 @@
 'use client'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 
 interface LoadingAnimationModalProps {

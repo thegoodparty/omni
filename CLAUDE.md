@@ -21,7 +21,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Path                       | What                                            | Stack             | Port |
 | -------------------------- | ----------------------------------------------- | ----------------- | ---- |
 | `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)    | NestJS + Fastify  | 3000 |
-| `packages/gp-webapp`       | Product app for candidates & elected officials  | Next.js 15        | 4000 |
+| `packages/gp-webapp`       | Product app for candidates & elected officials  | Next.js 16        | 4000 |
 | `packages/election-api`    | Election/race/candidacy data microservice       | NestJS + Fastify  | 3001 |
 | `packages/people-api`      | Voter/people data microservice (L2 records)     | NestJS + Fastify  | 3002 |
 | `packages/gp-admin`        | Internal staff admin console (uses the SDK)     | Next.js 16        | 3500 |
