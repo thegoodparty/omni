@@ -389,10 +389,44 @@ export default function ChiefOfStaffChatBody({
               {item.content}
             </div>
           ) : (
-            <div key={item.id} className={ASSISTANT_BUBBLE}>
-              {item.toolsUsed && item.toolsUsed.length > 0 && (
+            <div
+              key={item.id}
+              className="flex max-w-full items-start gap-2 self-start"
+            >
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <SparklesIcon className="size-3.5" aria-hidden />
+              </span>
+              <div className={ASSISTANT_BUBBLE}>
+                {item.toolsUsed && item.toolsUsed.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {item.toolsUsed.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                      >
+                        <SearchIcon className="size-3" aria-hidden />
+                        {toolDisplayName(t)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {item.content}
+                </ReactMarkdown>
+              </div>
+            </div>
+          ),
+        )}
+
+        {streaming !== null && (
+          <div className="flex max-w-full items-start gap-2 self-start">
+            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <SparklesIcon className="size-3.5" aria-hidden />
+            </span>
+            <div className={ASSISTANT_BUBBLE}>
+              {activeTools.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {item.toolsUsed.map((t) => (
+                  {activeTools.map((t) => (
                     <span
                       key={t}
                       className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
@@ -403,35 +437,14 @@ export default function ChiefOfStaffChatBody({
                   ))}
                 </div>
               )}
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {item.content}
-              </ReactMarkdown>
+              {streaming ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {streaming}
+                </ReactMarkdown>
+              ) : activeTools.length === 0 ? (
+                <span className="text-muted-foreground">Thinking...</span>
+              ) : null}
             </div>
-          ),
-        )}
-
-        {streaming !== null && (
-          <div className={ASSISTANT_BUBBLE}>
-            {activeTools.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {activeTools.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                  >
-                    <SearchIcon className="size-3" aria-hidden />
-                    {toolDisplayName(t)}
-                  </span>
-                ))}
-              </div>
-            )}
-            {streaming ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {streaming}
-              </ReactMarkdown>
-            ) : activeTools.length === 0 ? (
-              <span className="text-muted-foreground">Thinking...</span>
-            ) : null}
           </div>
         )}
 

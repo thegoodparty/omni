@@ -27,8 +27,6 @@ export default function DashboardContent(): React.JSX.Element {
       <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 p-4 pb-40 lg:p-6 lg:pb-40">
         <SupportHero />
 
-        <OnboardingCards onOpenChat={() => setChatOpen(true)} />
-
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-foreground">
@@ -42,6 +40,7 @@ export default function DashboardContent(): React.JSX.Element {
               <span className="hidden sm:inline">Archive</span>
             </Link>
           </div>
+          <OnboardingCards onOpenChat={() => setChatOpen(true)} />
           <TaskList />
         </section>
       </div>

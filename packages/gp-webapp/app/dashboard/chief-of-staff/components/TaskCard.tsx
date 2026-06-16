@@ -45,7 +45,8 @@ export default function TaskCard({
     <Card
       className={cn(
         'gap-3 rounded-2xl border border-border p-4 shadow-sm transition-colors lg:p-6',
-        highlighted && 'border-primary ring-2 ring-primary/40',
+        highlighted &&
+          'border-primary ring-2 ring-primary/40 bg-gradient-to-br from-primary/10 to-card',
       )}
     >
       <div className="flex items-start justify-between gap-2">
