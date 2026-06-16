@@ -71,6 +71,7 @@ const planViewProps = (plan = buildPlanData(makeInput())) =>
     pressOutletsState: sectionState,
     voterInsightsContext: {},
     onDownload: vi.fn(),
+    onShared: vi.fn(),
     onContinue: vi.fn(),
     showConfetti: false,
   }) as const

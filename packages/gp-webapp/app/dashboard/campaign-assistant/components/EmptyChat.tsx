@@ -3,6 +3,7 @@ import { Button } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import useChat from 'app/dashboard/campaign-assistant/components/useChat'
 import { MdAutoAwesome } from 'react-icons/md'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface Prompt {
   label: string
@@ -33,6 +34,9 @@ const EmptyChat = (): React.JSX.Element => {
   const { handleNewInput } = useChat()
 
   const handleClick = (prompt: Prompt) => {
+    // Mirror ChatInput's send event so a first message via a suggested prompt
+    // is counted like a typed one, not lost.
+    trackEvent(EVENTS.AIAssistant.AskQuestion, { text: prompt.prompt })
     handleNewInput(prompt.prompt)
   }
   return (

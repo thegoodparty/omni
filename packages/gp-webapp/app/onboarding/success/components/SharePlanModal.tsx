@@ -28,6 +28,10 @@ interface SharePlanModalProps {
   // Generates (or returns the cached) public PDF link. Owned by the parent
   // so the blob render + upload can be reused and cached across opens.
   getShareUrl: () => Promise<string>
+  // Analytics notification — fires when the user actually shares (the link
+  // is copied or handed to the mail client). Owned by the parent so it can
+  // namespace the event per surface.
+  onShared?: (method: 'copy' | 'email') => void
 }
 
 type ShareState =
@@ -116,6 +120,7 @@ const SharePlanModal = ({
   onClose,
   candidateName,
   getShareUrl,
+  onShared,
 }: SharePlanModalProps): React.JSX.Element => {
   const isMobile = useIsMobile()
   const [state, setState] = useState<ShareState>({ status: 'loading' })
@@ -166,6 +171,7 @@ const SharePlanModal = ({
     if (state.status !== 'ready') return
     try {
       await navigator.clipboard.writeText(state.url)
+      onShared?.('copy')
       if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
       setCopied(true)
       copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
@@ -181,6 +187,7 @@ const SharePlanModal = ({
     )}&body=${encodeURIComponent(message)}%0D%0A%0D%0A${encodeURIComponent(
       state.url,
     )}`
+    onShared?.('email')
     // Plain navigation, matching the app's other share surfaces: mailto
     // hands off to the mail client without navigating away, and window.open
     // would leave a blank popup (or be silently popup-blocked).
