@@ -21,8 +21,9 @@ export interface CampaignStorySection {
   placeholder: string
 }
 
-const NOT_ANSWERED_HINT =
-  'Not answered yet. Even two sentences here unlocks a lot.'
+const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
+const STARTED_HINT =
+  'Worth saying more: another 1-2 sentences will sharpen this a lot.'
 
 interface CampaignStoryCardProps {
   section: CampaignStorySection
@@ -73,9 +74,7 @@ const CampaignStoryCard = ({
                     Campaign Manager
                   </span>
                   <span className="text-sm text-foreground">
-                    {answered
-                      ? 'Looking good. Want help tightening it?'
-                      : NOT_ANSWERED_HINT}
+                    {answered ? STARTED_HINT : EMPTY_HINT}
                   </span>
                 </div>
               </div>
