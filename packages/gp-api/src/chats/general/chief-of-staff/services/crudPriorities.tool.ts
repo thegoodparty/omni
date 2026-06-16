@@ -7,31 +7,24 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/
 // One tool covers all four operations so the model has a single, discoverable
 // surface for managing the official's priorities. The electedOfficeId is bound
 // server-side (from resolved context), never taken from model input.
-const crudPrioritiesInputSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('list') }),
-  z.object({
-    action: z.literal('create'),
-    title: z.string().min(1),
-    description: z.string().min(1),
-    targetDate: z.string().regex(isoDate).nullable().optional(),
-  }),
-  z.object({
-    action: z.literal('update'),
-    id: z.string().min(1),
-    title: z.string().min(1).optional(),
-    description: z.string().min(1).optional(),
-    targetDate: z.string().regex(isoDate).nullable().optional(),
-  }),
-  z.object({
-    action: z.literal('archive'),
-    id: z.string().min(1),
-  }),
-])
+//
+// A flat object schema (not a discriminated union on `action`) is required:
+// Anthropic's tool input_schema must be a top-level `type: "object"`, and a
+// union serializes to `anyOf` with no top-level type, which the API rejects.
+// Per-action required fields are enforced in execute below.
+const crudPrioritiesInputSchema = z.object({
+  action: z.enum(['list', 'create', 'update', 'archive']),
+  id: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  targetDate: z.string().regex(isoDate).nullable().optional(),
+})
 
 export type CrudPrioritiesOutput =
   | { priorities: PriorityRecord[] }
   | { priority: PriorityRecord }
   | { archived: true }
+  | { error: string }
 
 export const buildCrudPrioritiesTool = (deps: {
   port: PrioritiesToolPort
@@ -39,9 +32,10 @@ export const buildCrudPrioritiesTool = (deps: {
 }): LlmStreamTool<typeof crudPrioritiesInputSchema> => ({
   description:
     "Manage the official's durable policy/community priorities. " +
-    "action='list' returns active priorities; 'create' adds one; 'update' " +
-    "edits one by id; 'archive' soft-deletes one by id. Priorities are " +
-    'long-lived context, not meeting task cards.',
+    "action='list' returns active priorities; 'create' adds one (requires " +
+    "title and description); 'update' edits one by id; 'archive' " +
+    "soft-deletes one by id. Priorities are long-lived context, not meeting " +
+    'task cards.',
   inputSchema: crudPrioritiesInputSchema,
   execute: async (input): Promise<CrudPrioritiesOutput> => {
     const { electedOfficeId, port } = deps
@@ -49,6 +43,9 @@ export const buildCrudPrioritiesTool = (deps: {
       return { priorities: await port.listActive(electedOfficeId) }
     }
     if (input.action === 'create') {
+      if (!input.title || !input.description) {
+        return { error: 'create requires both title and description' }
+      }
       return {
         priority: await port.create({
           electedOfficeId,
@@ -61,6 +58,7 @@ export const buildCrudPrioritiesTool = (deps: {
       }
     }
     if (input.action === 'update') {
+      if (!input.id) return { error: 'update requires id' }
       return {
         priority: await port.update({
           electedOfficeId,
@@ -75,6 +73,7 @@ export const buildCrudPrioritiesTool = (deps: {
         }),
       }
     }
+    if (!input.id) return { error: 'archive requires id' }
     await port.archive(electedOfficeId, input.id)
     return { archived: true }
   },

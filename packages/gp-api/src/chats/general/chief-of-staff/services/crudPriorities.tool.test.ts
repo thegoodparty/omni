@@ -68,15 +68,20 @@ describe('buildCrudPrioritiesTool', () => {
     expect(result).toEqual({ archived: true })
   })
 
-  it('rejects input that the model cannot bind an office to', () => {
+  it('binds the office server-side and guards required fields at execute', async () => {
     const tool = buildCrudPrioritiesTool({
       port: buildPort(),
       electedOfficeId: ELECTED_OFFICE_ID,
     })
-    // electedOfficeId is never part of the tool's input schema.
+    // electedOfficeId is never part of the tool's input schema, which stays a
+    // flat object (Anthropic tool input_schema must be a top-level object), so
+    // per-action required fields are enforced in execute, not by the schema.
     expect(tool.inputSchema.safeParse({ action: 'list' }).success).toBe(true)
-    expect(tool.inputSchema.safeParse({ action: 'archive' }).success).toBe(
-      false,
-    )
+    expect(await tool.execute({ action: 'archive' })).toEqual({
+      error: 'archive requires id',
+    })
+    expect(await tool.execute({ action: 'create' })).toEqual({
+      error: 'create requires both title and description',
+    })
   })
 })
