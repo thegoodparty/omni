@@ -67,6 +67,7 @@ import {
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 
 interface MenuItem {
   id: string
@@ -273,6 +274,11 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
+  // Master gate for the Win voter-data rollout. Read here alongside the other
+  // dashboard flags; the menu isn't the treatment surface (no Win menu item
+  // yet — that lands with the downstream gating tasks), so don't track
+  // exposure. The read keeps the gate wired to the same place Serve flags live.
+  const { enabled: _winVoterDataEnabled } = useWinVoterDataFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
