@@ -15,7 +15,7 @@ model ExperimentRun {
   // e.g. "district_intel"
   experimentType String @map("experiment_type")
 
-  status ExperimentRunStatus @default(RUNNING)
+  status ExperimentRunStatus @default(QUEUED)
 
   // 'HIGH' | 'DEFAULT' — persisted so a resumed run keeps its original priority
   // instead of silently dropping to DEFAULT.
