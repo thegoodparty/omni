@@ -210,12 +210,26 @@ export default function ChiefOfStaffChatBody({
         let assistantId: string | undefined
         let errored: ChatStreamEvent | null = null
         const turnTools: string[] = []
+        // Text before and after a tool call comes from separate model steps,
+        // so the boundary has no whitespace ("...now." + "You..."). Insert a
+        // paragraph break when text resumes after a tool call.
+        let breakBeforeNextText = false
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
+            if (
+              breakBeforeNextText &&
+              assembled.length > 0 &&
+              !/\s$/.test(assembled) &&
+              !/^\s/.test(ev.delta)
+            ) {
+              assembled += '\n\n'
+            }
+            breakBeforeNextText = false
             assembled += ev.delta
             setStreaming(assembled)
           } else if (ev.type === 'tool_call') {
+            if (assembled.length > 0) breakBeforeNextText = true
             if (!turnTools.includes(ev.toolName)) {
               turnTools.push(ev.toolName)
               setActiveTools([...turnTools])
