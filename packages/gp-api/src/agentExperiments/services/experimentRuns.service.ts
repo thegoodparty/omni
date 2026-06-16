@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto'
 import { subMinutes } from 'date-fns'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
+import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 
 const sqs = new SQS({})
 
@@ -46,6 +47,7 @@ type ResumeRunInput = {
   params: unknown
   stage?: string | null
   resumeAttempts: number
+  priority: string
 }
 
 @Injectable()
@@ -124,6 +126,7 @@ export class ExperimentRunsService extends createPrismaBase(
         experimentType: input.experimentType,
         organizationSlug: input.organizationSlug,
         status: ExperimentRunStatus.QUEUED,
+        priority: input.priority ?? 'DEFAULT',
         params: input.params,
         resumeAttempts: input.resumeAttempts ?? 0,
         stage: input.stage ?? null,
@@ -242,6 +245,9 @@ export class ExperimentRunsService extends createPrismaBase(
         experimentType: run.experimentType,
         organizationSlug: run.organizationSlug,
         clerkUserId,
+        // Coerce the stored string back to the union; anything other than the
+        // exact 'HIGH' marker is treated as DEFAULT.
+        priority: run.priority === 'HIGH' ? 'HIGH' : 'DEFAULT',
         params: resumeParams,
         resumeAttempts: run.resumeAttempts + 1,
         stage: run.stage,
@@ -311,6 +317,9 @@ export class ExperimentRunsService extends createPrismaBase(
       where: {
         status: ExperimentRunStatus.AWAITING_RESUME,
         resumeScheduledFor: { lte: now },
+        // Defense-in-depth: even a pre-existing parked briefing/schedule row
+        // (there are none today) must never be resumed.
+        experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
       },
       orderBy: { resumeScheduledFor: Prisma.SortOrder.asc },
       take: RESUME_SWEEP_BATCH_SIZE,

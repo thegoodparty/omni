@@ -261,6 +261,10 @@ describe('ExperimentRunsService', () => {
       })
 
       expect(result?.status).toBe(ExperimentRunStatus.QUEUED)
+      expect(result?.priority).toBe('HIGH')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'HIGH' }),
+      })
 
       const [call] = sqsMock.commandCalls(SendMessageCommand)
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
@@ -274,7 +278,7 @@ describe('ExperimentRunsService', () => {
     it('defaults priority to DEFAULT when not given', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 
-      await service.dispatchRun({
+      const result = await service.dispatchRun({
         type: 'district_issue_pulse',
         organizationSlug: 'org-1',
         clerkUserId: 'user_test_dispatch',
@@ -284,6 +288,11 @@ describe('ExperimentRunsService', () => {
           l2DistrictType: 'city',
           l2DistrictName: 'San Francisco',
         },
+      })
+
+      expect(result?.priority).toBe('DEFAULT')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'DEFAULT' }),
       })
 
       const [call] = sqsMock.commandCalls(SendMessageCommand)
@@ -459,7 +468,37 @@ describe('ExperimentRunsService', () => {
       params: { trigger: 'initial', clerk_user_id: 'user_clerk_123' },
       stage: 'domain_registration',
       resumeAttempts: 2,
+      priority: 'DEFAULT',
     }
+
+    it('re-dispatches a HIGH-priority run carrying its original priority', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-high' })
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.resumeRun({ ...awaitingRun, priority: 'HIGH' })
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('HIGH')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'HIGH' }),
+      })
+    })
+
+    it('re-dispatches a DEFAULT-priority run at DEFAULT', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-def' })
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.resumeRun(awaitingRun)
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('DEFAULT')
+    })
 
     it(
       'mints a NEW run_id, creates a QUEUED row with incremented ' +
@@ -557,6 +596,7 @@ describe('ExperimentRunsService', () => {
           params: { clerk_user_id: 'user_from_params' },
           stage: null,
           resumeAttempts: 0,
+          priority: 'DEFAULT',
         })
 
         const [call] = sqsMock.commandCalls(SendMessageCommand)
@@ -582,6 +622,7 @@ describe('ExperimentRunsService', () => {
           params: { trigger: 'initial' },
           stage: null,
           resumeAttempts: 0,
+          priority: 'DEFAULT',
         })
 
         expect(mockModel.updateMany).toHaveBeenCalledWith({
@@ -704,6 +745,7 @@ describe('ExperimentRunsService', () => {
       stage: 'domain_registration',
       resumeAttempts: 0,
       resumeScheduledFor: new Date(Date.now() - 1000),
+      priority: 'DEFAULT',
       ...overrides,
     })
 
@@ -730,6 +772,39 @@ describe('ExperimentRunsService', () => {
 
       const sqsCalls = sqsMock.commandCalls(SendMessageCommand)
       expect(sqsCalls.length).toBeGreaterThan(0)
+    })
+
+    it('re-dispatches a swept HIGH-priority run at HIGH', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-sweep-high' })
+      const run = makeRun({
+        runId: 'run-sweep-high',
+        priority: 'HIGH',
+        resumeAttempts: 1,
+      })
+      mockModel.findMany.mockResolvedValue([run])
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.sweepResumableRuns()
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      expect(call).toBeDefined()
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('HIGH')
+    })
+
+    it('excludes non-resumable experiment types from the sweep query', async () => {
+      mockModel.findMany.mockResolvedValue([])
+
+      await service.sweepResumableRuns()
+
+      const where = mockModel.findMany.mock.calls[0][0].where as {
+        experimentType: { notIn: string[] }
+      }
+      expect(where.experimentType.notIn).toEqual(
+        expect.arrayContaining(['meeting_briefing', 'meeting_schedule']),
+      )
     })
 
     it(

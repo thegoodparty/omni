@@ -17,6 +17,10 @@ model ExperimentRun {
 
   status ExperimentRunStatus @default(RUNNING)
 
+  // 'HIGH' | 'DEFAULT' — persisted so a resumed run keeps its original priority
+  // instead of silently dropping to DEFAULT.
+  priority String @default("DEFAULT")
+
   params Json @default("{}") @db.JsonB
 
   artifactBucket  String? @map("artifact_bucket")

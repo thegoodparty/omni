@@ -15,6 +15,7 @@ const makeRun = (overrides: Partial<ExperimentRun> = {}): ExperimentRun => ({
   organizationSlug: 'org-1',
   experimentType: 'compliance_setup',
   status: ExperimentRunStatus.COMPLETED,
+  priority: 'DEFAULT',
   params: {
     campaign_id: 42,
     candidate_first_name: 'Ada',
