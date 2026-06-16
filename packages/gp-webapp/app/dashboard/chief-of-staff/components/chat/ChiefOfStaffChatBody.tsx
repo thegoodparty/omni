@@ -75,6 +75,13 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
 
 const INTRO_SEEN_KEY = 'cos-intro-streamed'
 
+// Starter prompts shown on a fresh chat; tapping one sends it.
+const CHAT_SUGGESTIONS = [
+  "What's most urgent this week?",
+  'Where do I stand on housing?',
+  'What are constituents saying?',
+]
+
 const ASSISTANT_BUBBLE =
   'self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground ' +
   'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_strong]:font-semibold ' +
@@ -539,6 +546,22 @@ export default function ChiefOfStaffChatBody({
           </div>
         )}
       </div>
+
+      {history.length === 0 && streaming === null && !error && (
+        <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2">
+          {CHAT_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              disabled={busy}
+              onClick={() => void sendContent(s)}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="border-t border-border px-3 py-3">
         <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-primary to-info p-px">

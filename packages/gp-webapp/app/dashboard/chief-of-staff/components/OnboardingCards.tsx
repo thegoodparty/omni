@@ -37,6 +37,7 @@ export default function OnboardingCards({
       {showMeet && (
         <TaskCard
           highlighted
+          scrollSpy
           eyebrowLabel="Get started"
           EyebrowIcon={SparklesIcon}
           title="Meet your virtual chief of staff"
@@ -48,6 +49,7 @@ export default function OnboardingCards({
       )}
       {showPersonalizeCard && (
         <TaskCard
+          scrollSpy
           eyebrowLabel="Get started"
           EyebrowIcon={SparklesIcon}
           title="Tell us more about the most important issues you're facing"
