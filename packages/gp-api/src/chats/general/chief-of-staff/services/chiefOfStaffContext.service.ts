@@ -17,6 +17,9 @@ export interface ChiefOfStaffContext {
   // service leaves this null; the handler fills it from DistrictResolverService
   // (which also populates jurisdiction).
   districtFilters: MandatoryFilter[] | null
+  // Whether the per-user cos-constituent-data-tool flag is on. The context
+  // service defaults it false; the handler resolves it from FeaturesService.
+  constituentToolEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -62,6 +65,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       swornInDate: electedOffice.swornInDate,
       priorities,
       districtFilters: null,
+      constituentToolEnabled: false,
     }
   }
 }

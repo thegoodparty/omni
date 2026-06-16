@@ -10,6 +10,7 @@ import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.s
 import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { FeaturesService } from '@/features/services/features.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -32,6 +33,11 @@ const buildBriefings = (): ChiefOfStaffBriefingsService =>
 const TEST_TABLES = [
   { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
 ]
+
+const buildFeatures = (enabled: boolean): FeaturesService =>
+  ({
+    isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+  }) as unknown as FeaturesService
 
 describe('ChiefOfStaffHandler', () => {
   let store: GeneralChatStoreService
@@ -178,7 +184,7 @@ describe('ChiefOfStaffHandler', () => {
     expect(prompt).toContain('Council Member')
   })
 
-  it('registers constituent-data tools when provider + filters + table', async () => {
+  it('registers constituent-data tools when provider + filters + table + flag', async () => {
     const handler = new ChiefOfStaffHandler(
       store,
       context,
@@ -188,11 +194,31 @@ describe('ChiefOfStaffHandler', () => {
       undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
+      buildFeatures(true),
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
     expect(Object.keys(tools)).toContain('query_constituent_data')
     expect(Object.keys(tools)).toContain('describe_constituent_data')
+  })
+
+  it('omits constituent-data tools when the feature flag is off', async () => {
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      TEST_TABLES,
+      undefined,
+      new InMemoryDatabricksProvider(new Map()),
+      buildResolver(),
+      buildFeatures(false),
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    expect(ctx.constituentToolEnabled).toBe(false)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'query_constituent_data',
+    )
   })
 
   it('omits constituent-data tools without a scoped provider', async () => {

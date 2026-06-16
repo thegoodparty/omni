@@ -6,7 +6,9 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
+  CONSTITUENT_DATA_TOOL_FLAG,
 } from '@/llm/tools/queryConstituentData.tool'
+import { FeaturesService } from '@/features/services/features.service'
 import { buildWebSearchTool, SearchProvider } from '@/llm/tools/webSearch.tool'
 import {
   ChatScopeHandler,
@@ -51,11 +53,12 @@ export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 // uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
 
-// Prod enablement = configuring the shared DATABRICKS_* credential AND adding an
-// approved table to CONSTITUENT_TABLES. There is NO Amplitude gate on the hard
-// register path. This flag is kept only for optional product-side
-// metering/visibility.
-export { CONSTITUENT_DATA_TOOL_FLAG } from '@/llm/tools/queryConstituentData.tool'
+// Enablement requires ALL of: the shared DATABRICKS_* credential, an approved
+// table in CONSTITUENT_TABLES, the user's district resolving to server-bound
+// filters, AND the per-user cos-constituent-data-tool Amplitude flag being on.
+// The flag is the rollout control while the tool runs against the shared (broad)
+// key: it stays off for everyone until explicitly enabled per internal tester.
+export { CONSTITUENT_DATA_TOOL_FLAG }
 
 @Injectable()
 export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext> {
@@ -79,6 +82,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly constituentProvider?: DatabricksProvider,
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {}
 
   async resolveConversation(
@@ -109,12 +114,25 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     )
     const resolved = await this.districtResolver?.resolveByUserId(userId)
     if (!resolved) return ctx
+    const districtFilters = this.districtResolver
+      ? this.districtResolver.toMandatoryFilters(resolved)
+      : null
+    // Resolve the per-user flag only when the tool could otherwise register
+    // (provider + an approved table present), so we don't hit Amplitude for
+    // users who can't use it anyway.
+    const constituentToolEnabled =
+      !!this.constituentProvider &&
+      this.constituentTables.length > 0 &&
+      !!this.features &&
+      (await this.features.isFeatureEnabled({
+        user: userId,
+        feature: CONSTITUENT_DATA_TOOL_FLAG,
+      }))
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
-      districtFilters: this.districtResolver
-        ? this.districtResolver.toMandatoryFilters(resolved)
-        : null,
+      districtFilters,
+      constituentToolEnabled,
     }
   }
 
@@ -153,11 +171,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       tools.web_search = buildWebSearchTool({ provider: this.searchProvider })
     }
 
-    // Aggregate-only constituent data. Registers ONLY when all three hold: the
-    // provider is configured (shared DATABRICKS_* present), the user's district
-    // resolved into server-bound filters, and an approved table is in the
-    // in-code allowlist. Any one missing keeps the tool off.
-    if (this.constituentProvider && ctx.districtFilters) {
+    // Aggregate-only constituent data. Registers ONLY when all of: the provider
+    // is configured (shared DATABRICKS_* present), the user's district resolved
+    // into server-bound filters, an approved table is in the in-code allowlist,
+    // AND the per-user cos-constituent-data-tool flag is on. Any one missing
+    // keeps the tool off.
+    if (
+      this.constituentProvider &&
+      ctx.districtFilters &&
+      ctx.constituentToolEnabled
+    ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
         this.constituentTables,

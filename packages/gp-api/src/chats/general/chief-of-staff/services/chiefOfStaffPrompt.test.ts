@@ -17,6 +17,7 @@ const baseCtx = (
   swornInDate: null,
   priorities: [],
   districtFilters: null,
+  constituentToolEnabled: false,
   ...overrides,
 })
 

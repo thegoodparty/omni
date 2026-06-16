@@ -6,6 +6,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { Module } from '@nestjs/common'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { FeaturesModule } from '@/features/features.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
@@ -59,7 +60,12 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 // Registers the chief_of_staff scope handler. The handler is exported so the
 // general chats module can collect it into the scope registry.
 @Module({
-  imports: [PrioritiesModule, OrganizationsModule, ElectionsModule],
+  imports: [
+    PrioritiesModule,
+    OrganizationsModule,
+    ElectionsModule,
+    FeaturesModule,
+  ],
   providers: [
     ChiefOfStaffHandler,
     ChiefOfStaffContextService,
