@@ -69,6 +69,8 @@
   --color-popover-foreground: var(--popover-foreground, #020817);
   --color-destructive: var(--destructive, #ef4444);
   --color-destructive-foreground: var(--destructive-foreground, #f8fafc);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
 
   --color-primary: var(--theme-primary);
   --color-primary-light: var(--theme-primary-light);
