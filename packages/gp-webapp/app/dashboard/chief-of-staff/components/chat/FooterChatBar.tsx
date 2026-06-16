@@ -46,19 +46,19 @@ export default function FooterChatBar({
               size="small"
               variant="ghost"
               aria-label="Dictate a message"
-              className="size-9"
+              className="size-10"
               onClick={onOpen}
             >
-              <MicIcon className="size-4" aria-hidden />
+              <MicIcon className="size-5" aria-hidden />
             </IconButton>
             <IconButton
               type="button"
               size="small"
               aria-label="Open Chief of Staff chat"
-              className="size-9 bg-primary text-primary-foreground"
+              className="size-10 bg-primary text-primary-foreground"
               onClick={onOpen}
             >
-              <SparklesIcon className="size-4" aria-hidden />
+              <SparklesIcon className="size-5" aria-hidden />
             </IconButton>
           </div>
         </div>

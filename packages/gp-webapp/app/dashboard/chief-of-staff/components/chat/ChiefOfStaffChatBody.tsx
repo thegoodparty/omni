@@ -3,8 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Button, IconButton, Input } from '@styleguide'
+import {
+  Button,
+  IconButton,
+  Input,
+  Loader2Icon,
+  MicIcon,
+  SquareIcon,
+} from '@styleguide'
 import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi as chatApi } from '../../data/chat-api'
 import type {
@@ -108,6 +116,11 @@ export default function ChiefOfStaffChatBody({
   const [streaming, setStreaming] = useState<string | null>(null)
   const [activeTools, setActiveTools] = useState<string[]>([])
   const [composer, setComposer] = useState('')
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'chief-of-staff-chat',
+  })
   const [error, setError] = useState<ErrorState | null>(null)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
@@ -555,7 +568,7 @@ export default function ChiefOfStaffChatBody({
               type="button"
               disabled={busy}
               onClick={() => void sendContent(s)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
             >
               {s}
             </button>
@@ -586,13 +599,37 @@ export default function ChiefOfStaffChatBody({
             <IconButton
               type="button"
               size="small"
+              variant="ghost"
+              aria-label={
+                dictation.status === 'recording'
+                  ? 'Stop dictation'
+                  : 'Dictate a message'
+              }
+              className="size-10 shrink-0"
+              disabled={busy || dictation.status === 'stopping'}
+              onClick={() => void dictation.toggle()}
+            >
+              {dictation.busy ? (
+                <Loader2Icon className="size-5 animate-spin" aria-hidden />
+              ) : dictation.status === 'recording' ? (
+                <SquareIcon
+                  className="size-5 animate-pulse text-red-500"
+                  aria-hidden
+                />
+              ) : (
+                <MicIcon className="size-5" aria-hidden />
+              )}
+            </IconButton>
+            <IconButton
+              type="button"
+              size="small"
               aria-label="Send"
-              className="size-9 shrink-0 bg-primary text-primary-foreground"
+              className="size-10 shrink-0 bg-primary text-primary-foreground"
               onClick={() => void onSend()}
               disabled={composer.trim().length === 0 || busy}
               loading={busy}
             >
-              <SparklesIcon className="size-4" aria-hidden />
+              <SparklesIcon className="size-5" aria-hidden />
             </IconButton>
           </div>
         </div>

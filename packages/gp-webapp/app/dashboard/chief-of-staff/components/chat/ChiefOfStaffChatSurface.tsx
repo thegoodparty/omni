@@ -40,7 +40,7 @@ export default function ChiefOfStaffChatSurface({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
-        className="flex h-[80vh] flex-col p-0"
+        className="flex h-[90vh] flex-col p-0"
         aria-describedby={undefined}
       >
         <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">

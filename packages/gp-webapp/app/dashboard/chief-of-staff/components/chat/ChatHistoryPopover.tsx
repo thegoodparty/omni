@@ -48,9 +48,9 @@ export default function ChatHistoryPopover({
           size="small"
           variant="ghost"
           aria-label="Previous conversations"
-          className="size-9 shrink-0"
+          className="size-10 shrink-0"
         >
-          <ClockIcon className="size-4" aria-hidden />
+          <ClockIcon className="size-5" aria-hidden />
         </IconButton>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-72 p-2">
