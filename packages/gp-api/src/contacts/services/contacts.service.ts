@@ -16,8 +16,13 @@ import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
+import { OrganizationsService } from 'src/organizations/services/organizations.service'
+import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
-import { StatsResponse } from '../contacts.types'
+import {
+  StatsResponse,
+  VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+} from '../contacts.types'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -48,6 +53,8 @@ export class ContactsService {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
+    private readonly organizations: OrganizationsService,
+    private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -90,12 +97,42 @@ export class ContactsService {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
     if (!districtId) {
-      throw new BadRequestException(
-        'Organization does not have sufficient data to resolve district',
-      )
+      throw new BadRequestException({
+        message:
+          'Organization does not have sufficient data to resolve district',
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
     }
 
+    await this.assertVoterDataEligibility(org)
+
     return fn({ districtId })
+  }
+
+  // Serve / elected-office orgs keep their existing access untouched. For Win
+  // campaign orgs, mirror the voter-file download gate so a federal/state
+  // office without L2 district data (or the canDownloadFederal override) gets
+  // a clean ineligible 4xx instead of querying People-API with an unusable
+  // district.
+  private async assertVoterDataEligibility(org: Organization): Promise<void> {
+    if (this.hasElectedOfficeAccess(org)) return
+
+    const campaign = await this.campaigns.findFirst({
+      where: { organizationSlug: org.slug },
+    })
+    if (!campaign) return
+
+    const { district, ballotLevel } =
+      await this.organizations.getDistrictAndBallotLevelForOrgSlug(org.slug)
+
+    if (
+      !this.voterFileDownloadAccess.canDownload(campaign, district, ballotLevel)
+    ) {
+      throw new BadRequestException({
+        message: 'Campaign is not eligible for voter data',
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
   }
 
   async findContacts(
