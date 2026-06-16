@@ -51,7 +51,11 @@ const getCampaignOrgSlugs = async (
     .filter((slug) => slug.startsWith('campaign-'))
 }
 
-// @dev-only: requires BallotReady race data and election-api; won't resolve in a Vercel preview
+// @dev-only: drives the full re-election follow-on through live async pipelines
+// (eligibility recompute, election-api term/electionDate derivation, multi-step
+// org-status settling). It is flaky/failing against the ephemeral per-PR preview
+// — already red on develop pre-dating this PR (commit ee2c423f3) — so it runs on
+// the warm post-merge develop e2e, not on PR runs.
 test('same-office re-election follow-on: derived date, active org, duplicate blocked @dev-only', async ({
   page,
 }) => {
