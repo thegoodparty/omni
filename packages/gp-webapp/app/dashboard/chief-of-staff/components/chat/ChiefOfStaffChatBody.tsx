@@ -474,7 +474,7 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       <div className="border-t border-border px-3 py-3">
-        <div className="relative flex h-12 w-full items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
+        <div className="relative mx-auto flex h-12 w-full max-w-[608px] items-center gap-1 rounded-full border border-primary bg-card pl-1.5 pr-1.5">
           {onSelectConversation && (
             <ChatHistoryPopover onSelect={onSelectConversation} />
           )}
