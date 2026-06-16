@@ -29,6 +29,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
+          build-contracts: "true"
 
       - name: Next typegen
         working-directory: ${{ env.WORKSPACE }}
@@ -65,6 +66,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
+          build-contracts: "true"
 
       # develop -> dev.goodparty.org, qa -> qa.goodparty.org (preview target +
       # branch-scoped env vars, then aliased); master -> production; PRs get a
