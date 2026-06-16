@@ -45,6 +45,9 @@ describe('ContactsService', () => {
     let mockCampaignsService: {
       findFirst: ReturnType<typeof vi.fn>
     }
+    let mockFeaturesService: {
+      isFeatureEnabled: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -63,12 +66,16 @@ describe('ContactsService', () => {
       mockCampaignsService = {
         findFirst: vi.fn().mockResolvedValue(null),
       }
+      mockFeaturesService = {
+        isFeatureEnabled: vi.fn().mockResolvedValue(true),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
         mockVoterFileFilterService as never,
         mockElectionsService as never,
         mockCampaignsService as never,
+        mockFeaturesService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
