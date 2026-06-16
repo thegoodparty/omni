@@ -15,7 +15,12 @@ model ExperimentRun {
   // e.g. "district_intel"
   experimentType String @map("experiment_type")
 
-  status ExperimentRunStatus @default(QUEUED)
+  // Default stays RUNNING: Postgres forbids using a freshly-added enum value
+  // (QUEUED) in the same transaction it's added, and the test harness applies
+  // all migrations in one transaction — a SET DEFAULT 'QUEUED' migration trips
+  // 55P04. Every create path sets status explicitly, so the column default is
+  // cosmetic.
+  status ExperimentRunStatus @default(RUNNING)
 
   // 'HIGH' | 'DEFAULT' — persisted so a resumed run keeps its original priority
   // instead of silently dropping to DEFAULT.
