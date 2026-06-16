@@ -183,4 +183,31 @@ describe('VoterOutreachActivityService', () => {
 
     expect(result).toEqual([])
   })
+
+  it('returns an empty page for a cursor belonging to another voter', async () => {
+    const campaignId = await seedCampaign('campaign-g')
+    const foreign = await activities.recordActivity({
+      campaignId,
+      lalVoterId: 'LAL-foreign',
+      outreachType: OutreachType.text,
+      attributionSource: VoterOutreachAttributionSource.segmentDerived,
+      occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+    })
+    await activities.recordActivity({
+      campaignId,
+      lalVoterId: 'LAL-target',
+      outreachType: OutreachType.text,
+      attributionSource: VoterOutreachAttributionSource.segmentDerived,
+      occurredAt: new Date('2026-02-01T00:00:00.000Z'),
+    })
+
+    const result = await activities.getActivityForVoter(
+      campaignId,
+      'LAL-target',
+      2,
+      String(foreign.id),
+    )
+
+    expect(result).toEqual([])
+  })
 })

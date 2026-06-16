@@ -22,12 +22,22 @@ export class VoterOutreachActivityService extends createPrismaBase(
     cursor?: string,
   ) {
     const cursorId = cursor !== undefined ? parseInt(cursor, 10) : undefined
-    // A cursor that isn't a valid activity id can't match a row. Return an
-    // empty page rather than letting NaN reach Prisma's `cursor: { id }`, which
-    // would throw a DB validation error (the `after` query param is a free
-    // string shared with the poll path, so non-numeric values can arrive here).
-    if (cursorId !== undefined && Number.isNaN(cursorId)) {
-      return []
+    // Validate the cursor before handing it to Prisma's `cursor: { id }`. The
+    // `after` query param is a free string shared with the poll path, so it can
+    // be non-numeric (NaN) or a stale/foreign id. Either way the cursor matches
+    // no row for this voter, so the page is empty — confirm the cursor row
+    // exists here rather than relying on Prisma's missing-cursor behavior.
+    if (cursorId !== undefined) {
+      if (Number.isNaN(cursorId)) {
+        return []
+      }
+      const cursorRow = await this.model.findFirst({
+        where: { id: cursorId, campaignId, lalVoterId },
+        select: { id: true },
+      })
+      if (!cursorRow) {
+        return []
+      }
     }
     return this.model.findMany({
       where: { campaignId, lalVoterId },
