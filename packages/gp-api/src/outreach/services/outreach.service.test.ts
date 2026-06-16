@@ -193,6 +193,23 @@ describe('OutreachService', () => {
       )
     })
 
+    it('does not persist campaignPlanDueDate (no such Outreach column)', async () => {
+      const dto: CreateOutreachSchema = {
+        ...baseCreateDto,
+        campaignPlanDueDate: '2026-04-19',
+      }
+      mockOutreachCreate.mockResolvedValue({
+        id: 1,
+        ...baseCreateDto,
+        voterFileFilter: null,
+      })
+
+      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+
+      const [createArg] = mockOutreachCreate.mock.calls[0]
+      expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
+    })
+
     it('creates non-P2P outreach without imageUrl when both omitted', async () => {
       const created = { id: 1, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)

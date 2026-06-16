@@ -217,9 +217,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
   ) {
+    // campaignPlanDueDate is notification-only metadata; it has no Outreach
+    // column, so it must not reach Prisma's create.
+    const outreachData = { ...createOutreachDto }
+    delete outreachData.campaignPlanDueDate
     return await this.model.create({
       data: {
-        ...createOutreachDto,
+        ...outreachData,
         ...(imageUrl ? { imageUrl } : {}),
       },
       include: {
