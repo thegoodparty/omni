@@ -266,18 +266,22 @@ const getDashboardMenuItems = (
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
-  // Insert Campaign Story before Campaign Plan so that, after the Plan splice
-  // also lands at index 1, the rendered order is [Campaign Manager, Campaign
-  // Plan, Campaign Story, …].
+  // Campaign Manager (dashboard home) is index 0, unless an elected office is
+  // present — then BRIEFINGS is unshifted to index 0 and Campaign Manager moves
+  // to index 1. Insert campaign items right after Campaign Manager (and Story
+  // before Plan, so the Plan splice lands first) to render the campaign-category
+  // nav as [Campaign Manager, Campaign Plan, Campaign Story, …].
+  const afterCampaignManager = isElectedOffice ? 2 : 1
+
   if (campaignStoryEnabled) {
-    menuItems.splice(1, 0, CAMPAIGN_STORY_MENU_ITEM)
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
   }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
   // computed field (see useCampaignStrategyExists).
   if (campaignStrategyExists) {
-    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems
