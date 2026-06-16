@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -8,6 +8,8 @@ import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { PrioritiesToolPort } from './services/prioritiesPort'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -49,10 +51,31 @@ describe('ChiefOfStaffHandler', () => {
           jurisdiction: null,
           swornInDate: null,
           priorities: [],
+          districtFilters: null,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
+
+  afterEach(() => {
+    delete process.env.SERVE_CONSTITUENT_TABLE
+    delete process.env.SERVE_CONSTITUENT_DIMENSIONS
+  })
+
+  const buildResolver = (): DistrictResolverService =>
+    ({
+      resolveByUserId: vi.fn(() =>
+        Promise.resolve({
+          state: 'NC',
+          l2DistrictType: 'city',
+          l2DistrictName: 'Hendersonville',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => [
+        { column: 'state_postal_code', value: 'NC' },
+        { column: 'city', value: 'Hendersonville' },
+      ]),
+    }) as unknown as DistrictResolverService
 
   it('is a sensitive, Anthropic-only scope', () => {
     const handler = new ChiefOfStaffHandler(
@@ -148,5 +171,82 @@ describe('ChiefOfStaffHandler', () => {
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('Chief of Staff')
     expect(prompt).toContain('Council Member')
+  })
+
+  it('registers constituent-data tools when provider + filters + table', async () => {
+    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
+    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      undefined,
+      new InMemoryDatabricksProvider(new Map()),
+      buildResolver(),
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    const tools = handler.buildTools(ctx)
+    expect(Object.keys(tools)).toContain('query_constituent_data')
+    expect(Object.keys(tools)).toContain('describe_constituent_data')
+  })
+
+  it('omits constituent-data tools without a scoped provider', async () => {
+    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
+    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      undefined,
+      undefined,
+      buildResolver(),
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'query_constituent_data',
+    )
+  })
+
+  it('omits constituent-data tools when no table is configured', async () => {
+    delete process.env.SERVE_CONSTITUENT_TABLE
+    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      undefined,
+      new InMemoryDatabricksProvider(new Map()),
+      buildResolver(),
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'query_constituent_data',
+    )
+  })
+
+  it('omits constituent-data tools when the district does not resolve', async () => {
+    process.env.SERVE_CONSTITUENT_TABLE = 'constituent_aggregates'
+    process.env.SERVE_CONSTITUENT_DIMENSIONS = 'age_band,gender'
+    const resolver = {
+      resolveByUserId: vi.fn(() => Promise.resolve(null)),
+      toMandatoryFilters: vi.fn(),
+    } as unknown as DistrictResolverService
+    const handler = new ChiefOfStaffHandler(
+      store,
+      context,
+      buildBriefings(),
+      port,
+      undefined,
+      new InMemoryDatabricksProvider(new Map()),
+      resolver,
+    )
+    const ctx = await handler.loadContext('c1', USER_ID)
+    expect(ctx.districtFilters).toBeNull()
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'query_constituent_data',
+    )
   })
 })

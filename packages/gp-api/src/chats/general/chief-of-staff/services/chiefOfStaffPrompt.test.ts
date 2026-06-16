@@ -16,6 +16,7 @@ const baseCtx = (
   jurisdiction: null,
   swornInDate: null,
   priorities: [],
+  districtFilters: null,
   ...overrides,
 })
 

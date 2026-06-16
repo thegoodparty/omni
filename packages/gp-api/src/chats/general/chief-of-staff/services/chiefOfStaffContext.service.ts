@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../../../generated/prisma'
+import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
 
@@ -12,6 +13,10 @@ export interface ChiefOfStaffContext {
   jurisdiction: string | null
   swornInDate: Date | null
   priorities: PriorityRecord[]
+  // Server-bound district predicate for constituent-data queries. The context
+  // service leaves this null; the handler fills it from DistrictResolverService
+  // (which also populates jurisdiction).
+  districtFilters: MandatoryFilter[] | null
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -56,6 +61,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
       priorities,
+      districtFilters: null,
     }
   }
 }

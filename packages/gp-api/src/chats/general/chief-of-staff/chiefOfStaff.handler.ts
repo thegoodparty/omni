@@ -2,6 +2,11 @@ import { Inject, Injectable, Optional } from '@nestjs/common'
 import { z } from 'zod'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
+import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import {
+  buildDescribeConstituentDataTool,
+  buildQueryConstituentDataTool,
+} from '@/llm/tools/queryConstituentData.tool'
 import { buildWebSearchTool, SearchProvider } from '@/llm/tools/webSearch.tool'
 import {
   ChatScopeHandler,
@@ -15,7 +20,9 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
+import { buildConstituentDataScope } from './services/constituentDataScope'
 import { buildCrudPrioritiesTool } from './services/crudPriorities.tool'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   buildGetBriefingTool,
   buildListBriefingsTool,
@@ -32,6 +39,18 @@ export const CHIEF_OF_STAFF_MODELS = [
 
 export const COS_SEARCH_PROVIDER = 'COS_SEARCH_PROVIDER'
 
+// Token for the SCOPED, aggregate-only Databricks provider. Distinct from the
+// briefing chat's broad provider. Bound to a factory that returns null unless a
+// dedicated SERVE_DATABRICKS_* credential is configured, so the tool stays
+// unregistered until that scoped key is deployed.
+export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
+
+// Prod enablement = deploying the scoped SERVE_DATABRICKS_* credential (and the
+// approved table/dimensions). There is NO Amplitude gate on the hard register
+// path, so a local key-swap turns the tool on without touching Amplitude. This
+// flag is kept only for optional product-side metering/visibility.
+export { CONSTITUENT_DATA_TOOL_FLAG } from '@/llm/tools/queryConstituentData.tool'
+
 @Injectable()
 export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext> {
   readonly scope = ChatScope.chief_of_staff
@@ -47,6 +66,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Optional()
     @Inject(COS_SEARCH_PROVIDER)
     private readonly searchProvider?: SearchProvider,
+    @Optional()
+    @Inject(CONSTITUENT_DATA_PROVIDER)
+    private readonly constituentProvider?: DatabricksProvider,
+    @Optional()
+    private readonly districtResolver?: DistrictResolverService,
   ) {}
 
   async resolveConversation(
@@ -66,11 +90,24 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return { conversationId: created.id, created: true }
   }
 
-  loadContext(
+  async loadContext(
     conversationId: string,
     userId: number,
   ): Promise<ChiefOfStaffContext> {
-    return this.contextService.load(conversationId, userId, this.priorities)
+    const ctx = await this.contextService.load(
+      conversationId,
+      userId,
+      this.priorities,
+    )
+    const resolved = await this.districtResolver?.resolveByUserId(userId)
+    if (!resolved) return ctx
+    return {
+      ...ctx,
+      jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      districtFilters: this.districtResolver
+        ? this.districtResolver.toMandatoryFilters(resolved)
+        : null,
+    }
   }
 
   buildSystemPrompt(ctx: ChiefOfStaffContext): string {
@@ -106,6 +143,24 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
     if (this.searchProvider) {
       tools.web_search = buildWebSearchTool({ provider: this.searchProvider })
+    }
+
+    // Aggregate-only constituent data. Registers ONLY when all three hold: the
+    // scoped provider is configured (SERVE_DATABRICKS_* present), the user's
+    // district resolved into server-bound filters, and an approved table is
+    // configured. Any one missing keeps the tool off — prod/local stay off
+    // until the scoped key is deployed.
+    if (this.constituentProvider && ctx.districtFilters) {
+      const scope = buildConstituentDataScope(ctx.districtFilters)
+      if (scope.allowedTables.size > 0) {
+        tools.query_constituent_data = buildQueryConstituentDataTool({
+          provider: this.constituentProvider,
+          scope,
+        })
+        tools.describe_constituent_data = buildDescribeConstituentDataTool({
+          scope,
+        })
+      }
     }
 
     return tools

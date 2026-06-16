@@ -23,6 +23,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   constituent_data: 'Reviewing district data',
+  query_constituent_data: 'Reviewing district data',
+  describe_constituent_data: 'Reviewing district data',
 }
 
 export function toolDisplayName(toolName: string): string {
