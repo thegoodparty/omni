@@ -266,15 +266,18 @@ const getDashboardMenuItems = (
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
+  // Insert Campaign Story before Campaign Plan so that, after the Plan splice
+  // also lands at index 1, the rendered order is [Campaign Manager, Campaign
+  // Plan, Campaign Story, …].
+  if (campaignStoryEnabled) {
+    menuItems.splice(1, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
   // computed field (see useCampaignStrategyExists).
   if (campaignStrategyExists) {
     menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
-  }
-
-  if (campaignStoryEnabled) {
-    menuItems.splice(1, 0, CAMPAIGN_STORY_MENU_ITEM)
   }
 
   return menuItems
