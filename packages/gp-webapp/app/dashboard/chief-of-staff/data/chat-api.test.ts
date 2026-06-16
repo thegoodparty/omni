@@ -95,7 +95,7 @@ describe('chiefOfStaffChatApi', () => {
 
       expect(result).toEqual(messages)
       const [url] = fetchMock.mock.calls[0] as [string]
-      expect(url).toBe('/api/v1/chats/conv_1')
+      expect(url).toBe('/api/v1/chats/conv_1?scope=chief_of_staff')
     })
   })
 
@@ -130,7 +130,7 @@ describe('chiefOfStaffChatApi', () => {
         chiefOfStaffChatApi.softDelete('conv_1'),
       ).resolves.toBeUndefined()
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe('/api/v1/chats/conv_1')
+      expect(url).toBe('/api/v1/chats/conv_1?scope=chief_of_staff')
       expect(init.method).toBe('DELETE')
     })
 
@@ -166,7 +166,7 @@ describe('chiefOfStaffChatApi', () => {
         { type: 'done', assistantMessageId: 'asst_1' },
       ])
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe('/api/v1/chats/conv_1/messages')
+      expect(url).toBe('/api/v1/chats/conv_1/messages?scope=chief_of_staff')
       expect(init.method).toBe('POST')
       expect(JSON.parse(init.body as string)).toEqual({
         content: 'hi',

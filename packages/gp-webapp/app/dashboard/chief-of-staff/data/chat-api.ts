@@ -169,7 +169,7 @@ export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
 
   async listMessages(conversationId) {
     const data = await getJson<ChatConversationMessagesResponse>(
-      `/v1/chats/${encodeURIComponent(conversationId)}`,
+      `/v1/chats/${encodeURIComponent(conversationId)}?scope=${SCOPE}`,
     )
     return data.messages
   },
@@ -183,7 +183,7 @@ export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
 
   async softDelete(conversationId) {
     const res = await fetch(
-      `/api/v1/chats/${encodeURIComponent(conversationId)}`,
+      `/api/v1/chats/${encodeURIComponent(conversationId)}?scope=${SCOPE}`,
       {
         method: 'DELETE',
         credentials: 'include',
@@ -199,7 +199,7 @@ export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
     let res: Response
     try {
       res = await fetch(
-        `/api/v1/chats/${encodeURIComponent(conversationId)}/messages`,
+        `/api/v1/chats/${encodeURIComponent(conversationId)}/messages?scope=${SCOPE}`,
         {
           method: 'POST',
           credentials: 'include',
