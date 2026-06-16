@@ -25,6 +25,10 @@ const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
 const STARTED_HINT =
   'Worth saying more: another 1-2 sentences will sharpen this a lot.'
 
+// Roughly two sentences. Past this the answer stands on its own, so we drop the
+// nudge rather than make a quality claim we can't back up from a length signal.
+const ENOUGH_CHARS = 140
+
 interface CampaignStoryCardProps {
   section: CampaignStorySection
 }
@@ -35,7 +39,9 @@ const CampaignStoryCard = ({
   const { title, description, placeholder } = section
   const [value, setValue] = useState('')
   const [expanded, setExpanded] = useState(true)
-  const answered = value.trim().length > 0
+  const length = value.trim().length
+  const hint =
+    length === 0 ? EMPTY_HINT : length < ENOUGH_CHARS ? STARTED_HINT : null
 
   return (
     <Card className="p-6">
@@ -67,19 +73,22 @@ const CampaignStoryCard = ({
             />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-                <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-bold uppercase tracking-wide text-primary">
-                    Campaign Manager
-                  </span>
-                  <span className="text-sm text-foreground">
-                    {answered ? STARTED_HINT : EMPTY_HINT}
-                  </span>
+              {hint && (
+                <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
+                  <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-bold uppercase tracking-wide text-primary">
+                      Campaign Manager
+                    </span>
+                    <span className="text-sm text-foreground">{hint}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <Button icon={<WandSparklesIcon />} className="sm:shrink-0">
+              <Button
+                icon={<WandSparklesIcon />}
+                className="sm:ml-auto sm:shrink-0"
+              >
                 Help me rewrite
               </Button>
             </div>
