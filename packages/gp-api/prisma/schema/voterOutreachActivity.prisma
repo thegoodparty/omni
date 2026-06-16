@@ -1,0 +1,36 @@
+// Per-voter outreach attribution for Win campaigns. Each row records one outreach
+// event experienced by one voter, keyed on the durable L2 id (lalVoterId) rather
+// than the people-api personId so attribution survives people-api id changes.
+// Kept separate from PollIndividualMessage, which is elected-office / poll-specific.
+//
+// Per-channel attribution granularity (see attributionSource):
+//   recipient      — per-recipient data exists for this voter: doorKnocking, p2p.
+//   segmentDerived — inferred from a segment-level send with no per-recipient
+//                    confirmation: text, phoneBanking, socialMedia, robocall.
+// Write paths (epic tasks 13–15) set the source so the person timeline (task 16)
+// can label send-time attribution honestly.
+enum VoterOutreachAttributionSource {
+  recipient
+  segmentDerived
+}
+
+model VoterOutreachActivity {
+  id                Int                            @id @default(autoincrement())
+  createdAt         DateTime                       @default(now()) @map("created_at")
+  updatedAt         DateTime                       @default(now()) @updatedAt @map("updated_at")
+  campaign          Campaign                       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId        Int                            @map("campaign_id")
+  lalVoterId        String                         @map("lal_voter_id")
+  outreachType      OutreachType                   @map("outreach_type")
+  attributionSource VoterOutreachAttributionSource @map("attribution_source")
+  occurredAt        DateTime                       @map("occurred_at")
+  // Optional link to the segment-level Outreach this activity was derived from.
+  outreach          Outreach?                      @relation(fields: [outreachId], references: [id])
+  outreachId        Int?                           @map("outreach_id")
+  // Using Json for per-channel attribution context whose shape is defined by the
+  // write paths (epic tasks 13–15) and varies by outreachType — genuinely dynamic.
+  metadata          Json?                          @db.JsonB
+
+  @@index([campaignId, lalVoterId, occurredAt])
+  @@map("voter_outreach_activity")
+}
