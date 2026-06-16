@@ -34,7 +34,7 @@ export const buildCrudPrioritiesTool = (deps: {
     "Manage the official's durable policy/community priorities. " +
     "action='list' returns active priorities; 'create' adds one (requires " +
     "title and description); 'update' edits one by id; 'archive' " +
-    "soft-deletes one by id. Priorities are long-lived context, not meeting " +
+    'soft-deletes one by id. Priorities are long-lived context, not meeting ' +
     'task cards.',
   inputSchema: crudPrioritiesInputSchema,
   execute: async (input): Promise<CrudPrioritiesOutput> => {
