@@ -247,7 +247,7 @@ export default function ChiefOfStaffChatBody({
             ...prev,
             {
               kind: 'assistant',
-              id: assistantId ?? `local_${clientMessageId}`,
+              id: assistantId ?? `local_assistant_${clientMessageId}`,
               content: assembled,
               ...(turnTools.length > 0 && { toolsUsed: [...turnTools] }),
             },
