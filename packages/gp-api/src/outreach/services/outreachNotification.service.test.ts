@@ -26,6 +26,33 @@ const mockGetCrmCompanyOwnerName = vi.fn()
 const mockVoterFileFilterToAudience = vi.fn()
 const mockTcrFindFirst = vi.fn()
 
+const PEERLY_IDENTITY_LABEL = 'Peerly Identity ID: '
+
+type TextNode = { text?: string }
+
+const collectTextGroups = (node: unknown): TextNode[][] => {
+  if (!node || typeof node !== 'object') return []
+  const { elements } = node as { elements?: unknown }
+  if (!Array.isArray(elements)) return []
+  const hasText = elements.every(
+    (e) => e && typeof e === 'object' && 'text' in (e as object),
+  )
+  if (hasText) return [elements as TextNode[]]
+  return elements.flatMap(collectTextGroups)
+}
+
+/** Returns the value rendered next to a bold label in the Slack blocks. */
+const findLabeledValue = (
+  message: unknown,
+  label: string,
+): string | undefined => {
+  const { blocks } = (message ?? {}) as { blocks?: unknown[] }
+  const groups = (blocks ?? []).flatMap(collectTextGroups)
+  const group = groups.find((els) => els.some((e) => e.text === label))
+  if (!group) return undefined
+  return group[group.findIndex((e) => e.text === label) + 1]?.text
+}
+
 const mockUser = {
   id: 1,
   email: 'jane@example.com',
@@ -174,20 +201,20 @@ describe('OutreachNotificationService', () => {
       expect(JSON.stringify(blocks)).toContain('2026-07-01')
     })
 
-    it('includes the raw Peerly Job ID', async () => {
+    it('forwards the raw Peerly Job ID from outreach.projectId', async () => {
       await service.notifySuccess({
         user: mockUser,
         campaign: baseCampaign,
         outreach: baseOutreach,
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
-      const blob = JSON.stringify(blocks)
-      expect(blob).toContain('Peerly Job ID')
-      expect(blob).toContain('peerly-job-123')
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, 'Peerly Job ID: ')).toBe(
+        'peerly-job-123',
+      )
     })
 
-    it('looks up and includes the Peerly Identity ID from TCR compliance', async () => {
+    it('looks up and renders the Peerly Identity ID from TCR compliance', async () => {
       mockTcrFindFirst.mockResolvedValueOnce({
         peerlyIdentityId: 'identity-789',
       })
@@ -201,13 +228,13 @@ describe('OutreachNotificationService', () => {
       expect(mockTcrFindFirst).toHaveBeenCalledWith({
         where: { campaignId: baseCampaign.id },
       })
-      const [blocks] = mockSlackMessage.mock.calls[0]
-      const blob = JSON.stringify(blocks)
-      expect(blob).toContain('Peerly Identity ID')
-      expect(blob).toContain('identity-789')
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe(
+        'identity-789',
+      )
     })
 
-    it('shows N/A for the Peerly Identity ID when no TCR record exists', async () => {
+    it('renders N/A for the Peerly Identity ID when no TCR record exists', async () => {
       mockTcrFindFirst.mockResolvedValueOnce(null)
 
       await service.notifySuccess({
@@ -216,13 +243,24 @@ describe('OutreachNotificationService', () => {
         outreach: baseOutreach,
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
-      const blob = JSON.stringify(blocks)
-      expect(blob).toContain('Peerly Identity ID')
-      expect(blob).toContain('N/A')
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
     })
 
-    it('still sends the notification when the TCR lookup fails', async () => {
+    it('renders N/A when the TCR record has a null peerlyIdentityId', async () => {
+      mockTcrFindFirst.mockResolvedValueOnce({ peerlyIdentityId: null })
+
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
+    })
+
+    it('still sends the notification (identity N/A) when the TCR lookup fails', async () => {
       mockTcrFindFirst.mockRejectedValueOnce(new Error('db down'))
 
       await expect(
@@ -234,6 +272,8 @@ describe('OutreachNotificationService', () => {
       ).resolves.toBeUndefined()
 
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
     })
 
     it('looks up assignedPa when hubspotId is present', async () => {

@@ -7,13 +7,6 @@ vi.mock('helpers/createOutreach', () => ({
   createOutreach: (...args: unknown[]) => mockCreateOutreach(...args),
 }))
 
-vi.mock(
-  'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
-  () => ({
-    useP2pUxEnabled: () => ({ p2pUxEnabled: false }),
-  }),
-)
-
 describe('handleCreateOutreach - campaignPlanDueDate', () => {
   beforeEach(() => {
     mockCreateOutreach.mockReset().mockResolvedValue({ id: 1 })
