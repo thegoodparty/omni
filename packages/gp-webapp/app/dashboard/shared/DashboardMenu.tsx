@@ -13,6 +13,7 @@ import {
   MdWeb,
 } from 'react-icons/md'
 import {
+  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -68,6 +69,7 @@ import {
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
   id: string
@@ -235,11 +237,21 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Campaign Story',
+  link: '/dashboard/campaign-story',
+  icon: <MdFileOpen />,
+  v2Icon: BookOpen,
+  v2Category: 'campaign',
+}
+
 const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   campaignStrategyExists: boolean,
+  campaignStoryEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -261,6 +273,10 @@ const getDashboardMenuItems = (
     menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
+  if (campaignStoryEnabled) {
+    menuItems.splice(1, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -279,6 +295,9 @@ export default function DashboardMenu({
   // yet — that lands with the downstream gating tasks), so don't track
   // exposure. The read keeps the gate wired to the same place Serve flags live.
   const { enabled: _winVoterDataEnabled } = useWinVoterDataFlag(false)
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here — mirrors the win-voter-data gate above.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -287,6 +306,7 @@ export default function DashboardMenu({
       serveAccessEnabled,
       !!electedOffice,
       campaignStrategyExists,
+      campaignStoryEnabled,
     )
 
     if (ecanvasser) {
@@ -304,6 +324,7 @@ export default function DashboardMenu({
     proUpgradeReady,
     proUpgradeEnabled,
     campaignStrategyExists,
+    campaignStoryEnabled,
   ])
 
   useEffect(() => {
