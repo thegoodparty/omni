@@ -67,6 +67,7 @@ import {
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 
 interface MenuItem {
   id: string
@@ -247,6 +248,7 @@ const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  chiefOfStaffEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -262,9 +264,9 @@ const getDashboardMenuItems = (
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Same gate as Briefing Assistant — the serve-access
-  // flag plus an elected office.
-  if (serveAccessEnabled && isElectedOffice) {
+  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
+  // chief-of-staff flag so it can ramp to internal staff independently.
+  if (serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
@@ -285,12 +287,14 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
+  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
 
   const menuItems = useMemo(() => {
     const items = getDashboardMenuItems(
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      chiefOfStaffEnabled,
     )
 
     if (ecanvasser) {
@@ -307,6 +311,7 @@ export default function DashboardMenu({
     electedOffice,
     proUpgradeReady,
     proUpgradeEnabled,
+    chiefOfStaffEnabled,
   ])
 
   useEffect(() => {
