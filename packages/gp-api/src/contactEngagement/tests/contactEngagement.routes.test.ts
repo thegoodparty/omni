@@ -321,16 +321,50 @@ describe('ContactEngagement routes', () => {
       expect(result.data).toEqual({ nextCursor: null, results: [] })
     })
 
-    it('routes to the poll-issues path for an elected office', async () => {
-      const eoOrgSlug = `eo-issues-${Date.now()}`
+    it('returns constituent issues for an elected office', async () => {
+      const suffix = Date.now()
+      const eoOrgSlug = `eo-issues-${suffix}`
       await service.prisma.organization.create({
         data: { slug: eoOrgSlug, ownerId: service.user.id },
       })
-      await service.prisma.electedOffice.create({
+      const electedOffice = await service.prisma.electedOffice.create({
         data: {
           userId: service.user.id,
           campaignId: campaign.id,
           organizationSlug: eoOrgSlug,
+        },
+      })
+      const poll = await service.prisma.poll.create({
+        data: {
+          name: 'Issues Survey',
+          messageContent: 'What matters to you?',
+          targetAudienceSize: 50,
+          scheduledDate: new Date('2026-03-01T00:00:00Z'),
+          estimatedCompletionDate: new Date('2026-03-05T00:00:00Z'),
+          electedOfficeId: electedOffice.id,
+        },
+      })
+      // A constituent message linked to a poll issue is the only shape
+      // getConstituentIssues returns — a non-empty result the campaign
+      // early-return path can never produce, so this can't pass tautologically.
+      await service.prisma.pollIndividualMessage.create({
+        data: {
+          id: `pim-issues-${suffix}`,
+          personId: 'person-456',
+          electedOfficeId: electedOffice.id,
+          pollId: poll.id,
+          sender: 'CONSTITUENT',
+          sentAt: new Date('2026-03-02T10:00:00Z'),
+          pollIssues: {
+            create: {
+              id: `issue-${suffix}`,
+              pollId: poll.id,
+              title: 'Housing',
+              summary: 'Affordable housing',
+              details: 'Constituents want more affordable housing',
+              mentionCount: 1,
+            },
+          },
         },
       })
 
@@ -340,7 +374,12 @@ describe('ContactEngagement routes', () => {
       )
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({ nextCursor: null, results: [] })
+      expect(result.data.results).toHaveLength(1)
+      expect(result.data.results[0]).toMatchObject({
+        issueTitle: 'Housing',
+        pollTitle: 'Issues Survey',
+        pollId: poll.id,
+      })
     })
   })
 })
