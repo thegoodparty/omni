@@ -100,20 +100,72 @@ export class ElectedOfficeService extends createPrismaBase(
         where: { userId: args.userId },
       })
 
+      const hasNewTerm = Boolean(newStart || newEnd)
+      const orgPrefill = args.orgData
+      const hasOrgPrefill =
+        !!orgPrefill &&
+        (orgPrefill.positionId !== null ||
+          orgPrefill.customPositionName !== null ||
+          orgPrefill.overrideDistrictId !== null)
+
       // An existing office with no term range is a placeholder (e.g. a
       // magic-link lead provisioned before any BallotReady / onboarding data).
       // create() is idempotent per user, so adopt that office rather than
       // inserting a duplicate — a term-less placeholder never "overlaps" a
       // dated term, so without this guard a later dated create would slip past
-      // the overlap check below. Term dates are filled in later via update().
+      // the overlap check below.
       const placeholder = existingForUser.find(
         (eo) => eo.termStartDate === null && eo.termEndDate === null,
       )
       if (placeholder) {
-        return placeholder
+        // When this call carries the data the placeholder was waiting for — a
+        // BallotReady prefill (term dates and/or position) arriving after a
+        // bare magic-link placeholder — fill it in now instead of dropping it.
+        // Otherwise the admin prefill response would advertise term/position
+        // data that never reached the database.
+        if (!hasNewTerm && !hasOrgPrefill) {
+          return placeholder
+        }
+        if (hasNewTerm) {
+          // The placeholder itself has no term, but the user may hold other
+          // dated offices — keep the no-overlap invariant when filling it.
+          const overlapping = existingForUser.find(
+            (eo) =>
+              eo.id !== placeholder.id &&
+              dateRangesOverlap(
+                eo.termStartDate,
+                eo.termEndDate,
+                newStart,
+                newEnd,
+              ),
+          )
+          if (overlapping && !isSameDay(overlapping.termStartDate, newStart)) {
+            throw new ConflictException(
+              'Elected office term overlaps an existing elected office for this user',
+            )
+          }
+        }
+        if (hasOrgPrefill) {
+          await tx.organization.update({
+            where: {
+              slug: OrganizationsService.electedOfficeOrgSlug(placeholder.id),
+            },
+            data: { ...orgPrefill },
+          })
+        }
+        if (!hasNewTerm) {
+          return placeholder
+        }
+        return tx.electedOffice.update({
+          where: { id: placeholder.id },
+          data: {
+            termStartDate: newStart,
+            termEndDate: newEnd,
+            termLengthDays,
+          },
+        })
       }
 
-      const hasNewTerm = Boolean(newStart || newEnd)
       if (hasNewTerm) {
         // Core invariant: a user may hold multiple elected offices over time,
         // but their term date ranges must never overlap. The advisory lock

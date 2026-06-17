@@ -146,6 +146,40 @@ describe('ElectedOfficeService.create', () => {
     )
   })
 
+  it('fills a term-less placeholder when a later prefill supplies term dates and position', async () => {
+    // A bare magic link (no BallotReady person) provisions a term-less
+    // placeholder. A later re-send with a person id calls create() again with
+    // term dates + org data — it must fill the same placeholder, not drop the
+    // prefill or insert a duplicate.
+    const placeholder = await electedOffices.create({ userId: service.user.id })
+    expect(placeholder.termStartDate).toBeNull()
+
+    const filled = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      orgData: {
+        positionId: 'br-pos-9',
+        customPositionName: 'Mayor',
+        overrideDistrictId: null,
+      },
+    })
+
+    expect(filled.id).toBe(placeholder.id)
+    expect(filled.termStartDate).toEqual(new Date('2025-01-01T00:00:00.000Z'))
+    expect(filled.termEndDate).toEqual(new Date('2029-01-01T00:00:00.000Z'))
+    expect(filled.termLengthDays).toBe(1461)
+    expect(await service.prisma.electedOffice.count()).toBe(1)
+
+    const org = await service.prisma.organization.findUnique({
+      where: { slug: filled.organizationSlug },
+    })
+    expect(org).toMatchObject({
+      positionId: 'br-pos-9',
+      customPositionName: 'Mayor',
+    })
+  })
+
   it('serializes concurrent creates into a single office', async () => {
     // Two simultaneous first-office submits for the same user. The advisory
     // lock + in-transaction recheck must collapse them to one office and one
