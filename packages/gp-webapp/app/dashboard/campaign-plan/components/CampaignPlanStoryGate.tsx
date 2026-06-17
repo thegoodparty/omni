@@ -32,7 +32,7 @@ const CampaignPlanStoryGate = ({
         <ScrollTextIcon className="size-8 text-primary" />
         <div className="flex flex-col gap-2">
           <h2 className="text-2xl font-semibold text-foreground">
-            Your campaign plan starts with your story
+            Your Campaign Plan starts with your story
           </h2>
           <p className="text-muted-foreground">
             We build your personalized plan from your why, your background, and
@@ -52,18 +52,18 @@ const CampaignPlanStoryGate = ({
       <ScrollTextIcon className="size-8 text-primary" />
       <div className="flex flex-col gap-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          Ready to build your campaign plan
+          Ready to build your Campaign Plan
         </h2>
         <p className="text-muted-foreground">
           We&apos;ll use your Campaign Story to generate a plan tailored to your
           race.
         </p>
       </div>
-      <div className="flex flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+      <div className="flex w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
         <Button onClick={onGenerate} icon={<SparklesIcon />}>
           I&apos;m ready, Generate my Plan
         </Button>
-        <Button variant="ghost" asChild>
+        <Button variant="ghost" className="sm:ml-auto" asChild>
           <Link href="/dashboard/campaign-story">
             Let&apos;s update the Story
           </Link>
