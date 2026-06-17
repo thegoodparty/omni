@@ -1,0 +1,87 @@
+'use client'
+
+import {
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Badge,
+  cn,
+} from '@styleguide'
+import type { CampaignStrategyPhase as CampaignStrategyPhaseModel } from './campaignStrategy.types'
+import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
+
+interface CampaignStrategyPhaseProps {
+  phase: CampaignStrategyPhaseModel
+}
+
+// "Done" is plain green text; the other states are pills.
+const PhaseStatus = ({
+  status,
+}: {
+  status: CampaignStrategyPhaseModel['status']
+}): React.JSX.Element => {
+  if (status === 'done') {
+    return <span className="text-success-700 text-sm font-semibold">Done</span>
+  }
+  if (status === 'active') {
+    return (
+      <Badge className="border-transparent bg-primary text-white">
+        Happening now
+      </Badge>
+    )
+  }
+  return (
+    <Badge className="text-muted-foreground border-border bg-transparent">
+      Coming up
+    </Badge>
+  )
+}
+
+// One phase as a standalone card (active phase gets a blue border). Title and
+// summary stay visible when collapsed; objective/category groups and task rows
+// run edge to edge so dividers and highlights reach the card sides.
+const CampaignStrategyPhase = ({
+  phase,
+}: CampaignStrategyPhaseProps): React.JSX.Element => (
+  <AccordionItem
+    value={phase.key}
+    className={cn(
+      'bg-card overflow-hidden rounded-xl border px-0 shadow-sm',
+      phase.status === 'active' && 'border-primary',
+    )}
+  >
+    <AccordionTrigger className="px-6 py-5 hover:no-underline">
+      <span className="flex flex-1 flex-col gap-1 text-left">
+        <span className="flex items-center gap-3">
+          <span className="text-base font-semibold">{phase.title}</span>
+          <PhaseStatus status={phase.status} />
+        </span>
+        <span className="text-muted-foreground text-sm font-normal">
+          {phase.summary}
+        </span>
+      </span>
+    </AccordionTrigger>
+    <AccordionContent>
+      {phase.groups.map((group) => (
+        <div key={group.key}>
+          <div className="bg-muted border-border border-t px-6 py-3">
+            <p className="text-primary text-xs font-semibold tracking-wide uppercase">
+              {group.label}
+            </p>
+          </div>
+          <ul>
+            {group.tasks.map((task, index) => (
+              <CampaignStrategyTaskRow
+                key={task.id}
+                task={task}
+                index={index + 1}
+              />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </AccordionContent>
+  </AccordionItem>
+)
+
+export default CampaignStrategyPhase

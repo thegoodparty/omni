@@ -1,15 +1,19 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { User } from 'helpers/types'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import PlanView, {
   type PlanContinueSource,
   type PlanDownloadSource,
 } from 'app/onboarding/success/components/PlanView'
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
+import { downloadCampaignPlanPdf } from 'app/onboarding/success/pdf/downloadCampaignPlanPdf'
+import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
+import CampaignTrackerHero from './CampaignTrackerHero'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -30,8 +34,10 @@ const CampaignPlanView = ({
   initialUser,
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
+  const [campaign] = useCampaign()
   const data = useCampaignPlanData(initialUser)
   const { campaignId, strategy, communityEvents, media } = data
+  const [heroDownloading, setHeroDownloading] = useState(false)
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
@@ -104,26 +110,58 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanDownloaded, { campaignId, source })
   }
 
+  const handleHeroDownload = async () => {
+    if (heroDownloading || !data.planReady) return
+    handleDownload('download-button')
+    setHeroDownloading(true)
+    try {
+      await downloadCampaignPlanPdf(data.plan, {
+        liveUrl:
+          typeof window !== 'undefined' ? window.location.href : undefined,
+      })
+    } finally {
+      setHeroDownloading(false)
+    }
+  }
+
   const handleContinue = (source: PlanContinueSource) => {
     trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
   }
 
   return (
-    <PlanView
-      plan={data.plan}
-      planReady={data.planReady}
-      state={data.state}
-      strategyState={data.strategyState}
-      eventsState={data.eventsState}
-      pressOutletsState={data.pressOutletsState}
-      voterInsightsContext={data.voterInsightsContext}
-      onDownload={handleDownload}
-      onContinue={handleContinue}
-      showConfetti={false}
-      bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
-      navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
-    />
+    <>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-8">
+        <CampaignTrackerHero
+          candidateName={data.plan.candidateName}
+          race={data.plan.race}
+          district={campaign?.details?.district ?? ''}
+          electionDate={data.plan.electionDate}
+          onDownload={handleHeroDownload}
+          downloading={heroDownloading}
+          canDownload={data.planReady}
+        />
+        <CampaignStrategySection />
+      </div>
+      <PlanView
+        showHero={false}
+        showBottomDownload={false}
+        plan={data.plan}
+        planReady={data.planReady}
+        state={data.state}
+        strategyState={data.strategyState}
+        eventsState={data.eventsState}
+        pressOutletsState={data.pressOutletsState}
+        voterInsightsContext={data.voterInsightsContext}
+        onDownload={handleDownload}
+        onContinue={handleContinue}
+        showConfetti={false}
+        rootClassName="bg-transparent"
+        contentClassName="max-w-3xl px-4"
+        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
+        navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
+      />
+    </>
   )
 }
 
