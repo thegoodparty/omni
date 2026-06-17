@@ -1,15 +1,18 @@
-<!-- v1 — 2026-06-16 -->
+<!-- v2 — 2026-06-17 -->
 # /work-on-epic
 
 Take a ClickUp Epic, derive a dependency-aware execution plan across its subtasks,
-then autonomously drive each ticket through implement → PR → merge → done — in
-parallel where it's safe and phased where it isn't — looping until the whole Epic
-is closed, and finishing with a Playwright pass over the behavior the Epic
-delivered.
+then drive each ticket through implement → PR → merge → done — in parallel where
+it's safe and phased where it isn't — looping until the whole Epic is closed, and
+finishing with a Playwright pass over the behavior the Epic delivered.
+
+Runs in one of two modes, chosen up front (Phase 0): **controlled** (recommended —
+checks in with you per ticket and lets you merge each PR) or **automated** (one
+plan approval, then unattended with auto-merge). See "## Run modes".
 
 This is the Epic-level counterpart to `commands/work-on-clickup.md`. That command
-works **one** ticket interactively; this one orchestrates the **whole** Epic
-unattended, reusing the work-on-clickup flow per ticket (in auto-`go` mode) and the
+works **one** ticket interactively; this one orchestrates the **whole** Epic,
+reusing the work-on-clickup flow per ticket (auto-`go` in automated mode) and the
 repo's PR-shipping flow per branch. For a single ticket, use `/work-on-clickup`
 directly.
 
@@ -38,11 +41,41 @@ delegate-reviewer bot to `Approved.` and the E2E check to green), and PRs that
 target the repo's integration branch (`develop` in omni). Outside that setup, the
 PR step degrades to `gh pr create` + the repo's normal review process.
 
+## Run modes
+
+The mode is chosen before any work starts (Phase 0, step 0) and governs how often
+the loop pauses for the user and whether merges are automatic. Recommend
+**controlled**.
+
+- **Controlled (recommended).** The loop stays in a dialog with the user. Both
+  modes share the Phase 2 plan-approval gate; on top of that, controlled mode
+  checks in per ticket — it surfaces the recommended implementation approach and
+  waits for the user to reply **`go`** before implementing, rather than
+  auto-picking the recommended path. PRs are driven to green (delegate `Approved.`
+  + E2E) but **not merged by the bot** — the user merges each PR themselves, and
+  the loop resumes after each merge. Use this when tickets are loosely specified,
+  exploratory, or high-stakes, so a human stays in the decision loop.
+
+- **Automated.** What the loop does today: a single plan-approval gate (Phase 2),
+  then it runs unattended — subagents take the recommended implementation without
+  pausing, and each PR merges itself via GitHub auto-merge the moment delegate +
+  E2E are green. Only genuine blockers stop it.
+
+  > ⚠️ **Automated mode only works well when every ticket is very well defined.**
+  > The loop picks the recommended implementation and merges without any human
+  > review of the approach. If a ticket's acceptance criteria, scope, or
+  > "Files to touch" are vague, the loop can implement the wrong thing and
+  > auto-merge it. Use automated mode only for an Epic whose tickets are crisp and
+  > self-contained; otherwise choose controlled.
+
 ## Operating principles
 
-- **One confirmation gate.** The user approves the execution plan once (Phase 2).
-  After that the loop runs unattended. Go with the recommended plan when it's
-  clearly better; don't re-ask per ticket.
+- **Confirmation gates depend on the mode (see "## Run modes").** Both modes share
+  the single Phase 2 plan-approval gate. In **automated** mode that is the only
+  gate — after `go` the loop runs unattended; go with the recommended plan when
+  it's clearly better and don't re-ask per ticket. In **controlled** mode the loop
+  additionally asks for `go` before implementing each ticket (step 11) and the
+  user merges each PR by hand (step 12). Name the ticket at every gate.
 - **Always name the ticket.** Every status line, question, or blocker you surface
   to the user must lead with the ticket's `name` + ID — the user is tracking many
   tickets at once and has no context otherwise.
@@ -60,6 +93,23 @@ PR step degrades to `gh pr create` + the repo's normal review process.
 User input may be passed as a ClickUp **Epic** task ID, a full URL
 (`https://app.clickup.com/t/abc123`), or empty (will prompt). Treat that input as
 `$ARGUMENTS` below.
+
+### Phase 0: Choose the run mode
+
+0. **Ask the user which run mode to use — before doing anything else.** Present
+   the two modes from "## Run modes" and recommend **controlled**:
+
+   > How should I run this Epic?
+   > • **`controlled`** (recommended) — I check in with you per ticket: I'll
+   >   surface the recommended approach and wait for your `go` before
+   >   implementing, and you merge each PR yourself.
+   > • **`automated`** — one plan approval, then I run unattended and auto-merge
+   >   each PR on green. ⚠️ Only works well if every ticket is very well defined;
+   >   a vague ticket can get the wrong implementation shipped and auto-merged.
+
+   Wait for the user to choose; default to **controlled** if they don't specify.
+   Record the chosen mode — it governs the approval prompt in Phase 2, the
+   per-ticket check-in in Phase 3 (step 11), and the merge policy (step 12).
 
 ### Phase 1: Load and map the Epic
 
@@ -104,7 +154,7 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    Already done: <count of subtasks in a closed/done status — these are skipped>
    ```
 
-### Phase 2: Build the execution plan (the one confirmation gate)
+### Phase 2: Build the execution plan (the plan-approval gate)
 
 6. **Determine the dependency graph.** Source of truth, in order:
    - The API `.dependencies[].depends_on` edges captured in step 3 (authoritative —
@@ -142,14 +192,18 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    ...
 
    Source: <explicit ClickUp dependencies | derived from file overlap — see notes>
-   Merge policy: GitHub auto-merge once delegate=Approved + E2E green, then poll.
+   Mode: <controlled | automated>
+   Merge policy: <controlled: drive each PR to green, then you merge it |
+     automated: GitHub auto-merge once delegate=Approved + E2E green, then poll>
    ```
 
    Ask for one approval:
 
-   > Approve this plan? Reply **`go`** to run the whole Epic unattended, or tell me
-   > what to reorder / re-group. After `go` I'll only stop for genuine blockers
-   > (always named by ticket).
+   > Approve this plan? Reply **`go`**, or tell me what to reorder / re-group.
+   > In **automated** mode, after `go` I run the whole Epic unattended and only
+   > stop for genuine blockers (always named by ticket). In **controlled** mode,
+   > after `go` I start Phase 1 but check in with you per ticket before
+   > implementing and let you merge each PR.
 
    Wait for `go` (or edits → revise and re-present). Do not start work before
    approval. If the user edits, apply and re-show the plan.
@@ -179,7 +233,14 @@ For each ticket in the current phase (skip any already in a closed/done status):
     via the original repo's absolute paths writes outside the worktree and tests the
     wrong tree.
 
-11. **Dispatch a subagent per ticket** (one per parallel ticket in the phase) to do
+11. **Controlled mode — check in before implementing.** Before dispatching the
+    phase's subagents, post the recommended implementation approach for each ticket
+    in the phase (named by ticket + ID: the files it will touch and the approach it
+    will take) and wait for the user's **`go`**. If the user redirects, fold that
+    into the subagent's instructions. In **automated** mode, skip this gate and
+    dispatch straight away with the recommended approach.
+
+    **Dispatch a subagent per ticket** (one per parallel ticket in the phase) to do
     the implementation. Give each subagent:
     - The ticket ID, name, and full body.
     - The worktree path it must work in.
@@ -197,11 +258,17 @@ For each ticket in the current phase (skip any already in a closed/done status):
 12. **When a subagent reports its ticket implemented + Verify green**, open and
     drive its PR via the repo's **PR-shipping flow** (the `ship-pr` skill in omni:
     open the PR, drive `delegate-reviewer[bot]` to `Approved.`, and the `E2E` check
-    to green). Then **enable GitHub auto-merge** so the PR merges itself the moment
-    both gates pass:
-    ```bash
-    gh pr merge <pr-number> --squash --auto
-    ```
+    to green). Then merge per the chosen mode:
+    - **Automated:** **enable GitHub auto-merge** so the PR merges itself the
+      moment both gates pass:
+      ```bash
+      gh pr merge <pr-number> --squash --auto
+      ```
+    - **Controlled:** do **not** auto-merge. Once both gates are green, hand the PR
+      to the user named by ticket ("<id> <name>: PR <link> is Approved + E2E green
+      and ready to merge") and wait for them to merge it themselves. Do not run
+      `gh pr merge`. The loop resumes (step 13) once the user has merged.
+
     Post a progress comment on the ticket linking the PR (build the comment payload
     via a Python temp `.json` file — never template text into a JSON literal):
     ```bash
@@ -210,10 +277,12 @@ For each ticket in the current phase (skip any already in a closed/done status):
     ```
     Mark the ticket **in-flight** in the local Epic plan.
 
-13. **Poll the in-flight PRs** until each merges (auto-merge fires once delegate +
-    E2E are green at the same HEAD). Use `gh pr view <n> --json state,mergedAt` /
-    `gh pr checks <n>`. Polling cadence ~60–90s; budget generously — E2E waits on a
-    deploy. As **each** PR reaches `MERGED`:
+13. **Poll the in-flight PRs** until each merges. In **automated** mode auto-merge
+    fires once delegate + E2E are green at the same HEAD; in **controlled** mode the
+    PR merges when the user merges it (after the hand-off in step 12). Use
+    `gh pr view <n> --json state,mergedAt` / `gh pr checks <n>`. Polling cadence
+    ~60–90s; budget generously — E2E waits on a deploy. As **each** PR reaches
+    `MERGED`:
     - **Move its ticket to `done`** (status names are List-scoped; if `done` is
       rejected, `GET list/<list_id>` and pick the closest closed status):
       ```bash
@@ -225,6 +294,17 @@ For each ticket in the current phase (skip any already in a closed/done status):
     - **Update the local Epic plan**: mark the ticket complete, note any deviation
       from plan honestly ("did X instead of Y because Z"), resolve/adjust the plan's
       Open Questions, bump `lastEdited:`.
+    - **Pull the integration branch into the still-open worktrees** (both modes).
+      A merge advances `develop`; refresh it locally and merge it into every
+      still-in-flight ticket's branch so later PRs build on the latest and
+      conflicts surface early instead of at merge time:
+      ```bash
+      git -C "<repo path>" fetch origin <integration-branch>
+      # for each still-in-flight worktree:
+      git -C "<that worktree path>" merge origin/<integration-branch>
+      ```
+      If a merge hits conflicts the subagent can't cleanly resolve, surface that
+      branch as a blocker named by ticket; other branches keep going.
     - **Remove the worktree and branch** now that it's merged:
       ```bash
       git -C "<repo path>" worktree remove "<worktrees dir>/<branch>" && \
@@ -273,12 +353,22 @@ For each ticket in the current phase (skip any already in a closed/done status):
 
 ## Important Notes
 
-- **One gate only.** The Phase 2 plan approval is the single interactive checkpoint.
-  After `go`, don't re-ask per ticket — surface only genuine blockers, each named by
-  ticket.
-- **Don't merge by hand mid-loop.** Use GitHub auto-merge (step 12) and let it fire
-  on green; the loop polls for the `MERGED` state. This keeps the merge gated on
-  delegate + E2E without a manual click and without the loop racing the checks.
+- **Pick the mode first.** Phase 0 (step 0) asks the user for controlled vs
+  automated before any work. Default to controlled; only run automated when the
+  user confirms the Epic's tickets are all very well defined.
+- **Gates depend on the mode.** In **automated** mode the Phase 2 plan approval is
+  the single interactive checkpoint — after `go`, don't re-ask per ticket; surface
+  only genuine blockers, each named by ticket. In **controlled** mode you also
+  check in for `go` before implementing each ticket (step 11) and the user merges
+  each PR by hand (step 12).
+- **Merging is mode-specific.** In **automated** mode use GitHub auto-merge
+  (step 12) and let it fire on green; the loop polls for the `MERGED` state. Don't
+  merge by hand in automated mode — it races the checks. In **controlled** mode the
+  bot never merges: it drives the PR to delegate `Approved.` + E2E green, hands it
+  to the user, and continues once the user has merged.
+- **Pull the integration branch after every merge** (both modes). Once a PR merges,
+  refresh local `develop` and merge it into the still-open worktree branches
+  (step 13) so later tickets build on the latest and conflicts surface early.
 - **Move to `done` only after merge.** A PR being approved is not done — the ticket
   moves to `done` only once its branch has actually merged (step 13).
 - **Clear worktrees only after merge.** Removing a worktree before merge throws away
@@ -302,7 +392,9 @@ For each ticket in the current phase (skip any already in a closed/done status):
 | The task passed in is a leaf, not an Epic | It has a `parent` and no subtasks. Run `/work-on-clickup <id>` for a single ticket instead. |
 | Two "parallel" tickets keep producing merge conflicts | They share files — the derived graph was wrong. Re-sequence them into separate phases (consumer after producer) and continue. |
 | A subagent's Verify fails on something pre-existing on the integration branch | Not caused by this ticket. Surface it named by ticket; let the user decide to fix-now or proceed, same as the PR-shipping pre-flight escape hatch. |
-| Auto-merge never fires | Delegate isn't `Approved.` or E2E isn't green at HEAD. Drive the PR-shipping flow to converge both gates; auto-merge fires only when both are green at the same commit. |
+| Auto-merge never fires (automated mode) | Delegate isn't `Approved.` or E2E isn't green at HEAD. Drive the PR-shipping flow to converge both gates; auto-merge fires only when both are green at the same commit. |
+| Controlled mode: a PR is green but the loop is waiting | By design — in controlled mode you merge each PR yourself. Merge it; the loop resumes at step 13 once it sees `MERGED`. |
+| `merge origin/<integration-branch>` into an open worktree conflicts | Expected when two in-flight branches touched the same files. Resolve in that worktree (or let its subagent), then continue; surface as a blocker named by ticket only if it can't be cleanly resolved. |
 | `done` status rejected on the ticket's List | Status names are List-scoped. `GET list/<list_id>`, pick the closest closed status, retry. |
 | Worktree `add` fails: branch already exists | A prior run left it. `git worktree list` / `git branch`, remove the stale worktree + branch, retry. |
 | Playwright can't reach `localhost:4000` | The local web app isn't up. Start it (and the APIs it needs) per the working repo's `docs/development.md` before Phase 4. |
