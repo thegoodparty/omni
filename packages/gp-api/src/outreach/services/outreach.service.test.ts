@@ -24,6 +24,7 @@ import type {
   ResolveP2pJobGeographyServices,
 } from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
+import { OutreachAttributionService } from './outreachAttribution.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
 
@@ -36,6 +37,7 @@ const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
+const mockRecordSegmentAttribution = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -95,6 +97,8 @@ describe('OutreachService', () => {
     mockFindVoterFileFilter.mockReset()
     mockFilterAccessCheck.mockReset()
     mockFilterAccessCheck.mockResolvedValue(undefined)
+    mockRecordSegmentAttribution.mockReset()
+    mockRecordSegmentAttribution.mockResolvedValue(undefined)
 
     const mockPrismaService = {
       outreach: {
@@ -135,6 +139,12 @@ describe('OutreachService', () => {
             filterAccessCheck: mockFilterAccessCheck,
           },
         },
+        {
+          provide: OutreachAttributionService,
+          useValue: {
+            recordSegmentAttribution: mockRecordSegmentAttribution,
+          },
+        },
         OutreachService,
       ],
     }).compile()
@@ -172,6 +182,43 @@ describe('OutreachService', () => {
         data: { ...baseCreateDto, imageUrl },
         include: { voterFileFilter: true },
       })
+      expect(result).toEqual(created)
+    })
+
+    it('hands the created outreach to segment attribution', async () => {
+      const created = { id: 7, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+
+      await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
+      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+        created,
+      )
+    })
+
+    it('still returns the outreach when attribution throws', async () => {
+      const created = { id: 8, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+      mockRecordSegmentAttribution.mockRejectedValue(
+        new Error('people api down'),
+      )
+
+      const result = await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
       expect(result).toEqual(created)
     })
 
@@ -277,6 +324,12 @@ describe('OutreachService', () => {
         }),
         include: { voterFileFilter: true },
       })
+      // P2P also records per-voter attribution (the texting/P2P write path).
+      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+        created,
+      )
       expect(result).toEqual(created)
     })
 

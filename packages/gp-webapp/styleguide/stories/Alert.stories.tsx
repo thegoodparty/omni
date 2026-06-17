@@ -1,7 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from '../components/ui/alert'
 import { Button } from '../components/ui/button'
-import { CheckCircleIcon, InfoIcon, XCircleIcon } from '../components/ui/icons'
+import {
+  CheckCircleIcon,
+  InfoIcon,
+  TriangleAlertIcon,
+  XCircleIcon,
+} from '../components/ui/icons'
 
 const meta: Meta<typeof Alert> = {
   title: 'Components/Alert',
@@ -13,7 +23,7 @@ export default meta
 type Story = StoryObj<typeof Alert>
 
 const variantIcons = {
-  default: <InfoIcon />,
+  default: <TriangleAlertIcon />,
   info: <InfoIcon />,
   success: <CheckCircleIcon />,
   destructive: <XCircleIcon />,
@@ -23,7 +33,11 @@ type PlaygroundArgs = {
   variant: 'default' | 'info' | 'success' | 'destructive'
   showIcon: boolean
   title: string
+  showDescription: boolean
   description: string
+  showAction: boolean
+  actionLabel: string
+  actionVariant: 'alertOutline' | 'alertFilled'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -31,7 +45,11 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     variant: 'info',
     showIcon: true,
     title: 'Heads up!',
+    showDescription: true,
     description: 'You can add components and dependencies to your app.',
+    showAction: false,
+    actionLabel: 'Learn more',
+    actionVariant: 'alertOutline',
   },
   argTypes: {
     variant: {
@@ -44,16 +62,55 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: 'boolean',
       description: 'Render an icon to the left of the title and description.',
     },
-    title: { control: 'text' },
-    description: { control: 'text' },
+    title: { control: 'text', description: 'Primary alert message.' },
+    showDescription: {
+      control: 'boolean',
+      description: 'Show supporting description text below the title.',
+    },
+    description: {
+      control: 'text',
+      description:
+        'Supporting description (only rendered when showDescription is true).',
+    },
+    showAction: {
+      control: 'boolean',
+      description: 'Render an action button below the description.',
+    },
+    actionLabel: {
+      control: 'text',
+      description:
+        'Label for the action button (only rendered when showAction is true).',
+    },
+    actionVariant: {
+      control: 'select',
+      options: ['alertOutline', 'alertFilled'],
+      description:
+        "Button style for the action. Both variants automatically use the alert's accent color.",
+    },
   },
-  render: ({ variant, showIcon, title, description }) => (
+  render: ({
+    variant,
+    showIcon,
+    title,
+    showDescription,
+    description,
+    showAction,
+    actionLabel,
+    actionVariant,
+  }) => (
     <Alert
       variant={variant}
       icon={showIcon ? variantIcons[variant] : undefined}
     >
       <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{description}</AlertDescription>
+      {showDescription && <AlertDescription>{description}</AlertDescription>}
+      {showAction && (
+        <AlertAction>
+          <Button variant={actionVariant} size="small">
+            {actionLabel}
+          </Button>
+        </AlertAction>
+      )}
     </Alert>
   ),
 }
@@ -100,5 +157,44 @@ export const Variants: Story = {
         </Button>
       </Alert>
     </div>
+    <Alert icon={<TriangleAlertIcon />}>
+      <AlertTitle>Heads up!</AlertTitle>
+      <AlertDescription>
+        You can add components and dependencies to your app using the CLI.
+      </AlertDescription>
+    </Alert>
+  ),
+}
+
+export const Info: Story = {
+  render: () => (
+    <Alert variant="info" icon={<InfoIcon />}>
+      <AlertTitle>New feature available</AlertTitle>
+      <AlertDescription>
+        Check out the new dashboard — it&apos;s now available for all users.
+      </AlertDescription>
+    </Alert>
+  ),
+}
+
+export const Success: Story = {
+  render: () => (
+    <Alert variant="success" icon={<CheckCircleIcon />}>
+      <AlertTitle>Your changes have been saved.</AlertTitle>
+      <AlertDescription>
+        The campaign profile was updated successfully.
+      </AlertDescription>
+    </Alert>
+  ),
+}
+
+export const Destructive: Story = {
+  render: () => (
+    <Alert variant="destructive" icon={<XCircleIcon />}>
+      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertDescription>
+        Your session has expired. Please log in again to continue.
+      </AlertDescription>
+    </Alert>
   ),
 }

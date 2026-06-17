@@ -13,6 +13,7 @@ import {
   MdWeb,
 } from 'react-icons/md'
 import {
+  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -68,6 +69,7 @@ import {
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
   id: string
@@ -205,6 +207,20 @@ const CONTACTS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
 }
 
+// Win campaigns reuse the Serve Contacts route/components but are categorized
+// as 'campaign', so they need their own item — the elected-office
+// CONTACTS_MENU_ITEM is filtered out for campaign orgs (see the v2Category
+// filter in NewNavMenu).
+const WIN_CONTACTS_MENU_ITEM: MenuItem = {
+  id: 'win-contacts-dashboard',
+  label: 'Contacts',
+  link: '/dashboard/contacts',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
+}
+
 const POLLS_MENU_ITEM: MenuItem = {
   id: 'polls-dashboard',
   label: 'Polls',
@@ -235,11 +251,22 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
-const getDashboardMenuItems = (
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Campaign Story',
+  link: '/dashboard/campaign-story',
+  icon: <MdFileOpen />,
+  v2Icon: BookOpen,
+  v2Category: 'campaign',
+}
+
+export const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   campaignStrategyExists: boolean,
+  winVoterDataEnabled: boolean,
+  campaignStoryEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -247,18 +274,31 @@ const getDashboardMenuItems = (
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
   } else if (campaign?.isPro) {
-    menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
+    menuItems[voterDataIndex] = winVoterDataEnabled
+      ? WIN_CONTACTS_MENU_ITEM
+      : VOTER_RECORDS_MENU_ITEM
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
+  // Campaign Manager (dashboard home) is index 0, unless an elected office is
+  // present — then BRIEFINGS is unshifted to index 0 and Campaign Manager moves
+  // to index 1. Insert campaign items right after Campaign Manager (and Story
+  // before Plan, so the Plan splice lands first) to render the campaign-category
+  // nav as [Campaign Manager, Campaign Plan, Campaign Story, …].
+  const afterCampaignManager = isElectedOffice ? 2 : 1
+
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
   // computed field (see useCampaignStrategyExists).
   if (campaignStrategyExists) {
-    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems
@@ -274,11 +314,15 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
-  // Master gate for the Win voter-data rollout. Read here alongside the other
-  // dashboard flags; the menu isn't the treatment surface (no Win menu item
-  // yet — that lands with the downstream gating tasks), so don't track
-  // exposure. The read keeps the gate wired to the same place Serve flags live.
-  const { enabled: _winVoterDataEnabled } = useWinVoterDataFlag(false)
+  // Master gate for the Win voter-data rollout. When on, a pro Win campaign
+  // sees the Contacts item (reusing the Serve route) in place of the legacy
+  // Voter Data item. Read with trackExposure=false — the page is the treatment
+  // surface, not the menu — so the nav read doesn't inflate the exposed
+  // population.
+  const { enabled: winVoterDataEnabled } = useWinVoterDataFlag(false)
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here — mirrors the win-voter-data gate above.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -287,6 +331,8 @@ export default function DashboardMenu({
       serveAccessEnabled,
       !!electedOffice,
       campaignStrategyExists,
+      winVoterDataEnabled,
+      campaignStoryEnabled,
     )
 
     if (ecanvasser) {
@@ -304,6 +350,8 @@ export default function DashboardMenu({
     proUpgradeReady,
     proUpgradeEnabled,
     campaignStrategyExists,
+    winVoterDataEnabled,
+    campaignStoryEnabled,
   ])
 
   useEffect(() => {

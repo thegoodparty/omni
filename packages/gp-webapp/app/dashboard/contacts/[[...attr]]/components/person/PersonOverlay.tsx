@@ -16,18 +16,27 @@ import {
   LuCircleX,
   LuClipboardList,
   LuContact,
+  LuDoorOpen,
   LuFolderOpen,
   LuFrown,
   LuMessageSquareMore,
+  LuPhone,
+  LuShare2,
   LuSmile,
 } from 'react-icons/lu'
 import { format } from 'date-fns'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
-import { Person } from '../shared/contacts-types'
+import {
+  ConstituentActivity,
+  OutreachChannel,
+  OutreachConstituentActivity,
+  Person,
+} from '../shared/contacts-types'
 import { isNotNil } from 'es-toolkit'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -47,6 +56,54 @@ const ACTIVITY_EVENT_LABELS: Record<string, string> = {
   RESPONDED: 'Responded',
   OPTED_OUT: 'Opted Out',
 }
+
+// Honest send-time labels per channel. v1 outreach attribution is send-time
+// (segmentDerived) for everything except door knocking (per-recipient), so the
+// label says what we did, not what was delivered.
+const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
+  text: 'Texted',
+  p2p: 'Texted',
+  doorKnocking: 'Knocked',
+  phoneBanking: 'Called',
+  robocall: 'Called',
+  socialMedia: 'Digital',
+}
+
+const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> = {
+  text: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
+  p2p: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
+  doorKnocking: <LuDoorOpen size={16} className="shrink-0 text-foreground" />,
+  phoneBanking: <LuPhone size={16} className="shrink-0 text-foreground" />,
+  robocall: <LuPhone size={16} className="shrink-0 text-foreground" />,
+  socialMedia: <LuShare2 size={16} className="shrink-0 text-foreground" />,
+}
+
+const isOutreachActivity = (
+  activity: ConstituentActivity,
+): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
+
+const OutreachActivityRow: React.FC<{
+  activity: OutreachConstituentActivity
+}> = ({ activity }) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <div className="flex items-center gap-2">
+      {OUTREACH_CHANNEL_ICONS[activity.data.outreachType]}
+      <p className="text-sm font-semibold text-foreground">
+        {OUTREACH_CHANNEL_LABELS[activity.data.outreachType]}
+      </p>
+      {activity.data.attributionSource === 'segmentDerived' ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Sent to segment
+        </p>
+      ) : null}
+    </div>
+    {activity.date ? (
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    ) : null}
+  </div>
+)
 
 const InfoSection: React.FC<{
   title: string
@@ -150,7 +207,43 @@ const ActivitiesContent: React.FC = () => {
       activitiesFetchNextPage: onViewMore,
       isFetchingNextActivities: isFetchingNextPage,
     },
+    currentlySelectedPersonId,
+    isWinContext,
+    isWinContextReady,
   } = useContactsTable()
+
+  const hasActivities = activities.length > 0
+
+  // Fire once per opened person when the Win outreach timeline actually
+  // renders rows (not while loading and not for an empty/error feed), so the
+  // event answers "did a Win user see attributed outreach" rather than "did
+  // the overlay open". Gate on isWinContextReady and latch on the person id
+  // (same pattern as ContactsPage) so a post-settle isWinContext toggle
+  // (focus revalidation, flag re-fetch) can't duplicate the event for the
+  // same person; switching to a different person re-arms the latch.
+  const firedForPersonRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      isWinContextReady &&
+      isWinContext &&
+      currentlySelectedPersonId &&
+      hasActivities &&
+      !isError &&
+      firedForPersonRef.current !== currentlySelectedPersonId
+    ) {
+      firedForPersonRef.current = currentlySelectedPersonId
+      trackEvent(EVENTS.Contacts.OutreachTimelineViewed, {
+        context: 'win',
+        personId: currentlySelectedPersonId,
+      })
+    }
+  }, [
+    isWinContextReady,
+    isWinContext,
+    currentlySelectedPersonId,
+    hasActivities,
+    isError,
+  ])
 
   if (isError || activities.length === 0) {
     return (
@@ -177,64 +270,68 @@ const ActivitiesContent: React.FC = () => {
   }
   return (
     <div className="flex flex-col gap-3">
-      {activities.map((activity, idx) => (
-        <div key={idx} className="flex flex-col gap-1 mb-3">
-          <Link
-            className="font-medium text-info underline mb-2"
-            href={`/dashboard/polls/${activity.data.pollId}`}
-            target="_blank"
-          >
-            {activity.data.pollTitle}
-          </Link>
-          {activity.data.events?.length ? (
-            <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
-              {activity.data.events.map((evt, i) => {
-                return (
-                  <div key={i} className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      {evt.type === 'SENT' && (
-                        <LuCircleCheck
-                          size={16}
-                          className="shrink-0 text-foreground"
-                        />
-                      )}
-                      {evt.type === 'RESPONDED' && (
-                        <LuMessageSquareMore
-                          size={16}
-                          className="shrink-0 text-foreground"
-                        />
-                      )}
-                      {evt.type === 'OPTED_OUT' && (
-                        <LuCircleX
-                          size={16}
-                          className="shrink-0 text-foreground"
-                        />
-                      )}
-
-                      <p className="text-sm font-semibold text-foreground">
-                        {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2 h-7">
+      {activities.map((activity, idx) =>
+        isOutreachActivity(activity) ? (
+          <OutreachActivityRow key={idx} activity={activity} />
+        ) : (
+          <div key={idx} className="flex flex-col gap-1 mb-3">
+            <Link
+              className="font-medium text-info underline mb-2"
+              href={`/dashboard/polls/${activity.data.pollId}`}
+              target="_blank"
+            >
+              {activity.data.pollTitle}
+            </Link>
+            {activity.data.events?.length ? (
+              <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
+                {activity.data.events.map((evt, i) => {
+                  return (
+                    <div key={i} className="flex flex-col">
                       <div className="flex items-center gap-2">
-                        <div className="flex w-4 shrink-0 justify-center">
-                          {i < activity.data.events.length - 1 ? (
-                            <div className="h-5 w-px bg-border my-1" />
-                          ) : null}
-                        </div>
+                        {evt.type === 'SENT' && (
+                          <LuCircleCheck
+                            size={16}
+                            className="shrink-0 text-foreground"
+                          />
+                        )}
+                        {evt.type === 'RESPONDED' && (
+                          <LuMessageSquareMore
+                            size={16}
+                            className="shrink-0 text-foreground"
+                          />
+                        )}
+                        {evt.type === 'OPTED_OUT' && (
+                          <LuCircleX
+                            size={16}
+                            className="shrink-0 text-foreground"
+                          />
+                        )}
+
+                        <p className="text-sm font-semibold text-foreground">
+                          {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
+                        </p>
                       </div>
-                      <p className="text-sm font-normal text-muted-foreground justify-self-start">
-                        {evt.date ? formatDateTime(evt.date) : ''}
-                      </p>
+
+                      <div className="flex gap-2 h-7">
+                        <div className="flex items-center gap-2">
+                          <div className="flex w-4 shrink-0 justify-center">
+                            {i < activity.data.events.length - 1 ? (
+                              <div className="h-5 w-px bg-border my-1" />
+                            ) : null}
+                          </div>
+                        </div>
+                        <p className="text-sm font-normal text-muted-foreground justify-self-start">
+                          {evt.date ? formatDateTime(evt.date) : ''}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
-        </div>
-      ))}
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+        ),
+      )}
       {hasNextPage ? (
         <Button
           type="button"
@@ -278,10 +375,18 @@ const getIncomeBucket = (income: number | null) => {
 const PersonContent: React.FC<{
   person: Person
   hidePoliticalParty: boolean
-}> = ({ person, hidePoliticalParty }) => {
+  showWinActivities: boolean
+}> = ({ person, hidePoliticalParty, showWinActivities }) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
+  // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
+  // Win adds the outreach timeline for campaigns (not elected officials). The
+  // Win decision (flag on, not an elected official, elected-office load
+  // settled) is computed once in the provider as isWinContext; reuse it so the
+  // feed and the provider's activities query never disagree. Top Issues stays
+  // Serve-only.
+  const showActivityFeed = showActivitiesAndIssues || showWinActivities
   const details = [person.gender, person.age ? `${person.age} years old` : null]
     .filter(isNotNil)
     .join(', ')
@@ -369,7 +474,7 @@ const PersonContent: React.FC<{
           <Field label="Ethnicity Group" value={person.ethnicityGroup} />
         </InfoSection>
 
-        {showActivitiesAndIssues ? (
+        {showActivityFeed ? (
           <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>
             <ActivitiesContent />
           </InfoSection>
@@ -385,6 +490,7 @@ export default function PersonOverlay(): React.JSX.Element {
     selectPerson,
     currentlySelectedPersonId,
     isElectedOfficial,
+    isWinContext,
   } = useContactsTable()
   const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
 
@@ -447,6 +553,7 @@ export default function PersonOverlay(): React.JSX.Element {
               <PersonContent
                 person={person}
                 hidePoliticalParty={isElectedOfficial}
+                showWinActivities={isWinContext}
               />
             )
           )}

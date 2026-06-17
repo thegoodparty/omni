@@ -1,71 +1,14 @@
-export interface PersonOutput {
-  id: string
-  lalVoterId: string
-  firstName: string | null
-  middleName: string | null
-  lastName: string | null
-  nameSuffix: string | null
-  age: number | null
-  state: string
-  address: {
-    line1: string | null
-    line2: string | null
-    city: string | null
-    state: string | null
-    zip: string | null
-    zipPlus4: string | null
-    latitude: string | null
-    longitude: string | null
-  }
-  cellPhone: string | null
-  landline: string | null
-  gender: 'Male' | 'Female' | null
-  politicalParty: 'Independent' | 'Democratic' | 'Republican' | 'Other'
-  registeredVoter: 'Yes' | 'No'
-  estimatedIncomeAmount: number | null
-  voterStatus:
-    | 'Super'
-    | 'Likely'
-    | 'Unreliable'
-    | 'Unlikely'
-    | 'First Time'
-    | null
-  maritalStatus:
-    | 'Likely Married'
-    | 'Likely Single'
-    | 'Married'
-    | 'Single'
-    | null
-  hasChildrenUnder18: 'Yes' | 'No' | null
-  veteranStatus: 'Yes' | null
-  homeowner: 'Yes' | 'Likely' | 'No' | null
-  businessOwner: 'Yes' | null
-  levelOfEducation:
-    | 'None'
-    | 'High School Diploma'
-    | 'Technical School'
-    | 'Some College'
-    | 'College Degree'
-    | 'Graduate Degree'
-    | null
-  ethnicityGroup:
-    | 'Asian'
-    | 'European'
-    | 'Hispanic'
-    | 'African American'
-    | 'Other'
-    | null
-  language: 'English' | 'Spanish' | 'Other'
-}
+import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
 
-export interface PeopleListResponse {
-  pagination: {
-    totalResults: number
-    currentPage: number
-    pageSize: number
-    totalPages: number
-    hasNextPage: boolean
-    hasPreviousPage: boolean
-  }
-  people: PersonOutput[]
-}
+// PersonOutput is the name gp-api's contacts code uses; the shape now lives in
+// @goodparty_org/contracts as Person (shared with gp-webapp) to avoid drift.
+//
+// politicalParty is part of this shape for every context (Win and Serve) — the
+// contacts service forwards the party filter and passes politicalParty through
+// uniformly on the list, detail, and download paths. The Win/Serve
+// party-visibility rule is a single frontend display concern (the contacts
+// person overlay's hidePoliticalParty gate); the backend deliberately does not
+// duplicate it, so the rule can't drift across paths.
+export type PersonOutput = Person
+
+export type { PeopleListResponse }

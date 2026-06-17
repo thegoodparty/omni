@@ -26,6 +26,7 @@ npm run storybook        # Component library on :6006
 Reproduce the CI **Validate** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
 
 ```bash
+npm run build -w packages/contracts                                            # build @goodparty_org/contracts dist (typecheck/build resolve it from there)
 npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e

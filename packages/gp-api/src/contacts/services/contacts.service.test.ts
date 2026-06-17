@@ -3,7 +3,7 @@ import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownl
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign, Organization } from '../../generated/prisma'
+import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
@@ -73,6 +73,9 @@ describe('ContactsService', () => {
       getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
     }
     let voterFileDownloadAccess: VoterFileDownloadAccessService
+    let mockFeaturesService: {
+      isFeatureEnabled: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -105,6 +108,9 @@ describe('ContactsService', () => {
       } as never)
       ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
         createMockLogger()
+      mockFeaturesService = {
+        isFeatureEnabled: vi.fn().mockResolvedValue(true),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
@@ -113,6 +119,7 @@ describe('ContactsService', () => {
         mockCampaignsService as never,
         mockOrganizationsService as never,
         voterFileDownloadAccess,
+        mockFeaturesService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -747,6 +754,267 @@ describe('ContactsService', () => {
           }),
           expect.any(Object),
         )
+      })
+    })
+
+    describe('political party exposure (Win vs Serve)', () => {
+      const partySegment = {
+        id: 7,
+        name: 'Democrats',
+        partyDemocrat: true,
+      } as VoterFileFilter
+
+      it('forwards the political-party filter to people-api for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('returns the people-api politicalParty field unchanged for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Republican' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+          org,
+        )
+
+        expect(result.people[0].politicalParty).toBe('Republican')
+      })
+
+      // Regression guard: the backend treats Win and Serve identically — it
+      // forwards the party filter and passes politicalParty through for eo-
+      // (Serve) orgs too. The Win/Serve party-visibility rule is a frontend
+      // display concern (the contacts person overlay's hidePoliticalParty
+      // gate), not duplicated on the backend. This locks that in so a future
+      // change that strips party server-side can't silently break Serve.
+      it('does not strip party or the party filter for Serve (eo-) orgs', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Democratic' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+        expect(result.people[0].politicalParty).toBe('Democratic')
+      })
+    })
+
+    // Win channel downloads/counts on people-api (ENG-10424). Each built-in
+    // channel maps to a people-api boolean filter set; the list/count path and
+    // the download path must forward the SAME filters so the count Win sees
+    // matches the downloaded row count (both run people-api's identical
+    // buildVoterWhereSql).
+    describe('Win channel -> people-api filter mapping', () => {
+      const channelFilters: Array<{
+        segment: string
+        filters: Record<string, true>
+      }> = [
+        { segment: 'all', filters: {} },
+        { segment: 'doorKnocking', filters: {} },
+        { segment: 'directMail', filters: {} },
+        { segment: 'texting', filters: { hasCellPhone: true } },
+        { segment: 'digitalAds', filters: { hasCellPhone: true } },
+        { segment: 'phoneBanking', filters: { hasLandline: true } },
+      ]
+
+      const makeDownloadStream = () => ({
+        destroyed: false,
+        pipe: vi.fn(),
+        destroy: vi.fn(),
+        on: vi.fn((event: string, cb: (err?: Error) => void) => {
+          if (event === 'end') setImmediate(() => cb())
+        }),
+      })
+
+      const makeDownloadReply = () => ({
+        raw: {
+          headersSent: false,
+          flushHeaders: vi.fn(),
+          setHeader: vi.fn(),
+          on: vi.fn(),
+        },
+      })
+
+      it.each(channelFilters)(
+        'forwards the $segment channel filters to the people-api list/count query',
+        async ({ segment, filters }) => {
+          const org = makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockHttpService.post.mockReturnValue(
+            of({ data: { people: [], pagination: { totalResults: 0 } } }),
+          )
+
+          await service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment },
+            org,
+          )
+
+          expect(mockHttpService.post).toHaveBeenCalledWith(
+            expect.stringContaining(PEOPLE_V1_PATH),
+            expect.objectContaining({
+              districtId: OVERRIDE_DISTRICT_ID,
+              filters,
+            }),
+            expect.any(Object),
+          )
+        },
+      )
+
+      it.each(channelFilters)(
+        'streams the $segment channel download with CSV headers and the same filters',
+        async ({ segment, filters }) => {
+          const org = makeOrganization({
+            slug: 'eo-office-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          const stream = makeDownloadStream()
+          mockHttpService.post.mockReturnValue(of({ data: stream }))
+          const res = makeDownloadReply()
+
+          await service.downloadContacts({ segment }, res as never, org)
+
+          expect(mockHttpService.post).toHaveBeenCalledWith(
+            expect.stringContaining(`${PEOPLE_V1_PATH}/download`),
+            expect.objectContaining({
+              districtId: OVERRIDE_DISTRICT_ID,
+              filters,
+            }),
+            expect.objectContaining({ responseType: 'stream' }),
+          )
+          expect(res.raw.setHeader).toHaveBeenCalledWith(
+            'Content-Type',
+            'text/csv',
+          )
+          expect(res.raw.setHeader).toHaveBeenCalledWith(
+            'Content-Disposition',
+            'attachment; filename="contacts.csv"',
+          )
+          // No buffering: the upstream pg COPY stream is piped straight to the
+          // client response rather than collected into memory.
+          expect(stream.pipe).toHaveBeenCalledTimes(1)
+        },
+      )
+
+      it('surfaces the people-api total as the channel count', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: { people: [], pagination: { totalResults: 1234 } },
+          }),
+        )
+
+        const result = await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'texting',
+          },
+          org,
+        )
+
+        expect(result.pagination.totalResults).toBe(1234)
+        expect(Number.isInteger(result.pagination.totalResults)).toBe(true)
+      })
+
+      it('sends identical filters on the count and download paths for a channel', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 0 } } }),
+        )
+        await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'texting',
+          },
+          org,
+        )
+        const listBody = mockHttpService.post.mock.calls.find((call) =>
+          String(call[0]).endsWith(PEOPLE_V1_PATH),
+        )?.[1] as { filters: Record<string, true> }
+
+        mockHttpService.post.mockReturnValue(of({ data: makeDownloadStream() }))
+        await service.downloadContacts(
+          { segment: 'texting' },
+          makeDownloadReply() as never,
+          org,
+        )
+        const downloadBody = mockHttpService.post.mock.calls.find((call) =>
+          String(call[0]).endsWith(`${PEOPLE_V1_PATH}/download`),
+        )?.[1] as { filters: Record<string, true> }
+
+        expect(listBody.filters).toEqual({ hasCellPhone: true })
+        expect(downloadBody.filters).toEqual(listBody.filters)
       })
     })
   })

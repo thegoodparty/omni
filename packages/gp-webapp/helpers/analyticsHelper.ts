@@ -390,13 +390,19 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Shared Serve (elected office) + Win (campaign) contacts experience, both on
+  // the People API. Every event carries a `context: 'win' | 'serve'` property
+  // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the
+  // unified path is a property filter in Amplitude, not a duplicate event set.
   Contacts: {
+    Viewed: 'Contacts - Contacts Viewed',
     Download: 'Contacts - Download',
     SegmentCreated: 'Contacts - Segment Created',
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     ColumnEdited: 'Contacts - Column Edited',
+    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
   },
   VoterData: {
     ClickNeedHelp: 'Voter Data: Click Need Help',
