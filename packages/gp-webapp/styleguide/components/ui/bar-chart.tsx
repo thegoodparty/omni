@@ -54,7 +54,7 @@ const BarChart = ({
           >
             <CartesianGrid
               vertical={false}
-              stroke="var(--color-base-border)"
+              stroke="var(--color-border)"
               strokeOpacity={0.5}
             />
             <XAxis dataKey="name" hide />
