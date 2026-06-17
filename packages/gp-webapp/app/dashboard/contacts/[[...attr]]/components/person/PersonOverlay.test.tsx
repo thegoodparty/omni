@@ -5,6 +5,7 @@ import { render } from 'helpers/test-utils/render'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { makePerson } from '../shared/test-fixtures'
 import type {
   ConstituentIssue,
@@ -19,6 +20,10 @@ vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
 }))
 
+vi.mock('@shared/experiments/winVoterDataFlag', () => ({
+  useWinVoterDataFlag: vi.fn(),
+}))
+
 // Google Maps would otherwise try to attach a Script tag and reference
 // `window.google`. Stub it with a marker we can assert on.
 vi.mock('@shared/utils/Map', () => ({
@@ -28,6 +33,7 @@ vi.mock('@shared/utils/Map', () => ({
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
+const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 
 type ContextValue = ReturnType<typeof useContactsTable>
 type SelectedPerson = ContextValue['currentlySelectedPerson']
@@ -96,6 +102,8 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    mockedUseWinVoterDataFlag.mockReset()
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('does not open the overlay when no person is selected', () => {
@@ -223,5 +231,103 @@ describe('<PersonOverlay>', () => {
     expect(
       screen.getByRole('link', { name: /transit survey/i }),
     ).toBeInTheDocument()
+  })
+
+  it('renders Win outreach activities with per-channel labels and date', () => {
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+      {
+        type: 'OUTREACH',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 2,
+          outreachType: 'doorKnocking',
+          attributionSource: 'recipient',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    // Honest send-time labels, not "Delivered".
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+    expect(screen.getByText('Knocked')).toBeInTheDocument()
+    // segmentDerived is send-time attribution; recipient (door knock) is not.
+    expect(screen.getByText('Sent to segment')).toBeInTheDocument()
+    // Date rendered for the activity.
+    expect(screen.getByText(/May 10, 2026/)).toBeInTheDocument()
+    // Poll-only chrome must not appear for outreach rows.
+    expect(
+      screen.queryByRole('link', { name: /transit survey/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the Win Activity Feed when the win-voter-data flag is off', () => {
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.queryByText('Activity Feed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Texted')).not.toBeInTheDocument()
+  })
+
+  it('paginates the Win outreach timeline via View more', async () => {
+    const user = userEvent.setup()
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    const activitiesFetchNextPage = vi.fn()
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'phoneBanking',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      selectedPerson: {
+        activities,
+        activitiesHasNextPage: true,
+        activitiesFetchNextPage,
+      },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Called')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /view more/i }))
+    expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 })

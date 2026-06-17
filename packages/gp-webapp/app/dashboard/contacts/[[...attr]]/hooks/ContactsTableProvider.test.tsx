@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import {
   ContactsTableProvider,
   useContactsTable,
@@ -10,13 +11,28 @@ import {
 import { makePerson } from '../components/shared/test-fixtures'
 
 // The provider reads all four navigation hooks; the global setup only mocks
-// useRouter/usePathname, so provide the rest here.
+// useRouter/usePathname, so provide the rest here. params is mutable so a test
+// can select a person (drives the engagement queries).
+let mockParams: Record<string, string | string[]> = {}
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/dashboard/contacts',
   useSearchParams: () => new URLSearchParams(),
-  useParams: () => ({}),
+  useParams: () => mockParams,
 }))
+
+vi.mock('@shared/experiments/winVoterDataFlag', () => ({
+  useWinVoterDataFlag: vi.fn(),
+}))
+
+const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
+
+beforeEach(() => {
+  mockParams = {}
+  mockedUseWinVoterDataFlag.mockReset()
+  mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
+})
 
 const Probe = () => {
   const { isVoterDataUnavailable, isLoading } = useContactsTable()
@@ -91,5 +107,72 @@ describe('ContactsTableProvider — voter-data-unavailable detection', () => {
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
     expect(screen.getByTestId('unavailable')).toHaveTextContent('false')
+  })
+})
+
+describe('ContactsTableProvider — engagement :id selection', () => {
+  const mockContactsList = () =>
+    api.mock('GET /v1/contacts', {
+      status: 200,
+      data: {
+        people: [],
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      },
+    })
+
+  it('passes person.lalVoterId (not person.id) for the Win activities branch', async () => {
+    mockParams = { attr: ['p_1'] }
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    mockContactsList()
+    // No elected office -> Win context.
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'not found' },
+    })
+    api.mock('GET /v1/contacts/:id', {
+      status: 200,
+      data: makePerson({ id: 'p_1', lalVoterId: 'lal_1' }),
+    })
+
+    let capturedId: string | undefined
+    api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
+      capturedId = request.params.id
+      return { status: 200, data: { nextCursor: null, results: [] } }
+    })
+
+    renderProvider()
+
+    await waitFor(() => expect(capturedId).toBe('lal_1'))
+  })
+
+  it('passes person.id for the Serve (elected office) activities branch', async () => {
+    mockParams = { attr: ['p_1'] }
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
+    mockContactsList()
+    api.mock('GET /v1/elected-office/current', {
+      status: 200,
+      data: { id: 'eo_1', swornInDate: null },
+    })
+    api.mock('GET /v1/contacts/:id', {
+      status: 200,
+      data: makePerson({ id: 'p_1', lalVoterId: 'lal_1' }),
+    })
+
+    let capturedId: string | undefined
+    api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
+      capturedId = request.params.id
+      return { status: 200, data: { nextCursor: null, results: [] } }
+    })
+
+    renderProvider()
+
+    await waitFor(() => expect(capturedId).toBe('p_1'))
   })
 })
