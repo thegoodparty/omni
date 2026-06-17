@@ -55,11 +55,7 @@ export const Horizontal: Story = {
         </p>
       </div>
       <Separator className="my-4" />
-      <div className="text-foreground flex items-center gap-4 text-sm">
-        <span>Public</span>
-        <span>Verified</span>
-        <span>Active</span>
-      </div>
+      <p className="text-foreground text-sm">Public · Verified · Active</p>
     </div>
   ),
 }
