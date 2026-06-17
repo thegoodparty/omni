@@ -397,6 +397,8 @@
   --accent-foreground: var(--base-accent-foreground);
   --color-accent: var(--base-accent);
   --color-accent-foreground: var(--base-accent-foreground);
+  --color-base-accent: var(--base-accent);
+  --color-base-accent-foreground: var(--base-accent-foreground);
 
   /* Secondary */
   --secondary: var(--theme-secondary);
