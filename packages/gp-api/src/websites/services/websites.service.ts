@@ -269,17 +269,19 @@ const scoreLiveHtml = (
   const verified =
     http200 && hasPrivacyPolicy && hasTerms && hasCandidateIdentity
 
-  // A redirect loop (ERR_TOO_MANY_REDIRECTS) also lands status 0, but the
-  // server IS reachable — it's a deploy/config issue, not DNS. Don't route it
-  // to wait_dns_propagation; treat it as not-live so the agent waits on the
-  // deploy instead.
+  // A redirect loop (ERR_TOO_MANY_REDIRECTS) lands status 0, but the server IS
+  // reachable — it's a misconfiguration that waiting will never fix, so it gets
+  // its own reason the agent routes to an unrecoverable blocker rather than to
+  // wait_dns_propagation (unreachable) or an indefinite wait_vercel_verify.
   const reason = verified
     ? null
-    : fetched.status === 0 && fetched.errorCode !== 'ERR_TOO_MANY_REDIRECTS'
-      ? VerifyLiveReason.unreachable
-      : !http200
-        ? VerifyLiveReason.notLive
-        : VerifyLiveReason.contentMissing
+    : fetched.errorCode === 'ERR_TOO_MANY_REDIRECTS'
+      ? VerifyLiveReason.redirectLoop
+      : fetched.status === 0
+        ? VerifyLiveReason.unreachable
+        : !http200
+          ? VerifyLiveReason.notLive
+          : VerifyLiveReason.contentMissing
 
   return {
     verified,
