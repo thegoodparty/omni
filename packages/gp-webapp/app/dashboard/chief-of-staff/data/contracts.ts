@@ -52,6 +52,7 @@ export interface DashboardCard {
 }
 
 export interface DashboardCardListResponse {
+  bucket: DashboardCardBucket
   cards: DashboardCard[]
 }
 

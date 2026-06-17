@@ -54,7 +54,7 @@ describe('dashboardApi', () => {
       let capturedBucket: DashboardCardBucket | undefined
       api.mock('GET /v1/dashboard/cards', ({ query }) => {
         capturedBucket = query.bucket
-        return { status: 200, data: { cards: [CARD] } }
+        return { status: 200, data: { bucket: 'active', cards: [CARD] } }
       })
 
       expect(await dashboardApi.getCards('active')).toEqual([CARD])
@@ -65,7 +65,7 @@ describe('dashboardApi', () => {
       let capturedBucket: DashboardCardBucket | undefined
       api.mock('GET /v1/dashboard/cards', ({ query }) => {
         capturedBucket = query.bucket
-        return { status: 200, data: { cards: [] } }
+        return { status: 200, data: { bucket: 'skipped', cards: [] } }
       })
 
       await dashboardApi.getCards('skipped')
