@@ -351,7 +351,10 @@ export default function OnboardingFlow({
   // Campaign-story users don't auto-generate a plan during onboarding: they
   // write their Campaign Story first, then generate from it. So we skip the
   // pre-warm and route them to the story page instead of /onboarding/success.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag()
+  // trackExposure=false: onboarding only reads the flag for routing, it's not
+  // the treatment surface (the story page is), so the read mustn't fire
+  // exposure for every onboarding visitor.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})

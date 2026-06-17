@@ -31,7 +31,10 @@ const CampaignPlanRouter = ({
   planExists,
 }: CampaignPlanRouterProps): React.JSX.Element => {
   const router = useRouter()
-  const { ready, enabled: storyEnabled } = useCampaignStoryFlag()
+  // trackExposure=false: this tab isn't the experiment's treatment surface
+  // (the story page's FeatureFlagGuard is), so the read mustn't fire exposure
+  // for every plan visitor — mirrors DashboardMenu.
+  const { ready, enabled: storyEnabled } = useCampaignStoryFlag(false)
   const [generateRequested, setGenerateRequested] = useState(false)
 
   const redirectToDashboard = !planExists && ready && !storyEnabled
