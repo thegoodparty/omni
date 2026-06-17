@@ -2,6 +2,7 @@ import { IncomingRequest } from '@/authentication/authentication.types'
 import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -213,6 +214,21 @@ export class ElectedOfficeController {
           'Elected office term overlaps an existing elected office for this user',
         )
       }
+    }
+
+    // Completing serve onboarding is only meaningful once the office has term
+    // dates. Allowing onboardingCompletedAt on a term-less placeholder would
+    // permanently bypass the serve-onboarding flow (post-auth routing treats a
+    // completed office as done), so refuse it when neither the body nor the
+    // existing record supplies a term bound.
+    if (
+      body.onboardingCompletedAt != null &&
+      !effectiveTermStart &&
+      !effectiveTermEnd
+    ) {
+      throw new BadRequestException(
+        'onboardingCompletedAt cannot be set without term dates',
+      )
     }
 
     const data: Prisma.ElectedOfficeUpdateInput = {

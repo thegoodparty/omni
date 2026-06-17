@@ -524,5 +524,36 @@ describe('ElectedOfficeController', () => {
       })
       expect(result.data.swornInDate).toBeNull()
     })
+
+    it('rejects completing onboarding on a term-less placeholder', async () => {
+      // A term-less placeholder (bare magic-link lead) must not be markable as
+      // onboarding-complete — that would permanently skip the serve flow.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+      expect(placeholder.data.termStartDate).toBeNull()
+
+      const result = await service.client.put(
+        `/v1/elected-office/${placeholder.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('allows completing onboarding once the office has term dates', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
   })
 })
