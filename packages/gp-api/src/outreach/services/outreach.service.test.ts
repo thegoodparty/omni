@@ -324,6 +324,12 @@ describe('OutreachService', () => {
         }),
         include: { voterFileFilter: true },
       })
+      // P2P also records per-voter attribution (the texting/P2P write path).
+      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+        created,
+      )
       expect(result).toEqual(created)
     })
 

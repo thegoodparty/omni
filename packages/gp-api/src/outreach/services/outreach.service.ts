@@ -184,6 +184,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         createOutreachDto.phoneListId,
       )
       await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
+      await this.tryRecordSegmentAttribution(user, campaign, outreach)
       return outreach
     }
 
@@ -193,10 +194,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return outreach
   }
 
-  // Segment-derived per-voter attribution (epic task 15) for the channels that
-  // have no per-recipient records. Best-effort like tryNotifySuccess: a
-  // people-api hiccup or attribution failure is logged but must not fail the
-  // outreach that was already persisted. Idempotent, so a later retry is safe.
+  // Per-voter attribution for the channels that resolve a segment (p2p, text,
+  // phoneBanking, robocall, socialMedia; see OutreachAttributionService).
+  // Best-effort like tryNotifySuccess: a people-api hiccup or attribution
+  // failure is logged but must not fail the outreach that was already
+  // persisted. Idempotent, so a later retry is safe.
   private async tryRecordSegmentAttribution(
     user: User,
     campaign: Campaign,

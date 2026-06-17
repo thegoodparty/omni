@@ -14,18 +14,26 @@ import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/v
 
 const WIN_VOTER_DATA_FEATURE_FLAG = 'win-voter-data'
 
-// Channels with no per-recipient records: the resolved segment IS the recipient
-// list, so attribution is segment-derived (epic task 15). text is owned by the
-// texting/P2P path (task 14); doorKnocking and p2p are recipient paths (tasks
-// 13/14) and record their own per-recipient activities.
-const SEGMENT_DERIVED_OUTREACH_TYPES: ReadonlySet<OutreachType> = new Set([
-  OutreachType.phoneBanking,
-  OutreachType.robocall,
-  OutreachType.socialMedia,
-])
-
-export const isSegmentDerivedOutreachType = (type: OutreachType): boolean =>
-  SEGMENT_DERIVED_OUTREACH_TYPES.has(type)
+// Per-voter attribution source by outreach channel. Every channel here resolves
+// its voters from the outreach's saved segment (voterFileFilterId) via the
+// people-api path, so all are segment-derived — none can claim per-recipient
+// confirmation. p2p + text are owned by this epic task (14),
+// phoneBanking/robocall/socialMedia by task 15. doorKnocking is omitted — it
+// records its own per-recipient activities keyed on the upstream event (task 13).
+//
+// NOTE: p2p is segmentDerived (not recipient) because attribution resolves the
+// segment, not the Peerly phone list it actually sent to — the phone list is the
+// SMS-reachable subset of the segment, so the segment overstates true recipients.
+// Switch p2p to recipient only once attribution queries the phone list directly.
+const ATTRIBUTION_SOURCE_BY_OUTREACH_TYPE: Partial<
+  Record<OutreachType, VoterOutreachAttributionSource>
+> = {
+  [OutreachType.p2p]: VoterOutreachAttributionSource.segmentDerived,
+  [OutreachType.text]: VoterOutreachAttributionSource.segmentDerived,
+  [OutreachType.phoneBanking]: VoterOutreachAttributionSource.segmentDerived,
+  [OutreachType.robocall]: VoterOutreachAttributionSource.segmentDerived,
+  [OutreachType.socialMedia]: VoterOutreachAttributionSource.segmentDerived,
+}
 
 // Resolve the segment a page at a time so a large segment never loads whole
 // into memory, and cap the total attributed in one launch. The cap bounds the
@@ -47,16 +55,19 @@ export class OutreachAttributionService {
     this.logger.setContext(OutreachAttributionService.name)
   }
 
-  // Emit one segmentDerived VoterOutreachActivity per voter in the launched
-  // outreach's segment. Gated by win-voter-data (the epic's rollout flag) and
-  // only meaningful when the outreach targets a saved segment. Idempotent on
-  // (outreachId, lalVoterId) so a relaunch/retry can't double-tag a voter.
+  // Emit one VoterOutreachActivity per voter in the launched outreach's resolved
+  // segment, sourced per channel (p2p = recipient, others = segmentDerived).
+  // Gated by win-voter-data (the epic's rollout flag) and only meaningful when
+  // the outreach targets a saved segment. Idempotent on (outreachId, lalVoterId)
+  // so a relaunch/retry can't double-tag a voter.
   async recordSegmentAttribution(
     user: User,
     campaign: Campaign,
     outreach: Outreach,
   ): Promise<void> {
-    if (!isSegmentDerivedOutreachType(outreach.outreachType)) return
+    const attributionSource =
+      ATTRIBUTION_SOURCE_BY_OUTREACH_TYPE[outreach.outreachType]
+    if (!attributionSource) return
     if (!outreach.voterFileFilterId) return
 
     const flagEnabled = await this.features.isFeatureEnabled({
@@ -88,7 +99,7 @@ export class OutreachAttributionService {
         campaignId: campaign.id,
         lalVoterId: person.lalVoterId,
         outreachType: outreach.outreachType,
-        attributionSource: VoterOutreachAttributionSource.segmentDerived,
+        attributionSource,
         occurredAt,
         outreachId: outreach.id,
       }))
