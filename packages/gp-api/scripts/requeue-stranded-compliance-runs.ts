@@ -21,9 +21,11 @@
  * never went live re-exhausts 48 attempts and carries the same error string) —
  * re-queuing those would loop them forever.
  *
- * Usage (dry-run by default — prints what it would do, mutates nothing):
- *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-18T00:00:00Z
- *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-18T00:00:00Z --execute
+ * Usage (dry-run by default — prints what it would do, mutates nothing).
+ * Pass the actual deploy timestamp; the examples below use a past placeholder
+ * because the guard at parseArgs rejects a future cutoff:
+ *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-17T00:00:00Z
+ *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-17T00:00:00Z --execute
  *
  * Required env vars:
  *   DATABASE_URL — Postgres connection string (point at prod to remediate prod)
@@ -45,8 +47,8 @@ const parseArgs = () => {
   const before = args.find((a) => a.startsWith('--failed-before='))
   if (!before) {
     throw new Error(
-      '--failed-before is required. Pass the deploy timestamp so post-fix ' +
-        'failures are excluded, e.g. --failed-before=2026-06-18T00:00:00Z',
+      '--failed-before is required. Pass the deploy timestamp (in the past) ' +
+        'so post-fix failures are excluded, e.g. --failed-before=2026-06-17T00:00:00Z',
     )
   }
   const failedBefore = new Date(before.split('=')[1])
