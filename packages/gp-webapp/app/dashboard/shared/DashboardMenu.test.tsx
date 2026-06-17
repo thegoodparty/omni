@@ -11,12 +11,14 @@ const links = (
     serveAccessEnabled = false,
     isElectedOffice = false,
     isElectedOfficeLoading = false,
+    winVoterDataReady = true,
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
     isElectedOfficeLoading?: boolean
+    winVoterDataReady?: boolean
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
   } = {},
@@ -28,6 +30,7 @@ const links = (
     isElectedOfficeLoading,
     false,
     false,
+    winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
   )
@@ -62,6 +65,20 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     const items = links(proCampaign, {
       winVoterDataEnabled: true,
       isElectedOfficeLoading: true,
+    })
+
+    expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
+    expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
+  })
+
+  it('holds the placeholder (no legacy item, no Contacts) while the win-voter-data flag is still loading', () => {
+    // Until the flag's `ready` settles it reads off, so committing now would
+    // show the legacy Voter Data item and then swap it to Contacts once the
+    // flag resolves. Hold the generic placeholder until ready (ENG-10448).
+    const items = links(proCampaign, {
+      winVoterDataReady: false,
+      winVoterDataEnabled: false,
     })
 
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)

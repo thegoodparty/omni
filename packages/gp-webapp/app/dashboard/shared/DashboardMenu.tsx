@@ -280,6 +280,7 @@ export const getDashboardMenuItems = (
   isElectedOfficeLoading: boolean,
   chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
+  winVoterDataReady: boolean,
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
 ): MenuItem[] => {
@@ -288,12 +289,13 @@ export const getDashboardMenuItems = (
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (!isElectedOfficeLoading && campaign?.isPro) {
-    // Wait for the elected-office query before committing to the Win item:
-    // until it settles a Serve elected-official reads as not-elected-office,
-    // and selecting WIN_CONTACTS here would flash "Voter Data" at them (the
-    // rest of this PR gates on the same load via useWinVoterContext). While
-    // loading, the generic upgrade placeholder stays in the slot.
+  } else if (!isElectedOfficeLoading && winVoterDataReady && campaign?.isPro) {
+    // Hold off until BOTH the elected-office query and the win-voter-data flag
+    // settle — the same combined guard useWinVoterContext applies elsewhere in
+    // this PR. Until then a Serve elected-official reads as not-elected-office,
+    // and the flag reads off, so committing here would swap the slot
+    // (placeholder → legacy Voter Data → Contacts) as each input resolves.
+    // While not ready, the generic upgrade placeholder holds the slot.
     menuItems[voterDataIndex] = winVoterDataEnabled
       ? WIN_CONTACTS_MENU_ITEM
       : VOTER_RECORDS_MENU_ITEM
@@ -351,7 +353,8 @@ export default function DashboardMenu({
   // Voter Data item. Read with trackExposure=false — the page is the treatment
   // surface, not the menu — so the nav read doesn't inflate the exposed
   // population.
-  const { enabled: winVoterDataEnabled } = useWinVoterDataFlag(false)
+  const { ready: winVoterDataReady, enabled: winVoterDataEnabled } =
+    useWinVoterDataFlag(false)
   // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
   // track exposure here — mirrors the win-voter-data gate above.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
@@ -365,6 +368,7 @@ export default function DashboardMenu({
       isElectedOfficeLoading,
       chiefOfStaffEnabled,
       campaignStrategyExists,
+      winVoterDataReady,
       winVoterDataEnabled,
       campaignStoryEnabled,
     )
@@ -386,6 +390,7 @@ export default function DashboardMenu({
     proUpgradeEnabled,
     chiefOfStaffEnabled,
     campaignStrategyExists,
+    winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
   ])
