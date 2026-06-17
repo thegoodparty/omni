@@ -74,6 +74,9 @@ export default function ElectionFiling(): React.JSX.Element {
       router.push('/dashboard/profile')
     } catch {
       setHasSubmissionError(true)
+      trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
+        email: formData.email,
+      })
       errorSnackbar('Failed to submit election filing. Please try again later.')
     } finally {
       setLoading(false)
