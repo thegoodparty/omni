@@ -177,6 +177,18 @@ describe('<PersonOverlay>', () => {
     expect(screen.queryByText(/^political party$/i)).not.toBeInTheDocument()
   })
 
+  it('shows the Political Party field with its value in the Win context', () => {
+    setContext({ isElectedOfficial: false })
+
+    render(<PersonOverlay />)
+
+    const partyLabel = screen.getByText(/^political party$/i)
+    expect(partyLabel).toBeInTheDocument()
+    // makePerson() seeds politicalParty: 'Independent'; assert the value
+    // renders, not just the label, so a blank field doesn't pass.
+    expect(screen.getByText(/^independent$/i)).toBeInTheDocument()
+  })
+
   it('hides Top Issues and Activity Feed when the feature flag is off', () => {
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
     setContext()
