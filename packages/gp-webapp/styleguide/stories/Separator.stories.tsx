@@ -32,7 +32,7 @@ export const Playground: Story = {
       className={
         args.orientation === 'vertical'
           ? 'flex h-24 items-center gap-4'
-          : 'w-80'
+          : 'w-80 space-y-4'
       }
     >
       <span className="text-foreground text-sm">Section one</span>
