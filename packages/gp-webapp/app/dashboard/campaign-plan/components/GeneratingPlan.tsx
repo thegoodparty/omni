@@ -12,9 +12,10 @@ interface GeneratingPlanProps {
 }
 
 // Mounting this triggers generation: useCampaignPlanData fires the
-// strategic-landscape / community-events POSTs and polls until ready. We show
-// a loading indicator until the whole plan is ready, then hand off to the
-// normal plan view.
+// strategic-landscape / community-events POSTs and polls until ready. We render
+// the plan immediately so its sections stream in (skeleton -> content) rather
+// than blocking the whole page behind a spinner; a banner reassures the user
+// while any section is still generating.
 const GeneratingPlan = ({
   initialUser,
 }: GeneratingPlanProps): React.JSX.Element => {
@@ -23,22 +24,21 @@ const GeneratingPlan = ({
   return (
     <DashboardLayout>
       <InvalidateCampaignOnMount />
-      {planReady ? (
-        <CampaignPlanView initialUser={initialUser} />
-      ) : (
-        <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-          <LoaderCircleIcon className="size-10 animate-spin text-primary" />
-          <div className="flex flex-col gap-1">
-            <h2 className="text-xl font-semibold text-foreground">
+      {!planReady && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-primary/5 p-4">
+          <LoaderCircleIcon className="size-5 shrink-0 animate-spin text-primary" />
+          <div className="flex flex-col">
+            <span className="font-semibold text-foreground">
               Generating your campaign plan
-            </h2>
-            <p className="max-w-md text-muted-foreground">
+            </span>
+            <span className="text-sm text-muted-foreground">
               We&apos;re building it from your Campaign Story. This usually
-              takes under a minute.
-            </p>
+              takes less than 3 minutes.
+            </span>
           </div>
         </div>
       )}
+      <CampaignPlanView initialUser={initialUser} />
     </DashboardLayout>
   )
 }
