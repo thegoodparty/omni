@@ -45,7 +45,11 @@ export const ObjectCover: Story = {
   render: () => (
     <div className="w-96">
       <AspectRatio ratio={16 / 9} className="overflow-hidden rounded-md">
-        <Gradient />
+        <img
+          src="/images/candidate/city.jpg"
+          alt="City"
+          className="h-full w-full object-cover"
+        />
       </AspectRatio>
     </div>
   ),
@@ -59,16 +63,11 @@ export const ObjectContain: Story = {
         ratio={16 / 9}
         className="overflow-hidden rounded-md bg-muted"
       >
-        <div className="flex h-full w-full items-center justify-center">
-          <div
-            className="h-full rounded"
-            style={{
-              aspectRatio: '1 / 1',
-              background:
-                'linear-gradient(135deg, #e0e6ec 0%, #f7fafb 25%, #d1d8df 50%, #eef3f6 75%, #c8d0d8 100%)',
-            }}
-          />
-        </div>
+        <img
+          src="/images/candidate/city.jpg"
+          alt="City"
+          className="h-full w-full object-contain"
+        />
       </AspectRatio>
     </div>
   ),
