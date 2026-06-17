@@ -1,21 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
+import { useArgs } from 'storybook/preview-api'
 import { Checkbox, CheckboxLabel } from '../components/ui/checkbox'
 
 const meta: Meta<typeof Checkbox> = {
   title: 'Components/Checkbox',
   component: Checkbox,
   tags: ['autodocs'],
-  argTypes: {
-    checked: {
-      control: 'boolean',
-      description:
-        'Controlled checked state. Toggling this in Controls updates the checkbox immediately.',
-    },
-    disabled: {
-      control: 'boolean',
-      description: 'Prevents interaction and dims the checkbox.',
-    },
-  },
 }
 
 export default meta
@@ -54,92 +44,84 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       description: 'Optional description shown below the label.',
     },
   },
-  render: ({ checked, disabled, label, description }) => (
-    <CheckboxLabel
-      id="playground"
-      checked={checked}
-      disabled={disabled}
-      label={label}
-      description={label && description ? description : undefined}
-    />
-  ),
-}
-
-export const Standalone: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <div className="flex items-center gap-3">
-      <Checkbox id="standalone-unchecked" />
-      <Checkbox id="standalone-checked" defaultChecked />
-      <Checkbox id="standalone-disabled" disabled />
-      <Checkbox id="standalone-disabled-checked" disabled defaultChecked />
-    </div>
-  ),
-}
-
-export const WithLabel: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <CheckboxLabel id="with-label" label="Accept terms and conditions" />
-  ),
-}
-
-export const WithDescription: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <CheckboxLabel
-      id="with-description"
-      label="Accept terms and conditions"
-      description="You agree to our Terms of Service and Privacy Policy."
-    />
-  ),
-}
-
-export const Checked: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <CheckboxLabel
-      id="checked"
-      label="Accept terms and conditions"
-      defaultChecked
-    />
-  ),
-}
-
-export const Focused: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <div className="flex flex-col gap-3">
+  render: function Render({ checked, disabled, label, description }) {
+    const [, updateArgs] = useArgs()
+    return (
       <CheckboxLabel
-        id="focused-unchecked"
-        label="Unchecked focused"
-        className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-base-focus-ring"
+        id="playground"
+        checked={checked}
+        disabled={disabled}
+        label={label}
+        description={label && description ? description : undefined}
+        onCheckedChange={(next) =>
+          updateArgs({ checked: next === 'indeterminate' ? false : next })
+        }
+      />
+    )
+  },
+}
+
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <Checkbox id="bare-unchecked" />
+        <Checkbox id="bare-checked" defaultChecked />
+        <Checkbox id="bare-disabled" disabled />
+        <Checkbox id="bare-disabled-checked" disabled defaultChecked />
+      </div>
+      <CheckboxLabel id="with-label" label="Accept terms and conditions" />
+      <CheckboxLabel
+        id="with-description"
+        label="Accept terms and conditions"
+        description="You agree to our Terms of Service and Privacy Policy."
       />
       <CheckboxLabel
-        id="focused-checked"
-        label="Checked focused"
+        id="checked"
+        label="Accept terms and conditions"
         defaultChecked
-        className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-components-input-active"
       />
     </div>
   ),
 }
 
-export const Disabled: Story = {
+export const States: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex flex-col gap-3">
-      <CheckboxLabel
-        id="disabled-unchecked"
-        label="Unchecked disabled"
-        disabled
-      />
-      <CheckboxLabel
-        id="disabled-checked"
-        label="Checked disabled"
-        disabled
-        defaultChecked
-      />
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          Focused
+        </p>
+        <CheckboxLabel
+          id="focused-unchecked"
+          label="Unchecked focused"
+          className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-base-focus-ring"
+        />
+        <CheckboxLabel
+          id="focused-checked"
+          label="Checked focused"
+          defaultChecked
+          className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-components-input-active"
+        />
+      </div>
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          Disabled
+        </p>
+        <CheckboxLabel
+          id="disabled-unchecked"
+          label="Unchecked disabled"
+          disabled
+        />
+        <CheckboxLabel
+          id="disabled-checked"
+          label="Checked disabled"
+          disabled
+          defaultChecked
+        />
+      </div>
     </div>
   ),
 }
