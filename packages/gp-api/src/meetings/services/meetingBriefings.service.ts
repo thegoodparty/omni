@@ -230,6 +230,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         experimentType: SCHEDULE_EXPERIMENT_TYPE,
         status: {
           in: [
+            ExperimentRunStatus.QUEUED,
             ExperimentRunStatus.RUNNING,
             ExperimentRunStatus.AWAITING_RESUME,
             ExperimentRunStatus.COMPLETED,
@@ -275,6 +276,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       type: SCHEDULE_EXPERIMENT_TYPE,
       organizationSlug: ctx.organizationSlug,
       clerkUserId: ctx.clerkUserId,
+      priority: 'HIGH',
       params: {
         elected_office_id: ctx.electedOfficeId,
         state: ctx.state,
@@ -306,6 +308,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       type: BRIEFING_EXPERIMENT_TYPE,
       organizationSlug: ctx.organizationSlug,
       clerkUserId: ctx.clerkUserId,
+      priority: 'HIGH',
       params: {
         officialName: ctx.officialName,
         state: ctx.state,

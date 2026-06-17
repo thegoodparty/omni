@@ -15,6 +15,7 @@ const makeRun = (overrides: Partial<ExperimentRun> = {}): ExperimentRun => ({
   organizationSlug: 'org-1',
   experimentType: 'compliance_setup',
   status: ExperimentRunStatus.COMPLETED,
+  priority: 'DEFAULT',
   params: {
     campaign_id: 42,
     candidate_first_name: 'Ada',
@@ -308,6 +309,17 @@ describe('AdminAgentRunsService', () => {
     it('rejects with 409 and never dispatches when the run is still RUNNING', async () => {
       mockModel.findUniqueOrThrow.mockResolvedValue(
         makeRun({ status: ExperimentRunStatus.RUNNING }),
+      )
+
+      await expect(service.retry('run-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('rejects with 409 and never dispatches when the run is still QUEUED', async () => {
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({ status: ExperimentRunStatus.QUEUED }),
       )
 
       await expect(service.retry('run-1')).rejects.toBeInstanceOf(

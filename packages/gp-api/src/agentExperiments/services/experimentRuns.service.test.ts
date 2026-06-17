@@ -53,7 +53,7 @@ describe('ExperimentRunsService', () => {
   })
 
   describe('dispatchRun', () => {
-    it('creates a RUNNING row and sends an SQS dispatch message', async () => {
+    it('creates a QUEUED row and sends an SQS dispatch message', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 
       const result = await service.dispatchRun({
@@ -73,7 +73,7 @@ describe('ExperimentRunsService', () => {
           runId: expect.any(String),
           experimentType: 'district_issue_pulse',
           organizationSlug: 'org-1',
-          status: ExperimentRunStatus.RUNNING,
+          status: ExperimentRunStatus.QUEUED,
           params: {
             state: 'CA',
             city: 'San Francisco',
@@ -109,7 +109,7 @@ describe('ExperimentRunsService', () => {
         runId: expect.any(String),
         experimentType: 'district_issue_pulse',
         organizationSlug: 'org-1',
-        status: ExperimentRunStatus.RUNNING,
+        status: ExperimentRunStatus.QUEUED,
       })
     })
 
@@ -197,6 +197,33 @@ describe('ExperimentRunsService', () => {
       expect(logger.error).toHaveBeenCalled()
     })
 
+    it('still throws BadGateway (not the update error) when the compensating FAILED update also throws', async () => {
+      sqsMock.on(SendMessageCommand).rejects(new Error('SQS unavailable'))
+      mockModel.update.mockRejectedValue(new Error('db pool exhausted'))
+
+      await expect(
+        service.dispatchRun({
+          type: 'district_issue_pulse',
+          organizationSlug: 'org-1',
+          clerkUserId: 'user_test_dispatch',
+          params: {
+            state: 'CA',
+            city: 'San Francisco',
+            l2DistrictType: 'city',
+            l2DistrictName: 'San Francisco',
+          },
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          updateError: expect.any(Error),
+          runId: expect.any(String),
+        }),
+        expect.stringContaining('stuck QUEUED'),
+      )
+    })
+
     it('does not send to SQS when the DB create fails', async () => {
       mockModel.create.mockRejectedValue(new Error('db down'))
 
@@ -215,6 +242,64 @@ describe('ExperimentRunsService', () => {
       ).rejects.toThrow('db down')
 
       expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+    })
+
+    it('creates the run as QUEUED and forwards priority in the SQS body', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+
+      const result = await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+        priority: 'HIGH',
+      })
+
+      expect(result?.status).toBe(ExperimentRunStatus.QUEUED)
+      expect(result?.priority).toBe('HIGH')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'HIGH' }),
+      })
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+        run_id: string
+      }
+      expect(body.priority).toBe('HIGH')
+      expect(body.run_id).toBe(result?.runId)
+    })
+
+    it('defaults priority to DEFAULT when not given', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+
+      const result = await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+      })
+
+      expect(result?.priority).toBe('DEFAULT')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'DEFAULT' }),
+      })
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('DEFAULT')
     })
 
     it('generates a unique run_id per dispatch', async () => {
@@ -249,64 +334,6 @@ describe('ExperimentRunsService', () => {
     })
   })
 
-  describe('sweepStaleRuns', () => {
-    it('marks RUNNING rows older than 45 minutes as FAILED with a timeout error', async () => {
-      mockModel.updateMany.mockResolvedValue({ count: 3 })
-
-      await service.sweepStaleRuns()
-
-      expect(mockModel.updateMany).toHaveBeenCalledWith({
-        where: {
-          status: { in: [ExperimentRunStatus.RUNNING] },
-          updatedAt: { lt: expect.any(Date) },
-        },
-        data: {
-          status: ExperimentRunStatus.FAILED,
-          error: expect.stringContaining('45 minutes'),
-        },
-      })
-
-      const cutoff = mockModel.updateMany.mock.calls[0][0].where.updatedAt
-        .lt as Date
-      const fortyFiveMinutesAgo = Date.now() - 45 * 60 * 1000
-      expect(Math.abs(cutoff.getTime() - fortyFiveMinutesAgo)).toBeLessThan(
-        5000,
-      )
-    })
-
-    it('does not target terminal states', async () => {
-      mockModel.updateMany.mockResolvedValue({ count: 0 })
-
-      await service.sweepStaleRuns()
-
-      const where = mockModel.updateMany.mock.calls[0][0].where as {
-        status: { in: ExperimentRunStatus[] }
-      }
-      expect(where.status.in).toEqual([ExperimentRunStatus.RUNNING])
-      expect(where.status.in).not.toContain(ExperimentRunStatus.COMPLETED)
-      expect(where.status.in).not.toContain(ExperimentRunStatus.FAILED)
-    })
-
-    it('logs a warning with the swept count when rows are found', async () => {
-      mockModel.updateMany.mockResolvedValue({ count: 2 })
-
-      await service.sweepStaleRuns()
-
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ count: 2 }),
-        expect.stringContaining('stale'),
-      )
-    })
-
-    it('stays quiet when there is nothing to sweep', async () => {
-      mockModel.updateMany.mockResolvedValue({ count: 0 })
-
-      await service.sweepStaleRuns()
-
-      expect(logger.warn).not.toHaveBeenCalled()
-    })
-  })
-
   describe('resumeRun', () => {
     const awaitingRun = {
       runId: 'run-abc-123',
@@ -316,10 +343,40 @@ describe('ExperimentRunsService', () => {
       params: { trigger: 'initial', clerk_user_id: 'user_clerk_123' },
       stage: 'domain_registration',
       resumeAttempts: 2,
+      priority: 'DEFAULT',
     }
 
+    it('re-dispatches a HIGH-priority run carrying its original priority', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-high' })
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.resumeRun({ ...awaitingRun, priority: 'HIGH' })
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('HIGH')
+      expect(mockModel.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ priority: 'HIGH' }),
+      })
+    })
+
+    it('re-dispatches a DEFAULT-priority run at DEFAULT', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-def' })
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.resumeRun(awaitingRun)
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('DEFAULT')
+    })
+
     it(
-      'mints a NEW run_id, creates a RUNNING row with incremented ' +
+      'mints a NEW run_id, creates a QUEUED row with incremented ' +
         'resumeAttempts, and sends SQS with the new run_id and ' +
         'trigger=recovery_resume',
       async () => {
@@ -334,7 +391,7 @@ describe('ExperimentRunsService', () => {
         }
         expect(createCall.data.runId).toBeDefined()
         expect(createCall.data.runId).not.toBe(awaitingRun.runId)
-        expect(createCall.data.status).toBe(ExperimentRunStatus.RUNNING)
+        expect(createCall.data.status).toBe(ExperimentRunStatus.QUEUED)
         expect(createCall.data.experimentType).toBe(awaitingRun.experimentType)
         expect(createCall.data.resumeAttempts).toBe(
           awaitingRun.resumeAttempts + 1,
@@ -414,6 +471,7 @@ describe('ExperimentRunsService', () => {
           params: { clerk_user_id: 'user_from_params' },
           stage: null,
           resumeAttempts: 0,
+          priority: 'DEFAULT',
         })
 
         const [call] = sqsMock.commandCalls(SendMessageCommand)
@@ -439,6 +497,7 @@ describe('ExperimentRunsService', () => {
           params: { trigger: 'initial' },
           stage: null,
           resumeAttempts: 0,
+          priority: 'DEFAULT',
         })
 
         expect(mockModel.updateMany).toHaveBeenCalledWith({
@@ -561,6 +620,7 @@ describe('ExperimentRunsService', () => {
       stage: 'domain_registration',
       resumeAttempts: 0,
       resumeScheduledFor: new Date(Date.now() - 1000),
+      priority: 'DEFAULT',
       ...overrides,
     })
 
@@ -587,6 +647,39 @@ describe('ExperimentRunsService', () => {
 
       const sqsCalls = sqsMock.commandCalls(SendMessageCommand)
       expect(sqsCalls.length).toBeGreaterThan(0)
+    })
+
+    it('re-dispatches a swept HIGH-priority run at HIGH', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-sweep-high' })
+      const run = makeRun({
+        runId: 'run-sweep-high',
+        priority: 'HIGH',
+        resumeAttempts: 1,
+      })
+      mockModel.findMany.mockResolvedValue([run])
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.sweepResumableRuns()
+
+      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      expect(call).toBeDefined()
+      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
+        priority: string
+      }
+      expect(body.priority).toBe('HIGH')
+    })
+
+    it('excludes non-resumable experiment types from the sweep query', async () => {
+      mockModel.findMany.mockResolvedValue([])
+
+      await service.sweepResumableRuns()
+
+      const where = mockModel.findMany.mock.calls[0][0].where as {
+        experimentType: { notIn: string[] }
+      }
+      expect(where.experimentType.notIn).toEqual(
+        expect.arrayContaining(['meeting_briefing', 'meeting_schedule']),
+      )
     })
 
     it(
