@@ -210,13 +210,14 @@ Call the gp-api MCP tool **that polls the candidate's website until HTTP 200 + t
 
 **On polling semantics:** the Epic body says "poll until 200 + required content present." That polling is **cross-run** — implemented by the platform's recovery loop (ENG-7554) re-dispatching this agent with `trigger=recovery_resume` when the wait condition (DNS / Vercel propagation) clears. **One call to this tool per run.** Do not loop. The instructions below for `next_action.wait_*` are how you hand off to the recovery loop.
 
+The tool response is `{ verified, url, reason, checks }`. **Branch on the `reason` field gp-api returns — do not infer the cause yourself from `checks.http_200`.** `reason` is `null` when verified, otherwise one of `unreachable` (the fetch threw — DNS/connection/timeout, i.e. not reachable yet), `not_live` (a response came back but the status was not 200, e.g. the deploy is still propagating), or `content_missing` (200, but a required TCR section/identity marker is absent).
+
 Outcomes:
 
-- **Tool returns `verified: true`.** Capture `website.verified_live_at`. Set `stage: "website_verified_live"`. Continue to Step 6.
-- **Tool returns `verified: false` with a reason** (`dns_not_propagated`, `vercel_pending_verification`, `content_missing`):
-  - `dns_not_propagated` → write `next_action: { kind: "wait_dns_propagation", scheduled_for: now + 30 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
-  - `vercel_pending_verification` → write `next_action: { kind: "wait_vercel_verify", scheduled_for: now + 15 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
-  - `content_missing` → this is unexpected after Step 4 succeeded. Append blocker `{ step: "verify_website_live", code: "verify_content_missing", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7 and exit.
+- **`verified: true`** (`reason: null`). Capture `website.verified_live_at`. Set `stage: "website_verified_live"`. Continue to Step 6.
+- **`reason: "unreachable"`** → write `next_action: { kind: "wait_dns_propagation", scheduled_for: now + 30 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
+- **`reason: "not_live"`** → write `next_action: { kind: "wait_vercel_verify", scheduled_for: now + 15 minutes ISO }`. Jump to Step 7 and exit. The platform recovery loop will re-dispatch you with `trigger=recovery_resume` later.
+- **`reason: "content_missing"`** → this is unexpected after Step 4 succeeded. Append blocker `{ step: "verify_website_live", code: "verify_content_missing", detail: "", first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`. Set `stage: "failed"`. Go to Step 7 and exit.
 - **Tool returns 5xx / network error.** Retry per Rule 8's bounded budget (3 attempts, `1s → 4s → 16s`). These retries are **inside a single tool call attempt** — they do not violate the "one call per run" rule below, which is about the higher-level `verified: false` polling. After 3 attempts, append blocker `{ step: "verify_website_live", code: "gp_api_unavailable", detail: "", first_seen_at: <ISO>, retry_count: 3, is_recoverable: true }`. Leave `stage` at `pending_website_live`. Go to Step 7 and exit — the recovery loop will re-dispatch.
 
 **Never** call this tool in a tight loop on `verified: false`. One call per run is the contract. If you find yourself wanting to retry on a `verified: false` outcome, write `next_action.wait_*` and exit instead. (Rule 8's 3-attempt retry on 5xx / network is a separate, narrower mechanic.)

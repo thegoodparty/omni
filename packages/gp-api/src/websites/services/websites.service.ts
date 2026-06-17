@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { Prisma, User } from '../../generated/prisma'
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import { promisify } from 'node:util'
 import * as http from 'node:http'
@@ -13,7 +13,10 @@ import * as https from 'node:https'
 import ipaddr from 'ipaddr.js'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
 import { getUserFullName } from 'src/users/util/users.util'
-import { VerifyLiveResponse } from '../schemas/VerifyLive.schema'
+import {
+  VerifyLiveReason,
+  VerifyLiveResponse,
+} from '../schemas/VerifyLive.schema'
 
 const dnsLookup = promisify(dns.lookup)
 
@@ -114,6 +117,7 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       return {
         verified: true,
         url,
+        reason: null,
         checks: {
           http_200: true,
           has_privacy_policy: true,
@@ -124,17 +128,34 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     }
 
     await assertPublicHostname(website.domain.name)
-    const html = await fetchLiveHtml(url)
+    const fetched = await fetchLiveHtml(url)
     const user = website.campaign?.user
     const candidateName = user
       ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
       : null
 
-    return scoreLiveHtml(url, html, candidateName)
+    const result = scoreLiveHtml(url, fetched, candidateName)
+    if (!result.verified) {
+      this.logger.warn(
+        {
+          url,
+          reason: result.reason,
+          status: fetched.status,
+          fetchError: fetched.errorCode,
+          checks: result.checks,
+        },
+        'verify-live did not pass',
+      )
+    }
+    return result
   }
 }
 
-type LiveFetchResult = { status: number; body: string | null }
+type LiveFetchResult = {
+  status: number
+  body: string | null
+  errorCode: string | null
+}
 
 export const isPublicAddress = (address: string): boolean => {
   if (ipaddr.IPv6.isValid(address)) {
@@ -187,8 +208,16 @@ export const ssrfSafeLookup: NonNullable<https.AgentOptions['lookup']> = (
         0,
       )
     }
-    const first = addresses[0]
-    callback(null, first.address, first.family)
+    // Node's http/https Agent invokes lookup with `all: true` (its
+    // happy-eyeballs path). In that mode the callback contract is the array
+    // form `(err, LookupAddress[])` — returning the single-address form makes
+    // Node read `.address` off a string and throw ERR_INVALID_IP_ADDRESS,
+    // which silently fails every verify-live fetch in prod. Echo the shape.
+    if (typeof options === 'object' && options?.all) {
+      return callback(null, addresses)
+    }
+    const [{ address, family }] = addresses
+    callback(null, address, family)
   })
 }
 
@@ -204,9 +233,15 @@ const fetchLiveHtml = async (url: string): Promise<LiveFetchResult> => {
       httpsAgent: new https.Agent({ lookup: ssrfSafeLookup }),
     })
     const body = typeof res.data === 'string' ? res.data : null
-    return { status: res.status, body }
-  } catch {
-    return { status: 0, body: null }
+    return { status: res.status, body, errorCode: null }
+  } catch (error) {
+    const errorCode =
+      error instanceof AxiosError
+        ? (error.code ?? error.message)
+        : error instanceof Error
+          ? error.message
+          : 'unknown'
+    return { status: 0, body: null, errorCode }
   }
 }
 
@@ -234,9 +269,18 @@ const scoreLiveHtml = (
   const verified =
     http200 && hasPrivacyPolicy && hasTerms && hasCandidateIdentity
 
+  const reason = verified
+    ? null
+    : fetched.status === 0
+      ? VerifyLiveReason.unreachable
+      : !http200
+        ? VerifyLiveReason.notLive
+        : VerifyLiveReason.contentMissing
+
   return {
     verified,
     url,
+    reason,
     checks: {
       http_200: http200,
       has_privacy_policy: hasPrivacyPolicy,

@@ -411,8 +411,11 @@ export class WebsitesController {
       'retry. If the live URL is not reachable yet (DNS not propagated, ' +
       'site not deployed), `checks.http_200` will be false; the caller ' +
       'is responsible for implementing its own backoff and retry loop. ' +
-      'Returns `{ verified, url, checks: { http_200, has_privacy_policy, ' +
-      'has_terms, has_candidate_identity } }`. Requires an attached ' +
+      'Returns `{ verified, url, reason, checks: { http_200, ' +
+      'has_privacy_policy, has_terms, has_candidate_identity } }`, where ' +
+      '`reason` is null when verified, else `unreachable` (fetch threw), ' +
+      '`not_live` (responded non-200), or `content_missing` (200 but a ' +
+      'required section/identity marker is absent). Requires an attached ' +
       'custom domain; returns 400 if no domain is attached, or if the ' +
       'domain resolves to a non-public IP address. Call AFTER ' +
       '`PUT /v1/websites/mine` with `status: "published"` has succeeded.',
