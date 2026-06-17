@@ -26,6 +26,7 @@ Voter contact management. Browse the campaign's voter file, segment audiences, a
 - Optional catch-all route (`[[...attr]]`) means `/dashboard/contacts` and `/dashboard/contacts/whatever` both render the same page — sub-routing is internal.
 - Voter-file payloads can be huge — pagination + cursor are mandatory; never request without them.
 - A feature flag gates parts of `PersonOverlay` (see `app/shared/experiments/`).
+- This route is shared by Serve (elected office) and Win campaigns. Win access is gated by the `win-voter-data` flag + `campaign.isPro`: the nav entry is added in `DashboardMenu.tsx` (`WIN_CONTACTS_MENU_ITEM`, `campaign` category) and access is enforced server-side by gp-api. A Win campaign with no resolvable district gets a `400 { errorCode: 'VOTER_DATA_UNAVAILABLE' }`, which `ContactsTableProvider` surfaces as `isVoterDataUnavailable` so `ContactsPage` renders a clean ineligible state instead of an error.
 
 ## Related
 

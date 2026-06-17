@@ -19,7 +19,9 @@ import {
   queryOptions,
   useQueryClient,
 } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   type Person,
   type ConstituentIssue,
@@ -27,11 +29,16 @@ import {
   type ListContactsResponse,
   type SegmentResponse,
 } from '../components/shared/contacts-types'
-import { DEFAULT_PAGE_SIZE, ALL_SEGMENTS } from '../components/shared/constants'
+import {
+  DEFAULT_PAGE_SIZE,
+  ALL_SEGMENTS,
+  VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+} from '../components/shared/constants'
 import defaultSegments from '../components/configs/defaultSegments.config'
 import { isCustomSegment } from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 
 const extractPersonIdFromParams = (
   params: ReturnType<typeof useParams> | null,
@@ -78,10 +85,12 @@ interface ContactsTableState {
   urlQueryParams: URLSearchParams
   pagination: ListContactsResponse['pagination'] | null
   isLoading: boolean
+  isVoterDataUnavailable: boolean
   isCustomSegment: boolean
   totalSegmentContacts: number
   canUseProFeatures: boolean
   isElectedOfficial: boolean
+  isWinContext: boolean
 }
 
 interface ContactsTableActions {
@@ -131,6 +140,18 @@ const contactTableQueryOptions = (params: {
         ...(params.search ? { search: params.search } : {}),
       }).then((res) => res.data),
     refetchOnMount: false,
+    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE / not-pro = 400,
+    // flag-off = 403); retrying just makes ineligible users wait through the
+    // global 2-retry backoff before the ineligible state renders, and the
+    // page+1 prefetch doubles the wasted requests. Keep the global budget for
+    // everything else (5xx, network).
+    retry: (failureCount, error) =>
+      !(
+        error instanceof FetchError &&
+        typeof error.status === 'number' &&
+        error.status >= 400 &&
+        error.status < 500
+      ) && failureCount < 2,
   })
 
 export const ContactsTableProvider = ({
@@ -139,7 +160,11 @@ export const ContactsTableProvider = ({
   const router = useRouter()
 
   const [campaign] = useCampaign()
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
+  // Data-wiring read only (picks the engagement :id); the overlay's
+  // PersonContent is the treatment surface that tracks exposure.
+  const { enabled: isWinVoterDataOn } = useWinVoterDataFlag(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const params = useParams()
@@ -222,17 +247,32 @@ export const ContactsTableProvider = ({
     enabled: Boolean(currentlySelectedPersonId),
   })
 
+  // The campaign engagement endpoint keys activities on the durable
+  // lalVoterId for Win, but on person.id for the Serve/elected-office path
+  // (task 12 contract). Win context = win-voter-data flag on and not an
+  // elected official. lalVoterId comes from the person fetch, so the query
+  // waits on it before firing. Gate on the elected-office load: until it
+  // settles `electedOffice` is undefined, which would briefly mistake a
+  // Serve user for Win and fire against the wrong endpoint. This is the one
+  // Win-vs-Serve decision; PersonOverlay's activity feed reads it from context
+  // rather than recomputing, so both surfaces share the load guard.
+  const isWinContext =
+    isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
+  const activitiesEngagementId = isWinContext
+    ? (personQuery.data?.lalVoterId ?? null)
+    : currentlySelectedPersonId
+
   const activitiesInfiniteQuery = useInfiniteQuery({
-    queryKey: ['contact-engagement', 'activities', currentlySelectedPersonId],
+    queryKey: ['contact-engagement', 'activities', activitiesEngagementId],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/activities', {
-        id: currentlySelectedPersonId!,
+        id: activitiesEngagementId!,
         take: 2,
         ...(pageParam ? { after: pageParam } : {}),
       }).then((res) => res.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(currentlySelectedPersonId),
+    enabled: Boolean(activitiesEngagementId),
   })
 
   const customSegmentsQuery = useQuery({
@@ -323,6 +363,18 @@ export const ContactsTableProvider = ({
   }, [pagination])
 
   const isLoading = contactsQuery.isLoading || contactsQuery.isFetching
+
+  // A Win campaign with no resolvable district (or that fails the
+  // federal/state download-access rule) gets a 400 with this error code from
+  // gp-api. Surface it as a clean ineligible state instead of a generic error.
+  const isVoterDataUnavailable = useMemo(() => {
+    const error = contactsQuery.error
+    if (!(error instanceof FetchError)) return false
+    return (
+      extractApiErrorInfo(error.data).errorCode ===
+      VOTER_DATA_UNAVAILABLE_ERROR_CODE
+    )
+  }, [contactsQuery.error])
 
   const updateURL = useCallback(
     (updates: Record<string, string | number | null | undefined>) => {
@@ -424,10 +476,12 @@ export const ContactsTableProvider = ({
     urlQueryParams,
     pagination,
     isLoading,
+    isVoterDataUnavailable,
     isCustomSegment: isCustomSegmentValue,
     totalSegmentContacts,
     canUseProFeatures,
     isElectedOfficial,
+    isWinContext,
     pageUp,
     pageDown,
     goToPage,

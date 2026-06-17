@@ -2,11 +2,13 @@ import { HttpService } from '@nestjs/axios'
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Organization } from '../../generated/prisma'
+import { Organization, User } from '../../generated/prisma'
+import { FeaturesService } from 'src/features/services/features.service'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
 import jwt from 'jsonwebtoken'
@@ -37,6 +39,8 @@ import {
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
+const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
+
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
 }
@@ -55,9 +59,35 @@ export class ContactsService {
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
+  }
+
+  // Authz gate for the user-facing Contacts surface. Elected-office (Serve)
+  // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
+  // are reachable only when win-voter-data is on for the user AND the campaign
+  // is pro. Ownership is enforced upstream by @UseOrganization(). Internal
+  // callers (polls, queue consumer) call the service methods directly and are
+  // intentionally not gated here.
+  async assertContactsAccess(
+    organization: Organization,
+    user: User,
+  ): Promise<void> {
+    if (this.hasElectedOfficeAccess(organization)) return
+
+    const flagEnabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_VOTER_DATA_FLAG_KEY,
+    })
+    if (!flagEnabled) {
+      throw new ForbiddenException('Voter data access is not enabled')
+    }
+
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException('Campaign is not pro')
+    }
   }
 
   private hasElectedOfficeAccess(organization: Organization): boolean {

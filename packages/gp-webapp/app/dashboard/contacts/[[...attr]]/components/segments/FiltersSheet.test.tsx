@@ -58,10 +58,12 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     urlQueryParams: new URLSearchParams(),
     pagination: null,
     isLoading: false,
+    isVoterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,
     isElectedOfficial: false,
+    isWinContext: false,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
@@ -350,6 +352,61 @@ describe('<FiltersSheet>', () => {
     expect(
       screen.queryByRole('heading', { name: /political party/i }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the Political Party section in the Win context', () => {
+    setContext({ isElectedOfficial: false })
+    setSnackbar()
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /political party/i }),
+    ).toBeInTheDocument()
+    // The party options must be selectable so the filter can reach the
+    // backend payload; assert one renders rather than only the label.
+    expect(checkboxForOption('Democrat')).toBeInTheDocument()
+  })
+
+  it('includes selected party options in the create payload sent to the backend', async () => {
+    const user = userEvent.setup()
+    setContext({ isElectedOfficial: false })
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 9, name: 'Custom Segment 1' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    await user.click(checkboxForOption('Democrat'))
+    await user.click(screen.getByRole('button', { name: /create segment/i }))
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).toMatchObject({ partyDemocrat: true })
   })
 
   it('Select All toggles every option within a filter field on at once', async () => {
