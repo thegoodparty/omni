@@ -45,7 +45,7 @@ describe('ElectedOfficeController', () => {
       })
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({
+      expect(result.data).toMatchObject({
         id: created.data.id,
         swornInDate: '2024-01-15',
       })
@@ -71,7 +71,7 @@ describe('ElectedOfficeController', () => {
       })
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({
+      expect(result.data).toMatchObject({
         id: created.data.id,
         swornInDate: '2024-01-15',
       })
@@ -128,7 +128,7 @@ describe('ElectedOfficeController', () => {
       )
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({
+      expect(result.data).toMatchObject({
         id: created.data.id,
         swornInDate: '2024-01-15',
       })
@@ -188,7 +188,7 @@ describe('ElectedOfficeController', () => {
       })
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({
+      expect(result.data).toMatchObject({
         id: expect.any(String),
         swornInDate: '2024-01-15',
       })
@@ -256,14 +256,77 @@ describe('ElectedOfficeController', () => {
       expect(offices).toHaveLength(1)
     })
 
-    it('returns 403 when user has no campaign', async () => {
+    it('creates a campaign-less elected office when user has no campaign', async () => {
       await service.prisma.campaign.deleteMany({
         where: { userId: service.user.id },
       })
 
-      const result = await createElectedOffice()
+      const result = await createElectedOffice({ swornInDate: '2024-01-15' })
 
-      expect(result.status).toBe(403)
+      expect(result.status).toBe(200)
+      expect(result.data).toMatchObject({
+        id: expect.any(String),
+        swornInDate: '2024-01-15',
+      })
+
+      const electedOffice = await service.prisma.electedOffice.findFirst({
+        where: { id: result.data.id },
+      })
+      expect(electedOffice?.campaignId).toBeNull()
+    })
+
+    it('creates a campaign-less elected office with office identity from the body when there is no organization', async () => {
+      // No x-organization-slug header → no organization context, so the office
+      // identity must come from the request body.
+      const result = await service.client.post('/v1/elected-office', {
+        swornInDate: '2024-01-15',
+        ballotReadyPositionId: 'br-pos-from-body',
+      })
+
+      expect(result.status).toBe(200)
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${result.data.id}` },
+      })
+      expect(organization?.positionId).toBe('br-pos-from-body')
+    })
+
+    it('rejects an elected office whose term overlaps an existing one', async () => {
+      const first = await createElectedOffice({
+        termStartDate: '2024-01-01',
+        termEndDate: '2028-01-01',
+      })
+      expect(first.status).toBe(200)
+
+      const overlapping = await createElectedOffice({
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+      })
+      expect(overlapping.status).toBe(409)
+    })
+
+    it('rejects a term whose end date is before its start date', async () => {
+      const result = await createElectedOffice({
+        termStartDate: '2028-01-01',
+        termEndDate: '2024-01-01',
+      })
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects a zero-length term (end equal to start)', async () => {
+      const result = await createElectedOffice({
+        termStartDate: '2024-01-01',
+        termEndDate: '2024-01-01',
+      })
+      expect(result.status).toBe(400)
+    })
+
+    it('accepts a term whose end date is after its start date', async () => {
+      const result = await createElectedOffice({
+        termStartDate: '2024-01-01',
+        termEndDate: '2028-01-01',
+      })
+      expect(result.status).toBe(200)
     })
   })
 
@@ -279,7 +342,7 @@ describe('ElectedOfficeController', () => {
       )
 
       expect(result.status).toBe(200)
-      expect(result.data).toEqual({
+      expect(result.data).toMatchObject({
         id: created.data.id,
         swornInDate: '2024-01-15',
       })
@@ -323,6 +386,20 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(403)
     })
 
+    it('rejects an update whose end date is before its start date', async () => {
+      const created = await createElectedOffice()
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        {
+          termStartDate: '2028-01-01',
+          termEndDate: '2024-01-01',
+        },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
     it('updates elected office with null values', async () => {
       const created = await createElectedOffice({
         swornInDate: '2024-01-15',
@@ -339,7 +416,7 @@ describe('ElectedOfficeController', () => {
       expect(result.data).toMatchObject({
         id: created.data.id,
       })
-      expect(result.data.swornInDate).toBeUndefined()
+      expect(result.data.swornInDate).toBeNull()
     })
   })
 })

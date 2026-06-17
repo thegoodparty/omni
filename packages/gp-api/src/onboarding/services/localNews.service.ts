@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign } from '../../generated/prisma'
+import { Prisma } from '../../generated/prisma'
 import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
-import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
@@ -12,6 +11,10 @@ import {
   LocalNewsOutlet,
   LocalNewsResponse,
 } from '../schemas/getLocalNews.schema'
+import {
+  LocalNewsCacheService,
+  LocalNewsJurisdiction,
+} from './localNewsCache.service'
 
 // Pinned to Gemini 3.5 Flash (stable) to mirror the community-events pipeline.
 // Overrides the GeminiService default (3 Flash preview) so we don't ride
@@ -105,7 +108,7 @@ export class OnboardingLocalNewsService {
   constructor(
     private readonly gemini: GeminiService,
     private readonly braintrust: BraintrustService,
-    private readonly campaigns: CampaignsService,
+    private readonly cache: LocalNewsCacheService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
@@ -116,82 +119,63 @@ export class OnboardingLocalNewsService {
     city,
     state,
     office,
-    campaign,
+    userId,
   }: {
     city?: string
     state: string
     office: string
-    campaign: Campaign
+    userId: number
   }): Promise<LocalNewsResponse> {
-    const cityKey = city ?? null
-    const existing = campaign.data?.onboarding?.localMediaOutlets
-    const matchesKey =
-      existing?.office === office &&
-      existing?.city === cityKey &&
-      existing?.state === state
+    // Normalize to "" so the lookup matches the table's compound unique
+    // (which stores city as "" rather than NULL — see LocalNewsCache).
+    const key: LocalNewsJurisdiction = { office, city: city ?? '', state }
+    const existing = await this.cache.findByJurisdiction(key)
 
-    if (existing && matchesKey) {
-      if (existing.status === 'ready') {
+    if (existing) {
+      if (existing.status === 'ready' && existing.outlets) {
         this.logger.info(
-          {
-            office,
-            city: cityKey,
-            state,
-            outletCount: existing.outlets.length,
-            campaignId: campaign.id,
-          },
+          { ...key, outletCount: existing.outlets.length },
           'getLocalNews cache hit',
         )
         return { status: 'ready', outlets: existing.outlets }
       }
       if (
         existing.status === 'pending' &&
-        Date.now() - existing.startedAt < PENDING_TTL_MS
+        existing.startedAt != null &&
+        Date.now() - Number(existing.startedAt) < PENDING_TTL_MS
       ) {
         return { status: 'pending' }
       }
     }
 
-    const claimed = await this.markPending(campaign.id, {
-      office,
-      city: cityKey,
-      state,
-    })
+    const claimed = await this.markPending(key)
     if (claimed) {
-      void this.runFetch({
-        campaignId: campaign.id,
-        userId: campaign.userId,
-        city,
-        state,
-        office,
-      })
+      void this.runFetch({ userId, city, state, office })
     }
     return { status: 'pending' }
   }
 
   private async runFetch({
-    campaignId,
     userId,
     city,
     state,
     office,
   }: {
-    campaignId: number
     userId: number
     city?: string
     state: string
     office: string
   }): Promise<void> {
     const jurisdiction = city ? `${city}, ${state}` : state
+    const key: LocalNewsJurisdiction = { office, city: city ?? '', state }
     const startedAt = Date.now()
     const startedAtPerf = performance.now()
     this.logger.info(
-      { jurisdiction, office, campaignId },
+      { jurisdiction, office },
       'getLocalNews background fetch started',
     )
     void this.analytics
       .track(userId, EVENTS.CampaignPlanV2.MediaGenerationStarted, {
-        campaignId,
         generationEngine: 'gemini',
       })
       .catch(() => undefined)
@@ -204,20 +188,15 @@ export class OnboardingLocalNewsService {
           return this.runStructuredStage(jurisdiction, office, searchText)
         },
         {
-          input: { campaignId, jurisdiction, office },
-          metadata: { campaignId, jurisdiction, office },
+          input: { jurisdiction, office },
+          metadata: { jurisdiction, office },
           type: 'task',
         },
       )
 
-      await this.writeReady(
-        campaignId,
-        { office, city: city ?? null, state },
-        result.outlets,
-      )
+      await this.writeReady(key, result.outlets)
       void this.analytics
         .track(userId, EVENTS.CampaignPlanV2.MediaGenerationCompleted, {
-          campaignId,
           generationEngine: 'gemini',
           durationMs: Math.round(performance.now() - startedAtPerf),
           outletCount: result.outlets.length,
@@ -227,7 +206,6 @@ export class OnboardingLocalNewsService {
         {
           jurisdiction,
           office,
-          campaignId,
           outletCount: result.outlets.length,
           elapsedMs: Date.now() - startedAt,
         },
@@ -235,14 +213,10 @@ export class OnboardingLocalNewsService {
       )
     } catch (error) {
       this.logger.error(
-        { error, campaignId, office, elapsedMs: Date.now() - startedAt },
+        { error, office, elapsedMs: Date.now() - startedAt },
         'getLocalNews background fetch failed',
       )
-      await this.expirePending(campaignId, {
-        office,
-        city: city ?? null,
-        state,
-      })
+      await this.expirePending(key)
     }
   }
 
@@ -275,119 +249,71 @@ export class OnboardingLocalNewsService {
     )
   }
 
-  // Atomically attempt to claim the slot for the (campaign, jurisdiction)
-  // key. Re-reads the campaign inside the same call so a concurrent request
-  // can't both see "no pending marker" and both kick off an AI run. Returns
-  // true if this caller claimed the slot and should run the AI fetch; false
-  // if another caller already owns a fresh pending marker for the SAME
-  // (office, city, state) jurisdiction.
+  // Attempt to claim the slot for the (office, city, state) jurisdiction.
+  // Re-reads the row inside the same call so a concurrent request can't both
+  // see "no fresh pending marker" and both kick off an AI run. Returns true if
+  // this caller claimed the slot and should run the AI fetch; false if another
+  // caller already owns a fresh pending marker for the same jurisdiction.
   //
   // Note: this is "good enough" for the single-user onboarding case (the only
   // realistic concurrency is React Strict Mode double-mounts or multi-tab).
   // True transactional safety would need a serializable tx + conditional
   // update; the cost-benefit doesn't justify it here.
-  private async markPending(
-    campaignId: number,
-    key: { office: string; city: string | null; state: string },
-  ): Promise<boolean> {
-    const fresh = await this.campaigns.findFirst({ where: { id: campaignId } })
-    const current = fresh?.data?.onboarding?.localMediaOutlets
+  private async markPending(key: LocalNewsJurisdiction): Promise<boolean> {
+    const current = await this.cache.findByJurisdiction(key)
     if (
-      current?.office === key.office &&
-      current.city === key.city &&
-      current.state === key.state &&
-      current.status === 'pending' &&
-      Date.now() - current.startedAt < PENDING_TTL_MS
+      current?.status === 'pending' &&
+      current.startedAt != null &&
+      Date.now() - Number(current.startedAt) < PENDING_TTL_MS
     ) {
       return false
     }
-    await this.writeLocalMediaOutlets(campaignId, {
-      ...key,
-      status: 'pending',
-      startedAt: Date.now(),
+    await this.cache.model.upsert({
+      where: { jurisdiction: key },
+      create: { ...key, status: 'pending', startedAt: BigInt(Date.now()) },
+      // Clear any stale `outlets` from a prior ready write so a later ready
+      // write replaces rather than layers onto it.
+      update: {
+        status: 'pending',
+        startedAt: BigInt(Date.now()),
+        outlets: Prisma.DbNull,
+      },
     })
     return true
   }
 
   private async writeReady(
-    campaignId: number,
-    key: { office: string; city: string | null; state: string },
+    key: LocalNewsJurisdiction,
     outlets: LocalNewsOutlet[],
   ): Promise<void> {
-    await this.writeLocalMediaOutlets(campaignId, {
-      ...key,
-      status: 'ready',
-      outlets,
+    await this.cache.model.upsert({
+      where: { jurisdiction: key },
+      create: { ...key, status: 'ready', startedAt: null, outlets },
+      update: { status: 'ready', startedAt: null, outlets },
     })
   }
 
-  private async expirePending(
-    campaignId: number,
-    key: { office: string; city: string | null; state: string },
-  ): Promise<void> {
+  private async expirePending(key: LocalNewsJurisdiction): Promise<void> {
     try {
-      const fresh = await this.campaigns.findFirst({
-        where: { id: campaignId },
-      })
-      const current = fresh?.data?.onboarding?.localMediaOutlets
-      // Only invalidate if the pending marker still belongs to this exact
-      // jurisdiction. A newer caller may have overwritten it with a different
-      // (office, city, state) (or a successful ready result) and we don't
-      // want to clobber that.
-      if (
-        !current ||
-        current.office !== key.office ||
-        current.city !== key.city ||
-        current.state !== key.state ||
-        current.status !== 'pending'
-      ) {
+      const current = await this.cache.findByJurisdiction(key)
+      // Only invalidate if the marker is still pending. A newer caller may
+      // have already written a successful ready result for this jurisdiction
+      // and we don't want to clobber that.
+      if (!current || current.status !== 'pending') {
         return
       }
       // Set startedAt to 0 so the TTL check immediately treats this as
       // expired. The next poll will trigger a fresh fetch instead of waiting
       // out the full TTL window.
-      await this.writeLocalMediaOutlets(campaignId, {
-        ...key,
-        status: 'pending',
-        startedAt: 0,
+      await this.cache.model.update({
+        where: { jurisdiction: key },
+        data: { status: 'pending', startedAt: BigInt(0) },
       })
     } catch (error) {
       this.logger.error(
-        { error, campaignId, ...key },
-        'Failed to expire pending localMediaOutlets marker',
+        { error, ...key },
+        'Failed to expire pending local news cache marker',
       )
     }
-  }
-
-  // Replace data.onboarding.localMediaOutlets wholesale. We bypass
-  // CampaignsService.updateJsonFields here because its deepMerge concatenates
-  // arrays and preserves keys not in the source — both bugs for this slot:
-  //
-  // - writeReady -> deepMerge concats the new `outlets` array onto the
-  //   previous run's array, growing the list unboundedly across cache misses.
-  // - markPending -> deepMerge keeps the stale `outlets` from a prior ready
-  //   write under the pending object, so the next ready write deepMerges
-  //   into it and concats again.
-  //
-  // Doing a direct read + replace + update on the campaign row sidesteps
-  // both. Other onboarding fields (structuredOffice, ballotStatus, etc.)
-  // are preserved by spreading the existing data through.
-  private async writeLocalMediaOutlets(
-    campaignId: number,
-    next: PrismaJson.LocalMediaOutletsCache,
-  ): Promise<void> {
-    const fresh = await this.campaigns.findFirst({ where: { id: campaignId } })
-    if (!fresh) return
-    const nextData: PrismaJson.CampaignData = {
-      ...(fresh.data ?? {}),
-      onboarding: {
-        ...(fresh.data?.onboarding ?? {}),
-        localMediaOutlets: next,
-      },
-    }
-    await this.campaigns.model.update({
-      where: { id: campaignId },
-      data: { data: nextData },
-    })
   }
 }

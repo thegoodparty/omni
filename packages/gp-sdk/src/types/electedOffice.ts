@@ -8,6 +8,9 @@ export type ElectedOffice = {
   termEndDate: string | null
   termLengthDays: number | null
   isActive: boolean
+  party: string | null
+  pledgedAt: string | null
+  onboardingCompletedAt: string | null
   userId: number
   campaignId: number
   createdAt: string
@@ -25,6 +28,15 @@ export type UpdateElectedOfficeInput = {
   termEndDate?: string | null
   termLengthDays?: number | null
   isActive?: boolean
+  party?: string | null
+  pledgedAt?: string | null
+  onboardingCompletedAt?: string | null
+}
+
+export type CreateElectedOfficeInput = UpdateElectedOfficeInput & {
+  ballotReadyPositionId?: string | null
+  customPositionName?: string | null
+  overrideDistrictId?: string | null
 }
 
 export type UpdateElectedOfficeDistrictInput = {

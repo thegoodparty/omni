@@ -67,7 +67,21 @@ describe('ElectionResultPage', () => {
     let electedOfficeCreated = false
     api.mock('POST /v1/elected-office', () => {
       electedOfficeCreated = true
-      return { status: 200, data: { id: 'eo-1', swornInDate: null } }
+      return {
+        status: 200,
+        data: {
+          id: 'eo-1',
+          swornInDate: null,
+          electedDate: null,
+          termStartDate: null,
+          termEndDate: null,
+          termLengthDays: null,
+          isActive: true,
+          party: null,
+          pledgedAt: null,
+          onboardingCompletedAt: null,
+        },
+      }
     })
 
     render(<ElectionResultPage />)
@@ -85,7 +99,21 @@ describe('ElectionResultPage', () => {
     let electedOfficeCreated = false
     api.mock('POST /v1/elected-office', () => {
       electedOfficeCreated = true
-      return { status: 200, data: { id: 'eo-1', swornInDate: null } }
+      return {
+        status: 200,
+        data: {
+          id: 'eo-1',
+          swornInDate: null,
+          electedDate: null,
+          termStartDate: null,
+          termEndDate: null,
+          termLengthDays: null,
+          isActive: true,
+          party: null,
+          pledgedAt: null,
+          onboardingCompletedAt: null,
+        },
+      }
     })
     api.mock('GET /v1/organizations', {
       status: 200,

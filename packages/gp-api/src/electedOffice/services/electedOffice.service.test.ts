@@ -86,14 +86,16 @@ describe('ElectedOfficeService', () => {
         userId: 1,
         campaignId: 1,
         organizationSlug: 'eo-existing',
+        termStartDate: null,
+        termEndDate: null,
       }
 
-      mockModel.findFirst.mockResolvedValue(existing)
+      mockModel.findMany.mockResolvedValue([existing])
 
       const result = await service.create(createArgs)
 
       expect(result).toBe(existing)
-      expect(mockModel.findFirst).toHaveBeenCalledWith({
+      expect(mockModel.findMany).toHaveBeenCalledWith({
         where: { userId: 1 },
       })
       expect(mockOrgCreate).not.toHaveBeenCalled()
@@ -109,7 +111,7 @@ describe('ElectedOfficeService', () => {
         campaignId: 1,
       }
 
-      mockModel.findFirst.mockResolvedValue(null)
+      mockModel.findMany.mockResolvedValue([])
 
       await service.create(createArgs)
 
@@ -142,7 +144,7 @@ describe('ElectedOfficeService', () => {
         },
       }
 
-      mockModel.findFirst.mockResolvedValue(null)
+      mockModel.findMany.mockResolvedValue([])
 
       await service.create(createArgs)
 
@@ -163,7 +165,7 @@ describe('ElectedOfficeService', () => {
         campaignId: 1,
       }
 
-      mockModel.findFirst.mockResolvedValue(null)
+      mockModel.findMany.mockResolvedValue([])
 
       await service.create(createArgs)
 

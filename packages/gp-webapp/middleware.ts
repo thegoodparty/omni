@@ -9,6 +9,11 @@ const isPublicRoute = createRouteMatcher([
   '/logout(.*)',
   '/sign-up(.*)',
   '/impersonate(.*)',
+  // Magic-link redemption: the lead is not yet authenticated when they land
+  // here; the ticket is redeemed client-side. Only /serve/welcome is public —
+  // the rest of /serve (e.g. onboarding) still requires an active session.
+  // Returning leads sign in via the shared /login (which surfaces email OTP).
+  '/serve/welcome(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest'
+import { selectPreferredOfficeHolder } from './ballotReady.service'
+import { PersonOfficeHolder } from '../types/ballotReady.types'
+
+const holder = (
+  overrides: Partial<PersonOfficeHolder>,
+): PersonOfficeHolder => ({
+  id: 'oh-1',
+  databaseId: '1',
+  startAt: null,
+  endAt: null,
+  isCurrent: false,
+  isVacant: false,
+  officeTitle: null,
+  position: null,
+  ...overrides,
+})
+
+describe('selectPreferredOfficeHolder', () => {
+  const now = new Date('2026-01-01T00:00:00Z')
+
+  it('returns null for an empty list', () => {
+    expect(selectPreferredOfficeHolder([], now)).toBeNull()
+  })
+
+  it('prefers an upcoming term that starts within 3 months', () => {
+    const current = holder({ id: 'current', isCurrent: true })
+    const upcoming = holder({ id: 'upcoming', startAt: '2026-02-15' })
+    const result = selectPreferredOfficeHolder([current, upcoming], now)
+    expect(result?.id).toBe('upcoming')
+  })
+
+  it('ignores upcoming terms that start more than 3 months out', () => {
+    const current = holder({ id: 'current', isCurrent: true })
+    const farFuture = holder({ id: 'far', startAt: '2026-09-01' })
+    const result = selectPreferredOfficeHolder([current, farFuture], now)
+    expect(result?.id).toBe('current')
+  })
+
+  it('picks the soonest of multiple in-window upcoming terms', () => {
+    const soon = holder({ id: 'soon', startAt: '2026-01-20' })
+    const later = holder({ id: 'later', startAt: '2026-03-15' })
+    const result = selectPreferredOfficeHolder([later, soon], now)
+    expect(result?.id).toBe('soon')
+  })
+
+  it('falls back to a term whose range contains now when nothing is marked current', () => {
+    const past = holder({
+      id: 'past',
+      startAt: '2020-01-01',
+      endAt: '2024-01-01',
+    })
+    const ongoing = holder({
+      id: 'ongoing',
+      startAt: '2025-01-01',
+      endAt: '2029-01-01',
+    })
+    const result = selectPreferredOfficeHolder([past, ongoing], now)
+    expect(result?.id).toBe('ongoing')
+  })
+})

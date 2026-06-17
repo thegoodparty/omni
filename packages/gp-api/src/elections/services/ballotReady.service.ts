@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
+  addMonths,
   compareAsc,
   endOfMonth,
   format,
@@ -14,6 +15,8 @@ import zipcodes from 'zipcodes'
 import { ElectionLevels } from '../../shared/constants/governmentLevels'
 import {
   BallotReadyMilestone,
+  PersonOfficeHolder,
+  PersonWithOfficeHolders,
   RaceMilestonesGraphResponse,
   RaceNode,
   RacesByIdNode,
@@ -559,6 +562,60 @@ export class BallotReadyService {
     }
   }
 
+  /**
+   * Fetch every office-holder record BR has for a given person (by BR node id),
+   * including the position and term boundaries (startAt / endAt). Used to
+   * pre-fill an elected office at magic-link time. Returns null on any failure
+   * so the caller can fall back to asking the user.
+   */
+  async fetchPersonOfficeHolders(
+    personId: string,
+  ): Promise<PersonOfficeHolder[] | null> {
+    const query = gql`
+      query PersonOfficeHolders {
+        node(id: "${personId}") {
+          ... on Person {
+            id
+            databaseId
+            fullName
+            officeHolders {
+              nodes {
+                id
+                databaseId
+                startAt
+                endAt
+                isCurrent
+                isVacant
+                officeTitle
+                position {
+                  id
+                  databaseId
+                  name
+                  level
+                  state
+                  subAreaName
+                  subAreaValue
+                  electionFrequencies {
+                    frequency
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `
+
+    try {
+      const response =
+        await this.graphQLClient.request<PersonWithOfficeHolders>(query)
+      return response?.node?.officeHolders?.nodes ?? null
+    } catch (error) {
+      this.logger.error({ error }, 'Error at fetchPersonOfficeHolders:')
+      return null
+    }
+  }
+
   // Fetch the per-category milestone windows for a BR race. Source:
   // Race.election.milestones() — BR returns one row per (category, type,
   // feature), so we collapse via earliest OPEN / latest CLOSE per
@@ -686,4 +743,43 @@ function getMonthBounds(dateString: string): { gt: string; lt: string } {
     gt: format(startOfMonth(reference), 'yyyy-MM-dd'),
     lt: format(endOfMonth(reference), 'yyyy-MM-dd'),
   }
+}
+
+export const FUTURE_OFFICEHOLDER_WINDOW_MONTHS = 3
+
+/**
+ * Pick the office-holder record to pre-fill an elected office from. Prefers the
+ * soonest upcoming term that starts within FUTURE_OFFICEHOLDER_WINDOW_MONTHS
+ * (an elected-but-not-yet-sworn-in lead), otherwise falls back to the current
+ * term. Pure function so it can be unit-tested without hitting BR.
+ */
+export const selectPreferredOfficeHolder = (
+  holders: PersonOfficeHolder[],
+  now: Date = new Date(),
+): PersonOfficeHolder | null => {
+  if (!holders.length) return null
+
+  const windowEnd = addMonths(now, FUTURE_OFFICEHOLDER_WINDOW_MONTHS)
+
+  const upcoming = holders
+    .filter((holder) => {
+      if (!holder.startAt) return false
+      const start = new Date(holder.startAt)
+      return start > now && start <= windowEnd
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.startAt as string).getTime() -
+        new Date(b.startAt as string).getTime(),
+    )
+  if (upcoming.length) return upcoming[0]
+
+  const current =
+    holders.find((holder) => holder.isCurrent) ??
+    holders.find((holder) => {
+      const start = holder.startAt ? new Date(holder.startAt) : null
+      const end = holder.endAt ? new Date(holder.endAt) : null
+      return (!start || start <= now) && (!end || end >= now)
+    })
+  return current ?? null
 }

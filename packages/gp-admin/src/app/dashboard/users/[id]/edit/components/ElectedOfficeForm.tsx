@@ -68,6 +68,7 @@ export function ElectedOfficeForm({
       termLengthDays: initialData?.termLengthDays ?? null,
       termEndDate: initialData?.termEndDate ?? null,
       isActive: initialData?.isActive ?? true,
+      party: initialData?.party ?? null,
     },
   })
 
@@ -154,16 +155,24 @@ export function ElectedOfficeForm({
               </Box>
             </Flex>
 
-            <Box style={{ maxWidth: '200px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Term Length (Days)
-              </Text>
-              <TextField.Root
-                {...register('termLengthDays')}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="e.g., 1461"
-              />
-            </Box>
+            <Flex gap="4" wrap="wrap">
+              <Box style={{ maxWidth: '200px' }} flexGrow="1">
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Term Length (Days)
+                </Text>
+                <TextField.Root
+                  {...register('termLengthDays')}
+                  type={INPUT_TYPE.NUMBER}
+                  placeholder="e.g., 1461"
+                />
+              </Box>
+              <Box style={{ maxWidth: '200px' }} flexGrow="1">
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Party
+                </Text>
+                <TextField.Root {...register('party')} placeholder="e.g., Independent" />
+              </Box>
+            </Flex>
           </Flex>
         </InfoCard>
 

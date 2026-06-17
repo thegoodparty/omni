@@ -233,8 +233,18 @@ export type APIEndpoints = {
     Response: ElectedOffice
   }
 
-  'POST /v1/elected-office': {
+  'GET /v1/elected-office/mine': {
     Request: {}
+    Response: ElectedOffice[]
+  }
+
+  'POST /v1/elected-office': {
+    Request: ElectedOfficeInput
+    Response: ElectedOffice
+  }
+
+  'PUT /v1/elected-office/:id': {
+    Request: ElectedOfficeInput
     Response: ElectedOffice
   }
 
@@ -700,4 +710,27 @@ export type AdminOrganization = Organization & {
 export type ElectedOffice = {
   id: string
   swornInDate: string | null
+  electedDate: string | null
+  termStartDate: string | null
+  termEndDate: string | null
+  termLengthDays: number | null
+  isActive: boolean
+  party: string | null
+  pledgedAt: string | null
+  onboardingCompletedAt: string | null
+}
+
+export type ElectedOfficeInput = {
+  swornInDate?: string | null
+  electedDate?: string | null
+  termStartDate?: string | null
+  termEndDate?: string | null
+  termLengthDays?: number | null
+  isActive?: boolean
+  party?: string | null
+  pledgedAt?: string | null
+  onboardingCompletedAt?: string | null
+  ballotReadyPositionId?: string | null
+  customPositionName?: string | null
+  overrideDistrictId?: string | null
 }

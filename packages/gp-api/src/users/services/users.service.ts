@@ -520,6 +520,59 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
   }
 
+  /**
+   * Provisions a passwordless Clerk identity + local user for a sales-sent EO
+   * magic link and mints a single-use sign-in token. Idempotent on email:
+   * reuses an existing Clerk user / local user when present, so returning leads
+   * don't get a duplicate identity. The token is redeemed by the webapp via
+   * Clerk's `ticket` sign-in strategy.
+   */
+  async provisionMagicLinkUser(data: {
+    email: string
+    firstName: string
+    lastName: string
+    expiresInSeconds?: number
+  }): Promise<{ user: User; token: string; clerkId: string }> {
+    const email = data.email.trim()
+
+    let clerkId: string
+    const existing = await this.resolveClerkIdByEmail(email)
+    if (existing.source === 'clerk') {
+      clerkId = existing.clerkId
+    } else {
+      const created = await this.clerkClient.users.createUser({
+        emailAddress: [email],
+        firstName: data.firstName,
+        lastName: data.lastName,
+        skipPasswordRequirement: true,
+      })
+      clerkId = created.id
+    }
+
+    const user = await this.findOrProvisionByClerk({
+      clerkId,
+      email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+    })
+    if (!user) {
+      throw new ConflictException(
+        'This email is already linked to a different Clerk identity',
+      )
+    }
+
+    const signInToken = await this.clerkClient.signInTokens.createSignInToken({
+      userId: clerkId,
+      // Sales-sent invites are not redeemed immediately — give the lead a week.
+      expiresInSeconds: data.expiresInSeconds ?? 60 * 60 * 24 * 7,
+    })
+    if (!signInToken.token) {
+      throw new BadGatewayException('Clerk did not return a sign-in token')
+    }
+
+    return { user, token: signInToken.token, clerkId }
+  }
+
   async flushLastVisited(
     userId: number,
     pendingLastVisitedMs: number,

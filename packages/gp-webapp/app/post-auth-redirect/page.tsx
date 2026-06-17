@@ -69,7 +69,9 @@ const PostAuthRedirectPage = () => {
         // `resolveSlug` falls back to the first org and those pages can't find
         // the elected office, bouncing the user to /dashboard.
         const electedOrg = organizations.find((o) => o.electedOfficeId)
-        const wantsServe = !!safeNext && isServeRoutePath(safeNext)
+        const wantsServe =
+          !!safeNext &&
+          (isServeRoutePath(safeNext) || safeNext.startsWith('/serve'))
         const slug =
           wantsServe && electedOrg
             ? electedOrg.slug
@@ -97,6 +99,10 @@ const PostAuthRedirectPage = () => {
           ? (statusRes.data as CampaignStatus)
           : null
         const hasElectedOffice = electedRes.ok
+        const electedOfficeOnboardingComplete =
+          electedRes.ok &&
+          !!(electedRes.data as { onboardingCompletedAt?: string | null })
+            .onboardingCompletedAt
 
         // Fire the registration event only on a true fresh sign-up. The
         // ?source=signup hint set by <SignUp /> is just a re-fire guard for
@@ -136,6 +142,7 @@ const PostAuthRedirectPage = () => {
           user,
           campaignStatus,
           hasElectedOffice,
+          electedOfficeOnboardingComplete,
         )
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established. Re-derive a same-origin

@@ -45,7 +45,15 @@ export class ElectedOfficeController {
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
     return {
       id: record.id,
-      swornInDate: toDateOnlyString(record.swornInDate),
+      swornInDate: toDateOnlyString(record.swornInDate) ?? null,
+      electedDate: toDateOnlyString(record.electedDate) ?? null,
+      termStartDate: toDateOnlyString(record.termStartDate) ?? null,
+      termEndDate: toDateOnlyString(record.termEndDate) ?? null,
+      termLengthDays: record.termLengthDays,
+      isActive: record.isActive,
+      party: record.party,
+      pledgedAt: record.pledgedAt?.toISOString() ?? null,
+      onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
     }
   }
 
@@ -59,6 +67,20 @@ export class ElectedOfficeController {
   @Get('current')
   async getCurrent(@ReqElectedOffice() electedOffice: ElectedOffice) {
     return this.toApi(electedOffice)
+  }
+
+  // The current user's elected offices, used by the serve onboarding flow to
+  // enforce the no-overlapping-term-dates invariant (the term-date selector
+  // greys out ranges already covered by an existing office).
+  @Get('mine')
+  async listMine(@ReqUser() user: User) {
+    const offices = await this.electedOfficeService.client.electedOffice.findMany(
+      {
+        where: { userId: user.id },
+        orderBy: { termStartDate: 'asc' },
+      },
+    )
+    return offices.map((office) => this.toApi(office))
   }
 
   @UseGuards(UserOrM2MGuard)
@@ -76,30 +98,53 @@ export class ElectedOfficeController {
 
   @Post('/')
   @HttpCode(HttpStatus.OK)
-  @UseOrganization()
+  @UseOrganization({ continueIfNotFound: true })
   async create(
     @ReqUser() user: User,
     @Body() body: CreateElectedOfficeDto,
-    @ReqOrganization() organization: Organization,
+    @ReqOrganization() organization: Organization | undefined,
   ) {
-    const campaign = await this.electedOfficeService.client.campaign.findUnique(
-      {
-        where: { organizationSlug: organization.slug },
-      },
-    )
-    if (!campaign) {
-      throw new ForbiddenException('Not allowed to link campaign')
-    }
+    const {
+      ballotReadyPositionId,
+      customPositionName,
+      overrideDistrictId,
+      ...eoFields
+    } = body
 
-    const created = await this.electedOfficeService.create({
-      ...body,
-      userId: user.id,
-      campaignId: campaign.id,
-      orgData: {
+    // When an organization context exists (e.g. an existing candidate campaign
+    // becoming an elected office), link any campaign and inherit the office
+    // identity from that organization. Otherwise this is a net-new elected
+    // office with no campaign — the office identity comes from the request body.
+    let campaignId: number | undefined
+    let orgData: {
+      positionId: string | null
+      customPositionName: string | null
+      overrideDistrictId: string | null
+    }
+    if (organization) {
+      const campaign =
+        await this.electedOfficeService.client.campaign.findUnique({
+          where: { organizationSlug: organization.slug },
+        })
+      campaignId = campaign?.id
+      orgData = {
         positionId: organization.positionId,
         customPositionName: organization.customPositionName,
         overrideDistrictId: organization.overrideDistrictId,
-      },
+      }
+    } else {
+      orgData = {
+        positionId: ballotReadyPositionId ?? null,
+        customPositionName: customPositionName ?? null,
+        overrideDistrictId: overrideDistrictId ?? null,
+      }
+    }
+
+    const created = await this.electedOfficeService.create({
+      ...eoFields,
+      userId: user.id,
+      campaignId,
+      orgData,
     })
     return this.toApi(created)
   }
@@ -122,6 +167,14 @@ export class ElectedOfficeController {
     }
     const data: Prisma.ElectedOfficeUpdateInput = {
       swornInDate: body.swornInDate,
+      electedDate: body.electedDate,
+      termStartDate: body.termStartDate,
+      termEndDate: body.termEndDate,
+      termLengthDays: body.termLengthDays,
+      isActive: body.isActive,
+      party: body.party,
+      pledgedAt: body.pledgedAt,
+      onboardingCompletedAt: body.onboardingCompletedAt,
     }
     const updated = await this.electedOfficeService.update({
       where: { id },

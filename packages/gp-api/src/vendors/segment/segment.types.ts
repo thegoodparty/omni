@@ -23,6 +23,11 @@ export const EVENTS = {
   Onboarding: {
     UserCreated: 'Onboarding - User Created',
   },
+  ServeOnboarding: {
+    // Emitted when sales generates a magic link for an elected-official lead.
+    // Keyed to the provisioned user id + email (the EO may not exist yet).
+    MagicLinkSent: 'Serve Onboarding - Magic Link Sent',
+  },
   //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
   // Used in: https://app.hubspot.com/workflows/21589597/platform/flow/1739287110/edit
   CandidateWebsite: {

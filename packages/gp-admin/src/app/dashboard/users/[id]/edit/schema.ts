@@ -91,6 +91,7 @@ export const electedOfficeSchema = z.object({
   termLengthDays: numberOrNull,
   termEndDate: z.string().optional().nullable(),
   isActive: z.boolean(),
+  party: z.string().optional().nullable(),
 })
 
 export type ElectedOfficeFormData = z.infer<typeof electedOfficeSchema>
