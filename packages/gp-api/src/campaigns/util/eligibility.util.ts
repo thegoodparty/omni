@@ -27,7 +27,7 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
 
 export const isHeldOffice = (office: ElectedOffice, now: Date): boolean =>
   office.isActive &&
-  (office.termEndAt === null || isAfter(office.termEndAt, now))
+  (office.termEndDate === null || isAfter(office.termEndDate, now))
 
 export const organizationStatus = (
   org: { campaign: Campaign | null; electedOffice: ElectedOffice | null },

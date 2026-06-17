@@ -417,7 +417,7 @@ describe('GET /v1/organizations', () => {
         organizationSlug: 'eo-ended-1',
         userId: service.user.id,
         isActive: true,
-        termEndAt: new Date('2000-01-01'),
+        termEndDate: new Date('2000-01-01'),
       },
     })
 
@@ -443,7 +443,7 @@ describe('GET /v1/organizations', () => {
         organizationSlug: 'eo-held-1',
         userId: service.user.id,
         isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 

@@ -40,7 +40,7 @@ describe('GET /v1/eligibility', () => {
         organizationSlug: 'eo-ended-900',
         userId: service.user.id,
         isActive: true,
-        termEndAt: new Date('2000-01-01'),
+        termEndDate: new Date('2000-01-01'),
       },
     })
 
@@ -64,7 +64,7 @@ describe('GET /v1/eligibility', () => {
         organizationSlug: 'eo-held-900',
         userId: service.user.id,
         isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 

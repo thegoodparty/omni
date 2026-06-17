@@ -23,7 +23,7 @@ const buildOffice = (
 ): Partial<ElectedOffice> => ({
   organizationSlug: 'office-slug',
   isActive: true,
-  termEndAt: FUTURE_TERM_END,
+  termEndDate: FUTURE_TERM_END,
   createdAt: new Date('2020-01-01'),
   ...overrides,
 })
@@ -192,7 +192,7 @@ describe('EligibilityService', () => {
   it('treats an active office with a future term end as held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: true, termEndAt: FUTURE_TERM_END })],
+      [buildOffice({ isActive: true, termEndDate: FUTURE_TERM_END })],
     )
 
     const result = await service.evaluate(1)
@@ -205,7 +205,7 @@ describe('EligibilityService', () => {
   it('treats an office with a past term end as not held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: true, termEndAt: PAST_TERM_END })],
+      [buildOffice({ isActive: true, termEndDate: PAST_TERM_END })],
     )
 
     const result = await service.evaluate(1)
@@ -217,7 +217,7 @@ describe('EligibilityService', () => {
   it('treats an inactive office with a null term end as not held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: false, termEndAt: null })],
+      [buildOffice({ isActive: false, termEndDate: null })],
     )
 
     const result = await service.evaluate(1)
@@ -228,7 +228,7 @@ describe('EligibilityService', () => {
   it('treats an active office with a null term end as held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: true, termEndAt: null })],
+      [buildOffice({ isActive: true, termEndDate: null })],
     )
 
     const result = await service.evaluate(1)
@@ -255,15 +255,15 @@ describe('EligibilityService', () => {
         buildOffice({
           organizationSlug: 'older-office',
           isActive: false,
-          termStartAt: new Date('2018-01-01'),
-          termEndAt: new Date('2019-01-01'),
+          termStartDate: new Date('2018-01-01'),
+          termEndDate: new Date('2019-01-01'),
           createdAt: new Date('2022-06-01'),
         }),
         buildOffice({
           organizationSlug: 'newer-office',
           isActive: false,
-          termStartAt: new Date('2022-01-01'),
-          termEndAt: new Date('2023-01-01'),
+          termStartDate: new Date('2022-01-01'),
+          termEndDate: new Date('2023-01-01'),
           createdAt: new Date('2018-06-01'),
         }),
       ],
@@ -275,22 +275,22 @@ describe('EligibilityService', () => {
     expect(result.reelectionOfficeSlug).toBe('newer-office')
   })
 
-  it('falls back to termEndAt when termStartAt is null', async () => {
+  it('falls back to termEndDate when termStartDate is null', async () => {
     const service = await buildService(
       [],
       [
         buildOffice({
           organizationSlug: 'earlier-end',
           isActive: false,
-          termStartAt: null,
-          termEndAt: new Date('2019-06-01'),
+          termStartDate: null,
+          termEndDate: new Date('2019-06-01'),
           createdAt: new Date('2022-01-01'),
         }),
         buildOffice({
           organizationSlug: 'later-end',
           isActive: false,
-          termStartAt: null,
-          termEndAt: new Date('2023-06-01'),
+          termStartDate: null,
+          termEndDate: new Date('2023-06-01'),
           createdAt: new Date('2018-01-01'),
         }),
       ],
@@ -309,15 +309,15 @@ describe('EligibilityService', () => {
         buildOffice({
           organizationSlug: 'older-created',
           isActive: false,
-          termStartAt: null,
-          termEndAt: null,
+          termStartDate: null,
+          termEndDate: null,
           createdAt: new Date('2018-01-01'),
         }),
         buildOffice({
           organizationSlug: 'newer-created',
           isActive: false,
-          termStartAt: null,
-          termEndAt: null,
+          termStartDate: null,
+          termEndDate: null,
           createdAt: new Date('2022-01-01'),
         }),
       ],
