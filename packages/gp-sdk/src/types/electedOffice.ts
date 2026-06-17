@@ -12,7 +12,7 @@ export type ElectedOffice = {
   pledgedAt: string | null
   onboardingCompletedAt: string | null
   userId: number
-  campaignId: number
+  campaignId: number | null
   createdAt: string
   updatedAt: string
 }

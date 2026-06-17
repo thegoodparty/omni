@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Prisma } from '../../generated/prisma'
 import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
@@ -249,35 +248,31 @@ export class OnboardingLocalNewsService {
     )
   }
 
-  // Attempt to claim the slot for the (office, city, state) jurisdiction.
-  // The read-then-upsert runs under a jurisdiction-scoped advisory lock so two
-  // concurrent callers can't both observe "no fresh pending marker" and both
-  // kick off an AI run. Returns true if this caller claimed the slot and should
-  // run the AI fetch; false if another caller already owns a fresh pending
-  // marker for the same jurisdiction.
+  // Atomically claim the AI-fetch slot for the (office, city, state)
+  // jurisdiction with a single INSERT ... ON CONFLICT. Doing the claim in one
+  // statement closes the TOCTOU window a read-then-upsert leaves open: two
+  // concurrent callers (React Strict-Mode double-mounts, multiple tabs) can no
+  // longer both observe "no fresh pending marker" and both kick off a costly
+  // Gemini run. The UPDATE arm only fires when the existing row is stale
+  // (never started, or past the TTL), so a live pending marker is never
+  // clobbered. Returns true iff this caller won the claim and should run the
+  // fetch; false when another caller already owns a fresh pending marker.
   private async markPending(key: LocalNewsJurisdiction): Promise<boolean> {
-    return this.cache.withJurisdictionLock(key, async () => {
-      const current = await this.cache.findByJurisdiction(key)
-      if (
-        current?.status === 'pending' &&
-        current.startedAt != null &&
-        Date.now() - Number(current.startedAt) < PENDING_TTL_MS
-      ) {
-        return false
-      }
-      await this.cache.model.upsert({
-        where: { jurisdiction: key },
-        create: { ...key, status: 'pending', startedAt: BigInt(Date.now()) },
-        // Clear any stale `outlets` from a prior ready write so a later ready
-        // write replaces rather than layers onto it.
-        update: {
-          status: 'pending',
-          startedAt: BigInt(Date.now()),
-          outlets: Prisma.DbNull,
-        },
-      })
-      return true
-    })
+    const now = BigInt(Date.now())
+    const ttlMs = BigInt(PENDING_TTL_MS)
+    const claimed = await this.cache.client.$queryRaw<{ id: string }[]>`
+      INSERT INTO local_news_cache (id, office, city, state, status, started_at, created_at, updated_at)
+      VALUES (gen_random_uuid()::text, ${key.office}, ${key.city}, ${key.state}, 'pending', ${now}, now(), now())
+      ON CONFLICT (office, city, state) DO UPDATE
+        SET status = 'pending',
+            started_at = ${now},
+            outlets = NULL,
+            updated_at = now()
+        WHERE local_news_cache.started_at IS NULL
+           OR ${now} - local_news_cache.started_at >= ${ttlMs}
+      RETURNING id
+    `
+    return claimed.length > 0
   }
 
   private async writeReady(

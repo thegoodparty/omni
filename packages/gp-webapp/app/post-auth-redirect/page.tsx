@@ -130,9 +130,14 @@ const PostAuthRedirectPage = () => {
         const relevantEO =
           incompleteEO ?? currentEO ?? myElectedOffices[0] ?? null
         const hasElectedOffice = !!relevantEO || !!electedOrg
+        // Default to "complete" when we can't resolve a concrete EO record
+        // (e.g. `/mine` returns empty and `/current` 404s behind a campaign
+        // org) — matching resolvePostAuthRedirectPath's own default so a legacy
+        // win→serve user lands on /dashboard instead of being looped back into
+        // /serve/onboarding on every login.
         const electedOfficeOnboardingComplete = relevantEO
           ? !!relevantEO.onboardingCompletedAt
-          : false
+          : true
 
         // Fire the registration event only on a true fresh sign-up. The
         // ?source=signup hint set by <SignUp /> is just a re-fire guard for

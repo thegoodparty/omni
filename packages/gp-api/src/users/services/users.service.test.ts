@@ -389,7 +389,7 @@ describe('UsersService', () => {
       const suffix = uniqueSuffix()
       const email = `eo-lead-${suffix}@example.com`
       const clerkId = `clerk_lead_${suffix}`
-      await service.prisma.user.create({
+      const user = await service.prisma.user.create({
         data: {
           email,
           firstName: 'Lead',
@@ -397,6 +397,16 @@ describe('UsersService', () => {
           name: 'Lead Person',
           clerkId,
         },
+      })
+      // The existing identity is a real EO lead: it already owns an
+      // ElectedOffice (provisioned on the first magic link). Only such an
+      // account may be reused for a fresh sign-in token.
+      const eoOrgSlug = `eo-org-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: { userId: user.id, organizationSlug: eoOrgSlug },
       })
       vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
         data: [{ id: clerkId } as never],
@@ -416,6 +426,41 @@ describe('UsersService', () => {
       expect(createUser).not.toHaveBeenCalled()
       expect(result.clerkId).toBe(clerkId)
       expect(result.token).toBe('signin_token_abc')
+    })
+
+    it('refuses an existing passwordless account that is not an EO lead', async () => {
+      // A passwordless, campaign-less Clerk identity that owns no ElectedOffice
+      // is some other account (not an EO lead) — minting a sign-in token for it
+      // from an admin-supplied email would be an account takeover.
+      const suffix = uniqueSuffix()
+      const email = `eo-nonlead-${suffix}@example.com`
+      const clerkId = `clerk_nonlead_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Some',
+          lastName: 'Body',
+          name: 'Some Body',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Some',
+          lastName: 'Body',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
     })
 
     it('refuses an existing account that has a Clerk password set', async () => {

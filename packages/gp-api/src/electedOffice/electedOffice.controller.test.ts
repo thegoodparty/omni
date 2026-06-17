@@ -181,6 +181,64 @@ describe('ElectedOfficeController', () => {
     })
   })
 
+  describe('GET /elected-office/mine', () => {
+    const createOfficeForUser = async (
+      userId: number,
+      data: Record<string, unknown> = {},
+    ) => {
+      const slug = `eo-mine-${userId}-${Math.random().toString(36).slice(2, 8)}`
+      await service.prisma.organization.create({
+        data: { slug, ownerId: userId },
+      })
+      return service.prisma.electedOffice.create({
+        data: { userId, organizationSlug: slug, ...data },
+      })
+    }
+
+    it("returns only the authenticated user's offices, scoped by userId", async () => {
+      // Two offices for the caller (out of term order) plus one owned by a
+      // different user — the response must contain exactly the caller's two,
+      // ordered by termStartDate ascending, and never the other user's.
+      const mineLater = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      })
+      const mineEarlier = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      })
+
+      const otherUser = await service.prisma.user.create({
+        data: {
+          email: `other-mine-${Date.now()}@goodparty.org`,
+          firstName: 'Other',
+          lastName: 'User',
+        },
+      })
+      const theirs = await createOfficeForUser(otherUser.id)
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      const ids = (result.data as { id: string }[]).map((o) => o.id)
+      expect(ids).toEqual([mineEarlier.id, mineLater.id])
+      expect(ids).not.toContain(theirs.id)
+    })
+
+    it('returns an empty array when the user holds no offices', async () => {
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(result.data).toEqual([])
+    })
+
+    it('rejects an unauthenticated request', async () => {
+      const result = await service.client.get('/v1/elected-office/mine', {
+        headers: { Authorization: 'Bearer not-a-valid-token' },
+      })
+
+      expect(result.status).toBe(401)
+    })
+  })
+
   describe('POST /elected-office', () => {
     it('creates elected office when user has a campaign', async () => {
       const result = await createElectedOffice({

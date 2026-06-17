@@ -338,6 +338,37 @@ describe('PostAuthRedirectPage', () => {
     )
   })
 
+  it('routes to /dashboard (not serve onboarding) when an EO org exists but no EO record resolves', async () => {
+    // Legacy win→serve user: an elected-office org is present, but /current
+    // 404s (campaign org sorts first) and /mine returns empty. With no
+    // resolvable EO record we must default to "complete" and land on
+    // /dashboard rather than looping back into /serve/onboarding every login.
+    const electedOfficeOrg = {
+      ...orgFixture,
+      slug: 'serve-org',
+      name: 'Serve Org',
+      electedOfficeId: 'eo-legacy',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture, electedOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+  })
+
   it('login (no source param): does not fire trackRegistrationCompleted', async () => {
     api.mock('GET /v1/organizations', {
       status: 200,

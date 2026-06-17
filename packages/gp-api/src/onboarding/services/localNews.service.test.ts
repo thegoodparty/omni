@@ -43,15 +43,17 @@ function makeService() {
     upsert: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
   }
+  // markPending claims the slot with a single atomic INSERT ... ON CONFLICT
+  // run through client.$queryRaw. It returns a row (truthy claim) by default;
+  // tests that exercise the "already claimed by another caller" path override
+  // it to resolve []. The raw SQL itself is exercised by integration coverage.
+  const client = {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 'claim-id' }]),
+  }
   const cache = {
     findByJurisdiction: vi.fn(),
-    // Pass-through: invoke the claim callback directly so the read/upsert
-    // assertions below still observe the calls (the real advisory lock is a
-    // DB concern exercised by integration tests, not these pure mocks).
-    withJurisdictionLock: vi.fn(
-      <T>(_jurisdiction: unknown, fn: () => Promise<T>): Promise<T> => fn(),
-    ),
     model,
+    client,
   }
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
   const service = new OnboardingLocalNewsService(
@@ -61,7 +63,7 @@ function makeService() {
     analytics as never,
     createMockLogger(),
   )
-  return { service, gemini, braintrust, cache, model, analytics }
+  return { service, gemini, braintrust, cache, model, client, analytics }
 }
 
 function readyOutlets(extra: { name: string }[] = []) {
@@ -116,7 +118,7 @@ describe('OnboardingLocalNewsService', () => {
       // The bug this guards against: Denver City Council cache hit served to a
       // Boulder City Council fetch. With a jurisdiction-keyed table the Boulder
       // lookup simply misses (Denver is a separate row) and claims pending.
-      const { service, cache, gemini, model } = makeService()
+      const { service, cache, gemini, client } = makeService()
       cache.findByJurisdiction.mockResolvedValue(null)
       gemini.generateStructured.mockResolvedValue({ outlets: readyOutlets() })
 
@@ -128,16 +130,13 @@ describe('OnboardingLocalNewsService', () => {
       })
 
       expect(result).toEqual({ status: 'pending' })
-      const claimWrite = model.upsert.mock.calls[0]?.[0]
-      expect(claimWrite?.where).toEqual({
-        jurisdiction: { office: OFFICE, city: 'Boulder', state: STATE },
-      })
-      expect(claimWrite?.create).toMatchObject({
-        office: OFFICE,
-        city: 'Boulder',
-        state: STATE,
-        status: 'pending',
-      })
+      // The atomic claim ran for Boulder's own (office, city, state) — not the
+      // Denver row — so the interpolated values carry Boulder's jurisdiction.
+      expect(client.$queryRaw).toHaveBeenCalledTimes(1)
+      const claimValues = client.$queryRaw.mock.calls[0] ?? []
+      expect(claimValues).toContain(OFFICE)
+      expect(claimValues).toContain('Boulder')
+      expect(claimValues).toContain(STATE)
     })
 
     it('returns pending without claiming when a fresh pending row exists', async () => {
@@ -162,8 +161,8 @@ describe('OnboardingLocalNewsService', () => {
       expect(gemini.generateStructured).not.toHaveBeenCalled()
     })
 
-    it('falls through a TTL-expired pending row into markPending', async () => {
-      const { service, cache, gemini, model } = makeService()
+    it('falls through a TTL-expired pending row into the atomic claim', async () => {
+      const { service, cache, gemini, client } = makeService()
       const expired = {
         ...cacheKey(),
         status: 'pending' as const,
@@ -180,28 +179,20 @@ describe('OnboardingLocalNewsService', () => {
       })
 
       expect(result).toEqual({ status: 'pending' })
-      const claimWrite = model.upsert.mock.calls[0]?.[0]
-      expect(claimWrite?.where).toEqual({
-        jurisdiction: { office: OFFICE, city: CITY, state: STATE },
-      })
-      expect(claimWrite?.update).toMatchObject({ status: 'pending' })
-      const claimStartedAt = claimWrite?.update.startedAt
-      expect(typeof claimStartedAt).toBe('bigint')
-      expect(claimStartedAt).toBeGreaterThan(0n)
-      // The pending claim clears any stale outlets from a prior ready write.
-      expect(claimWrite?.update.outlets).toBeDefined()
+      // A stale/expired pending row falls through to the atomic claim, which
+      // re-takes the slot (its WHERE clause matches the stale startedAt).
+      expect(client.$queryRaw).toHaveBeenCalledTimes(1)
+      const claimValues = client.$queryRaw.mock.calls[0] ?? []
+      expect(claimValues).toContain(OFFICE)
+      expect(claimValues).toContain(STATE)
     })
 
-    it("doesn't claim the slot when re-read shows a fresh pending row from another caller", async () => {
-      const { service, cache, model } = makeService()
-      cache.findByJurisdiction
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          ...cacheKey(),
-          status: 'pending',
-          startedAt: BigInt(Date.now() - 1000),
-          outlets: null,
-        })
+    it("doesn't run the fetch when the atomic claim is lost to a concurrent caller", async () => {
+      const { service, cache, client, gemini } = makeService()
+      cache.findByJurisdiction.mockResolvedValue(null)
+      // Another caller already holds a fresh pending marker, so the ON CONFLICT
+      // WHERE clause matches nothing and the claim returns no row.
+      client.$queryRaw.mockResolvedValue([])
 
       const result = await service.getLocalNews({
         state: STATE,
@@ -210,15 +201,14 @@ describe('OnboardingLocalNewsService', () => {
       })
 
       expect(result).toEqual({ status: 'pending' })
-      expect(cache.findByJurisdiction).toHaveBeenCalledTimes(2)
-      expect(model.upsert).not.toHaveBeenCalled()
+      expect(client.$queryRaw).toHaveBeenCalledTimes(1)
+      expect(gemini.generateStructured).not.toHaveBeenCalled()
     })
 
     it('expires the pending marker (startedAt: 0) when the background fetch fails', async () => {
       const { service, cache, gemini, model } = makeService()
       cache.findByJurisdiction
-        // getLocalNews lookup (miss) then markPending re-read (miss)
-        .mockResolvedValueOnce(null)
+        // getLocalNews lookup (miss); the atomic claim then wins the slot
         .mockResolvedValueOnce(null)
         // expirePending re-read sees the pending marker this caller wrote
         .mockResolvedValue({
