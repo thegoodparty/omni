@@ -219,10 +219,10 @@ describe('OutreachAttributionService', () => {
     expect(await activitiesFor(outreach.id)).toHaveLength(0)
   })
 
-  it('does nothing for a non-segment-derived channel', async () => {
+  it('does nothing for an unattributed channel (doorKnocking)', async () => {
     const { campaign, outreach } = await seedOutreach({
-      slug: 'pb-text',
-      outreachType: OutreachType.text,
+      slug: 'pb-doorknock',
+      outreachType: OutreachType.doorKnocking,
     })
     const findContacts = vi.spyOn(contacts, 'findContacts')
 
@@ -230,6 +230,44 @@ describe('OutreachAttributionService', () => {
 
     expect(findContacts).not.toHaveBeenCalled()
     expect(await activitiesFor(outreach.id)).toHaveLength(0)
+  })
+
+  it('emits recipient-sourced activities for a p2p send', async () => {
+    const { campaign, outreach } = await seedOutreach({
+      slug: 'p2p-emit',
+      outreachType: OutreachType.p2p,
+    })
+    vi.spyOn(contacts, 'findContacts').mockResolvedValue(
+      peoplePage(['LAL-1', 'LAL-2']),
+    )
+
+    await attribution.recordSegmentAttribution(service.user, campaign, outreach)
+
+    const rows = await activitiesFor(outreach.id)
+    expect(rows.map((r) => r.lalVoterId)).toEqual(['LAL-1', 'LAL-2'])
+    expect(rows.every((r) => r.outreachType === OutreachType.p2p)).toBe(true)
+    expect(
+      rows.every(
+        (r) => r.attributionSource === VoterOutreachAttributionSource.recipient,
+      ),
+    ).toBe(true)
+  })
+
+  it('emits segmentDerived activities for a text send', async () => {
+    const { campaign, outreach } = await seedOutreach({
+      slug: 'text-emit',
+      outreachType: OutreachType.text,
+    })
+    vi.spyOn(contacts, 'findContacts').mockResolvedValue(peoplePage(['LAL-7']))
+
+    await attribution.recordSegmentAttribution(service.user, campaign, outreach)
+
+    const rows = await activitiesFor(outreach.id)
+    expect(rows.map((r) => r.lalVoterId)).toEqual(['LAL-7'])
+    expect(rows[0].outreachType).toBe(OutreachType.text)
+    expect(rows[0].attributionSource).toBe(
+      VoterOutreachAttributionSource.segmentDerived,
+    )
   })
 
   it('does nothing when the outreach has no segment', async () => {
