@@ -35,9 +35,9 @@ export const Playground: Story = {
           : 'w-80 space-y-4'
       }
     >
-      <span className="text-sm">Section one</span>
+      <span className="text-foreground text-sm">Section one</span>
       <Separator {...args} />
-      <span className="text-sm">Section two</span>
+      <span className="text-foreground text-sm">Section two</span>
     </div>
   ),
 }
@@ -46,13 +46,15 @@ export const Horizontal: Story = {
   render: () => (
     <div className="w-80">
       <div className="space-y-1">
-        <h4 className="text-sm font-semibold">Campaign settings</h4>
+        <h4 className="text-foreground text-sm font-semibold">
+          Campaign settings
+        </h4>
         <p className="text-muted-foreground text-sm">
           Configure how your campaign appears to voters.
         </p>
       </div>
       <Separator className="my-4" />
-      <div className="flex h-5 items-center gap-4 text-sm">
+      <div className="text-foreground flex h-5 items-center gap-4 text-sm">
         <span>Public</span>
         <Separator orientation="vertical" />
         <span>Verified</span>
@@ -65,12 +67,46 @@ export const Horizontal: Story = {
 
 export const Vertical: Story = {
   render: () => (
-    <div className="flex h-12 items-center gap-3 text-sm">
+    <div className="text-foreground flex h-12 items-center gap-3 text-sm">
       <span>Draft</span>
       <Separator orientation="vertical" />
       <span>Review</span>
       <Separator orientation="vertical" />
       <span>Published</span>
+    </div>
+  ),
+}
+
+export const InContext: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="bg-card text-card-foreground w-80 rounded-lg border p-6 shadow-sm">
+      <div className="space-y-1">
+        <h4 className="text-foreground text-sm font-semibold">Alex Johnson</h4>
+        <p className="text-muted-foreground text-xs">
+          City Council · District 4
+        </p>
+      </div>
+      <Separator className="my-4" />
+      <div className="space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Status</span>
+          <span className="text-foreground font-medium">Active</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Raised</span>
+          <span className="text-foreground font-medium">$12,400</span>
+        </div>
+      </div>
+      <Separator className="my-4" />
+      <div className="text-foreground flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">Last updated 2 hours ago</span>
+        <div className="flex h-4 items-center gap-2">
+          <span>Edit</span>
+          <Separator orientation="vertical" />
+          <span>Share</span>
+        </div>
+      </div>
     </div>
   ),
 }
