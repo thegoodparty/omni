@@ -52,7 +52,7 @@ const setContext = (overrides: Partial<ContextValue>) => {
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
     isWinContext: false,
-    isElectedOfficeLoading: false,
+    isWinContextReady: true,
     ...overrides,
   } as ContextValue)
 }
@@ -84,25 +84,46 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
     })
   })
 
-  it('does not fire while the elected-office query is loading', () => {
-    setContext({ isWinContext: false, isElectedOfficeLoading: true })
+  it('does not fire while the win context is not yet ready', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
 
     render(<ContactsPage />)
 
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
-  it('fires once with win context after loading settles, with no spurious serve event', () => {
-    // Reproduces the production sequence for a Win user: isWinContext is false
-    // while isElectedOfficeLoading is true, then both flip once the query
+  it('fires once with win context after readiness settles, with no spurious serve event', () => {
+    // Reproduces the production sequence for a Win user: isWinContext reads
+    // false while isWinContextReady is false (elected-office query or
+    // win-voter-data flag still resolving), then both flip once everything
     // settles. The event must fire exactly once, with win — never a serve event
-    // on the loading render.
-    setContext({ isWinContext: false, isElectedOfficeLoading: true })
+    // on the not-ready render.
+    setContext({ isWinContext: false, isWinContextReady: false })
 
     const { rerender } = render(<ContactsPage />)
     expect(trackEvent).not.toHaveBeenCalled()
 
-    setContext({ isWinContext: true, isElectedOfficeLoading: false })
+    setContext({ isWinContext: true, isWinContextReady: true })
+    rerender(<ContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'win',
+    })
+  })
+
+  it('does not fire serve then win when the flag resolves after the elected-office query', () => {
+    // The flag-readiness race: the elected-office query settles first
+    // (electedOffice null, so isWinContext would be false) but the
+    // win-voter-data flag has not resolved yet, so isWinContextReady is still
+    // false. Firing here would emit a spurious serve event before the flag
+    // load flips isWinContext to win. Gate must suppress until both settle.
+    setContext({ isWinContext: false, isWinContextReady: false })
+
+    const { rerender } = render(<ContactsPage />)
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    setContext({ isWinContext: true, isWinContextReady: true })
     rerender(<ContactsPage />)
 
     expect(trackEvent).toHaveBeenCalledTimes(1)

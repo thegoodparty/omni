@@ -88,6 +88,7 @@ function setContext({
     canUseProFeatures: true,
     isElectedOfficial,
     isWinContext,
+    isWinContextReady: true,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),

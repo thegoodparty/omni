@@ -25,19 +25,19 @@ export default function ContactsPage() {
     totalSegmentContacts,
     isVoterDataUnavailable,
     isWinContext,
-    isElectedOfficeLoading,
+    isWinContextReady,
   } = useContactsTable()
 
-  // isWinContext starts false while the elected-office query is loading, then
-  // flips to true for a Win user once it settles. Wait for it to settle so we
-  // fire one Contacts Viewed with the right context, not a spurious serve event
-  // followed by a win one on every Win page load.
+  // isWinContext reads false until both the elected-office query and the
+  // win-voter-data flag settle, so firing before then would emit a spurious
+  // serve event followed by a win one on every Win page load. Wait for
+  // isWinContextReady so we fire one Contacts Viewed with the right context.
   useEffect(() => {
-    if (isElectedOfficeLoading) return
+    if (!isWinContextReady) return
     trackEvent(EVENTS.Contacts.Viewed, {
       context: isWinContext ? 'win' : 'serve',
     })
-  }, [isElectedOfficeLoading, isWinContext])
+  }, [isWinContextReady, isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>
