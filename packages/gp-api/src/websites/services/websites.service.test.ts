@@ -3,7 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import {
   WebsitesService,
@@ -12,9 +12,13 @@ import {
 } from './websites.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
-vi.mock('axios', () => ({
-  default: { get: vi.fn() },
-}))
+vi.mock('axios', async (orig) => {
+  const real = await orig<typeof import('axios')>()
+  return {
+    default: { get: vi.fn() },
+    AxiosError: real.AxiosError,
+  }
+})
 
 vi.mock('node:dns', async (orig) => {
   const real = await orig<typeof import('node:dns')>()
@@ -123,6 +127,7 @@ describe('WebsitesService.verifyLive', () => {
       expect(result).toEqual({
         verified: true,
         url: 'https://vote-jane.com/',
+        reason: null,
         checks: {
           http_200: true,
           has_privacy_policy: true,
@@ -148,6 +153,7 @@ describe('WebsitesService.verifyLive', () => {
     expect(result).toEqual({
       verified: true,
       url: 'https://vote-jane.com/',
+      reason: null,
       checks: {
         http_200: true,
         has_privacy_policy: true,
@@ -166,6 +172,7 @@ describe('WebsitesService.verifyLive', () => {
     const result = await service.verifyLive(1)
 
     expect(result.verified).toBe(false)
+    expect(result.reason).toBe('content_missing')
     expect(result.checks).toEqual({
       http_200: true,
       has_privacy_policy: false,
@@ -174,12 +181,13 @@ describe('WebsitesService.verifyLive', () => {
     })
   })
 
-  it('returns verified=false with http_200=false when the URL responds 404', async () => {
+  it('returns verified=false reason=not_live when the URL responds 404', async () => {
     mockedAxiosGet.mockResolvedValue({ status: 404, data: 'Not Found' })
 
     const result = await service.verifyLive(1)
 
     expect(result.verified).toBe(false)
+    expect(result.reason).toBe('not_live')
     expect(result.checks.http_200).toBe(false)
     expect(result.checks.has_privacy_policy).toBe(false)
     expect(result.checks.has_terms).toBe(false)
@@ -198,14 +206,29 @@ describe('WebsitesService.verifyLive', () => {
     expect(result.checks.has_candidate_identity).toBe(false)
   })
 
-  it('does not retry on network failure — single shot, returns http_200=false', async () => {
+  it('does not retry on network failure — single shot, reason=unreachable', async () => {
     mockedAxiosGet.mockRejectedValue(new Error('ECONNREFUSED'))
 
     const result = await service.verifyLive(1)
 
     expect(mockedAxiosGet).toHaveBeenCalledTimes(1)
     expect(result.verified).toBe(false)
+    expect(result.reason).toBe('unreachable')
     expect(result.checks.http_200).toBe(false)
+  })
+
+  it('classifies a redirect loop as redirect_loop (reachable but misconfigured)', async () => {
+    mockedAxiosGet.mockRejectedValue(
+      new AxiosError(
+        'Maximum number of redirects exceeded',
+        'ERR_FR_TOO_MANY_REDIRECTS',
+      ),
+    )
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(false)
+    expect(result.reason).toBe('redirect_loop')
   })
 
   it('throws BadRequestException when no domain is attached', async () => {
@@ -411,5 +434,30 @@ describe('ssrfSafeLookup (connection-time defense)', () => {
 
     expect(err).toBeInstanceOf(Error)
     expect(err?.message).toMatch(/169\.254\.169\.254/)
+  })
+
+  // Node's http/https Agent calls the custom lookup with `all: true`. In that
+  // mode the callback contract is the array form `(err, LookupAddress[])`.
+  // The single-address form makes Node throw ERR_INVALID_IP_ADDRESS, which
+  // silently broke every prod verify-live fetch. The other tests here pass
+  // `{}`, so this path was previously uncovered.
+  it('calls back with the full address array when invoked with all:true', async () => {
+    stubDnsLookup([
+      { address: '93.184.216.34', family: 4 },
+      { address: '93.184.216.35', family: 4 },
+    ])
+
+    const addresses = await new Promise<string | dns.LookupAddress[]>(
+      (resolve, reject) => {
+        ssrfSafeLookup('example.com', { all: true }, (err, address) =>
+          err ? reject(err) : resolve(address),
+        )
+      },
+    )
+
+    expect(addresses).toEqual([
+      { address: '93.184.216.34', family: 4 },
+      { address: '93.184.216.35', family: 4 },
+    ])
   })
 })

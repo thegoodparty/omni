@@ -138,11 +138,15 @@ export class AdminAgentRunsService extends createPrismaBase(
   async retry(runId: string): Promise<ExperimentRun> {
     const run = await this.model.findUniqueOrThrow({ where: { runId } })
 
-    // A RUNNING run is still in flight; re-dispatching it would spawn a second
-    // parallel worker on the same params (duplicate domain buy / TCR submit).
-    if (run.status === ExperimentRunStatus.RUNNING) {
+    // A QUEUED or RUNNING run is still in flight; re-dispatching it would spawn
+    // a second parallel worker on the same params (duplicate domain buy / TCR
+    // submit).
+    if (
+      run.status === ExperimentRunStatus.RUNNING ||
+      run.status === ExperimentRunStatus.QUEUED
+    ) {
       throw new ConflictException(
-        'run is still RUNNING; only finished runs can be retried',
+        'run is still in flight (QUEUED or RUNNING); only finished runs can be retried',
       )
     }
 

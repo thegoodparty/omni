@@ -22,6 +22,14 @@ import type {
   GetIndividualActivitiesResponse,
 } from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type {
+  ChatConversationListResponse,
+  ChatConversationMessagesResponse,
+  ChatScope,
+  DashboardCardBucket,
+  DashboardCardListResponse,
+  SupportEstimate,
+} from 'app/dashboard/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
 
 export interface MeetingsListItemDto {
@@ -274,6 +282,41 @@ export type APIEndpoints = {
       kind: 'schedule' | 'briefing'
     }
     Response: { dispatched: true; kind: 'schedule' | 'briefing' }
+  }
+
+  'GET /v1/elected-office/support-estimate': {
+    Request: {}
+    Response: SupportEstimate
+  }
+
+  'GET /v1/dashboard/cards': {
+    Request: { bucket: DashboardCardBucket }
+    Response: DashboardCardListResponse
+  }
+
+  'PUT /v1/dashboard/cards/:id/dismiss': {
+    Request: {}
+    Response: void
+  }
+
+  'POST /v1/chats': {
+    Request: { scope: ChatScope }
+    Response: { conversationId: string; created: boolean }
+  }
+
+  'GET /v1/chats': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationListResponse
+  }
+
+  'GET /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationMessagesResponse
+  }
+
+  'DELETE /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: void
   }
 
   'GET /v1/contacts/stats': {

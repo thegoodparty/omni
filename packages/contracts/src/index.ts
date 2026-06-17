@@ -424,3 +424,57 @@ export {
   BriefingAdminRowSchema,
   type BriefingAdminRow,
 } from './adminBriefings/AdminBriefing.schema'
+
+export {
+  PrioritySchema,
+  type Priority,
+  CreatePriorityInputSchema,
+  type CreatePriorityInput,
+  UpdatePriorityInputSchema,
+  type UpdatePriorityInput,
+} from './priorities/Priority.schema'
+
+export {
+  DASHBOARD_CARD_TYPE_VALUES,
+  DashboardCardTypeSchema,
+  type DashboardCardType,
+  DASHBOARD_CARD_BUCKET_VALUES,
+  DashboardCardBucketSchema,
+  type DashboardCardBucket,
+  DashboardCardsQuerySchema,
+  type DashboardCardsQuery,
+  DashboardCardSchema,
+  type DashboardCard,
+  DashboardCardsResponseSchema,
+  type DashboardCardsResponse,
+} from './dashboard/DashboardCard.schema'
+
+export {
+  SupportEstimateSchema,
+  type SupportEstimate,
+} from './dashboard/SupportEstimate.schema'
+
+export {
+  CreateChatRequestSchema,
+  type CreateChatRequest,
+  CreateChatResponseSchema,
+  type CreateChatResponse,
+  CHAT_MESSAGE_MAX_LENGTH,
+  SendChatMessageRequestSchema,
+  type SendChatMessageRequest,
+  ChatMessageSchema,
+  type ChatMessage,
+  ChatConversationSchema,
+  type ChatConversation,
+  ChatHistoryItemSchema,
+  type ChatHistoryItem,
+  ChatHistoryResponseSchema,
+  type ChatHistoryResponse,
+  ChatHistoryQuerySchema,
+  type ChatHistoryQuery,
+  CHAT_STREAM_ERROR_CODE_VALUES,
+  ChatStreamErrorCodeSchema,
+  type ChatStreamErrorCode,
+  ChatStreamEventSchema,
+  type ChatStreamEvent,
+} from './chats/Chat.schema'

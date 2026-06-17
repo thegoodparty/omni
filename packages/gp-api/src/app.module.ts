@@ -27,10 +27,12 @@ import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutrea
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
+import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
 import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
+import { PrioritiesModule } from '@/priorities/priorities.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
@@ -53,6 +55,11 @@ import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ScheduleModule } from '@nestjs/schedule'
 import { loggerModule } from './observability/logging/logger-module'
+// Imported last (after all feature modules) so its transitive import chain
+// (ElectedOfficeModule -> MeetingsModule/OrganizationsModule) doesn't force
+// early ESM evaluation of campaigns/analytics modules, which surfaces a
+// circular-dependency "undefined at runtime" error in CampaignsService.
+import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 
 @Module({
   imports: [
@@ -93,8 +100,10 @@ import { loggerModule } from './observability/logging/logger-module'
     ContactsModule,
     ContactEngagementModule,
     PollsModule,
+    PrioritiesModule,
     CampaignPlanSharesModule,
     MeetingsModule,
+    DashboardCardsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,
     ArtifactReviewModule,
@@ -103,6 +112,7 @@ import { loggerModule } from './observability/logging/logger-module'
     OnboardingModule,
     SpeechModule,
     BriefingChatsModule,
+    GeneralChatsModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.
