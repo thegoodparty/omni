@@ -55,7 +55,7 @@ const CampaignStrategyTaskRow = ({
   return (
     <li
       className={cn(
-        'border-border flex gap-4 border-t px-6 py-4',
+        'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
         task.isNext && 'bg-primary/5',
       )}
     >
