@@ -27,12 +27,11 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
 
 export const isHeldOffice = (office: ElectedOffice, now: Date): boolean =>
   office.isActive &&
-  // termEndDate is a calendar date (UTC midnight) since the term columns
-  // became DATE, so the office is held through the whole term-end day — mirror
-  // isActiveCampaign's UTC calendar-day comparison rather than isAfter(end,
-  // now), which would flip the office to "past" at midnight on its last day.
-  (office.termEndDate === null ||
-    !isAfter(getMidnightForDate(now), office.termEndDate))
+  // Terms are half-open [start, end): termEndDate is the exclusive boundary at
+  // which the successor takes over (BallotReady reports a 4-year term as e.g.
+  // 2020-01-01 → 2024-01-01), so the office is held while now < termEndDate and
+  // the holder is no longer in office on the boundary day itself.
+  (office.termEndDate === null || isAfter(office.termEndDate, now))
 
 export const organizationStatus = (
   org: { campaign: Campaign | null; electedOffice: ElectedOffice | null },

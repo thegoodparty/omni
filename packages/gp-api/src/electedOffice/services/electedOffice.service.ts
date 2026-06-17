@@ -44,6 +44,11 @@ export type CreateElectedOfficeArgs = {
  * Whether two term date ranges overlap. Open-ended bounds (null) are treated as
  * -Infinity (start) / +Infinity (end). A range with no bounds at all cannot be
  * compared, so it is treated as non-overlapping.
+ *
+ * Terms are half-open [start, end): termEndDate is the exclusive boundary at
+ * which the next holder takes over (BallotReady reports a 4-year term as
+ * e.g. 2020-01-01 → 2024-01-01), so consecutive terms that touch at a single
+ * endpoint (term A ends the day term B begins) are NOT treated as overlapping.
  */
 export const dateRangesOverlap = (
   aStart: Date | null,
@@ -57,7 +62,7 @@ export const dateRangesOverlap = (
   const aE = aEnd ? aEnd.getTime() : Infinity
   const bS = bStart ? bStart.getTime() : -Infinity
   const bE = bEnd ? bEnd.getTime() : Infinity
-  return aS <= bE && bS <= aE
+  return aS < bE && bS < aE
 }
 
 const isSameDay = (a: Date | null, b: Date | null): boolean =>
@@ -180,9 +185,14 @@ export class ElectedOfficeService extends createPrismaBase(
         if (overlapping) {
           // Idempotent retry: a prior call may have committed the row but
           // crashed before dispatching the schedule. When the overlap is the
-          // very same office (identical term start), return it so the
-          // out-of-transaction dispatch below re-fires instead of failing.
-          if (isSameDay(overlapping.termStartDate, newStart)) {
+          // very same office (identical term start AND end), return it so the
+          // out-of-transaction dispatch below re-fires instead of failing. Both
+          // bounds must match — a same-start/different-end call is a term
+          // correction that must update (or conflict), not silently no-op.
+          if (
+            isSameDay(overlapping.termStartDate, newStart) &&
+            isSameDay(overlapping.termEndDate, newEnd)
+          ) {
             return overlapping
           }
           throw new ConflictException(

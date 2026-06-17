@@ -1,6 +1,8 @@
 import { useTestService } from '@/test-service'
-import { Campaign } from '../generated/prisma'
+import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { UnauthorizedException } from '@nestjs/common'
+import { ElectedOfficeController } from './electedOffice.controller'
 
 const service = useTestService()
 
@@ -236,6 +238,16 @@ describe('ElectedOfficeController', () => {
       })
 
       expect(result.status).toBe(401)
+    })
+
+    it('rejects an M2M token that carries no user context', async () => {
+      // The global SessionGuard admits M2M tokens without populating
+      // request.user; listMine must reject rather than dereference user.id.
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.listMine(undefined as unknown as User),
+      ).rejects.toBeInstanceOf(UnauthorizedException)
     })
   })
 

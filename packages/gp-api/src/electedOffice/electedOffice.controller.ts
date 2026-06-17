@@ -16,6 +16,7 @@ import {
   Put,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
@@ -87,6 +88,11 @@ export class ElectedOfficeController {
   // greys out ranges already covered by an existing office).
   @Get('mine')
   async listMine(@ReqUser() user: User) {
+    // The global SessionGuard admits M2M tokens without populating request.user,
+    // so guard against that here — "mine" is meaningless without a user.
+    if (!user) {
+      throw new UnauthorizedException()
+    }
     const offices =
       await this.electedOfficeService.client.electedOffice.findMany({
         where: { userId: user.id },

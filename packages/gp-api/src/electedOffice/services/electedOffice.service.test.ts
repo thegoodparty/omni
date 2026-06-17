@@ -105,6 +105,41 @@ describe('ElectedOfficeService.create', () => {
     expect(await service.prisma.electedOffice.count()).toBe(1)
   })
 
+  it('allows a second office whose term starts exactly when the prior term ends (half-open boundary)', async () => {
+    await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2024-01-01T00:00:00.000Z'),
+    })
+
+    const second = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2024-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2028-01-01T00:00:00.000Z'),
+    })
+
+    expect(await service.prisma.electedOffice.count()).toBe(2)
+    expect(second.termStartDate).toEqual(new Date('2024-01-01T00:00:00.000Z'))
+  })
+
+  it('rejects a same-start retry whose end date differs (term correction must not silently no-op)', async () => {
+    await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+    })
+
+    await expect(
+      electedOffices.create({
+        userId: service.user.id,
+        termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+        termEndDate: new Date('2027-01-01T00:00:00.000Z'),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException)
+
+    expect(await service.prisma.electedOffice.count()).toBe(1)
+  })
+
   it('idempotently returns the existing office when the term start matches (crash-recovery retry)', async () => {
     const dispatch = vi.spyOn(
       service.app.get(MeetingBriefingsService),

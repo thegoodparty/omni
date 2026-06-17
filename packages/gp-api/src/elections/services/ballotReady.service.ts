@@ -572,8 +572,8 @@ export class BallotReadyService {
     personId: string,
   ): Promise<PersonOfficeHolder[] | null> {
     const query = gql`
-      query PersonOfficeHolders {
-        node(id: "${personId}") {
+      query PersonOfficeHolders($personId: ID!) {
+        node(id: $personId) {
           ... on Person {
             id
             databaseId
@@ -608,7 +608,9 @@ export class BallotReadyService {
 
     try {
       const response =
-        await this.graphQLClient.request<PersonWithOfficeHolders>(query)
+        await this.graphQLClient.request<PersonWithOfficeHolders>(query, {
+          personId,
+        })
       return response?.node?.officeHolders?.nodes ?? null
     } catch (error) {
       this.logger.error({ error }, 'Error at fetchPersonOfficeHolders:')

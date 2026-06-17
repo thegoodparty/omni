@@ -6,18 +6,19 @@ const office = (overrides: Partial<ElectedOffice>): ElectedOffice =>
   ({ isActive: true, termEndDate: null, ...overrides }) as ElectedOffice
 
 describe('isHeldOffice', () => {
-  it('is held through the entire term-end calendar day (UTC)', () => {
-    // termEndDate is a DATE column stored at UTC midnight; the office must
-    // still count as held later on that same calendar day.
+  it('is held the day before the exclusive term-end boundary', () => {
+    // termEndDate is the half-open exclusive boundary (successor's start day);
+    // the holder is still in office the day before it.
     const termEndDate = new Date('2026-06-30T00:00:00.000Z')
-    const now = new Date('2026-06-30T18:00:00.000Z')
+    const now = new Date('2026-06-29T18:00:00.000Z')
 
     expect(isHeldOffice(office({ termEndDate }), now)).toBe(true)
   })
 
-  it('is not held the day after the term ends', () => {
+  it('is not held once the term-end boundary day arrives', () => {
+    // On the boundary day the successor has taken over, so the office is past.
     const termEndDate = new Date('2026-06-30T00:00:00.000Z')
-    const now = new Date('2026-07-01T00:00:00.000Z')
+    const now = new Date('2026-06-30T00:01:00.000Z')
 
     expect(isHeldOffice(office({ termEndDate }), now)).toBe(false)
   })
