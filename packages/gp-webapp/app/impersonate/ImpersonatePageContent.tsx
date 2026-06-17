@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
+import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
 
 const isSafeRelativePath = (s: string | null): s is string => {
   if (typeof s !== 'string') return false
@@ -60,6 +61,7 @@ export default function ImpersonatePageContent() {
         }
 
         await setActive({ session: result.createdSessionId })
+        clearElectionResultDismissed()
         if (isSafeAdminReturnTo(adminReturnTo)) {
           sessionStorage.setItem('gp_admin_return_to', adminReturnTo)
         }

@@ -13,3 +13,12 @@ export const isElectionResultDismissed = (): boolean => {
   if (typeof window === 'undefined') return false
   return window.sessionStorage.getItem(DISMISSED_KEY) === 'true'
 }
+
+// sessionStorage survives same-tab impersonation transitions, so the flag must
+// be cleared at every impersonation boundary (start, switch, stop) — otherwise
+// a candidate impersonated later in the same tab inherits the prior dismissal
+// and never sees their own gate.
+export const clearElectionResultDismissed = (): void => {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem(DISMISSED_KEY)
+}
