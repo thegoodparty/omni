@@ -20,6 +20,7 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
+import { differenceInCalendarDays } from 'date-fns'
 import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
@@ -271,12 +272,28 @@ export class ElectedOfficeController {
       )
     }
 
+    // Mirror create()'s term-length derivation: when this PUT changes a term
+    // bound and the client didn't send termLengthDays explicitly, recompute it
+    // from the effective dates (serve onboarding persists term dates on a
+    // placeholder via PUT, so without this the field stays null). Leave it
+    // untouched when the term dates aren't part of this update.
+    const termDatesTouched =
+      body.termStartDate !== undefined || body.termEndDate !== undefined
+    const termLengthDays =
+      body.termLengthDays !== undefined
+        ? body.termLengthDays
+        : termDatesTouched
+          ? effectiveTermStart && effectiveTermEnd
+            ? differenceInCalendarDays(effectiveTermEnd, effectiveTermStart)
+            : null
+          : undefined
+
     const data: Prisma.ElectedOfficeUpdateInput = {
       swornInDate: body.swornInDate,
       electedDate: body.electedDate,
       termStartDate: body.termStartDate,
       termEndDate: body.termEndDate,
-      termLengthDays: body.termLengthDays,
+      termLengthDays,
       isActive: body.isActive,
       party: body.party,
       pledgedAt: body.pledgedAt,

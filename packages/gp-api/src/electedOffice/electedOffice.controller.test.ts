@@ -596,6 +596,23 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
     })
 
+    it('derives termLengthDays from supplied term dates (parity with create)', async () => {
+      // A placeholder has no term length; persisting term dates via PUT (the
+      // serve-onboarding path) must derive termLengthDays like create() does.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+      expect(placeholder.data.termLengthDays).toBeNull()
+
+      const result = await service.client.put(
+        `/v1/elected-office/${placeholder.data.id}`,
+        { termStartDate: '2025-01-01', termEndDate: '2029-01-01' },
+      )
+
+      expect(result.status).toBe(200)
+      // 2025-01-01 -> 2029-01-01 spans 1461 calendar days (incl. the 2028 leap).
+      expect(result.data.termLengthDays).toBe(1461)
+    })
+
     const m2mRequest = () =>
       ({
         m2mToken: { sub: 'svc' },
