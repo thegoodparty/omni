@@ -9,7 +9,6 @@ import {
 } from '../../generated/prisma'
 import { Cron } from '@nestjs/schedule'
 import { randomUUID } from 'crypto'
-import { subMinutes } from 'date-fns'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
@@ -28,13 +27,6 @@ export type ExperimentRunDispatchInput<
   priority?: DispatchPriority
 }
 
-const STALE_THRESHOLD_MINUTES = 45
-// Backstop for runs that are enqueued QUEUED but never reach RUNNING (no
-// `started` callback ever arrives — ingest poison-message → DLQ, or the
-// scheduler drops the job). Set well above the worst-case legitimate
-// priority-queue wait during a large bulk cohort so it never fights normal
-// queueing; it only reclaims truly orphaned rows.
-const QUEUED_STALE_THRESHOLD_MINUTES = 360
 export const MAX_RESUME_ATTEMPTS = 48
 // Drain the resumable backlog incrementally across ticks so a post-pause
 // surge can't load an unbounded result set or overrun the 5-minute interval.
@@ -162,7 +154,7 @@ export class ExperimentRunsService extends createPrismaBase(
       } catch (updateError) {
         this.logger.error(
           { updateError, runId },
-          'Failed to mark run FAILED after SQS dispatch error — row stuck QUEUED until sweeper',
+          'Failed to mark run FAILED after SQS dispatch error — row stuck QUEUED with no automatic reclaim',
         )
       }
       throw new BadGatewayException(
@@ -372,51 +364,5 @@ export class ExperimentRunsService extends createPrismaBase(
       where: { runId },
       data: { status: ExperimentRunStatus.FAILED, error: error.slice(0, 1000) },
     })
-  }
-
-  @Cron('*/15 * * * *')
-  async sweepStaleRuns() {
-    const cutoff = subMinutes(new Date(), STALE_THRESHOLD_MINUTES)
-    // Scoped to RUNNING only: QUEUED rows are waiting in the priority queue, not
-    // executing, so their age must not count against the callback timeout.
-    const result = await this.model.updateMany({
-      where: {
-        status: { in: [ExperimentRunStatus.RUNNING] },
-        updatedAt: { lt: cutoff },
-      },
-      data: {
-        status: ExperimentRunStatus.FAILED,
-        error: `Timed out waiting for callback after ${STALE_THRESHOLD_MINUTES} minutes`,
-      },
-    })
-
-    if (result.count > 0) {
-      this.logger.warn(
-        { count: result.count, cutoff: cutoff.toISOString() },
-        'Marked stale experiment runs as FAILED',
-      )
-    }
-  }
-
-  @Cron('*/15 * * * *')
-  async sweepStuckQueuedRuns() {
-    const cutoff = subMinutes(new Date(), QUEUED_STALE_THRESHOLD_MINUTES)
-    const result = await this.model.updateMany({
-      where: {
-        status: ExperimentRunStatus.QUEUED,
-        updatedAt: { lt: cutoff },
-      },
-      data: {
-        status: ExperimentRunStatus.FAILED,
-        error: `Never started; stuck QUEUED for over ${QUEUED_STALE_THRESHOLD_MINUTES} minutes`,
-      },
-    })
-
-    if (result.count > 0) {
-      this.logger.warn(
-        { count: result.count, cutoff: cutoff.toISOString() },
-        'Marked stuck QUEUED experiment runs as FAILED',
-      )
-    }
   }
 }
