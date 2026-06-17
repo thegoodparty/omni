@@ -241,25 +241,25 @@ export function buildSlackBlocks({
                 },
               ],
             },
-            // Only when the free-texts discount applied (billable < total).
-            billableTextCount !== undefined && billableTextCount !== textCount
-              ? {
-                  type: SlackMessageType.RICH_TEXT_SECTION,
-                  elements: [
-                    {
-                      type: SlackMessageType.TEXT,
-                      text: '# of Billable Texts: ',
-                      style: {
-                        bold: true,
-                      },
-                    },
-                    {
-                      type: SlackMessageType.TEXT,
-                      text: billableTextCount.toLocaleString('en-US'),
-                    },
-                  ],
-                }
-              : undefined,
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: '# of Billable Texts: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text:
+                    billableTextCount === undefined
+                      ? 'N/A'
+                      : billableTextCount.toLocaleString('en-US'),
+                },
+              ],
+            },
             {
               type: SlackMessageType.RICH_TEXT_SECTION,
               elements: [

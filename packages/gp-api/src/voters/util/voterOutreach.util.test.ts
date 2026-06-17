@@ -109,14 +109,7 @@ describe('buildSlackBlocks - text count', () => {
     formattedAudience: [],
   }
 
-  it('renders the total and no billable line when no discount applied', () => {
-    const { blocks } = buildSlackBlocks({ ...baseParams, textCount: 5200 })
-
-    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('5,200')
-    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
-  })
-
-  it('renders a separate billable line when a discount applied', () => {
+  it('always renders both lines when a discount applied', () => {
     const { blocks } = buildSlackBlocks({
       ...baseParams,
       textCount: 12259,
@@ -138,7 +131,7 @@ describe('buildSlackBlocks - text count', () => {
     expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('0')
   })
 
-  it('omits the billable line when billable equals total', () => {
+  it('repeats the total on the billable line when there is no discount', () => {
     const { blocks } = buildSlackBlocks({
       ...baseParams,
       textCount: 300,
@@ -146,13 +139,13 @@ describe('buildSlackBlocks - text count', () => {
     })
 
     expect(findLabeledValue(blocks, '# of Texts: ')).toBe('300')
-    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('300')
   })
 
-  it('renders "N/A" when text count is omitted', () => {
+  it('renders "N/A" on both lines when the counts are omitted', () => {
     const { blocks } = buildSlackBlocks(baseParams)
 
     expect(findLabeledValue(blocks, '# of Texts: ')).toBe('N/A')
-    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('N/A')
   })
 })
