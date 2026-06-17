@@ -277,6 +277,7 @@ export const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  isElectedOfficeLoading: boolean,
   chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
   winVoterDataEnabled: boolean,
@@ -287,7 +288,12 @@ export const getDashboardMenuItems = (
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (campaign?.isPro) {
+  } else if (!isElectedOfficeLoading && campaign?.isPro) {
+    // Wait for the elected-office query before committing to the Win item:
+    // until it settles a Serve elected-official reads as not-elected-office,
+    // and selecting WIN_CONTACTS here would flash "Voter Data" at them (the
+    // rest of this PR gates on the same load via useWinVoterContext). While
+    // loading, the generic upgrade placeholder stays in the slot.
     menuItems[voterDataIndex] = winVoterDataEnabled
       ? WIN_CONTACTS_MENU_ITEM
       : VOTER_RECORDS_MENU_ITEM
@@ -333,7 +339,8 @@ export default function DashboardMenu({
 }: DashboardMenuProps): React.JSX.Element {
   const [campaign] = useCampaign()
   const [ecanvasser] = useEcanvasser()
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
@@ -355,6 +362,7 @@ export default function DashboardMenu({
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      isElectedOfficeLoading,
       chiefOfStaffEnabled,
       campaignStrategyExists,
       winVoterDataEnabled,
@@ -373,6 +381,7 @@ export default function DashboardMenu({
     serveAccessEnabled,
     ecanvasser,
     electedOffice,
+    isElectedOfficeLoading,
     proUpgradeReady,
     proUpgradeEnabled,
     chiefOfStaffEnabled,

@@ -10,11 +10,13 @@ const links = (
   {
     serveAccessEnabled = false,
     isElectedOffice = false,
+    isElectedOfficeLoading = false,
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
+    isElectedOfficeLoading?: boolean
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
   } = {},
@@ -23,6 +25,7 @@ const links = (
     campaign,
     serveAccessEnabled,
     isElectedOffice,
+    isElectedOfficeLoading,
     false,
     false,
     winVoterDataEnabled,
@@ -50,6 +53,20 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 
     expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(true)
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+  })
+
+  it('does not commit to the Win "Voter Data" item while the elected-office query is loading', () => {
+    // A Serve elected-official reads as not-elected-office until the query
+    // settles; selecting WIN_CONTACTS during that window would flash "Voter
+    // Data" at them. Hold the generic placeholder instead (ENG-10448).
+    const items = links(proCampaign, {
+      winVoterDataEnabled: true,
+      isElectedOfficeLoading: true,
+    })
+
+    expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
+    expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
   })
 
   it('does not show Contacts for a non-pro Win campaign even with the flag on', () => {
