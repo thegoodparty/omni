@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import type { CampaignStory } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -8,9 +9,13 @@ import {
   SparklesIcon,
   WandSparklesIcon,
 } from '@styleguide'
+import { clientRequest } from 'gpApi/typed-request'
+import { reportErrorToSentry } from '@shared/sentry'
+
+export type CampaignStoryField = keyof CampaignStory
 
 export interface CampaignStorySection {
-  id: string
+  id: CampaignStoryField
   title: string
   description: string
   placeholder: string
@@ -19,67 +24,84 @@ export interface CampaignStorySection {
 const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
 const STARTED_HINT =
   'Worth saying more: another 1-2 sentences will sharpen this a lot.'
+const ENOUGH_HINT = "That's great. You've given us plenty to work with."
 
-// The counter denominator, and the point past which the answer stands on its
-// own so we drop the nudge rather than make a quality claim we can't back up
-// from a length signal. A suggestion shown to the writer, NOT an input cap —
-// typing past it is allowed (the textarea has no maxLength).
+// The counter denominator and the point where the nudge turns into positive
+// reinforcement. A suggestion shown to the writer, NOT an input cap — typing
+// past it is allowed (the textarea has no maxLength).
 const SUGGESTED_CHARS = 100
 
 interface CampaignStoryCardProps {
   section: CampaignStorySection
+  initialValue: string | null
 }
 
 const CampaignStoryCard = ({
   section,
+  initialValue,
 }: CampaignStoryCardProps): React.JSX.Element => {
-  const { title, description, placeholder } = section
-  const [value, setValue] = useState('')
+  const { id, title, description, placeholder } = section
+  const [value, setValue] = useState(initialValue ?? '')
+  const [savedValue, setSavedValue] = useState(initialValue ?? '')
+  const [saving, setSaving] = useState(false)
+
   const trimmedLength = value.trim().length
   const hint =
     trimmedLength === 0
       ? EMPTY_HINT
       : trimmedLength < SUGGESTED_CHARS
         ? STARTED_HINT
-        : null
+        : ENOUGH_HINT
+
+  const save = async (): Promise<void> => {
+    if (saving || value === savedValue) return
+    setSaving(true)
+    try {
+      await clientRequest('PUT /v1/campaigns/mine/story', { [id]: value })
+      setSavedValue(value)
+    } catch (error) {
+      reportErrorToSentry(error, {
+        context: 'CampaignStoryCard.save',
+        field: id,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <Card className="p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-xl font-semibold text-foreground">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-          {value.length}/{SUGGESTED_CHARS}
-        </span>
+      <div className="flex flex-col gap-1">
+        <h3 className="text-xl font-semibold text-foreground">{title}</h3>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
       <div className="mt-4 flex flex-col gap-4">
-        <Textarea
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder={placeholder}
-          className="min-h-28"
-        />
+        <div className="relative">
+          <Textarea
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onBlur={save}
+            placeholder={placeholder}
+            className="min-h-28 pb-7"
+          />
+          <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
+            {value.length}/{SUGGESTED_CHARS}
+          </span>
+        </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {hint && (
-            <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-              <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-bold uppercase tracking-wide text-primary">
-                  Campaign Manager
-                </span>
-                <span className="text-sm text-foreground">{hint}</span>
-              </div>
+          <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
+            <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-bold uppercase tracking-wide text-primary">
+                Campaign Manager
+              </span>
+              <span className="text-sm text-foreground">{hint}</span>
             </div>
-          )}
+          </div>
 
-          <Button
-            icon={<WandSparklesIcon />}
-            className="sm:ml-auto sm:shrink-0"
-          >
+          <Button icon={<WandSparklesIcon />} className="sm:shrink-0">
             Help me rewrite
           </Button>
         </div>

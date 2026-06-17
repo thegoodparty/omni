@@ -12,6 +12,7 @@ import {
   CampaignVersions,
   User,
 } from 'helpers/types'
+import type { CampaignStory } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
 import type {
@@ -198,6 +199,18 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/plan-version': {
     Request: {}
     Response: CampaignVersions
+  }
+
+  'GET /v1/campaigns/mine/story': {
+    Request: {}
+    Response: CampaignStory
+  }
+
+  // Partial upsert — each Campaign Story field autosaves on blur, so any
+  // subset of why/background/issues may be sent.
+  'PUT /v1/campaigns/mine/story': {
+    Request: { why?: string; background?: string; issues?: string }
+    Response: CampaignStory
   }
 
   // The pro-upgrade filing-instructions screen reads this fresh so it renders

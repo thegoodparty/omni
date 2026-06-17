@@ -5,6 +5,7 @@ import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import Paper from '@shared/utils/Paper'
 import H2 from '@shared/typography/H2'
 import { BookOpenIcon } from '@styleguide'
+import type { CampaignStory } from '@goodparty_org/contracts'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import CampaignStoryCard, {
   type CampaignStorySection,
@@ -12,6 +13,7 @@ import CampaignStoryCard, {
 
 interface CampaignStoryPageProps {
   pathname?: string
+  initialStory: CampaignStory
 }
 
 const SECTIONS: CampaignStorySection[] = [
@@ -41,6 +43,7 @@ const SECTIONS: CampaignStorySection[] = [
 
 const CampaignStoryPage = ({
   pathname,
+  initialStory,
 }: CampaignStoryPageProps): React.JSX.Element => (
   <FeatureFlagGuard flagKey={CAMPAIGN_STORY_FLAG_KEY}>
     <DashboardLayout
@@ -69,7 +72,11 @@ const CampaignStoryPage = ({
 
         <div className="flex flex-col gap-6">
           {SECTIONS.map((section) => (
-            <CampaignStoryCard key={section.id} section={section} />
+            <CampaignStoryCard
+              key={section.id}
+              section={section}
+              initialValue={initialStory[section.id]}
+            />
           ))}
         </div>
       </Paper>

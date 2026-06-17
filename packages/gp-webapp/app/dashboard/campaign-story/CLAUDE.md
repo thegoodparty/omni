@@ -8,24 +8,29 @@ campaign plan, stump speech, and voter messaging.
 
 | File | Role |
 |------|------|
-| `page.tsx` | Route entry — `candidateAccess()` then renders the client page |
-| `components/CampaignStoryPage.tsx` | Layout: `FeatureFlagGuard` → `DashboardLayout`, header, intro, section list |
-| `components/CampaignStoryCard.tsx` | One prompt card — textarea + char counter (`/100`, soft suggestion, not enforced) + Campaign Manager hint + "Help me rewrite" |
+| `page.tsx` | Route entry — `candidateAccess()`, server-fetches the saved story, renders the client page |
+| `components/CampaignStoryPage.tsx` | Layout: `FeatureFlagGuard` → `DashboardLayout`, header, intro, section list; threads each saved value to its card |
+| `components/CampaignStoryCard.tsx` | One prompt card — textarea (char counter at its bottom-right, `/100` soft suggestion, not enforced) + Campaign Manager hint + "Help me rewrite" |
 
 ## Patterns
 
 - **Gated behind the `campaign-story` Amplitude flag** via `FeatureFlagGuard`
   (route) and `useCampaignStoryFlag()` in `DashboardMenu.tsx` (sidebar item). Flag
   key lives in `@shared/experiments/campaignStoryFlag.ts`.
-- **UI shell only.** Textarea content is local component state — nothing
-  persists yet. "Help me rewrite" is a non-functional placeholder. Wiring
-  persistence (gp-api campaign fields) and the rewrite action are follow-ups.
-- **Campaign Manager hint** is length-driven (empty → "say more" → hidden past
-  `SUGGESTED_CHARS`). It deliberately stops at the "say more" nudge; quality
-  praise ("strong, specific…") waits for the real rewrite AI, since a length
-  signal can't judge quality.
+- **Persistence.** `page.tsx` server-fetches `GET /v1/campaigns/mine/story` to
+  seed each card; each card autosaves its own field on blur via
+  `PUT /v1/campaigns/mine/story` (partial body, one field). Backed by the
+  `campaign_story` table in gp-api (`src/campaignStory/`); response shape is
+  `CampaignStory` from `@goodparty_org/contracts`.
+- **"Help me rewrite"** is still a non-functional placeholder — wiring the AI
+  rewrite is a separate ticket.
+- **Campaign Manager hint** is length-driven and always visible: empty → "say
+  more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
+  claims ("strong, specific…") from a length signal — that waits for the real
+  rewrite AI.
 
 ## Related
 
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — sidebar entry (campaign category).
+- `packages/gp-api/src/campaignStory/` — table, endpoints, service.
