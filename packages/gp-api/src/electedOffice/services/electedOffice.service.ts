@@ -128,7 +128,11 @@ export class ElectedOfficeService extends createPrismaBase(
         }
         if (hasNewTerm) {
           // The placeholder itself has no term, but the user may hold other
-          // dated offices — keep the no-overlap invariant when filling it.
+          // dated offices — keep the no-overlap invariant when filling it. Any
+          // overlapping dated office is a genuine conflict: the idempotent-retry
+          // exemption used on the create path below cannot apply here, because a
+          // previously-filled placeholder would no longer have null term dates
+          // and so would not have matched the placeholder finder above.
           const overlapping = existingForUser.find(
             (eo) =>
               eo.id !== placeholder.id &&
@@ -139,7 +143,7 @@ export class ElectedOfficeService extends createPrismaBase(
                 newEnd,
               ),
           )
-          if (overlapping && !isSameDay(overlapping.termStartDate, newStart)) {
+          if (overlapping) {
             throw new ConflictException(
               'Elected office term overlaps an existing elected office for this user',
             )

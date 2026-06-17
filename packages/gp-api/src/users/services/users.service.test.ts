@@ -428,19 +428,20 @@ describe('UsersService', () => {
       expect(result.token).toBe('signin_token_abc')
     })
 
-    it('refuses an existing passwordless account that is not an EO lead', async () => {
-      // A passwordless, campaign-less Clerk identity that owns no ElectedOffice
-      // is some other account (not an EO lead) — minting a sign-in token for it
-      // from an admin-supplied email would be an account takeover.
+    it('reuses a passwordless, campaign-less account that has no EO yet (retry after a stranded partial create)', async () => {
+      // If a first magic-link attempt provisioned the Clerk + local user but
+      // failed before the ElectedOffice was created, the account is a stranded
+      // partial lead — admins must be able to retry. Campaign ownership is the
+      // only block; a missing ElectedOffice must NOT permanently reject reuse.
       const suffix = uniqueSuffix()
-      const email = `eo-nonlead-${suffix}@example.com`
-      const clerkId = `clerk_nonlead_${suffix}`
+      const email = `eo-retry-${suffix}@example.com`
+      const clerkId = `clerk_retry_${suffix}`
       await service.prisma.user.create({
         data: {
           email,
-          firstName: 'Some',
-          lastName: 'Body',
-          name: 'Some Body',
+          firstName: 'Stranded',
+          lastName: 'Lead',
+          name: 'Stranded Lead',
           clerkId,
         },
       })
@@ -451,16 +452,17 @@ describe('UsersService', () => {
       vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
         passwordEnabled: false,
       } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
-      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+      const createUser = vi.spyOn(clerkClient.users, 'createUser')
 
-      await expect(
-        usersService.provisionMagicLinkUser({
-          email,
-          firstName: 'Some',
-          lastName: 'Body',
-        }),
-      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
-      expect(signIn).not.toHaveBeenCalled()
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Stranded',
+        lastName: 'Lead',
+      })
+
+      expect(createUser).not.toHaveBeenCalled()
+      expect(result.clerkId).toBe(clerkId)
+      expect(result.token).toBe('signin_token_abc')
     })
 
     it('refuses an existing account that has a Clerk password set', async () => {

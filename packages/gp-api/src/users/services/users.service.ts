@@ -575,19 +575,19 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       )
     }
 
-    // An existing Clerk identity is only safe to repurpose for a magic-link
-    // sign-in when it's a passwordless EO lead. Reject it when the local
-    // account owns a campaign (a real candidate account) OR isn't an elected
-    // official at all (no ElectedOffice row) — otherwise an admin caller could
-    // mint a full-account sign-in token for someone else's account just by
-    // supplying their email. A just-provisioned lead from the branch above has
-    // no existing identity, so it never reaches this check.
+    // A user who already owns a campaign is a real candidate account, not a
+    // fresh EO lead, so never repurpose it for a magic-link sign-in. (Only an
+    // existing identity can have one; a just-created lead never does.)
+    // Campaign ownership is the only meaningful signal here: a passwordless,
+    // campaign-less account is either a brand-new lead or a stranded partial
+    // create (provisioned before its ElectedOffice row), so it must stay
+    // reusable — gating on the absence of an ElectedOffice would permanently
+    // block legitimate admin retries after a failed first attempt.
     if (existing.source === 'clerk') {
-      const [campaignCount, electedOfficeCount] = await Promise.all([
-        this.client.campaign.count({ where: { userId: user.id } }),
-        this.client.electedOffice.count({ where: { userId: user.id } }),
-      ])
-      if (campaignCount > 0 || electedOfficeCount === 0) {
+      const campaignCount = await this.client.campaign.count({
+        where: { userId: user.id },
+      })
+      if (campaignCount > 0) {
         throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       }
     }
