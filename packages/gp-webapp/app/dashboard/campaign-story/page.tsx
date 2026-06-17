@@ -1,6 +1,5 @@
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
-import type { CampaignStory } from '@goodparty_org/contracts'
 import candidateAccess from '../shared/candidateAccess'
 import CampaignStoryPage from './components/CampaignStoryPage'
 
@@ -13,20 +12,16 @@ const meta = pageMetaData({
 export const metadata = meta
 export const dynamic = 'force-dynamic'
 
-const EMPTY_STORY: CampaignStory = { why: null, background: null, issues: null }
-
-const fetchStory = async (): Promise<CampaignStory> => {
-  try {
-    const { data } = await serverRequest('GET /v1/campaigns/mine/story', {})
-    return data
-  } catch {
-    return EMPTY_STORY
-  }
-}
-
 export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
-  const initialStory = await fetchStory()
+  // Deliberately not caught: a fetch failure should hit Next's error boundary,
+  // not render blank fields a blur autosave could overwrite. The endpoint
+  // returns 200 with null fields for a brand-new story, so the empty case is
+  // the success path, not an error.
+  const { data: initialStory } = await serverRequest(
+    'GET /v1/campaigns/mine/story',
+    {},
+  )
   return (
     <CampaignStoryPage
       pathname="/dashboard/campaign-story"
