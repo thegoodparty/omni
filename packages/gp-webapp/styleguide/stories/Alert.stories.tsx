@@ -37,6 +37,7 @@ type PlaygroundArgs = {
   description: string
   showAction: boolean
   actionLabel: string
+  actionVariant: 'alertOutline' | 'alertFilled'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -48,6 +49,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     description: 'You can add components and dependencies to your app.',
     showAction: false,
     actionLabel: 'Learn more',
+    actionVariant: 'alertOutline',
   },
   argTypes: {
     variant: {
@@ -79,6 +81,13 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       description: 'Label for the action button.',
       if: { arg: 'showAction', truthy: true },
     },
+    actionVariant: {
+      control: 'select',
+      options: ['alertOutline', 'alertFilled'],
+      description:
+        "Button style for the action. Both variants automatically use the alert's accent color.",
+      if: { arg: 'showAction', truthy: true },
+    },
   },
   render: ({
     variant,
@@ -88,6 +97,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     description,
     showAction,
     actionLabel,
+    actionVariant,
   }) => (
     <Alert
       variant={variant}
@@ -97,7 +107,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       {showDescription && <AlertDescription>{description}</AlertDescription>}
       {showAction && (
         <AlertAction>
-          <Button variant="outline" size="small">
+          <Button variant={actionVariant} size="small">
             {actionLabel}
           </Button>
         </AlertAction>
