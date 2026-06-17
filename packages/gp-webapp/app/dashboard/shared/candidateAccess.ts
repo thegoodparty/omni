@@ -45,13 +45,23 @@ const fetchMyElectedOffices = async (): Promise<
   }
 }
 
+const fetchHasElectedOfficeOrg = async (): Promise<boolean> => {
+  try {
+    const organizations = await getCurrentUserOrganizations()
+    return organizations.some((o) => o.electedOfficeId)
+  } catch {
+    return false
+  }
+}
+
 export async function getPostAuthRedirectPath(): Promise<string> {
-  const [user, campaignStatus, hasCurrentEO, myElectedOffices] =
+  const [user, campaignStatus, hasCurrentEO, myElectedOffices, hasEoOrg] =
     await Promise.all([
       getServerUser(),
       fetchCampaignStatus(),
       fetchHasCurrentElectedOffice(),
       fetchMyElectedOffices(),
+      fetchHasElectedOfficeOrg(),
     ])
 
   // Mirror the OTP /post-auth-redirect path: `/current` only resolves the
@@ -60,7 +70,10 @@ export async function getPostAuthRedirectPath(): Promise<string> {
   // from every entry point (/, /login, /sign-up), not just the OTP flow.
   const incompleteEO = myElectedOffices.find((eo) => !eo.onboardingCompletedAt)
   const relevantEO = incompleteEO ?? myElectedOffices[0] ?? null
-  const hasElectedOffice = hasCurrentEO || myElectedOffices.length > 0
+  // Also honor an org that owns an elected office even when both EO endpoints
+  // miss (e.g. a provisioning race), matching the OTP page's `!!electedOrg`.
+  const hasElectedOffice =
+    hasCurrentEO || myElectedOffices.length > 0 || hasEoOrg
   // Default to "complete" when no concrete EO record resolves so a legacy
   // win→serve user isn't looped back into /serve/onboarding on every login.
   const electedOfficeOnboardingComplete = relevantEO

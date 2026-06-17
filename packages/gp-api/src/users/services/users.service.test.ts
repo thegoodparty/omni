@@ -587,6 +587,53 @@ describe('UsersService', () => {
       ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       expect(signIn).not.toHaveBeenCalled()
     })
+
+    it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
+      // No Clerk identity exists for the email (clerkId is null), so a new Clerk
+      // user is created and reuse-tracking never trips — but findOrProvisionByClerk
+      // links the existing campaign-owning local user. The campaign gate must run
+      // on the resolved user, not only when we knowingly reused a Clerk identity.
+      const suffix = uniqueSuffix()
+      const email = `eo-legacy-camp-${suffix}@example.com`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Legacy',
+          lastName: 'Candidate',
+          name: 'Legacy Candidate',
+          clerkId: null,
+        },
+      })
+      const orgSlug = `org-legacy-camp-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          slug: `camp-legacy-${suffix}`,
+          organizationSlug: orgSlug,
+          userId: user.id,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_legacy_${suffix}` } as never)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Legacy',
+          lastName: 'Candidate',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(createUser).toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
+    })
   })
 
   describe('impersonateUser', () => {

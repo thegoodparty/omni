@@ -553,14 +553,9 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     let clerkId: string
-    // Tracks whether we ended up on an existing Clerk identity (either resolved
-    // up front or discovered via the create race below) so the campaign gate
-    // applies in both cases.
-    let reusedExistingClerkUser = false
     const existing = await this.resolveClerkIdByEmail(email)
     if (existing.source === 'clerk') {
       clerkId = existing.clerkId
-      reusedExistingClerkUser = true
       await assertReusablePasswordless(clerkId)
     } else {
       try {
@@ -597,7 +592,6 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           throw err
         }
         clerkId = raced.clerkId
-        reusedExistingClerkUser = true
         await assertReusablePasswordless(clerkId)
       }
     }
@@ -615,20 +609,21 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     // A user who already owns a campaign is a real candidate account, not a
-    // fresh EO lead, so never repurpose it for a magic-link sign-in. (Only an
-    // existing identity can have one; a just-created lead never does.)
-    // Campaign ownership is the only meaningful signal here: a passwordless,
-    // campaign-less account is either a brand-new lead or a stranded partial
-    // create (provisioned before its ElectedOffice row), so it must stay
-    // reusable — gating on the absence of an ElectedOffice would permanently
-    // block legitimate admin retries after a failed first attempt.
-    if (reusedExistingClerkUser) {
-      const campaignCount = await this.client.campaign.count({
-        where: { userId: user.id },
-      })
-      if (campaignCount > 0) {
-        throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
-      }
+    // fresh EO lead, so never repurpose it for a magic-link sign-in. Check the
+    // RESOLVED user unconditionally: findOrProvisionByClerk can return a
+    // pre-existing legacy local user matched by email (clerkId was null, so no
+    // Clerk identity existed and reusedExistingClerkUser stays false) that owns
+    // a campaign — gating on reusedExistingClerkUser would skip that case. A
+    // brand-new lead's just-created user owns no campaign, so this never blocks
+    // legitimate leads. Campaign ownership is the only signal: a passwordless,
+    // campaign-less account is either a new lead or a stranded partial create,
+    // so it must stay reusable — gating on a missing ElectedOffice would
+    // permanently block legitimate admin retries after a failed first attempt.
+    const campaignCount = await this.client.campaign.count({
+      where: { userId: user.id },
+    })
+    if (campaignCount > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
     }
 
     const signInToken = await this.clerkClient.signInTokens.createSignInToken({

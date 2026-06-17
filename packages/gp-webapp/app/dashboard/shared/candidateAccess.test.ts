@@ -123,6 +123,21 @@ describe('getPostAuthRedirectPath', () => {
       '/onboarding/office-selection',
     )
   })
+
+  it('treats an EO-owning org as holding an office when both EO endpoints miss', async () => {
+    // A provisioning race can leave /current 404 and /mine empty while the org
+    // already carries an electedOfficeId — the user must not be misclassified as
+    // a brand-new candidate and sent to office selection.
+    mockGetCurrentUserOrganizations.mockResolvedValue([
+      { ...minimalOrg, electedOfficeId: 'eo-xyz' },
+    ])
+    routeServerFetch({
+      current: { ok: false, status: 404, data: null },
+      mine: { ok: true, status: 200, data: [] },
+    })
+
+    await expect(getPostAuthRedirectPath()).resolves.toBe('/dashboard')
+  })
 })
 
 describe('candidateAccess', () => {
