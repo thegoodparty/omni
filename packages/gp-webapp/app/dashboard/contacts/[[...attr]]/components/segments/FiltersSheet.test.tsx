@@ -63,6 +63,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     totalSegmentContacts: 0,
     canUseProFeatures: true,
     isElectedOfficial: false,
+    isWinContext: false,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
