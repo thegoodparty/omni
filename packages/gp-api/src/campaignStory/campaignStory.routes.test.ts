@@ -107,5 +107,15 @@ describe('CampaignStory routes', () => {
 
       expect(result.status).toBe(400)
     })
+
+    it('trims whitespace-only input so it reads as empty', async () => {
+      const result = await service.client.put(
+        STORY_URL,
+        { why: '   ' },
+        { headers },
+      )
+
+      expect(result.data.why).toBe('')
+    })
   })
 })
