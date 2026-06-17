@@ -100,11 +100,7 @@ export const States: Story = {
           Default
         </p>
         <CheckboxLabel id="default-unchecked" label="Unchecked" />
-        <CheckboxLabel
-          id="default-checked"
-          label="Checked"
-          defaultChecked
-        />
+        <CheckboxLabel id="default-checked" label="Checked" defaultChecked />
       </div>
       <div className="flex flex-col gap-3">
         <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
