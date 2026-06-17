@@ -57,6 +57,8 @@ def test_hard_drop_when_recent_far_below_baseline():
     verdict = evaluate([20] * 30 + [2] * 7)
     assert 'hard_drop' in verdict['flags']
     assert 'flatline' not in verdict['flags']
+    # drop_start_date must be the first day of the recent window, not null
+    assert verdict['drop_start_date'] == (START + timedelta(days=30)).isoformat()
 
 
 def test_spiky_recent_week_matching_baseline_rate_not_flagged():

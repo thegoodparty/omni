@@ -106,8 +106,14 @@ def evaluate_event(series, recent_days, floor, drop_fraction, min_active_volume)
     else:
         drop_pct = 100.0 if recent_sum == 0 and active else 0.0
 
-    # Drop started the day after the event was last seen (if it has since gone quiet).
-    drop_start = (last_seen + timedelta(days=1)) if (last_seen and recent_sum == 0) else None
+    # Drop started the day after the event was last seen (flatline), or at the
+    # start of the recent window when volume degraded but kept firing (hard_drop).
+    if last_seen and recent_sum == 0:
+        drop_start = last_seen + timedelta(days=1)
+    elif recent and 'hard_drop' in flags:
+        drop_start = recent[0][0]
+    else:
+        drop_start = None
 
     return {
         'flagged': bool(flags),
@@ -290,13 +296,15 @@ def run(watchlist_path, end_date, opts, with_git=True, git_timeout=20):
     events = [r['event'] for r in rows]
 
     hostname = os.environ.get('DATABRICKS_SERVER_HOSTNAME')
-    if not hostname:
+    http_path = os.environ.get('DATABRICKS_HTTP_PATH')
+    access_token = os.environ.get('DATABRICKS_API_KEY')
+    if not hostname or not http_path or not access_token:
         print('ERROR: Databricks env vars not set (see scripts/.env)', file=sys.stderr)
         sys.exit(2)
     conn = connect(
         server_hostname=hostname,
-        http_path=os.environ['DATABRICKS_HTTP_PATH'],
-        access_token=os.environ['DATABRICKS_API_KEY'],
+        http_path=http_path,
+        access_token=access_token,
     )
     try:
         with conn.cursor() as cursor:

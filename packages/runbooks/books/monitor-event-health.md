@@ -108,7 +108,7 @@ additions. (Future: post to Slack and optionally open a fix PR — see DATA-1952
 ## Troubleshooting
 
 - `ERROR: Databricks env vars not set` → the three `DATABRICKS_*` vars aren't in the shell.
-  Confirm `scripts/.env` (or your global env) has them and 1Password is unlocked.
+  Export them in your shell (e.g. via `op run` / 1Password CLI) and confirm 1Password is unlocked.
 - Everything looks flat / recent rates near zero across the board → likely the
   Amplitude→Databricks sync is lagging. Bump `--lag-days` and re-run.
 - A low-volume Serve event flags often → raise its `floor` in the watchlist or
