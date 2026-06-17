@@ -52,7 +52,6 @@ describe('ChiefOfStaffHandler', () => {
   beforeEach(() => {
     port = buildPort()
     store = {
-      findScopedConversation: vi.fn(),
       createScopedConversation: vi.fn(),
     } as unknown as GeneralChatStoreService
     context = {
@@ -102,12 +101,8 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('always creates a new conversation (never resumes the latest)', async () => {
-    // Each "new chat" must be its own conversation. Even when a prior scoped
-    // conversation exists, resolveConversation creates a fresh one and never
-    // collapses onto the existing one.
-    store.findScopedConversation = vi.fn(() =>
-      Promise.resolve({ id: 'existing' }),
-    ) as never
+    // Each "new chat" must be its own conversation: resolveConversation always
+    // creates a fresh one rather than resuming the most recent.
     store.createScopedConversation = vi.fn(() =>
       Promise.resolve({ id: 'fresh' }),
     ) as never

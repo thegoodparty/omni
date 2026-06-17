@@ -37,7 +37,6 @@ const buildStore = (
   overrides: Partial<GeneralChatStoreService> = {},
 ): GeneralChatStoreService =>
   ({
-    findScopedConversation: vi.fn(),
     createScopedConversation: vi.fn(),
     listByScope: vi.fn(() => Promise.resolve([])),
     findOwnedConversation: vi.fn(),

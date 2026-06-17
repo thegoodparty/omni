@@ -3,24 +3,12 @@ import { ChatConversation, ChatScope, Prisma } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
 // Scope-aware conversation queries for the general (non-annotation) chat. The
-// shared ChatStoreService owns messages + soft delete; this owns find-or-create
-// and history-by-scope so the briefing-chat store stays untouched.
+// shared ChatStoreService owns messages + soft delete; this owns conversation
+// create and history-by-scope so the briefing-chat store stays untouched.
 @Injectable()
 export class GeneralChatStoreService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  findScopedConversation(args: {
-    ownerUserId: number
-    organizationSlug: string | null
-    scope: ChatScope
-  }): Promise<ChatConversation | null> {
-    const { ownerUserId, organizationSlug, scope } = args
-    return this.findFirst({
-      where: { ownerUserId, organizationSlug, scope, deletedAt: null },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-    })
-  }
-
   createScopedConversation(args: {
     ownerUserId: number
     organizationSlug: string | null
