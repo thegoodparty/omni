@@ -78,7 +78,13 @@ const CampaignStoryCard = ({
   // was in flight, so a quick refocus-edit-reblur can't drop the newer text.
   // `id` is `keyof CampaignStory`, so the computed-key payload is a valid field.
   const save = async (): Promise<void> => {
-    if (savingRef.current || valueRef.current === savedRef.current) return
+    if (savingRef.current) return
+    // Nothing to persist (e.g. the user reverted a failed edit back to the
+    // saved text) — clear any stale error so the banner doesn't linger.
+    if (valueRef.current === savedRef.current) {
+      setSaveFailed(false)
+      return
+    }
     savingRef.current = true
     try {
       while (valueRef.current !== savedRef.current) {

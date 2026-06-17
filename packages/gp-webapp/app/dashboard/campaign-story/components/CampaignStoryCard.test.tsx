@@ -119,6 +119,27 @@ describe('CampaignStoryCard', () => {
     })
   })
 
+  it('clears the error when the text is reverted to the saved value', async () => {
+    const user = userEvent.setup()
+    api.mock('PUT /v1/campaigns/mine/story', async () => ({
+      status: 500,
+      data: emptyStory,
+    }))
+
+    render(<CampaignStoryCard section={section} initialValue={null} />)
+    const textarea = screen.getByPlaceholderText('Tap to write your why')
+    await user.type(textarea, 'x')
+    await user.tab()
+    expect(await screen.findByText(/Couldn't save/)).toBeInTheDocument()
+
+    await user.clear(textarea)
+    await user.tab()
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Couldn't save/)).not.toBeInTheDocument()
+    })
+  })
+
   it('does not save on blur when the value is unchanged', async () => {
     const user = userEvent.setup()
     let called = false
