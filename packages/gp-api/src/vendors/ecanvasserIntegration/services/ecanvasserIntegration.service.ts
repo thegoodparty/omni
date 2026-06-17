@@ -11,11 +11,18 @@ import { CampaignsService } from '../../../campaigns/services/campaigns.service'
 import { Ecanvasser, EcanvasserInteraction } from '../../../generated/prisma'
 import slugify from 'slugify'
 import { subDays, subMinutes } from 'date-fns'
-import { EcanvasserSummary } from '../ecanvasserIntegration.types'
+import {
+  ECANVASSER_ATTRIBUTION_SERVICE,
+  EcanvasserSummary,
+} from '../ecanvasserIntegration.types'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EcanvasserService } from './ecanvasser.service'
+// Type-only: the runtime instance is injected via ECANVASSER_ATTRIBUTION_SERVICE
+// so this file carries no runtime import of the attribution service, which would
+// otherwise close a module-eval cycle (see ecanvasserIntegration.types.ts).
+import type { EcanvasserAttributionService } from './ecanvasserAttribution.service'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 
 @Injectable()
@@ -30,6 +37,8 @@ export class EcanvasserIntegrationService extends createPrismaBase(
     private readonly crm: WrapperType<CrmCampaignsService>,
     private slack: SlackService,
     private readonly clerkEnricher: ClerkUserEnricherService,
+    @Inject(ECANVASSER_ATTRIBUTION_SERVICE)
+    private readonly attribution: EcanvasserAttributionService,
   ) {
     super()
   }
@@ -242,6 +251,7 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         data: {
           contacts: {
             create: contacts.map((contact) => ({
+              externalId: contact.id,
               firstName: contact.first_name,
               lastName: contact.last_name,
               type: contact.type,
@@ -273,6 +283,7 @@ export class EcanvasserIntegrationService extends createPrismaBase(
           },
           interactions: {
             create: interactions.map((interaction) => ({
+              externalId: interaction.id,
               type: interaction.type,
               status: interaction.status?.name ?? 'Unknown',
               contactId: interaction.contact_id || 0,
@@ -284,8 +295,24 @@ export class EcanvasserIntegrationService extends createPrismaBase(
           lastSync: new Date(),
           error: null,
         },
+        include: { contacts: true, interactions: true },
       })
       await this.crm.trackCampaign(campaignId)
+      // Emit per-voter door-knock attribution from the freshly-synced rows.
+      // Best-effort and idempotent; expected failures (voter data ineligible,
+      // People-API down) are handled inside the service and never throw.
+      const campaign = await this.campaignsService.findFirst({
+        where: { id: campaignId },
+        include: { organization: true },
+      })
+      if (campaign?.organization) {
+        await this.attribution.attributeDoorKnocking(
+          campaignId,
+          campaign.organization,
+          updated.contacts,
+          updated.interactions,
+        )
+      }
       return updated
     } catch (error) {
       this.logger.error({ error }, 'Failed to sync with ecanvasserIntegration')

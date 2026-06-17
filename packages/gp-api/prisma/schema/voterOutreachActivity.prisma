@@ -24,6 +24,12 @@ model VoterOutreachActivity {
   outreachType      OutreachType                   @map("outreach_type")
   attributionSource VoterOutreachAttributionSource @map("attribution_source")
   occurredAt        DateTime                       @map("occurred_at")
+  // Stable id of the upstream source event this activity was emitted from
+  // (e.g. the eCanvasser interaction id for door knocking), used as the
+  // idempotency key so a re-sync upserts rather than double-writes. Null for
+  // write paths with no per-event source id (segment-derived sends). Postgres
+  // treats NULLs as distinct, so the unique index never collides those rows.
+  sourceId          String?                        @map("source_id")
   // Optional link to the segment-level Outreach this activity was derived from.
   outreach          Outreach?                      @relation(fields: [outreachId], references: [id])
   outreachId        Int?                           @map("outreach_id")
@@ -31,6 +37,7 @@ model VoterOutreachActivity {
   // write paths (epic tasks 13–15) and varies by outreachType — genuinely dynamic.
   metadata          Json?                          @db.JsonB
 
+  @@unique([campaignId, outreachType, sourceId])
   @@index([campaignId, lalVoterId, occurredAt])
   @@map("voter_outreach_activity")
 }

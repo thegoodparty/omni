@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma } from '@/generated/prisma'
+import { OutreachType, Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
 @Injectable()
@@ -8,6 +8,49 @@ export class VoterOutreachActivityService extends createPrismaBase(
 ) {
   recordActivity(data: Prisma.VoterOutreachActivityUncheckedCreateInput) {
     return this.model.create({ data })
+  }
+
+  // Idempotent write for source-event-backed write paths (e.g. door knocking).
+  // Keyed on the (campaignId, outreachType, sourceId) unique constraint so a
+  // re-sync upserts the same row instead of double-writing — the dedupe is
+  // enforced at the DB, not after a read, so concurrent retries can't race in a
+  // duplicate. `sourceId` is required here (the upstream event id); the update
+  // branch refreshes the fields a re-sync can legitimately change.
+  recordActivityIdempotent(
+    data: Prisma.VoterOutreachActivityUncheckedCreateInput & {
+      sourceId: string
+    },
+  ) {
+    const { campaignId, outreachType, sourceId } = data
+    return this.model.upsert({
+      where: {
+        campaignId_outreachType_sourceId: {
+          campaignId,
+          outreachType,
+          sourceId,
+        },
+      },
+      create: data,
+      update: {
+        lalVoterId: data.lalVoterId,
+        occurredAt: data.occurredAt,
+        attributionSource: data.attributionSource,
+        metadata: data.metadata,
+      },
+    })
+  }
+
+  // Source-event ids already attributed for a campaign + channel, so a re-sync
+  // can skip re-matching them. Only rows with a non-null sourceId are relevant.
+  async findSourceIds(
+    campaignId: number,
+    outreachType: OutreachType,
+  ): Promise<Set<string>> {
+    const rows = await this.model.findMany({
+      where: { campaignId, outreachType, sourceId: { not: null } },
+      select: { sourceId: true },
+    })
+    return new Set(rows.map((row) => row.sourceId).filter((id) => id !== null))
   }
 
   // Person-timeline read: newest first, backed by the
