@@ -80,32 +80,22 @@ export const Vertical: Story = {
 export const InContext: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="bg-card text-card-foreground w-80 rounded-lg border p-6 shadow-sm">
+    <div className="w-full max-w-sm">
       <div className="space-y-1">
-        <h4 className="text-foreground text-sm font-semibold">Alex Johnson</h4>
-        <p className="text-muted-foreground text-xs">
-          City Council · District 4
+        <h4 className="text-foreground text-base font-semibold leading-none">
+          GoodParty.org
+        </h4>
+        <p className="text-muted-foreground text-sm">
+          Run, win, and serve as an independent.
         </p>
       </div>
       <Separator className="my-4" />
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Status</span>
-          <span className="text-foreground font-medium">Active</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Raised</span>
-          <span className="text-foreground font-medium">$12,400</span>
-        </div>
-      </div>
-      <Separator className="my-4" />
-      <div className="text-foreground flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Last updated 2 hours ago</span>
-        <div className="flex h-4 items-center gap-2">
-          <span>Edit</span>
-          <Separator orientation="vertical" />
-          <span>Share</span>
-        </div>
+      <div className="text-foreground flex h-5 items-center gap-4 text-sm">
+        <span>About</span>
+        <Separator orientation="vertical" />
+        <span>Candidates</span>
+        <Separator orientation="vertical" />
+        <span>Donate</span>
       </div>
     </div>
   ),
