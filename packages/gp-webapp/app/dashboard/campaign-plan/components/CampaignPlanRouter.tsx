@@ -85,8 +85,10 @@ const CampaignPlanRouter = ({
 
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
-  // the same view as an existing plan, no blocking spinner.
-  if (planExists === true || generateRequested) {
+  // the same view as an existing plan, no blocking spinner. A persisted
+  // generate request only bypasses the gate once existence is KNOWN — never
+  // while it's null, or it would defeat the unknown-state guard below.
+  if (planExists === true || (planExists !== null && generateRequested)) {
     return <CampaignPlanPage initialUser={initialUser} />
   }
 

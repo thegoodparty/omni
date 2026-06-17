@@ -56,6 +56,19 @@ describe('CampaignPlanRouter', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
+  it('shows retry, not the plan, when existence is unknown even after a generate request', () => {
+    setFlag(true, true)
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(Date.now()),
+    )
+    render(<CampaignPlanRouter initialUser={null} planExists={null} />)
+    expect(
+      screen.getByRole('button', { name: 'Try again' }),
+    ).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
   it('shows a spinner while the flag is still loading', () => {
     setFlag(false, false)
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
