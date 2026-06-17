@@ -29,6 +29,7 @@ import ms from 'ms'
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 
 const parseBriefingArtifact = (
   raw: string,
@@ -155,6 +156,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly llm: LlmService,
     private readonly braintrust: BraintrustService,
     private readonly cronLock: CronLockService,
+    private readonly dashboardCards: DashboardCardsService,
   ) {
     super()
   }
@@ -527,11 +529,45 @@ export class MeetingBriefingsService extends createPrismaBase(
       loaded.electedOffice,
       loaded.artifact,
     )
+    // Dashboard cards are a best-effort projection of the briefing — a sync
+    // failure must not block the briefing row write, mirroring the location
+    // hint-upsert ordering above.
+    await this.syncDashboardCardsForBriefing(
+      loaded.electedOffice.id,
+      loaded.artifact,
+    )
     await this.persistAgendaLocationFromArtifact(
       run,
       loaded.electedOffice.id,
       loaded.artifact,
     )
+  }
+
+  private async syncDashboardCardsForBriefing(
+    electedOfficeId: string,
+    artifact: PrismaJson.MeetingBriefingArtifact,
+  ): Promise<void> {
+    const dateString =
+      typeof artifact.meeting_date === 'string' ? artifact.meeting_date : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return
+
+    try {
+      const briefing = await this.model.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId,
+            meetingDate: parseIsoDateAsUTC(dateString),
+          },
+        },
+      })
+      if (!briefing) return
+      await this.dashboardCards.syncFromBriefing(briefing)
+    } catch (err) {
+      this.logger.error(
+        { err, electedOfficeId, meetingDate: dateString },
+        'dashboard card sync failed; continuing without blocking briefing',
+      )
+    }
   }
 
   private async upsertResourceLocation(args: {

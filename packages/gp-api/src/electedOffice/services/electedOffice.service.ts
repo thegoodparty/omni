@@ -11,6 +11,7 @@ import {
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { isHeldOffice } from '@/campaigns/util/eligibility.util'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
@@ -38,6 +39,8 @@ export class ElectedOfficeService extends createPrismaBase(
   constructor(
     @Inject(forwardRef(() => MeetingBriefingsService))
     private readonly meetingBriefings: MeetingBriefingsService,
+    @Inject(forwardRef(() => PrioritiesService))
+    private readonly priorities: PrioritiesService,
     private readonly elections: ElectionsService,
   ) {
     super()
@@ -85,7 +88,7 @@ export class ElectedOfficeService extends createPrismaBase(
         },
       })
 
-      return tx.electedOffice.create({
+      const created = await tx.electedOffice.create({
         data: {
           id,
           swornInDate: args.swornInDate,
@@ -98,6 +101,10 @@ export class ElectedOfficeService extends createPrismaBase(
           termLengthDays: termFields.termLengthDays,
         },
       })
+
+      await this.priorities.seedFromWin(created.id, tx)
+
+      return created
     })
 
     // Fires for both a fresh create and an idempotent return: a prior call may

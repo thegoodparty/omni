@@ -68,6 +68,21 @@ const nextConfig: NextConfig = {
               source: '/api/v1/briefings/:uuid',
               destination: `${apiBase}/v1/briefings/:uuid`,
             },
+            // Chief of Staff dashboard + reusable chat surface proxy their
+            // browser calls through /api to gp-api (cards, support estimate,
+            // and the /v1/chats SSE endpoints).
+            {
+              source: '/api/v1/dashboard/:path*',
+              destination: `${apiBase}/v1/dashboard/:path*`,
+            },
+            {
+              source: '/api/v1/chats',
+              destination: `${apiBase}/v1/chats`,
+            },
+            {
+              source: '/api/v1/chats/:path*',
+              destination: `${apiBase}/v1/chats/:path*`,
+            },
           ]
         : []),
     ]
