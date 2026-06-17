@@ -1,0 +1,77 @@
+# Analytics event-health watchlist (DATA-1952)
+#
+# Curated set of key Win + Serve events to monitor for flatlines / hard drops.
+# Seeded from dbt.int__amplitude_event_taxonomy (watched families) on 2026-06-16.
+#
+# This list is intentionally a curated SUBSET of each family. The monitor is
+# self-healing: analytics_event_health.py surfaces newly-instrumented events in
+# the watched families (see watched_families below) so they can be promoted here
+# after a human confirms them in code.
+#
+# Row schema:
+#   event:       exact Amplitude event_type (what we count in amplitude_events)
+#   code_string: literal string to grep for in the omni repo (defaults to event)
+#   product:     win | serve
+#   family:      taxonomy family the event belongs to
+#   floor:       optional absolute daily floor; null = use only zero + median checks
+#   owner:       team/person, TBD until assigned
+
+# Families the monitor treats as "in scope" for coverage-drift / new-event detection.
+watched_families:
+  - win_onboarding
+  - win_dashboard
+  - win_pro_upgrade
+  - win_outreach_scheduling
+  - win_voter_outreach
+  - serve
+
+events:
+  # ---- Win · onboarding funnel ----
+  - {event: "Sign Up Clicked",                          product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Candidate Office Searched",   product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Office Step: Office Selected", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Candidate Office Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Registration Completed",      product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - User Created",                product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Candidate Affiliation Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD}
+  # Win onboarding V2 (first seen 2026-05-07)
+  - {event: "Onboarding - Welcome Completed",           product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Ballot Status Completed",     product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Party Selection Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Office Selection Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Pledge Completed",            product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Path To Victory Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Know Your Voters Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
+
+  # ---- Win · activation: dashboard ----
+  - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan Viewed",         product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
+
+  # ---- Win · activation: voter outreach (campaign sent) ----
+  - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
+  - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Campaign Completed",      product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - 10DLC Compliance Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+
+  # ---- Win · activation: pro upgrade ----
+  - {event: "Pro Upgrade - Modal: Modal Shown",         product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Splash Page: Click upgrade", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "pro_upgrade_complete",                     product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+
+  # ---- Serve · onboarding funnel ----
+  - {event: "Serve Onboarding - Getting Started Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Constituency Profile Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Meet Your Constituents Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Poll Strategy Viewed",  product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Success Page Viewed",   product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
+
+  # ---- Serve · activation: polls ----
+  - {event: "Polls - Poll Results Overview Viewed",     product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Polls - Create Poll Clicked",              product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Polls - Poll Question Completed",          product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Poll - Results Synthesis Complete",        product: serve, family: serve, floor: null, owner: TBD}

@@ -5,6 +5,7 @@ Quick reference for all available scripts. Keep this updated when adding or remo
 | Script | Description | Used By |
 |--------|-------------|---------|
 | `python/databricks_query.py` | Execute SQL queries against Databricks and return results as a DataFrame | books/query-voter-data.md |
+| `python/analytics_event_health.py` | Deterministic flatline / hard-drop detection for key Win + Serve Amplitude events (Databricks). Reads `monitored_events.yaml`, compares recent vs. baseline daily rates, emits a JSON report (flagged events + candidate replacements + new events in watched families). Pure threshold logic is unit-tested in `test_analytics_event_health.py`. | books/monitor-event-health.md |
 | `python/circle_query.py` | GET wrapper for the Circle Admin API v2 (Bearer auth). CLI prints JSON; `get()` helper for programmatic use | books/connect-circle-api.md |
 | `python/circle_engagement.py` | Full engagement snapshot — DAU/WAU/MAU, stickiness, contribution mix, content rate, top spaces/contributors, cohort retention | books/circle-engagement-snapshot.md |
 | `python/clickup_api.py` | ClickUp API wrapper (GET/POST/PUT/DELETE) with token auth; v2 by default, `--api-version=v3` for the Docs/Pages API. CLI prints JSON; `get/post/put/delete()` helpers for programmatic use | commands/clickup-epic-create.md, commands/clickup-epic-edit.md, commands/work-on-clickup.md, commands/prd-to-tech-design.md |
