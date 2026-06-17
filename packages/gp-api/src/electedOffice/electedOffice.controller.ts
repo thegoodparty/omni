@@ -179,6 +179,20 @@ export class ElectedOfficeController {
       }
     }
 
+    // Mirror the PUT guard: completing serve onboarding is only meaningful once
+    // the office has term dates, so reject onboardingCompletedAt on a term-less
+    // create — otherwise a client could POST a completed term-less placeholder
+    // and permanently bypass the serve-onboarding redirect for the user.
+    if (
+      eoFields.onboardingCompletedAt != null &&
+      !eoFields.termStartDate &&
+      !eoFields.termEndDate
+    ) {
+      throw new BadRequestException(
+        'onboardingCompletedAt cannot be set without term dates',
+      )
+    }
+
     const created = await this.electedOfficeService.create({
       ...eoFields,
       userId: user.id,

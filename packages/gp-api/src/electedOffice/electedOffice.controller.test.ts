@@ -262,6 +262,16 @@ describe('ElectedOfficeController', () => {
   })
 
   describe('POST /elected-office', () => {
+    it('rejects creating a term-less office already marked onboarding-complete', async () => {
+      // Mirrors the PUT guard: a completed term-less placeholder would
+      // permanently bypass the serve-onboarding redirect.
+      const result = await service.client.post('/v1/elected-office', {
+        onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+      })
+
+      expect(result.status).toBe(400)
+    })
+
     it('creates elected office when user has a campaign', async () => {
       const result = await createElectedOffice({
         swornInDate: '2024-01-15',
