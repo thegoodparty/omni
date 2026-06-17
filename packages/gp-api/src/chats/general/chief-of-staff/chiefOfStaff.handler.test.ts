@@ -101,27 +101,13 @@ describe('ChiefOfStaffHandler', () => {
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
   })
 
-  it('returns an existing conversation (find)', async () => {
+  it('always creates a new conversation (never resumes the latest)', async () => {
+    // Each "new chat" must be its own conversation. Even when a prior scoped
+    // conversation exists, resolveConversation creates a fresh one and never
+    // collapses onto the existing one.
     store.findScopedConversation = vi.fn(() =>
       Promise.resolve({ id: 'existing' }),
     ) as never
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
-    const result = await handler.resolveConversation(
-      { scope: ChatScope.chief_of_staff, organizationSlug: ORG },
-      USER_ID,
-    )
-    expect(result).toEqual({ conversationId: 'existing', created: false })
-    expect(store.createScopedConversation).not.toHaveBeenCalled()
-  })
-
-  it('creates a conversation when none exists (create)', async () => {
-    store.findScopedConversation = vi.fn(() => Promise.resolve(null)) as never
     store.createScopedConversation = vi.fn(() =>
       Promise.resolve({ id: 'fresh' }),
     ) as never

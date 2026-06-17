@@ -90,16 +90,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     params: ResolveConversationParams,
     userId: number,
   ): Promise<ResolveConversationResult> {
-    const key = {
+    // Chief of Staff supports multiple conversations, so every "new chat"
+    // creates a fresh one rather than resuming the most recent. Resuming a
+    // prior chat goes through its conversation id directly (history →
+    // listMessages → stream), never through here — so find-or-create here would
+    // collapse every new chat onto the latest existing conversation.
+    const created = await this.store.createScopedConversation({
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,
       scope: ChatScope.chief_of_staff,
-    }
-    const existing = await this.store.findScopedConversation(key)
-    if (existing) {
-      return { conversationId: existing.id, created: false }
-    }
-    const created = await this.store.createScopedConversation(key)
+    })
     return { conversationId: created.id, created: true }
   }
 
