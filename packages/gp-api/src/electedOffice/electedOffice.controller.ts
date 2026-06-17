@@ -58,6 +58,7 @@ export class ElectedOfficeController {
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
     return {
       id: record.id,
+      organizationSlug: record.organizationSlug,
       swornInDate: toDateOnlyString(record.swornInDate) ?? null,
       electedDate: toDateOnlyString(record.electedDate) ?? null,
       termStartDate: toDateOnlyString(record.termStartDate) ?? null,
@@ -68,6 +69,10 @@ export class ElectedOfficeController {
       pledgedAt: record.pledgedAt?.toISOString() ?? null,
       onboardingCompletedAt:
         record.onboardingCompletedAt?.toISOString() ?? null,
+      userId: record.userId,
+      campaignId: record.campaignId ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
     }
   }
 
@@ -131,6 +136,12 @@ export class ElectedOfficeController {
     @Body() body: CreateElectedOfficeDto,
     @ReqOrganization() organization: Organization | undefined,
   ) {
+    // The global SessionGuard admits M2M tokens without populating request.user;
+    // creating an office requires a concrete owner, so reject rather than
+    // dereference user.id below.
+    if (!user) {
+      throw new UnauthorizedException()
+    }
     const {
       ballotReadyPositionId,
       customPositionName,

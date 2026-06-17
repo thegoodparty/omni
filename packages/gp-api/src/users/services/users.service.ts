@@ -542,25 +542,64 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }): Promise<{ user: User; token: string; clerkId: string }> {
     const email = data.email.trim()
 
-    let clerkId: string
-    const existing = await this.resolveClerkIdByEmail(email)
-    if (existing.source === 'clerk') {
-      clerkId = existing.clerkId
-      // The magic link is only for passwordless EO leads. A password-enabled
-      // Clerk account is a real login the person controls, so reusing it would
-      // hand an admin-initiated sign-in token to someone else's account.
-      const clerkUser = await this.clerkClient.users.getUser(clerkId)
+    // Reject the magic link for any account the person actually controls. A
+    // password-enabled Clerk account is a real login, so reusing it would hand
+    // an admin-initiated sign-in token to someone else.
+    const assertReusablePasswordless = async (id: string): Promise<void> => {
+      const clerkUser = await this.clerkClient.users.getUser(id)
       if (clerkUser.passwordEnabled) {
         throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       }
+    }
+
+    let clerkId: string
+    // Tracks whether we ended up on an existing Clerk identity (either resolved
+    // up front or discovered via the create race below) so the campaign gate
+    // applies in both cases.
+    let reusedExistingClerkUser = false
+    const existing = await this.resolveClerkIdByEmail(email)
+    if (existing.source === 'clerk') {
+      clerkId = existing.clerkId
+      reusedExistingClerkUser = true
+      await assertReusablePasswordless(clerkId)
     } else {
-      const created = await this.clerkClient.users.createUser({
-        emailAddress: [email],
-        firstName: data.firstName,
-        lastName: data.lastName,
-        skipPasswordRequirement: true,
-      })
-      clerkId = created.id
+      try {
+        const created = await this.clerkClient.users.createUser({
+          emailAddress: [email],
+          firstName: data.firstName,
+          lastName: data.lastName,
+          skipPasswordRequirement: true,
+        })
+        clerkId = created.id
+      } catch (err) {
+        // Two concurrent magic-link requests for the same email both miss the
+        // lookup above and race on createUser; the loser gets Clerk's 422
+        // form_identifier_exists. Re-resolve the identity the winner just
+        // created and reuse it (under the same gates) instead of surfacing an
+        // unhandled 422.
+        const clerkStatus =
+          err instanceof Error
+            ? (err as Error & { status?: unknown }).status
+            : undefined
+        const clerkErrors =
+          err instanceof Error
+            ? (err as Error & { errors?: { code?: string }[] }).errors
+            : undefined
+        const isDuplicateIdentity =
+          clerkStatus === 422 &&
+          Array.isArray(clerkErrors) &&
+          clerkErrors.some((e) => e?.code === 'form_identifier_exists')
+        if (!isDuplicateIdentity) {
+          throw err
+        }
+        const raced = await this.resolveClerkIdByEmail(email)
+        if (raced.source !== 'clerk') {
+          throw err
+        }
+        clerkId = raced.clerkId
+        reusedExistingClerkUser = true
+        await assertReusablePasswordless(clerkId)
+      }
     }
 
     const user = await this.findOrProvisionByClerk({
@@ -583,7 +622,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // create (provisioned before its ElectedOffice row), so it must stay
     // reusable — gating on the absence of an ElectedOffice would permanently
     // block legitimate admin retries after a failed first attempt.
-    if (existing.source === 'clerk') {
+    if (reusedExistingClerkUser) {
       const campaignCount = await this.client.campaign.count({
         where: { userId: user.id },
       })

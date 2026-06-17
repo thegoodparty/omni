@@ -249,6 +249,15 @@ describe('ElectedOfficeController', () => {
         controller.listMine(undefined as unknown as User),
       ).rejects.toBeInstanceOf(UnauthorizedException)
     })
+
+    it('create rejects an M2M token that carries no user context', async () => {
+      // Same guard for POST: an M2M create has no owner to attach the office to.
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.create(undefined as unknown as User, {} as never, undefined),
+      ).rejects.toBeInstanceOf(UnauthorizedException)
+    })
   })
 
   describe('POST /elected-office', () => {

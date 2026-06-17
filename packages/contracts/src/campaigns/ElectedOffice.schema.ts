@@ -14,6 +14,8 @@ export const ElectedOfficeSchema = z.object({
   onboardingCompletedAt: z.coerce.date().nullish(),
   userId: z.number(),
   campaignId: z.number().nullish(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
 })
 
 export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>

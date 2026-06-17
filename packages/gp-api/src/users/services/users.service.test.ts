@@ -385,6 +385,47 @@ describe('UsersService', () => {
       expect(result.user.email).toBe(email)
     })
 
+    it('recovers from a concurrent create that lost the duplicate-email race', async () => {
+      // Two concurrent magic-link requests both miss the initial lookup and
+      // race on createUser; the loser gets Clerk's 422 form_identifier_exists.
+      // It must re-resolve the winner's identity and reuse it, not 500.
+      const suffix = uniqueSuffix()
+      const email = `eo-race-${suffix}@example.com`
+      const clerkId = `clerk_race_${suffix}`
+      // First lookup misses (email not yet visible), the catch-path re-lookup
+      // finds the identity the winner just created.
+      vi.spyOn(clerkClient.users, 'getUserList')
+        .mockResolvedValueOnce({
+          data: [],
+          totalCount: 0,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+        .mockResolvedValue({
+          data: [{ id: clerkId } as never],
+          totalCount: 1,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockRejectedValue(
+          Object.assign(new Error('form_identifier_exists'), {
+            status: 422,
+            errors: [{ code: 'form_identifier_exists' }],
+          }),
+        )
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Race',
+        lastName: 'Loser',
+      })
+
+      expect(createUser).toHaveBeenCalledTimes(1)
+      expect(result.clerkId).toBe(clerkId)
+      expect(result.token).toBe('signin_token_abc')
+    })
+
     it('reuses an existing passwordless EO lead without a campaign', async () => {
       const suffix = uniqueSuffix()
       const email = `eo-lead-${suffix}@example.com`

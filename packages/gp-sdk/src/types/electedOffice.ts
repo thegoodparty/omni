@@ -2,6 +2,7 @@ import type { PaginationOptions } from '@goodparty_org/contracts'
 
 export type ElectedOffice = {
   id: string
+  organizationSlug: string
   electedDate: string | null
   swornInDate: string | null
   termStartDate: string | null
