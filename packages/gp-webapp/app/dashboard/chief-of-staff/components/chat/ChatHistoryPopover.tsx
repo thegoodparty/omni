@@ -37,8 +37,9 @@ export default function ChatHistoryPopover({
   onSelect,
 }: Props): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const { data: conversations, isPending } = useChatHistory(open)
+  const { data: conversations, isPending, isFetching } = useChatHistory(open)
   const deleteConversation = useDeleteConversation()
+  const hasConversations = !!conversations && conversations.length > 0
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -57,13 +58,7 @@ export default function ChatHistoryPopover({
         <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           Previous conversations
         </p>
-        {isPending ? (
-          <p className="px-2 py-2 text-sm text-muted-foreground">Loading...</p>
-        ) : !conversations || conversations.length === 0 ? (
-          <p className="px-2 py-2 text-sm text-muted-foreground">
-            No past conversations yet.
-          </p>
-        ) : (
+        {hasConversations ? (
           <div className="flex max-h-72 flex-col overflow-y-auto">
             {conversations.map((c) => (
               <div
@@ -93,6 +88,15 @@ export default function ChatHistoryPopover({
               </div>
             ))}
           </div>
+        ) : isPending || isFetching ? (
+          // Show loading while the (re)fetch is in flight — not the empty state,
+          // which otherwise flashes "No past conversations" during a background
+          // refetch of a stale cache.
+          <p className="px-2 py-2 text-sm text-muted-foreground">Loading...</p>
+        ) : (
+          <p className="px-2 py-2 text-sm text-muted-foreground">
+            No past conversations yet.
+          </p>
         )}
       </PopoverContent>
     </Popover>

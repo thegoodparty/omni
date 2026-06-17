@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -22,7 +23,7 @@ import type {
 } from '../../data/contracts'
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
-import { useChatHistory } from '../../data/use-chat-history'
+import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 
 interface Props {
   /**
@@ -127,6 +128,7 @@ export default function ChiefOfStaffChatBody({
   onSelectConversation,
   bodyClassName,
 }: Props): React.JSX.Element {
+  const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [history, setHistory] = useState<ChatItem[]>([])
   const [streaming, setStreaming] = useState<string | null>(null)
@@ -280,6 +282,10 @@ export default function ChiefOfStaffChatBody({
       const { conversationId: id } = await chatApi.createConversation()
       setConversationId(id)
       onConversationCreated?.(id)
+      // Surface the new conversation in the history list right away — the cache
+      // is otherwise only refreshed on delete, so a fresh chat wouldn't appear
+      // until a later refetch.
+      void queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
       return id
     } catch (err) {
       reportErrorToSentry(err, {
@@ -291,7 +297,7 @@ export default function ChiefOfStaffChatBody({
       creatingRef.current = false
       setCreating(false)
     }
-  }, [conversationId, onConversationCreated])
+  }, [conversationId, onConversationCreated, queryClient])
 
   const runStream = useCallback(
     async (targetId: string, content: string, clientMessageId: string) => {
@@ -457,8 +463,7 @@ export default function ChiefOfStaffChatBody({
   }, [error, executeUserTurn, loadExisting])
 
   const busy = sending || creating
-  const showIntro =
-    isFirstChat && history.length === 0 && !streaming && !error
+  const showIntro = isFirstChat && history.length === 0 && !streaming && !error
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
