@@ -10,6 +10,16 @@ export class VoterOutreachActivityService extends createPrismaBase(
     return this.model.create({ data })
   }
 
+  // Batch insert for the segment-derived write paths (epic task 15). Idempotent
+  // via the (outreachId, lalVoterId) unique constraint: skipDuplicates lets a
+  // re-launch/retry of the same Outreach re-emit the whole segment without
+  // double-tagging voters already recorded. Returns the count actually inserted.
+  recordSegmentActivities(
+    data: Prisma.VoterOutreachActivityUncheckedCreateInput[],
+  ) {
+    return this.model.createMany({ data, skipDuplicates: true })
+  }
+
   // Person-timeline read: newest first, backed by the
   // (campaignId, lalVoterId, occurredAt) index. When `take` is given the page
   // is bounded at the DB; `cursor` (an activity id) pages forward without

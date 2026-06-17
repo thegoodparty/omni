@@ -8,11 +8,15 @@ import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { ContactsModule } from '../contacts/contacts.module'
+import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
+import { VoterOutreachActivityModule } from '../voterOutreachActivity/voterOutreachActivity.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
+import { OutreachAttributionService } from './services/outreachAttribution.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -32,6 +36,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     GoogleModule,
     AiModule,
     SlackModule,
+    // ContactsModule pulls in CampaignsModule (and onward to Peerly), which
+    // loops back to Outreach — defer this edge so the module graph resolves.
+    forwardRef(() => ContactsModule),
+    OrganizationsModule,
+    VoterOutreachActivityModule,
   ],
   controllers: [OutreachController],
   providers: [
@@ -39,6 +48,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
+    OutreachAttributionService,
   ],
   exports: [OutreachService, OutreachPurchaseHandlerService],
 })
