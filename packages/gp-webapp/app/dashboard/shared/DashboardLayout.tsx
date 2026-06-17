@@ -101,6 +101,7 @@ const DashboardLayout = ({
 }
 
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
+  ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/outreach', 'Voter Outreach'],
   ['/dashboard/voter-records', 'Voter Data'],

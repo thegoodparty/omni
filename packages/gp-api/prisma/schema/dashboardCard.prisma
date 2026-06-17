@@ -1,0 +1,28 @@
+model DashboardCard {
+  id              String        @id @default(cuid())
+  electedOfficeId String        @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  type    DashboardCardType
+  title   String
+  summary String            @db.Text
+  ctaLabel String           @map("cta_label")
+  ctaHref  String           @map("cta_href")
+
+  dueDate          DateTime  @map("due_date")
+  sourceBriefingId String    @map("source_briefing_id")
+  sourceItemId     String?   @map("source_item_id")
+  dismissedAt      DateTime? @map("dismissed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([electedOfficeId, type, sourceBriefingId, sourceItemId])
+  @@index([electedOfficeId, dismissedAt, dueDate])
+  @@map("dashboard_card")
+}
+
+enum DashboardCardType {
+  briefing
+  agenda_item
+}

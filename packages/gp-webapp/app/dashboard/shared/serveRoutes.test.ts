@@ -3,6 +3,8 @@ import { isServeRoutePath } from './serveRoutes'
 
 describe('isServeRoutePath', () => {
   it('matches serve route prefixes and their sub-paths', () => {
+    expect(isServeRoutePath('/dashboard/chief-of-staff')).toBe(true)
+    expect(isServeRoutePath('/dashboard/chief-of-staff/archive')).toBe(true)
     expect(isServeRoutePath('/dashboard/briefings')).toBe(true)
     expect(isServeRoutePath('/dashboard/briefings/2026-01-15')).toBe(true)
     expect(isServeRoutePath('/dashboard/polls')).toBe(true)

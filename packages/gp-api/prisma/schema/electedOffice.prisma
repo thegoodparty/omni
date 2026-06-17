@@ -28,6 +28,8 @@ model ElectedOffice {
   meetingBriefings         MeetingBriefing[]
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
+  priorities               Priority[]
+  dashboardCards           DashboardCard[]
 
   @@index([userId])
   @@index([campaignId])
