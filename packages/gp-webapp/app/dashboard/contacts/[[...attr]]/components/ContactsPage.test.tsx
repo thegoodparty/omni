@@ -112,24 +112,32 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
     })
   })
 
-  it('does not fire serve then win when the flag resolves after the elected-office query', () => {
-    // The flag-readiness race: the elected-office query settles first
-    // (electedOffice null, so isWinContext would be false) but the
-    // win-voter-data flag has not resolved yet, so isWinContextReady is still
-    // false. Firing here would emit a spurious serve event before the flag
-    // load flips isWinContext to win. Gate must suppress until both settle.
+  it('fires exactly once across the readiness transition, even if isWinContext toggles afterward', () => {
+    // Drive the component THROUGH the intermediate { isWinContext: false,
+    // isWinContextReady: true } state the production race actually produces:
+    // readiness settles while isWinContext is still false, then a later
+    // flag re-fetch / focus revalidation flips isWinContext to true. The
+    // ref latch must fire once on the first ready render and stay silent on
+    // the subsequent toggle. Without the guard, the toggle would re-fire.
     setContext({ isWinContext: false, isWinContextReady: false })
 
     const { rerender } = render(<ContactsPage />)
     expect(trackEvent).not.toHaveBeenCalled()
 
-    setContext({ isWinContext: true, isWinContextReady: true })
+    // Intermediate state: ready, but isWinContext has not flipped yet.
+    setContext({ isWinContext: false, isWinContextReady: true })
     rerender(<ContactsPage />)
 
     expect(trackEvent).toHaveBeenCalledTimes(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
-      context: 'win',
+      context: 'serve',
     })
+
+    // Later toggle (flag re-fetch / focus revalidation): must not re-fire.
+    setContext({ isWinContext: true, isWinContextReady: true })
+    rerender(<ContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
   })
 })
 

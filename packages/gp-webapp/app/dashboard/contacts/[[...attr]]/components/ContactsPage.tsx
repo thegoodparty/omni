@@ -8,7 +8,7 @@ import SegmentSection from './segments/SegmentSection'
 import ContactsStatsSection from './ContactsStatsSection'
 import { ContactSearch } from './ContactSearch'
 import { ContactProModalProvider } from '../hooks/ContactProModal'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -31,9 +31,13 @@ export default function ContactsPage() {
   // isWinContext reads false until both the elected-office query and the
   // win-voter-data flag settle, so firing before then would emit a spurious
   // serve event followed by a win one on every Win page load. Wait for
-  // isWinContextReady so we fire one Contacts Viewed with the right context.
+  // isWinContextReady, and latch with a ref so a later isWinContext toggle
+  // (flag re-fetch on identity change, useElectedOffice focus revalidation)
+  // can't re-fire — one Contacts Viewed per mount with the settled context.
+  const hasFiredViewedRef = useRef(false)
   useEffect(() => {
-    if (!isWinContextReady) return
+    if (!isWinContextReady || hasFiredViewedRef.current) return
+    hasFiredViewedRef.current = true
     trackEvent(EVENTS.Contacts.Viewed, {
       context: isWinContext ? 'win' : 'serve',
     })
