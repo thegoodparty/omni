@@ -64,22 +64,23 @@ export const ObjectCover: Story = {
 export const ObjectContain: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="w-96">
-      <AspectRatio
-        ratio={16 / 9}
-        className="overflow-hidden rounded-md bg-muted"
-      >
-        <div className="flex h-full w-full items-center justify-center">
-          <div
-            className="h-full rounded"
-            style={{
-              aspectRatio: '1 / 1',
-              background:
-                'linear-gradient(135deg, #e0e6ec 0%, #f7fafb 25%, #d1d8df 50%, #eef3f6 75%, #c8d0d8 100%)',
-            }}
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground text-xs">
+        A portrait image (2:3) inside a 16:9 container — fitted in full via{' '}
+        <code>object-contain</code>, letterboxed on the sides.
+      </p>
+      <div className="w-96">
+        <AspectRatio
+          ratio={16 / 9}
+          className="overflow-hidden rounded-md bg-muted"
+        >
+          <img
+            src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&q=80"
+            alt="Portrait — person looking up"
+            className="h-full w-full object-contain"
           />
-        </div>
-      </AspectRatio>
+        </AspectRatio>
+      </div>
     </div>
   ),
 }
