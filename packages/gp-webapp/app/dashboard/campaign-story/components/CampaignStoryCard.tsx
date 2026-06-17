@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { CampaignStory } from '@goodparty_org/contracts'
 import {
   Button,
@@ -42,8 +42,11 @@ const CampaignStoryCard = ({
 }: CampaignStoryCardProps): React.JSX.Element => {
   const { id, title, description, placeholder } = section
   const [value, setValue] = useState(initialValue ?? '')
-  const [savedValue, setSavedValue] = useState(initialValue ?? '')
-  const [saving, setSaving] = useState(false)
+  // Refs mirror the latest value and the last-persisted value so the async
+  // save can read them without stale closures.
+  const valueRef = useRef(value)
+  const savedRef = useRef(value)
+  const savingRef = useRef(false)
 
   const trimmedLength = value.trim().length
   const hint =
@@ -53,19 +56,32 @@ const CampaignStoryCard = ({
         ? STARTED_HINT
         : ENOUGH_HINT
 
+  const handleChange = (
+    event: React.ChangeEvent<HTMLTextAreaElement>,
+  ): void => {
+    valueRef.current = event.target.value
+    setValue(event.target.value)
+  }
+
+  // Autosave on blur. The loop flushes any edits that arrived while a request
+  // was in flight, so a quick refocus-edit-reblur can't drop the newer text.
+  // `id` is `keyof CampaignStory`, so the computed-key payload is a valid field.
   const save = async (): Promise<void> => {
-    if (saving || value === savedValue) return
-    setSaving(true)
+    if (savingRef.current || valueRef.current === savedRef.current) return
+    savingRef.current = true
     try {
-      await clientRequest('PUT /v1/campaigns/mine/story', { [id]: value })
-      setSavedValue(value)
+      while (valueRef.current !== savedRef.current) {
+        const pending = valueRef.current
+        await clientRequest('PUT /v1/campaigns/mine/story', { [id]: pending })
+        savedRef.current = pending
+      }
     } catch (error) {
       reportErrorToSentry(error, {
         context: 'CampaignStoryCard.save',
         field: id,
       })
     } finally {
-      setSaving(false)
+      savingRef.current = false
     }
   }
 
@@ -80,7 +96,7 @@ const CampaignStoryCard = ({
         <div className="relative">
           <Textarea
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={handleChange}
             onBlur={save}
             placeholder={placeholder}
             className="min-h-28 pb-7"

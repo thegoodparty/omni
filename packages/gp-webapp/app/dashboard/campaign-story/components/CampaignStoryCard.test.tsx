@@ -59,6 +59,40 @@ describe('CampaignStoryCard', () => {
     })
   })
 
+  it('flushes a trailing edit made while a save is in flight', async () => {
+    const user = userEvent.setup()
+    const bodies: Array<{ why?: string }> = []
+    let releaseFirst: () => void = () => undefined
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let isFirst = true
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      bodies.push(body)
+      if (isFirst) {
+        isFirst = false
+        await firstSave
+      }
+      return { status: 200, data: emptyStory }
+    })
+
+    render(<CampaignStoryCard section={section} initialValue={null} />)
+    const textarea = screen.getByPlaceholderText('Tap to write your why')
+
+    await user.type(textarea, 'first')
+    await user.tab() // starts the (gated) first save
+
+    await user.click(textarea)
+    await user.type(textarea, ' second')
+    await user.tab() // in flight, so this blur is a no-op...
+
+    releaseFirst() // ...the in-flight save's loop flushes the newer text
+
+    await waitFor(() => {
+      expect(bodies.at(-1)).toEqual({ why: 'first second' })
+    })
+  })
+
   it('does not save on blur when the value is unchanged', async () => {
     const user = userEvent.setup()
     let called = false
