@@ -55,7 +55,9 @@ export const Horizontal: Story = {
         </p>
       </div>
       <Separator className="my-4" />
-      <p className="text-muted-foreground text-sm">Public · Verified · Active</p>
+      <p className="text-muted-foreground text-sm">
+        Public · Verified · Active
+      </p>
     </div>
   ),
 }
@@ -78,9 +80,7 @@ export const InContext: Story = {
   render: () => (
     <div className="w-full max-w-sm">
       <div className="space-y-1">
-        <h4 className="text-foreground text-base font-semibold leading-none">
-          GoodParty.org
-        </h4>
+        <h4 className="text-foreground text-sm font-semibold">GoodParty.org</h4>
         <p className="text-muted-foreground text-sm">
           Run, win, and serve as an independent.
         </p>
