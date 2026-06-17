@@ -358,6 +358,7 @@ RULES:
   - To bucket a numeric column (e.g. age ranges) or build a custom breakdown, do NOT use CASE in GROUP BY — use conditional aggregates in the SELECT instead, e.g.:
       SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS age_under_35,
       SUM(CASE WHEN Voters_Age BETWEEN 35 AND 64 THEN 1 ELSE 0 END) AS age_35_64
+  - Each select item must be ONE bare aggregate — do NOT wrap an aggregate in arithmetic (no AVG(...) * 100, no SUM(a) / SUM(b)). For a share/percentage, return the raw aggregate, e.g. AVG(CASE WHEN <col> = '<value>' THEN 1.0 ELSE 0.0 END) AS support_rate (a 0–1 share), and state the percentage or ratio in your written answer. Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
   - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.

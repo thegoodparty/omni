@@ -106,6 +106,28 @@ describe('select-shape guidance boundaries (observed agent failures)', () => {
       ),
     ).toThrow(SqlRejected)
   })
+
+  it('rejects arithmetic wrapping an aggregate (e.g. AVG(...) * 100)', () => {
+    // Agent failure mode: computing a percentage inline. Steered to return the
+    // bare aggregate (the AS-rate accept case above) and phrase the percentage.
+    expect(() =>
+      validate(
+        `SELECT COUNT(*) AS count,
+                AVG(CASE WHEN gender = 'F' THEN 1.0 ELSE 0.0 END) * 100 AS pct
+         FROM ${TABLE} ${scopeWhere}`,
+      ),
+    ).toThrow(SqlRejected)
+  })
+
+  it('accepts the bare-aggregate share the agent is steered to use', () => {
+    expect(() =>
+      validate(
+        `SELECT COUNT(*) AS count,
+                AVG(CASE WHEN gender = 'F' THEN 1.0 ELSE 0.0 END) AS women_rate
+         FROM ${TABLE} ${scopeWhere}`,
+      ),
+    ).not.toThrow()
+  })
 })
 
 describe('bypass: row-returning query (no aggregation)', () => {
