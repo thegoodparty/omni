@@ -203,7 +203,7 @@ describe('<PersonOverlay>', () => {
     ]
     const activities: ConstituentActivity[] = [
       {
-        type: 'poll',
+        type: 'POLL_INTERACTIONS',
         date: '2026-05-02',
         data: {
           pollId: 'poll_1',

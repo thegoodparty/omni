@@ -30,9 +30,11 @@ export type ConstituentActivityEvent = {
   date: string
 }
 
-// Serve poll-interaction activity (elected office context).
+// Serve poll-interaction activity (elected office context). The literal
+// matches gp-api's ConstituentActivityType.POLL_INTERACTIONS so this and
+// OutreachConstituentActivity form a discriminated union on `type`.
 export type PollConstituentActivity = {
-  type: string
+  type: 'POLL_INTERACTIONS'
   date: string
   data: {
     pollId: string
