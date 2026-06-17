@@ -64,24 +64,29 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 export const Variants: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <Checkbox id="bare-unchecked" />
-        <Checkbox id="bare-checked" defaultChecked />
-        <Checkbox id="bare-disabled" disabled />
-        <Checkbox id="bare-disabled-checked" disabled defaultChecked />
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          Standalone
+        </p>
+        <Checkbox id="bare" />
       </div>
-      <CheckboxLabel id="with-label" label="Accept terms and conditions" />
-      <CheckboxLabel
-        id="with-description"
-        label="Accept terms and conditions"
-        description="You agree to our Terms of Service and Privacy Policy."
-      />
-      <CheckboxLabel
-        id="checked"
-        label="Accept terms and conditions"
-        defaultChecked
-      />
+      <div className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          With label
+        </p>
+        <CheckboxLabel id="with-label" label="Accept terms and conditions" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          With label and description
+        </p>
+        <CheckboxLabel
+          id="with-description"
+          label="Accept terms and conditions"
+          description="You agree to our Terms of Service and Privacy Policy."
+        />
+      </div>
     </div>
   ),
 }
@@ -90,6 +95,17 @@ export const States: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          Default
+        </p>
+        <CheckboxLabel id="default-unchecked" label="Unchecked" />
+        <CheckboxLabel
+          id="default-checked"
+          label="Checked"
+          defaultChecked
+        />
+      </div>
       <div className="flex flex-col gap-3">
         <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
           Focused
