@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { DonutChart } from '../components/ui/donut-chart'
+import { PieChart } from '../components/ui/donut-chart'
 
-const meta: Meta<typeof DonutChart> = {
-  title: 'Charts/DonutChart',
-  component: DonutChart,
+const meta: Meta<typeof PieChart> = {
+  title: 'Charts/PieChart',
+  component: PieChart,
   tags: ['autodocs'],
   argTypes: {
     data: { table: { disable: true } },
@@ -14,12 +14,12 @@ const meta: Meta<typeof DonutChart> = {
 export default meta
 
 const THREE_SEGMENTS = [
-  { name: 'Yes', value: 62 },
-  { name: 'No', value: 25 },
-  { name: 'Unknown', value: 13 },
+  { name: 'Yes', value: 42 },
+  { name: 'No', value: 21 },
+  { name: 'Unknown', value: 19 },
 ]
 
-export const Playground: StoryObj<typeof DonutChart> = {
+export const Playground: StoryObj<typeof PieChart> = {
   args: {
     percentage: true,
   },
@@ -31,12 +31,12 @@ export const Playground: StoryObj<typeof DonutChart> = {
   },
   render: ({ percentage }) => (
     <div className="w-[360px]">
-      <DonutChart data={THREE_SEGMENTS} percentage={percentage} />
+      <PieChart data={THREE_SEGMENTS} percentage={percentage} />
     </div>
   ),
 }
 
-export const Variants: StoryObj<typeof DonutChart> = {
+export const Variants: StoryObj<typeof PieChart> = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-8">
@@ -44,7 +44,7 @@ export const Variants: StoryObj<typeof DonutChart> = {
         <p className="mb-2 text-sm font-medium text-muted-foreground">
           Two segments
         </p>
-        <DonutChart
+        <PieChart
           data={[
             { name: 'Yes', value: 62 },
             { name: 'No', value: 38 },
@@ -56,13 +56,13 @@ export const Variants: StoryObj<typeof DonutChart> = {
         <p className="mb-2 text-sm font-medium text-muted-foreground">
           Three segments
         </p>
-        <DonutChart data={THREE_SEGMENTS} percentage />
+        <PieChart data={THREE_SEGMENTS} percentage />
       </div>
       <div className="w-[300px]">
         <p className="mb-2 text-sm font-medium text-muted-foreground">
           Four segments
         </p>
-        <DonutChart
+        <PieChart
           data={[
             { name: 'Yes', value: 42 },
             { name: 'Likely', value: 18 },
@@ -76,7 +76,7 @@ export const Variants: StoryObj<typeof DonutChart> = {
   ),
 }
 
-export const Values: StoryObj<typeof DonutChart> = {
+export const Values: StoryObj<typeof PieChart> = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-8">
@@ -84,11 +84,11 @@ export const Values: StoryObj<typeof DonutChart> = {
         <p className="mb-2 text-sm font-medium text-muted-foreground">
           Percentage
         </p>
-        <DonutChart data={THREE_SEGMENTS} percentage />
+        <PieChart data={THREE_SEGMENTS} percentage />
       </div>
       <div className="w-[300px]">
         <p className="mb-2 text-sm font-medium text-muted-foreground">Count</p>
-        <DonutChart
+        <PieChart
           data={THREE_SEGMENTS.map((d) => ({ ...d, value: d.value * 1000 }))}
         />
       </div>

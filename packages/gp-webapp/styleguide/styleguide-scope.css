@@ -324,11 +324,13 @@
    * DATA/CHART TOKENS (dark mode)
    * ==========================================================================
    */
-  --data-chart-1: var(--color-lavender-400);
-  --data-chart-2: var(--color-halo-green-200);
-  --data-chart-3: var(--color-bright-yellow-400);
-  --data-chart-4: var(--color-waxflower-200);
-  --data-chart-5: var(--color-midnight-200);
+  --data-chart-1: var(--color-midnight-200);
+  --data-chart-2: var(--color-lavender-400);
+  --data-chart-3: var(--color-halo-green-200);
+  --data-chart-4: var(--color-bright-yellow-400);
+  --data-chart-5: var(--color-waxflower-200);
+  --data-chart-6: var(--tw-slate-400);
+  --data-chart-7: #a5b4fc;
 
   /*
    * ==========================================================================
