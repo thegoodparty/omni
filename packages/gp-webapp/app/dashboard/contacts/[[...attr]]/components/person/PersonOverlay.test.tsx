@@ -6,6 +6,7 @@ import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { makePerson } from '../shared/test-fixtures'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type {
   ConstituentIssue,
   ConstituentActivity,
@@ -18,6 +19,12 @@ vi.mock('../../hooks/ContactsTableProvider', () => ({
 vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
 }))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 // Google Maps would otherwise try to attach a Script tag and reference
 // `window.google`. Stub it with a marker we can assert on.
@@ -36,11 +43,15 @@ function setContext({
   selectedPersonId = 'p_1',
   selectedPerson,
   isElectedOfficial = false,
+  isWinContext = false,
+  isWinContextReady = true,
   selectPerson = vi.fn(),
 }: {
   selectedPersonId?: string | null
   selectedPerson?: Partial<SelectedPerson>
   isElectedOfficial?: boolean
+  isWinContext?: boolean
+  isWinContextReady?: boolean
   selectPerson?: ContextValue['selectPerson']
 } = {}) {
   const currentlySelectedPerson: SelectedPerson = {
@@ -73,10 +84,13 @@ function setContext({
     urlQueryParams: new URLSearchParams(),
     pagination: null,
     isLoading: false,
+    isVoterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,
     isElectedOfficial,
+    isWinContext,
+    isWinContextReady,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
@@ -95,6 +109,7 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    vi.mocked(trackEvent).mockClear()
   })
 
   it('does not open the overlay when no person is selected', () => {
@@ -176,6 +191,18 @@ describe('<PersonOverlay>', () => {
     expect(screen.queryByText(/^political party$/i)).not.toBeInTheDocument()
   })
 
+  it('shows the Political Party field with its value in the Win context', () => {
+    setContext({ isElectedOfficial: false })
+
+    render(<PersonOverlay />)
+
+    const partyLabel = screen.getByText(/^political party$/i)
+    expect(partyLabel).toBeInTheDocument()
+    // makePerson() seeds politicalParty: 'Independent'; assert the value
+    // renders, not just the label, so a blank field doesn't pass.
+    expect(screen.getByText(/^independent$/i)).toBeInTheDocument()
+  })
+
   it('hides Top Issues and Activity Feed when the feature flag is off', () => {
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
     setContext()
@@ -199,7 +226,7 @@ describe('<PersonOverlay>', () => {
     ]
     const activities: ConstituentActivity[] = [
       {
-        type: 'poll',
+        type: 'POLL_INTERACTIONS',
         date: '2026-05-02',
         data: {
           pollId: 'poll_1',
@@ -222,5 +249,304 @@ describe('<PersonOverlay>', () => {
     expect(
       screen.getByRole('link', { name: /transit survey/i }),
     ).toBeInTheDocument()
+  })
+
+  it('renders Win outreach activities with per-channel labels and date', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+      {
+        type: 'OUTREACH',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 2,
+          outreachType: 'doorKnocking',
+          attributionSource: 'recipient',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    // Honest send-time labels, not "Delivered".
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+    expect(screen.getByText('Knocked')).toBeInTheDocument()
+    // segmentDerived is send-time attribution; recipient (door knock) is not.
+    expect(screen.getByText('Sent to segment')).toBeInTheDocument()
+    // Date rendered for the activity.
+    expect(screen.getByText(/May 10, 2026/)).toBeInTheDocument()
+    // Poll-only chrome must not appear for outreach rows.
+    expect(
+      screen.queryByRole('link', { name: /transit survey/i }),
+    ).not.toBeInTheDocument()
+    // The Win outreach timeline rendering rows fires the adoption event once.
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_42' },
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities: [] },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed when the feed errors with stale rows', () => {
+    // useInfiniteQuery keeps prior successful data on a failed refetch, so
+    // activities can be non-empty while isErrorActivities is true. The overlay
+    // renders the error state (not the timeline), so the adoption event must
+    // not fire as if the user saw real outreach.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities, isErrorActivities: true },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed until the win context is ready', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      isWinContextReady: false,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('fires Outreach Timeline Viewed once per person across an error-recovery re-render', () => {
+    // The feed stays mounted (isWinContext true) but a failed refetch flips
+    // isErrorActivities true (stale rows retained) then false on recovery.
+    // That re-runs the effect for the same person; the per-person latch must
+    // keep the event at exactly one fire.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    const { rerender } = render(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_42' },
+    )
+
+    // Refetch fails: stale rows retained, isError true (no fire).
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities, isErrorActivities: true },
+    })
+    rerender(<PersonOverlay />)
+
+    // Recovery: rows present again, isError false. Latch must suppress.
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+    rerender(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms Outreach Timeline Viewed when a different person is opened', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    const { rerender } = render(<PersonOverlay />)
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_99',
+      selectedPerson: { activities },
+    })
+    rerender(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(2)
+    expect(trackEvent).toHaveBeenLastCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_99' },
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed outside the Win context', () => {
+    // Serve poll-interaction timeline is shown via the Serve flag, but the
+    // outreach-adoption event is Win-only.
+    mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'POLL_INTERACTIONS',
+        date: '2026-05-02',
+        data: {
+          pollId: 'poll_1',
+          pollTitle: 'Transit Survey',
+          events: [{ type: 'SENT', date: '2026-05-02T00:00:00.000Z' }],
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: false,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('hides the Win Activity Feed when not in Win context', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: false,
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.queryByText('Activity Feed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Texted')).not.toBeInTheDocument()
+  })
+
+  it('paginates the Win outreach timeline via View more', async () => {
+    const user = userEvent.setup()
+    const activitiesFetchNextPage = vi.fn()
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'phoneBanking',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPerson: {
+        activities,
+        activitiesHasNextPage: true,
+        activitiesFetchNextPage,
+      },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Called')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /view more/i }))
+    expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 })

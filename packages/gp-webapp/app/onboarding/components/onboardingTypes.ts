@@ -1,4 +1,5 @@
 export type OnboardingStepId =
+  | 'intent'
   | 'welcome'
   | 'ballot-status'
   | 'party-affiliation'
@@ -7,6 +8,11 @@ export type OnboardingStepId =
   | 'path-to-victory'
   | 'voter-demographics'
   | 'pledge'
+
+// Set only by the follow-on flow (running for re-election / a new office from
+// the org switcher). The standard first-time onboarding flow never sets these,
+// so its visible-step computation is unaffected.
+export type FollowOnIntent = 'same-office' | 'new-office'
 
 export type OnboardingOfficePath = 'structured' | 'manual'
 
@@ -66,6 +72,10 @@ export interface OnboardingAnswers {
   officeZip?: string
   structuredOffice?: SelectedOffice
   manualOfficeForm?: ManualOfficeForm
+  // Follow-on flow only — drives the same-office office-picker skip and the
+  // POST /v1/campaigns/follow-on payload. Unset in the standard flow.
+  followOnIntent?: FollowOnIntent
+  fromOrganizationSlug?: string
 }
 
 export interface OnboardingStepContext {

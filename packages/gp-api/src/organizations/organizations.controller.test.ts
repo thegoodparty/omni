@@ -58,6 +58,49 @@ describe('GET /v1/organizations', () => {
     })
   })
 
+  it('still returns the org when election-api omits position/district leaves', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    // A real position whose optional leaves are simply ABSENT (undefined), not
+    // null — this is what election-api actually returns. z.string().nullable()
+    // rejects undefined ("Required") and 500s the whole list, bouncing the
+    // dashboard back into onboarding; the schema must be nullish.
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
+      id: 'pos-sparse',
+      brDatabaseId: 'br-db-sparse',
+      name: 'City Council',
+      // brPositionId + state intentionally absent
+      district: {
+        id: 'dist-sparse',
+        // state + L2DistrictType + L2DistrictName intentionally absent
+      },
+    } as unknown as Awaited<ReturnType<ElectionsService['getPositionById']>>)
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-5',
+        ownerId: service.user.id,
+        positionId: 'pos-sparse',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'sparse-leaf-campaign',
+        details: { electionDate: '2026-11-03' },
+        organizationSlug: 'campaign-5',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toHaveLength(1)
+    expect(result.data.organizations[0]).toMatchObject({
+      slug: 'campaign-5',
+      campaignId: 5,
+    })
+  })
+
   it('returns "Campaign" as name when no electionDate', async () => {
     await service.prisma.organization.create({
       data: {
@@ -260,7 +303,7 @@ describe('GET /v1/organizations', () => {
 
     await service.prisma.organization.create({
       data: {
-        slug: 'my-org',
+        slug: 'campaign-700',
         ownerId: service.user.id,
       },
     })
@@ -270,7 +313,7 @@ describe('GET /v1/organizations', () => {
         userId: service.user.id,
         slug: 'my-campaign',
         details: {},
-        organizationSlug: 'my-org',
+        organizationSlug: 'campaign-700',
       },
     })
 
@@ -278,7 +321,7 @@ describe('GET /v1/organizations', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.organizations).toHaveLength(1)
-    expect(result.data.organizations[0].slug).toBe('my-org')
+    expect(result.data.organizations[0].slug).toBe('campaign-700')
   })
 
   it('returns multiple organizations from both campaigns and elected offices', async () => {
@@ -351,6 +394,111 @@ describe('GET /v1/organizations', () => {
       electedOfficeId: 'abc-123',
       campaignId: null,
     })
+  })
+
+  it('marks the active campaign "active" and an ended office "past"', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-600', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'active-run',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-600',
+      },
+    })
+
+    await service.prisma.organization.create({
+      data: { slug: 'eo-ended-1', ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-ended-1',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: new Date('2000-01-01'),
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-600',
+    )
+    const officeOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'eo-ended-1',
+    )
+    expect(campaignOrg.status).toBe('active')
+    expect(officeOrg.status).toBe('past')
+  })
+
+  it('marks a held office "active" when its term has not ended', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'eo-held-1', ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-held-1',
+        userId: service.user.id,
+        isActive: true,
+        termEndAt: null,
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const officeOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'eo-held-1',
+    )
+    expect(officeOrg.status).toBe('active')
+  })
+
+  it('marks a concluded campaign (past election date) "past"', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-601', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'concluded-run',
+        details: { electionDate: '2000-11-07' },
+        organizationSlug: 'campaign-601',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-601',
+    )
+    expect(campaignOrg.status).toBe('past')
+  })
+
+  it('marks a primary-loss campaign "past" despite a future election date', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-602', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'primary-loss-run',
+        primaryResult: 'lost',
+        details: { electionDate: '2099-11-03' },
+        organizationSlug: 'campaign-602',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    const campaignOrg = result.data.organizations.find(
+      (org: { slug: string }) => org.slug === 'campaign-602',
+    )
+    expect(campaignOrg.status).toBe('past')
   })
 })
 
@@ -639,44 +787,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     expect(result.status).toBe(400)
   })
 
-  it('sets overrideDistrictId when it differs from position district', async () => {
-    const electionsService = service.app.get(ElectionsService)
-    vi.spyOn(electionsService, 'getPositionByBallotReadyId').mockResolvedValue({
-      id: 'pos-dist2',
-      brPositionId: 'br-pos-dist2',
-      brDatabaseId: 'br-db-dist2',
-      state: 'CA',
-      name: 'Mayor',
-      district: {
-        id: 'district-xyz',
-        state: 'CA',
-        L2DistrictType: 'City',
-        L2DistrictName: 'San Francisco',
-        projectedTurnout: null,
-      },
-    })
-    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
-      id: 'pos-dist2',
-      brPositionId: 'br-pos-dist2',
-      brDatabaseId: 'br-db-dist2',
-      state: 'CA',
-      name: 'Mayor',
-      district: {
-        id: 'district-xyz',
-        state: 'CA',
-        L2DistrictType: 'City',
-        L2DistrictName: 'San Francisco',
-        projectedTurnout: null,
-      },
-    })
-    vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
-      id: 'different-district',
-      state: 'CA',
-      L2DistrictType: 'City',
-      L2DistrictName: 'Los Angeles',
-      projectedTurnout: null,
-    })
-
+  it('ignores overrideDistrictId from a self-service caller (IDOR guard)', async () => {
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-204',
@@ -696,8 +807,8 @@ describe('PATCH /v1/organizations/:slug', () => {
     const result = await service.client.patch(
       '/v1/organizations/campaign-204',
       {
-        ballotReadyPositionId: 'br-pos-dist2',
-        overrideDistrictId: 'different-district',
+        overrideDistrictId: 'attacker-chosen-district',
+        customPositionName: 'Legit Name',
       },
     )
 
@@ -706,7 +817,8 @@ describe('PATCH /v1/organizations/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-204' },
     })
-    expect(updated?.overrideDistrictId).toBe('different-district')
+    expect(updated?.overrideDistrictId).toBeNull()
+    expect(updated?.customPositionName).toBe('Legit Name')
   })
 
   it('returns 404 for a non-existent slug', async () => {
@@ -738,7 +850,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     expect(result.status).toBe(404)
   })
 
-  it('clears overrideDistrictId when set to null', async () => {
+  it('ignores a null overrideDistrictId from a self-service caller', async () => {
     const electionsService = service.app.get(ElectionsService)
     vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
       id: 'existing-district',
@@ -777,7 +889,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-206' },
     })
-    expect(updated?.overrideDistrictId).toBeNull()
+    expect(updated?.overrideDistrictId).toBe('existing-district')
   })
 
   it('preserves overrideDistrictId when not included in update', async () => {
@@ -1137,6 +1249,94 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       where: { slug: 'campaign-503' },
     })
     expect(updated?.positionId).toBe('pos-admin-patch')
+  })
+
+  it('sets overrideDistrictId when caller is admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockResolvedValue({
+      id: 'admin-set-district',
+      state: 'CA',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Oakland',
+      projectedTurnout: null,
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-override-target@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-504',
+        ownerId: otherUser.id,
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: otherUser.id,
+        slug: 'admin-override-campaign',
+        details: {},
+        organizationSlug: 'campaign-504',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-504',
+      { overrideDistrictId: 'admin-set-district' },
+    )
+
+    expect(result.status).toBe(200)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-504' },
+    })
+    expect(updated?.overrideDistrictId).toBe('admin-set-district')
+  })
+
+  it('clears overrideDistrictId via null when caller is admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-clear-target@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-505',
+        ownerId: otherUser.id,
+        overrideDistrictId: 'to-be-cleared',
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: otherUser.id,
+        slug: 'admin-clear-campaign',
+        details: {},
+        organizationSlug: 'campaign-505',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-505',
+      { overrideDistrictId: null },
+    )
+
+    expect(result.status).toBe(200)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-505' },
+    })
+    expect(updated?.overrideDistrictId).toBeNull()
   })
 
   it('returns 404 for a non-existent slug when caller is admin', async () => {

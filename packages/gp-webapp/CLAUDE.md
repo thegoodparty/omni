@@ -26,6 +26,7 @@ npm run storybook        # Component library on :6006
 Reproduce the CI **Validate** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
 
 ```bash
+npm run build -w packages/contracts                                            # build @goodparty_org/contracts dist (typecheck/build resolve it from there)
 npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
@@ -35,7 +36,7 @@ npm run test -w packages/gp-webapp                                              
 
 ## Architecture
 
-Next.js 15 App Router deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
+Next.js 16 App Router (Turbopack) deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
 
 ### Deployment
 
@@ -122,6 +123,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Reproducing a Sentry issue locally                           | `docs/debugging.md`                               |
 | State / providers / React Query patterns                     | `docs/state-management.md`                        |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                           |
+| Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`               |
 | Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                    |
 | Working with helpers                                         | `helpers/CLAUDE.md`                               |
@@ -176,15 +178,31 @@ When authoring a new styleguide component that wraps a Radix primitive (or simil
 
 ### Storybook stories
 
-Use CSF 3 (object stories) throughout. Every story file should set `meta.component` to the typed component and `tags: ['autodocs']` so Storybook generates a Docs page and can infer controls from prop types.
+Use CSF 3 (object stories) throughout. Every story file should set `meta.component` to the typed component and `tags: ['autodocs']`. **Avatar is the reference implementation** — when in doubt, follow its pattern.
 
-Each component story file has two kinds of stories:
+#### Three rules
 
-1. **One `Playground` story** — args-driven, listed first. Declares `args` for the root component's primitive props plus `argTypes` overrides where the inferred control needs help (selects, number ranges, custom labels). The render function consumes `args` so the Controls panel actually does something. This is the interactive sandbox for designers and engineers.
-2. **Named variant stories** — static showcase renders (`Default`, `Multiple`, `DefaultOpen`, `Disabled`, etc.). No `args`, no Controls noise. These document specific states or compositions and are not meant to be tweaked.
+**1. `argTypes` belong on the Playground story, not on `meta`.**
+The only thing that goes in `meta.argTypes` is suppression of props that should never appear in the controls table (`table: { disable: true }`). Descriptions, labels, control types, and `if` conditions all go on the Playground story's `argTypes`. Putting them on `meta` bleeds them into every named story and causes the Controls panel to appear where it does nothing.
 
-For compound components (Radix-style root + parts), the `render` escape hatch is correct — children structure cannot be expressed as a flat arg. The Playground still uses `args` for the root's primitive props and hardcodes a representative children tree.
+**2. Every non-Playground story must suppress controls.**
+Add `parameters: { controls: { disable: true } }` to every named story. The Controls panel on a static render is always empty and always confusing.
 
-Init-only props (`default*` like `defaultOpen` / `defaultValue`) don't belong in Controls — Storybook re-renders the story without remounting, and Radix ignores changes to `default*` props after first render, so toggling the control does nothing. Demonstrate those via a named variant instead.
+**3. Named stories group by dimension — not one story per variant.**
+Prefer a `Variants` story (all visual variants in one view), a `Sizes` story, a `States` story (interactive/behavioral states), etc. over individual `Default` / `Info` / `Success` stories. Fewer stories in the sidebar, better Chromatic coverage per story.
 
-Use `play` functions only for interaction examples worth testing (click trigger, verify content appears). Optional, not required.
+#### Playground type
+
+Use a custom `PlaygroundArgs` type (separate from `StoryObj<typeof Component>`) when the playground needs virtual args that don't map 1:1 to real props — e.g. a `showIcon: boolean` that maps to the `icon` prop, or a `content` selector that switches between subcomponents. When all args are real component props, `StoryObj<typeof Component>` is fine.
+
+#### Compound components
+
+For Radix-style root + parts, the `render` escape hatch is correct — children structure cannot be expressed as a flat arg. The Playground still uses `args` for the root's primitive props.
+
+#### Init-only props
+
+`default*` props (`defaultOpen`, `defaultValue`) don't belong in Controls — Storybook re-renders without remounting, and Radix ignores `default*` changes after first render. Demonstrate them via a named story instead.
+
+#### `play` functions
+
+Use only for interaction examples worth testing (click trigger, verify content appears). Optional, not required. The `@storybook/addon-interactions` addon is not installed — import test utilities from `storybook/test`, not `@storybook/test`.

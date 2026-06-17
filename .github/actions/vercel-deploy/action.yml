@@ -73,6 +73,13 @@ runs:
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
         PR_ALIAS: ${{ inputs.pr-alias }}
         API_BASE: ${{ inputs.api-base }}
+        # next build peaks near Node's default ~4GB heap and OOMs
+        # intermittently on the 16GB runners (first seen 2026-06-12, exit
+        # 134 in `vercel build`). The cap is per process and NODE_OPTIONS
+        # propagates to every worker next spawns, so keep it modest —
+        # several workers at 8GB each could trip the kernel OOM killer
+        # instead.
+        NODE_OPTIONS: --max-old-space-size=6144
       run: |
         set -euo pipefail
 

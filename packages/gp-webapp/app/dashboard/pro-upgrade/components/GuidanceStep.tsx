@@ -51,7 +51,7 @@ const GuidanceStep = (): React.JSX.Element => {
             key={label}
             className="flex items-center gap-3 border-t border-base-border p-4 first:border-t-0"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-400">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tertiary-light text-tertiary-dark">
               {index + 1}
             </span>
             <span>{label}</span>
@@ -59,11 +59,20 @@ const GuidanceStep = (): React.JSX.Element => {
         ))}
       </ol>
 
-      <div className="mt-8 flex justify-between">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
           Back
         </Button>
-        <Button size="large" onClick={handleContinue}>
+        <Button
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={handleContinue}
+        >
           Let&apos;s go!
         </Button>
       </div>

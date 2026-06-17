@@ -11,8 +11,8 @@ const meta = pageMetaData({
 })
 export const metadata = meta
 
-interface PageProps {
-  params: { slug: string }
+interface PageParams {
+  params: Promise<{ slug: string }>
 }
 
 interface Prompt {
@@ -34,8 +34,8 @@ const parsePrompts = (promptsRaw: Record<string, string>): Prompt[] => {
 
 export default async function Page({
   params,
-}: PageProps): Promise<React.JSX.Element> {
-  const { slug } = params
+}: PageParams): Promise<React.JSX.Element> {
+  const { slug } = await params
   await candidateAccess()
 
   const promptsRaw = await fetchContentByType('candidateContentPrompts')

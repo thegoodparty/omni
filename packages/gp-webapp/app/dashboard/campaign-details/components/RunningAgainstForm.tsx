@@ -122,7 +122,7 @@ export default function RunningAgainstForm({
 
       <div className="flex gap-2 mt-4">
         <Button
-          variant="secondary"
+          variant="neutral"
           size="small"
           type="button"
           onClick={handleCancel}

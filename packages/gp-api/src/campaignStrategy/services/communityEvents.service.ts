@@ -50,6 +50,7 @@ export class CommunityEventsService {
     campaignStrategyId: number,
     campaignId: number,
     userId: number,
+    raceId: string,
     ctx: CommunityEventsPromptContext,
   ): Promise<CommunityEventsResult> {
     const variables = buildEventsPromptVariables(ctx)
@@ -80,7 +81,7 @@ export class CommunityEventsService {
       },
     )
 
-    await this.persister.persist(campaignStrategyId, result)
+    await this.persister.persist(campaignStrategyId, raceId, result)
     void this.analytics
       .track(userId, EVENTS.CampaignPlanV2.CommunityEventsGenerationCompleted, {
         campaignId,

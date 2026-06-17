@@ -15,7 +15,7 @@ const CreateNewChat = (): React.JSX.Element => {
   return (
     <Button
       size="large"
-      variant="secondary"
+      variant="neutral"
       onClick={handleCreate}
       className="!px-3 md:!px-6"
     >

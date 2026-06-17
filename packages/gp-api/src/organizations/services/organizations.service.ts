@@ -1,6 +1,7 @@
 import { ElectionsService } from '@/elections/services/elections.service'
 import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
+import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import {
   BadRequestException,
   Injectable,
@@ -17,6 +18,7 @@ import pmap from 'p-map'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   AdminListOrganizationsDto,
+  AdminPatchOrganizationDto,
   PatchOrganizationDto,
 } from '../schemas/organization.schema'
 
@@ -120,14 +122,17 @@ export class OrganizationsService extends createPrismaBase(
     return this.applyPatch(org, updates)
   }
 
-  async adminPatchOrganization(slug: string, updates: PatchOrganizationDto) {
+  async adminPatchOrganization(
+    slug: string,
+    updates: AdminPatchOrganizationDto,
+  ) {
     const org = await this.adminGetOrganization(slug)
     return this.applyPatch(org, updates)
   }
 
   private async applyPatch(
     org: FriendlyOrganization,
-    updates: PatchOrganizationDto,
+    updates: AdminPatchOrganizationDto,
   ) {
     let position: { id: string } | null = org.position
 
@@ -458,6 +463,41 @@ export class OrganizationsService extends createPrismaBase(
       district,
       level: getVoterIssueLevelFromPositionLevel(position?.level),
     }
+  }
+
+  // Server-authoritative ballot level for an org slug: the election-api
+  // position's level, which — unlike campaign.details.ballotLevel — the user
+  // cannot edit. Returned with the district so the voter-file download guard
+  // resolves both from a single position fetch.
+  async getDistrictAndBallotLevelForOrgSlug(slug: string): Promise<{
+    district: OrgDistrict | null
+    ballotLevel: BallotReadyPositionLevel | null
+  }> {
+    const org = await this.findUnique({ where: { slug } })
+    if (!org) return { district: null, ballotLevel: null }
+
+    const [position, overrideDistrict] = await Promise.all([
+      org.positionId
+        ? this.electionsService.getPositionById(org.positionId, {
+            includeDistrict: true,
+          })
+        : Promise.resolve(null),
+      org.overrideDistrictId
+        ? this.electionsService.getDistrict(org.overrideDistrictId)
+        : Promise.resolve(null),
+    ])
+
+    const rawDistrict = overrideDistrict ?? position?.district
+    const district: OrgDistrict | null = rawDistrict
+      ? {
+          id: rawDistrict.id,
+          state: rawDistrict.state,
+          l2Type: rawDistrict.L2DistrictType,
+          l2Name: rawDistrict.L2DistrictName,
+        }
+      : null
+
+    return { district, ballotLevel: position?.level ?? null }
   }
 
   async resolveServeContext(org: Organization): Promise<{

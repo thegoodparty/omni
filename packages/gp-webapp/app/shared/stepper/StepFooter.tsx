@@ -48,7 +48,7 @@ export const StepFooter = ({
           <Button
             size="large"
             className=""
-            variant="secondary"
+            variant="neutral"
             disabled={disabledNext}
             onClick={onNext}
           >

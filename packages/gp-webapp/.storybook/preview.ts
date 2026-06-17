@@ -1,6 +1,7 @@
 import type { Preview } from '@storybook/nextjs-vite'
 import React from 'react'
 import '../app/globals.css'
+import './storybook-dark.css'
 
 const preview: Preview = {
   globalTypes: {
@@ -22,17 +23,20 @@ const preview: Preview = {
   decorators: [
     (Story, context) => {
       const isDark = context.globals['colorScheme'] === 'dark'
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('sb-dark', isDark)
+      }
       return React.createElement(
         'div',
-        {
-          'data-slot': 'storybook',
-          className: isDark ? 'dark' : undefined,
-          style: {
-            padding: '1.5rem',
-            backgroundColor: 'var(--color-background)',
+        { className: isDark ? 'dark' : undefined },
+        React.createElement(
+          'div',
+          {
+            'data-slot': 'storybook',
+            style: { padding: '1.5rem' },
           },
-        },
-        React.createElement(Story),
+          React.createElement(Story),
+        ),
       )
     },
   ],

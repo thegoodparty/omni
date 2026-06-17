@@ -17,16 +17,85 @@
   /* ==========================================================================
    * GOODPARTY BRAND COLORS
    * ========================================================================== */
-  --goodparty-red: #dc1438;
-  --goodparty-red-light: #f7bac5;
-  --goodparty-blue: #0048c2;
-  --goodparty-blue-light: #a4c2f5;
+  /* Branding red scale — main brand color at 500 */
+  --goodparty-red-50: #fff1f2;
+  --goodparty-red-100: #ffd9dc;
+  --goodparty-red-200: #ffb3ba;
+  --goodparty-red-300: #ff8691;
+  --goodparty-red-400: #f5506a;
+  --goodparty-red-500: #dc1438;
+  --goodparty-red-600: #b80f2e;
+  --goodparty-red-700: #940c25;
+  --goodparty-red-800: #70091b;
+  --goodparty-red-900: #4d0612;
+  --goodparty-red-950: #2e030a;
+  --goodparty-red: var(--goodparty-red-500);
+
+  /* Branding blue scale — main brand color at 600 */
+  --goodparty-blue-50: #eff5ff;
+  --goodparty-blue-100: #d6e7ff;
+  --goodparty-blue-200: #adc9ff;
+  --goodparty-blue-300: #80a9ff;
+  --goodparty-blue-400: #4576f1;
+  --goodparty-blue-500: #1e63ec;
+  --goodparty-blue-600: #0048c2;
+  --goodparty-blue-700: #043d9d;
+  --goodparty-blue-800: #03307c;
+  --goodparty-blue-900: #02235a;
+  --goodparty-blue-950: #011639;
+  --goodparty-blue: var(--goodparty-blue-600);
+
   --goodparty-cream: #fcf8f3;
 
   /* ==========================================================================
-   * STANDARD TAILWIND NEUTRAL SCALE
+   * STANDARD TAILWIND COLOR PALETTE
    * Referenced by base and theme tokens via var()
    * ========================================================================== */
+
+  /* base */
+  --tw-black: #000000;
+  --tw-white: #ffffff;
+
+  /* slate */
+  --tw-slate-50: #f8fafc;
+  --tw-slate-100: #f1f5f9;
+  --tw-slate-200: #e2e8f0;
+  --tw-slate-300: #cbd5e1;
+  --tw-slate-400: #94a3b8;
+  --tw-slate-500: #64748b;
+  --tw-slate-600: #475569;
+  --tw-slate-700: #334155;
+  --tw-slate-800: #1e293b;
+  --tw-slate-900: #0f172a;
+  --tw-slate-950: #020617;
+
+  /* gray */
+  --tw-gray-50: #f9fafb;
+  --tw-gray-100: #f3f4f6;
+  --tw-gray-200: #e5e7eb;
+  --tw-gray-300: #d1d5db;
+  --tw-gray-400: #9ca3af;
+  --tw-gray-500: #6b7280;
+  --tw-gray-600: #4b5563;
+  --tw-gray-700: #374151;
+  --tw-gray-800: #1f2937;
+  --tw-gray-900: #111827;
+  --tw-gray-950: #030712;
+
+  /* zinc */
+  --tw-zinc-50: #fafafa;
+  --tw-zinc-100: #f4f4f5;
+  --tw-zinc-200: #e4e4e7;
+  --tw-zinc-300: #d4d4d8;
+  --tw-zinc-400: #a1a1aa;
+  --tw-zinc-500: #71717a;
+  --tw-zinc-600: #52525b;
+  --tw-zinc-700: #3f3f46;
+  --tw-zinc-800: #27272a;
+  --tw-zinc-900: #18181b;
+  --tw-zinc-950: #09090b;
+
+  /* neutral */
   --tw-neutral-50: #fafafa;
   --tw-neutral-100: #f5f5f5;
   --tw-neutral-200: #e5e5e5;
@@ -39,28 +108,240 @@
   --tw-neutral-900: #171717;
   --tw-neutral-950: #0a0a0a;
 
-  /* ==========================================================================
-   * STANDARD TAILWIND BLUE SCALE
-   * Referenced by theme tokens via var()
-   * ========================================================================== */
+  /* stone */
+  --tw-stone-50: #fafaf9;
+  --tw-stone-100: #f5f5f4;
+  --tw-stone-200: #e7e5e4;
+  --tw-stone-300: #d6d3d1;
+  --tw-stone-400: #a8a29e;
+  --tw-stone-500: #78716c;
+  --tw-stone-600: #57534e;
+  --tw-stone-700: #44403c;
+  --tw-stone-800: #292524;
+  --tw-stone-900: #1c1917;
+  --tw-stone-950: #0c0a09;
+
+  /* red */
+  --tw-red-50: #fef2f2;
+  --tw-red-100: #fee2e2;
+  --tw-red-200: #fecaca;
+  --tw-red-300: #fca5a5;
+  --tw-red-400: #f87171;
+  --tw-red-500: #ef4444;
+  --tw-red-600: #dc2626;
+  --tw-red-700: #b91c1c;
+  --tw-red-800: #991b1b;
+  --tw-red-900: #7f1d1d;
+  --tw-red-950: #450a0a;
+
+  /* orange */
+  --tw-orange-50: #fff7ed;
+  --tw-orange-100: #ffedd5;
+  --tw-orange-200: #fed7aa;
+  --tw-orange-300: #fdba74;
+  --tw-orange-400: #fb923c;
+  --tw-orange-500: #f97316;
+  --tw-orange-600: #ea580c;
+  --tw-orange-700: #c2410c;
+  --tw-orange-800: #9a3412;
+  --tw-orange-900: #7c2d12;
+  --tw-orange-950: #431407;
+
+  /* amber */
+  --tw-amber-50: #fffbeb;
+  --tw-amber-100: #fef3c7;
+  --tw-amber-200: #fde68a;
+  --tw-amber-300: #fcd34d;
+  --tw-amber-400: #fbbf24;
+  --tw-amber-500: #f59e0b;
+  --tw-amber-600: #d97706;
+  --tw-amber-700: #b45309;
+  --tw-amber-800: #92400e;
+  --tw-amber-900: #78350f;
+  --tw-amber-950: #451a03;
+
+  /* yellow */
+  --tw-yellow-50: #fefce8;
+  --tw-yellow-100: #fef9c3;
+  --tw-yellow-200: #fef08a;
+  --tw-yellow-300: #fde047;
+  --tw-yellow-400: #facc15;
+  --tw-yellow-500: #eab308;
+  --tw-yellow-600: #ca8a04;
+  --tw-yellow-700: #a16207;
+  --tw-yellow-800: #854d0e;
+  --tw-yellow-900: #713f12;
+  --tw-yellow-950: #422006;
+
+  /* lime */
+  --tw-lime-50: #f7fee7;
+  --tw-lime-100: #ecfccb;
+  --tw-lime-200: #d9f99d;
+  --tw-lime-300: #bef264;
+  --tw-lime-400: #a3e635;
+  --tw-lime-500: #84cc16;
+  --tw-lime-600: #65a30d;
+  --tw-lime-700: #4d7c0f;
+  --tw-lime-800: #3f6212;
+  --tw-lime-900: #365314;
+  --tw-lime-950: #1a2e05;
+
+  /* green */
+  --tw-green-50: #f0fdf4;
+  --tw-green-100: #dcfce7;
+  --tw-green-200: #bbf7d0;
+  --tw-green-300: #86efac;
+  --tw-green-400: #4ade80;
+  --tw-green-500: #22c55e;
+  --tw-green-600: #16a34a;
+  --tw-green-700: #15803d;
+  --tw-green-800: #166534;
+  --tw-green-900: #14532d;
+  --tw-green-950: #052e16;
+
+  /* emerald */
+  --tw-emerald-50: #ecfdf5;
+  --tw-emerald-100: #d1fae5;
+  --tw-emerald-200: #a7f3d0;
+  --tw-emerald-300: #6ee7b7;
+  --tw-emerald-400: #34d399;
+  --tw-emerald-500: #10b981;
+  --tw-emerald-600: #059669;
+  --tw-emerald-700: #047857;
+  --tw-emerald-800: #065f46;
+  --tw-emerald-900: #064e3b;
+  --tw-emerald-950: #022c22;
+
+  /* teal */
+  --tw-teal-50: #f0fdfa;
+  --tw-teal-100: #ccfbf1;
+  --tw-teal-200: #99f6e4;
+  --tw-teal-300: #5eead4;
+  --tw-teal-400: #2dd4bf;
+  --tw-teal-500: #14b8a6;
+  --tw-teal-600: #0d9488;
+  --tw-teal-700: #0f766e;
+  --tw-teal-800: #115e59;
+  --tw-teal-900: #134e4a;
+  --tw-teal-950: #042f2e;
+
+  /* cyan */
+  --tw-cyan-50: #ecfeff;
+  --tw-cyan-100: #cffafe;
+  --tw-cyan-200: #a5f3fc;
+  --tw-cyan-300: #67e8f9;
+  --tw-cyan-400: #22d3ee;
+  --tw-cyan-500: #06b6d4;
+  --tw-cyan-600: #0891b2;
+  --tw-cyan-700: #0e7490;
+  --tw-cyan-800: #155e75;
+  --tw-cyan-900: #164e63;
+  --tw-cyan-950: #083344;
+
+  /* sky */
+  --tw-sky-50: #f0f9ff;
+  --tw-sky-100: #e0f2fe;
+  --tw-sky-200: #bae6fd;
+  --tw-sky-300: #7dd3fc;
+  --tw-sky-400: #38bdf8;
+  --tw-sky-500: #0ea5e9;
+  --tw-sky-600: #0284c7;
+  --tw-sky-700: #0369a1;
+  --tw-sky-800: #075985;
+  --tw-sky-900: #0c4a6e;
+  --tw-sky-950: #082f49;
+
+  /* blue */
+  --tw-blue-50: #eff6ff;
+  --tw-blue-100: #dbeafe;
+  --tw-blue-200: #bfdbfe;
   --tw-blue-300: #93c5fd;
+  --tw-blue-400: #60a5fa;
   --tw-blue-500: #3b82f6;
   --tw-blue-600: #2563eb;
+  --tw-blue-700: #1d4ed8;
+  --tw-blue-800: #1e40af;
+  --tw-blue-900: #1e3a8a;
+  --tw-blue-950: #172554;
 
-  /* ==========================================================================
-   * BLUE SCALE
-   * ========================================================================== */
-  --color-blue-50: #e3f1ff;
-  --color-blue-100: #d1e7fe;
-  --color-blue-200: #a3cdfe;
-  --color-blue-300: #75affe;
-  --color-blue-400: #2563eb;
-  --color-blue-500: #1b6afc;
-  --color-blue-600: #1351d8;
-  --color-blue-700: #0d3cb5;
-  --color-blue-800: #082a92;
-  --color-blue-900: #051d78;
-  --color-blue-950: #01114d;
+  /* indigo */
+  --tw-indigo-50: #eef2ff;
+  --tw-indigo-100: #e0e7ff;
+  --tw-indigo-200: #c7d2fe;
+  --tw-indigo-300: #a5b4fc;
+  --tw-indigo-400: #818cf8;
+  --tw-indigo-500: #6366f1;
+  --tw-indigo-600: #4f46e5;
+  --tw-indigo-700: #4338ca;
+  --tw-indigo-800: #3730a3;
+  --tw-indigo-900: #312e81;
+  --tw-indigo-950: #1e1b4b;
+
+  /* violet */
+  --tw-violet-50: #f5f3ff;
+  --tw-violet-100: #ede9fe;
+  --tw-violet-200: #ddd6fe;
+  --tw-violet-300: #c4b5fd;
+  --tw-violet-400: #a78bfa;
+  --tw-violet-500: #8b5cf6;
+  --tw-violet-600: #7c3aed;
+  --tw-violet-700: #6d28d9;
+  --tw-violet-800: #5b21b6;
+  --tw-violet-900: #4c1d95;
+  --tw-violet-950: #2e1065;
+
+  /* purple */
+  --tw-purple-50: #faf5ff;
+  --tw-purple-100: #f3e8ff;
+  --tw-purple-200: #e9d5ff;
+  --tw-purple-300: #d8b4fe;
+  --tw-purple-400: #c084fc;
+  --tw-purple-500: #a855f7;
+  --tw-purple-600: #9333ea;
+  --tw-purple-700: #7e22ce;
+  --tw-purple-800: #6b21a8;
+  --tw-purple-900: #581c87;
+  --tw-purple-950: #3b0764;
+
+  /* fuchsia */
+  --tw-fuchsia-50: #fdf4ff;
+  --tw-fuchsia-100: #fae8ff;
+  --tw-fuchsia-200: #f5d0fe;
+  --tw-fuchsia-300: #f0abfc;
+  --tw-fuchsia-400: #e879f9;
+  --tw-fuchsia-500: #d946ef;
+  --tw-fuchsia-600: #c026d3;
+  --tw-fuchsia-700: #a21caf;
+  --tw-fuchsia-800: #86198f;
+  --tw-fuchsia-900: #701a75;
+  --tw-fuchsia-950: #4a044e;
+
+  /* pink */
+  --tw-pink-50: #fdf2f8;
+  --tw-pink-100: #fce7f3;
+  --tw-pink-200: #fbcfe8;
+  --tw-pink-300: #f9a8d4;
+  --tw-pink-400: #f472b6;
+  --tw-pink-500: #ec4899;
+  --tw-pink-600: #db2777;
+  --tw-pink-700: #be185d;
+  --tw-pink-800: #9d174d;
+  --tw-pink-900: #831843;
+  --tw-pink-950: #500724;
+
+  /* rose */
+  --tw-rose-50: #fff1f2;
+  --tw-rose-100: #ffe4e6;
+  --tw-rose-200: #fecdd3;
+  --tw-rose-300: #fda4af;
+  --tw-rose-400: #fb7185;
+  --tw-rose-500: #f43f5e;
+  --tw-rose-600: #e11d48;
+  --tw-rose-700: #be123c;
+  --tw-rose-800: #9f1239;
+  --tw-rose-900: #881337;
+  --tw-rose-950: #4c0519;
+
   --color-bright-yellow-50: #fffadf;
   --color-bright-yellow-100: #fff1c9;
   --color-bright-yellow-200: #ffedba;
@@ -85,17 +366,6 @@
   --color-grayscale-950: #1e1f20;
   --color-grayscale-black: #000000;
   --color-grayscale-white: #ffffff;
-  --color-green-50: #eeffe9;
-  --color-green-100: #dffad6;
-  --color-green-200: #b9f6b0;
-  --color-green-300: #86e382;
-  --color-green-400: #5ec963;
-  --color-green-500: #30a541;
-  --color-green-600: #187637;
-  --color-green-700: #0f5f31;
-  --color-green-800: #094f2d;
-  --color-green-900: #033a20;
-  --color-green-950: #002212;
   --color-halo-green-50: #ddf2e8;
   --color-halo-green-100: #cceadd;
   --color-halo-green-200: #b2e1cc;
@@ -115,9 +385,9 @@
   --color-lavender-500: #d7b2ff;
   --color-lavender-600: #cda1ff;
   --color-lavender-700: #9e6beb;
-  --color-lavender-800: #783dde;
+  --color-lavender-800: #652cc8;
   --color-lavender-900: #441e9f;
-  --color-lavender-950: #200b6a;
+  --color-lavender-950: #1a0e46;
   --color-midnight-50: #ecf5ff;
   --color-midnight-100: #d8e7f7;
   --color-midnight-200: #b4cef0;
@@ -129,17 +399,6 @@
   --color-midnight-800: #14234d;
   --color-midnight-900: #0b1529;
   --color-midnight-950: #060b17;
-  --color-red-50: #ffe8e8;
-  --color-red-100: #fdcdcd;
-  --color-red-200: #ffaeae;
-  --color-red-300: #f56c6a;
-  --color-red-400: #ec4451;
-  --color-red-500: #e00c30;
-  --color-red-600: #b90a27;
-  --color-red-700: #93081f;
-  --color-red-800: #6c0617;
-  --color-red-900: #560311;
-  --color-red-950: #370009;
   --color-waxflower-50: #ffebd8;
   --color-waxflower-100: #ffe0c1;
   --color-waxflower-200: #ffcaa2;
@@ -151,6 +410,114 @@
   --color-waxflower-800: #ae3920;
   --color-waxflower-900: #932b1f;
   --color-waxflower-950: #511508;
+
+  /* ==========================================================================
+   * WEBAPP LEGACY PALETTE
+   * Custom scales from the pre-Figma era. Values differ from --tw-* equivalents.
+   * Consumers should migrate to --tw-* or theme tokens over time.
+   * ========================================================================== */
+
+  /* Gray */
+  --gray-100: #f8f8f8;
+  --gray-200: #e8e8e8;
+  --gray-300: #b2b2b2;
+  --gray-400: #999999;
+  --gray-500: #7f7f7f;
+  --gray-600: #666666;
+  --gray-700: #4d4d4d;
+  --gray-800: #333333;
+  --gray-900: #1a1a1a;
+
+  /* Indigo (webapp custom — gray-blue, not standard Tailwind indigo) */
+  --indigo-50: #f7fafb;
+  --indigo-100: #eef3f6;
+  --indigo-200: #e0e6ec;
+  --indigo-300: #b9c3cc;
+  --indigo-400: #879099;
+  --indigo-500: #484e55;
+  --indigo-600: #343d49;
+  --indigo-700: #242d3d;
+  --indigo-800: #161f31;
+  --indigo-900: #0d1528;
+
+  /* Blue (webapp custom) */
+  --blue-50: #e3f1ff;
+  --blue-100: #d1e7fe;
+  --blue-200: #a3cdfe;
+  --blue-300: #75affe;
+  --blue-400: #2563eb;
+  --blue-500: #1b6afc;
+  --blue-600: #1351d8;
+  --blue-700: #0d3cb5;
+  --blue-800: #082a92;
+  --blue-900: #051d78;
+
+  /* Green (webapp custom) */
+  --green-50: #eeffe9;
+  --green-100: #dffad6;
+  --green-200: #b9f6b0;
+  --green-300: #86e382;
+  --green-400: #5ec963;
+  --green-500: #30a541;
+  --green-600: #187637;
+  --green-700: #0f5f31;
+  --green-800: #094f2d;
+  --green-900: #033a20;
+
+  /* Red (webapp custom — aligned with Figma error tokens) */
+  --red-50: #ffe8e8;
+  --red-100: #fdcdcd;
+  --red-200: #ffaeae;
+  --red-300: #f56c6a;
+  --red-400: #ec4451;
+  --red-500: #e00c30;
+  --red-600: #b90a27;
+  --red-700: #93081f;
+  --red-800: #6c0617;
+  --red-900: #560311;
+  --red-950: #370009;
+
+  /* Yellow */
+  --yellow-50: #fffadf;
+  --yellow-100: #fff1c9;
+  --yellow-200: #ffedba;
+  --yellow-300: #ffe291;
+  --yellow-400: #ffe06c;
+  --yellow-500: #ffd759;
+  --yellow-600: #ffc523;
+  --yellow-700: #dba219;
+  --yellow-800: #b78211;
+  --yellow-900: #93640b;
+
+  /* Orange (webapp custom — aligned with Figma warning tokens) */
+  --orange-50: #fff5d5;
+  --orange-100: #ffeeb7;
+  --orange-200: #fde19a;
+  --orange-300: #ffcd66;
+  --orange-400: #ffb93f;
+  --orange-500: #ff9800;
+  --orange-600: #db7900;
+  --orange-700: #b75e00;
+  --orange-800: #934500;
+  --orange-900: #7a3400;
+  --orange-950: #471e00;
+
+  /* Purple (webapp custom — #6e37ff as main, differs from --tw-violet-* and --tw-purple-*) */
+  --purple-50: #f8f3ff;
+  --purple-100: #e6d7ff;
+  --purple-200: #cbafff;
+  --purple-300: #ae86ff;
+  --purple-400: #9669ff;
+  --purple-500: #6e37ff;
+  --purple-600: #5428db;
+  --purple-700: #3d1bb7;
+  --purple-800: #2a1193;
+  --purple-900: #1c0a7a;
+
+  /* Cream */
+  --cream-500: #fcf8f3;
+  --cream: #fcf8f3;
+
   --border-radius-none: 0px;
   --border-radius-sm: 4px;
   --border-radius-base: 8px;
@@ -506,140 +873,6 @@
   --component-avatar-badge-border-width: 1px;
   --component-avatar-badge-size-width: 16px;
   --component-avatar-badge-size-height: 16px;
-  --component-button-primary-background-default: #2563eb;
-  --component-button-primary-background-hover: #0d3cb5;
-  --component-button-primary-background-disabled: #2563eb;
-  --component-button-primary-text-default: #ffffff;
-  --component-button-primary-text-hover: #ffffff;
-  --component-button-primary-text-disabled: #ffffff;
-  --component-button-primary-text-loading: #ffffff;
-  --component-button-primary-border-default: #2563eb;
-  --component-button-primary-border-hover: #0d3cb5;
-  --component-button-primary-border-focus: #1351d8;
-  --component-button-primary-border-disabled: #2563eb;
-  --component-button-primary-box-shadow-default: none;
-  --component-button-primary-box-shadow-hover: none;
-  --component-button-primary-box-shadow-focus: 0 0 0 2px #1351d8;
-  --component-button-primary-opacity-default: 1;
-  --component-button-primary-opacity-disabled: 0.5;
-  --component-button-primary-border-radius: 9999px;
-  --component-button-primary-border-width: 1px;
-  --component-button-primary-padding-x: 20px;
-  --component-button-primary-padding-y: 10px;
-  --component-button-primary-gap: 8px;
-  --component-button-primary-font-size: 14px;
-  --component-button-primary-font-weight: 500;
-  --component-button-primary-line-height: 1;
-  --component-button-secondary-background-default: #0b1529;
-  --component-button-secondary-background-hover: #14234d;
-  --component-button-secondary-background-disabled: #0b1529;
-  --component-button-secondary-text-default: #ffffff;
-  --component-button-secondary-text-hover: #ffffff;
-  --component-button-secondary-text-disabled: #ffffff;
-  --component-button-secondary-text-loading: #ffffff;
-  --component-button-secondary-border-default: #0b1529;
-  --component-button-secondary-border-hover: #14234d;
-  --component-button-secondary-border-focus: #1d305c;
-  --component-button-secondary-border-disabled: #0b1529;
-  --component-button-secondary-box-shadow-default: none;
-  --component-button-secondary-opacity-default: 1;
-  --component-button-secondary-opacity-disabled: 0.5;
-  --component-button-secondary-border-radius: 9999px;
-  --component-button-secondary-border-width: 1px;
-  --component-button-secondary-padding-x: 20px;
-  --component-button-secondary-padding-y: 10px;
-  --component-button-secondary-gap: 8px;
-  --component-button-secondary-font-size: 14px;
-  --component-button-secondary-font-weight: 500;
-  --component-button-secondary-line-height: 1;
-  --component-button-destructive-background-default: #dc2626;
-  --component-button-destructive-background-hover: #93081f;
-  --component-button-destructive-background-disabled: #dc2626;
-  --component-button-destructive-text-default: #ffffff;
-  --component-button-destructive-text-hover: #ffffff;
-  --component-button-destructive-text-disabled: #ffffff;
-  --component-button-destructive-text-loading: #ffffff;
-  --component-button-destructive-border-default: #dc2626;
-  --component-button-destructive-border-hover: #93081f;
-  --component-button-destructive-border-focus: #f87171;
-  --component-button-destructive-border-disabled: #dc2626;
-  --component-button-destructive-box-shadow-default: none;
-  --component-button-destructive-opacity-default: 1;
-  --component-button-destructive-opacity-disabled: 0.5;
-  --component-button-destructive-border-radius: 9999px;
-  --component-button-destructive-border-width: 1px;
-  --component-button-destructive-padding-x: 20px;
-  --component-button-destructive-padding-y: 10px;
-  --component-button-destructive-gap: 8px;
-  --component-button-destructive-font-size: 14px;
-  --component-button-destructive-font-weight: 500;
-  --component-button-destructive-line-height: 1;
-  --component-button-outline-background-default: transparent;
-  --component-button-outline-background-hover: #f7fafb;
-  --component-button-outline-background-disabled: transparent;
-  --component-button-outline-text-default: #1e1f20;
-  --component-button-outline-text-hover: #1e1f20;
-  --component-button-outline-text-disabled: #1e1f20;
-  --component-button-outline-text-loading: #1e1f20;
-  --component-button-outline-border-default: #d1d8df;
-  --component-button-outline-border-hover: #d1d8df;
-  --component-button-outline-border-focus: #1b6afc;
-  --component-button-outline-border-disabled: #d1d8df;
-  --component-button-outline-box-shadow-default: none;
-  --component-button-outline-opacity-default: 1;
-  --component-button-outline-opacity-disabled: 0.5;
-  --component-button-outline-border-radius: 9999px;
-  --component-button-outline-border-width: 1px;
-  --component-button-outline-padding-x: 20px;
-  --component-button-outline-padding-y: 10px;
-  --component-button-outline-gap: 8px;
-  --component-button-outline-font-size: 14px;
-  --component-button-outline-font-weight: 500;
-  --component-button-outline-line-height: 1;
-  --component-button-ghost-background-default: transparent;
-  --component-button-ghost-background-hover: #eef3f6;
-  --component-button-ghost-background-disabled: transparent;
-  --component-button-ghost-text-default: #1e1f20;
-  --component-button-ghost-text-hover: #1e1f20;
-  --component-button-ghost-text-disabled: #1e1f20;
-  --component-button-ghost-text-loading: #1e1f20;
-  --component-button-ghost-border-default: transparent;
-  --component-button-ghost-border-hover: transparent;
-  --component-button-ghost-border-focus: #1b6afc;
-  --component-button-ghost-border-disabled: transparent;
-  --component-button-ghost-box-shadow-default: none;
-  --component-button-ghost-opacity-default: 1;
-  --component-button-ghost-opacity-disabled: 0.5;
-  --component-button-ghost-border-radius: 9999px;
-  --component-button-ghost-border-width: 1px;
-  --component-button-ghost-padding-x: 20px;
-  --component-button-ghost-padding-y: 10px;
-  --component-button-ghost-gap: 8px;
-  --component-button-ghost-font-size: 14px;
-  --component-button-ghost-font-weight: 500;
-  --component-button-ghost-line-height: 1;
-  --component-button-link-background-default: transparent;
-  --component-button-link-background-hover: transparent;
-  --component-button-link-background-disabled: transparent;
-  --component-button-link-text-default: #2563eb;
-  --component-button-link-text-hover: #1d4ed8;
-  --component-button-link-text-disabled: #2563eb;
-  --component-button-link-text-loading: #2563eb;
-  --component-button-link-border-default: transparent;
-  --component-button-link-border-hover: transparent;
-  --component-button-link-border-focus: transparent;
-  --component-button-link-border-disabled: transparent;
-  --component-button-link-box-shadow-default: none;
-  --component-button-link-opacity-default: 1;
-  --component-button-link-opacity-disabled: 0.5;
-  --component-button-link-border-radius: 9999px;
-  --component-button-link-border-width: 1px;
-  --component-button-link-padding-x: 20px;
-  --component-button-link-padding-y: 10px;
-  --component-button-link-gap: 8px;
-  --component-button-link-font-size: 14px;
-  --component-button-link-font-weight: 500;
-  --component-button-link-line-height: 1;
   --component-card-default-background: #ffffff;
   --component-card-default-border: #d1d8df;
   --component-card-default-border-radius: 16px;
@@ -697,102 +930,96 @@
     0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
 
   /* ==========================================================================
-   * WARNING COLOR SCALE (from Figma semantic colors)
-   * ========================================================================== */
-  --color-warning-50: #fff5d5;
-  --color-warning-100: #ffeeb7;
-  --color-warning-200: #fde19a;
-  --color-warning-300: #ffcd66;
-  --color-warning-400: #ffb93f;
-  --color-warning-500: #ff9800;
-  --color-warning-600: #db7900;
-  --color-warning-700: #b75e00;
-  --color-warning-800: #934500;
-  --color-warning-900: #7a3400;
-  --color-warning-950: #471e00;
-
-  /* ==========================================================================
    * BASE/THEME VARIABLES (from Figma theme tokens)
    * ========================================================================== */
   --base-foreground: var(--tw-neutral-950);
-  --base-background: #ffffff;
+  --base-background: var(--tw-white);
   --base-muted-foreground: var(--tw-neutral-500);
   --base-muted: var(--tw-neutral-100);
+  --base-inactive: var(--tw-neutral-200);
   --base-border: var(--tw-neutral-300);
   --base-accent: var(--tw-neutral-100);
   --base-accent-foreground: var(--tw-neutral-950);
-  --base-surface: #ffffff;
+  --base-surface: var(--tw-white);
   --base-surface-foreground: var(--tw-neutral-950);
   --base-focus-ring: var(--tw-neutral-400);
-  --base-ring-offset: #ffffff;
-  --base-foreground-focus: color-mix(
-    in srgb,
-    var(--tw-neutral-400) 50%,
-    transparent
-  );
+  --base-ring-offset: var(--tw-white);
   --base-foreground-dark: #ffffff;
-  --base-foreground-dark-focus: color-mix(
-    in srgb,
-    var(--base-foreground-dark) 50%,
-    transparent
-  );
   --base-background-dark: var(--tw-neutral-950);
 
   /* ==========================================================================
    * THEME COLORS (from Figma theme tokens)
+   * Semantic: main = 600 | light = 200 | dark = 900 (light mode)
    * ========================================================================== */
-  --theme-primary: var(--tw-blue-600);
-  --theme-primary-foreground: #ffffff;
+  --theme-primary: var(--color-brand-blue-500);
+  --theme-primary-light: var(--color-brand-blue-100);
+  --theme-primary-dark: var(--color-brand-blue-950);
+  --theme-primary-foreground: var(--tw-white);
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--tw-blue-600) 30%,
+    var(--color-brand-blue-500) 30%,
     transparent
   );
-  --theme-secondary: var(--color-midnight-900);
-  --theme-secondary-foreground: #ffffff;
+  --theme-secondary: var(--color-lavender-800);
+  --theme-secondary-light: var(--color-lavender-200);
+  --theme-secondary-dark: var(--color-lavender-950);
+  --theme-secondary-foreground: var(--tw-white);
   --theme-secondary-focus: color-mix(
     in srgb,
-    var(--color-midnight-900) 30%,
+    var(--color-lavender-800) 30%,
     transparent
   );
-  --theme-destructive: var(--color-red-500);
-  --theme-destructive-foreground: #ffffff;
+  --theme-tertiary: var(--tw-slate-800);
+  --theme-tertiary-light: var(--tw-slate-200);
+  --theme-tertiary-dark: var(--tw-slate-900);
+  --theme-tertiary-foreground: var(--tw-white);
+  --theme-tertiary-focus: color-mix(
+    in srgb,
+    var(--tw-slate-800) 30%,
+    transparent
+  );
+  --theme-destructive: var(--tw-red-600);
+  --theme-destructive-light: var(--tw-red-200);
+  --theme-destructive-dark: var(--tw-red-900);
+  --theme-destructive-foreground: var(--tw-white);
   --theme-destructive-focus: color-mix(
     in srgb,
-    var(--color-red-500) 30%,
+    var(--tw-red-600) 30%,
     transparent
   );
-  --theme-success: var(--color-green-500);
-  --theme-success-foreground: #ffffff;
+  --theme-success: var(--tw-green-600);
+  --theme-success-light: var(--tw-green-200);
+  --theme-success-dark: var(--tw-green-900);
+  --theme-success-foreground: var(--tw-white);
   --theme-success-focus: color-mix(
     in srgb,
-    var(--color-green-500) 30%,
+    var(--tw-green-600) 30%,
     transparent
   );
-  --theme-info: var(--color-blue-500);
-  --theme-info-foreground: #ffffff;
-  --theme-info-focus: color-mix(
-    in srgb,
-    var(--color-blue-500) 30%,
-    transparent
-  );
-  --theme-warning: var(--color-warning-600);
-  --theme-warning-foreground: #000000;
+  --theme-info: var(--tw-blue-600);
+  --theme-info-light: var(--tw-blue-200);
+  --theme-info-dark: var(--tw-blue-900);
+  --theme-info-foreground: var(--tw-white);
+  --theme-info-focus: color-mix(in srgb, var(--tw-blue-600) 30%, transparent);
+  --theme-warning: var(--tw-orange-600);
+  --theme-warning-light: var(--tw-orange-200);
+  --theme-warning-dark: var(--tw-orange-900);
+  --theme-warning-foreground: var(--tw-black);
   --theme-warning-focus: color-mix(
     in srgb,
-    var(--color-warning-600) 30%,
+    var(--tw-orange-600) 30%,
     transparent
   );
-  --theme-link: var(--tw-blue-500);
+  --component-link: var(--color-brand-blue-500);
 
   /* ==========================================================================
    * DATA/CHART COLORS (from Figma)
    * ========================================================================== */
-  --data-chart-1: #5975a6;
-  --data-chart-2: #cda1ff;
-  --data-chart-3: #63d1a0;
-  --data-chart-4: #ffc523;
-  --data-chart-5: #ff9364;
+  --data-chart-1: var(--color-midnight-400);
+  --data-chart-2: var(--color-lavender-600);
+  --data-chart-3: var(--color-halo-green-400);
+  --data-chart-4: var(--color-bright-yellow-600);
+  --data-chart-5: var(--color-waxflower-400);
 
   /* ==========================================================================
    * ALPHA TRANSPARENCY SCALE
@@ -811,37 +1038,44 @@
   /* ==========================================================================
    * COMPONENT INPUT TOKENS (from Figma)
    * ========================================================================== */
-  --component-input-active: #2563eb;
-  --component-input-foreground: #ffffff;
-  --component-input-base: #ffffff;
-  --component-input-border: #d4d4d4;
+  --component-input-active: var(--color-brand-blue-500);
+  --component-input-inactive: var(--tw-neutral-500);
+  --component-input-foreground: var(--tw-black);
+  --component-input-base: var(--tw-white);
+  --component-input-border: var(--tw-neutral-300);
   --component-input-focus: color-mix(
     in srgb,
-    var(--tw-blue-600) 30%,
+    var(--color-brand-blue-500) 30%,
+    transparent
+  );
+  --component-input-inactive-focus: color-mix(
+    in srgb,
+    var(--tw-neutral-500) 30%,
     transparent
   );
 
   /* ==========================================================================
    * COMPONENT TOOLTIP TOKENS (from Figma)
    * ========================================================================== */
-  --component-tooltip-base: #262626;
-  --component-tooltip-foreground: #ffffff;
+  --component-tooltip-base: var(--tw-neutral-800);
+  --component-tooltip-foreground: var(--tw-white);
 
   /* ==========================================================================
    * COMPONENT CARD TOKENS (from Figma)
    * ========================================================================== */
-  --component-card-base: #ffffff;
+  --component-card-base: var(--tw-white);
   --component-card-foreground: var(--tw-neutral-950);
+  --component-card-border: var(--tw-neutral-300);
 
   /* ==========================================================================
    * COMPONENT SIDEBAR TOKENS (from Figma)
    * ========================================================================== */
-  --component-sidebar-background: #fafafa;
+  --component-sidebar-background: var(--tw-neutral-50);
   --component-sidebar-foreground: var(--base-foreground); /* #0a0a0a */
   --component-sidebar-primary: #171717;
   --component-sidebar-primary-foreground: var(--base-background); /* #ffffff */
   --component-sidebar-accent: var(--base-accent); /* #f5f5f5 */
-  --component-sidebar-accent-foreground: #171717;
-  --component-sidebar-border: #e5e5e5;
+  --component-sidebar-accent-foreground: var(--tw-neutral-900);
+  --component-sidebar-border: var(--tw-neutral-200);
   --component-sidebar-ring: var(--theme-primary); /* #2563eb */
 }

@@ -1,4 +1,3 @@
-import { useTestService } from '@/test-service'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -341,7 +340,12 @@ describe('CampaignsService - Organization positionId sync', () => {
         data: { isPro: true },
       })
 
-      expect(mockIdentify).toHaveBeenCalledWith(42, { isPro: true })
+      // campaignId rides the identify so the warehouse can attribute the
+      // per-campaign isPro value rather than overwriting it across campaigns.
+      expect(mockIdentify).toHaveBeenCalledWith(42, {
+        isPro: true,
+        campaignId: 10,
+      })
     })
   })
 
@@ -1494,44 +1498,43 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
   })
 })
 
-describe('CampaignsService - hasCampaignStrategy', () => {
-  const service = useTestService()
+describe('CampaignsService - findActiveByUserId', () => {
+  const buildCampaign = (overrides: Partial<Campaign>): Campaign =>
+    ({
+      id: 1,
+      userId: 7,
+      didWin: null,
+      isDemo: false,
+      details: { electionDate: '2999-11-04' },
+      ...overrides,
+    }) as unknown as Campaign
 
-  const createCampaign = async (slug: string) => {
-    const org = await service.prisma.organization.create({
-      data: { slug, ownerId: service.user.id },
-    })
-    return service.prisma.campaign.create({
-      data: {
-        organizationSlug: org.slug,
-        userId: service.user.id,
-        slug,
-        details: {},
-      },
-    })
-  }
-
-  it('returns false when no campaign_strategy row exists', async () => {
-    const campaign = await createCampaign('test-no-strategy')
-
-    const result = await service.app
-      .get(CampaignsService)
-      .hasCampaignStrategy(campaign.id)
-
-    expect(result).toBe(false)
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('returns true when a campaign_strategy row exists', async () => {
-    const campaign = await createCampaign('test-with-strategy')
+  it('returns the active campaign, never a concluded one', async () => {
+    const { service } = await buildOrgSyncModule()
+    const concluded = buildCampaign({ id: 10, didWin: true })
+    const active = buildCampaign({ id: 11 })
+    service.findMany = vi.fn().mockResolvedValue([concluded, active]) as never
 
-    await service.prisma.campaignStrategy.create({
-      data: { campaignId: campaign.id },
-    })
+    const result = await service.findActiveByUserId(7)
 
-    const result = await service.app
-      .get(CampaignsService)
-      .hasCampaignStrategy(campaign.id)
+    expect(result?.id).toBe(11)
+  })
 
-    expect(result).toBe(true)
+  it('returns null when the user has only concluded campaigns', async () => {
+    const { service } = await buildOrgSyncModule()
+    service.findMany = vi
+      .fn()
+      .mockResolvedValue([
+        buildCampaign({ id: 10, didWin: true }),
+        buildCampaign({ id: 12, didWin: false }),
+      ]) as never
+
+    const result = await service.findActiveByUserId(7)
+
+    expect(result).toBeNull()
   })
 })

@@ -43,7 +43,7 @@ export const ModalFooter = ({
       <div className="col-span-6 text-left mt-6 flex justify-start">
         <Button
           size="large"
-          variant="secondary"
+          variant="neutral"
           onClick={onBack}
           {...backButtonProps}
         >
@@ -53,7 +53,7 @@ export const ModalFooter = ({
       <div className="col-span-6 text-right mt-6 flex justify-end">
         <Button
           size="large"
-          variant="secondary"
+          variant="neutral"
           onClick={onNext}
           disabled={disabled}
           {...nextButtonProps}

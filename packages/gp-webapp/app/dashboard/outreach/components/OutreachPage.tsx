@@ -1,5 +1,4 @@
 'use client'
-import React from 'react'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { OutreachHeader } from './OutreachHeader'
 import FreeTextsBanner from './FreeTextsBanner'

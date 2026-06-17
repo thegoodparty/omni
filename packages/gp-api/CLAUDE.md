@@ -45,6 +45,7 @@ CI additionally runs `prisma migrate diff ... --exit-code` against a shadow DB t
 | ---------------------------- | -------------------------------------------------- |
 | **Writing or editing code**  | **`.cursor/rules/*.mdc` — read first, every time** |
 | Adding an endpoint           | `docs/architecture.md` § Module shape              |
+| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Touching contracts           | `docs/contracts.md`                                |
 | Writing or fixing a test     | `docs/writing-tests.md`                            |
 | Adding/debugging an alert    | `docs/observability.md`                            |
@@ -101,6 +102,7 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                        | Read                                        |
 | --------------------------------- | ------------------------------------------- |
 | Campaigns / plans / tasks         | `src/campaigns/CLAUDE.md`                   |
+| Campaign plan PDF sharing         | `src/campaignPlanShares/CLAUDE.md`          |
 | Voter file / L2 lookups           | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades    | `src/payments/CLAUDE.md`                    |
 | Campaign websites / domains       | `src/websites/CLAUDE.md`                    |

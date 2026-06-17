@@ -2,10 +2,9 @@
  * Styleguide Scoped Variables
  * 
  * These variables only apply to elements with [data-slot] attribute.
- * This enables the same Tailwind classes (e.g., bg-primary-dark) to resolve
- * to different colors depending on whether they're used in:
- * - Legacy webapp components → uses :root values (webapp's dark indigo)
- * - Styleguide components [data-slot] → uses these values (styleguide's blue)
+ * This enables Tailwind color utilities to resolve correctly within shadcn/Radix
+ * components, which carry [data-slot] automatically. Overrides here take
+ * precedence over @theme defaults for scoped component styling.
  * 
  * [data-slot] is automatically present on all shadcn/ui components.
  *
@@ -18,126 +17,6 @@
 [data-slot]:not([data-slot='sidebar-wrapper']):not([data-slot='sidebar-inset']),
 [data-slot]:not([data-slot='sidebar-wrapper']):not([data-slot='sidebar-inset'])
   * {
-  /*
-   * ==========================================================================
-   * TAILWIND UTILITY TOKEN OVERRIDES (--color-*)
-   * These are the actual variables that Tailwind utilities reference.
-   * We override them directly to ensure scoping works with @theme.
-   * ==========================================================================
-   */
-  --color-primary: var(--theme-primary); /* #2563EB */
-  --color-primary-dark: var(--semantic-primary-hover); /* #0D3CB5 */
-  --color-primary-main: var(--theme-primary); /* #2563EB */
-  --color-primary-light: var(--color-blue-300); /* #75AFFE */
-  --color-primary-background: var(--color-blue-50); /* #E3F1FF */
-  --color-primary-contrast: var(--theme-primary-foreground); /* #FFFFFF */
-  --color-primary-foreground: var(--theme-primary-foreground); /* #FFFFFF */
-
-  --color-secondary: var(--theme-secondary); /* #0B1529 */
-  --color-secondary-dark: var(--color-midnight-950); /* #060B17 */
-  --color-secondary-main: var(--theme-secondary); /* #0B1529 */
-  --color-secondary-light: var(--color-midnight-700); /* #1D305C */
-  --color-secondary-background: var(--color-midnight-50); /* #ECF5FF */
-  --color-secondary-contrast: var(--theme-secondary-foreground); /* #FFFFFF */
-  --color-secondary-foreground: var(--theme-secondary-foreground); /* #FFFFFF */
-
-  --color-tertiary: var(--brand-accent); /* #63D1A0 */
-  --color-tertiary-dark: var(--color-halo-green-700); /* #257F68 */
-  --color-tertiary-main: var(--brand-accent); /* #63D1A0 */
-  --color-tertiary-light: var(--color-halo-green-300); /* #7FDCB2 */
-  --color-tertiary-background: var(--color-halo-green-50); /* #DDF2E8 */
-  --color-tertiary-contrast: var(--theme-primary-foreground); /* #FFFFFF */
-
-  /*
-   * ==========================================================================
-   * PRIMARY COLOR SCALE (from Figma theme/primary)
-   * Webapp uses dark indigo (#242D3D), styleguide uses blue (#2563EB)
-   * ==========================================================================
-   */
-  --primary: var(--theme-primary); /* #2563EB */
-  --primary-dark: var(--semantic-primary-hover); /* #0D3CB5 */
-  --primary-main: var(--theme-primary); /* #2563EB */
-  --primary-light: var(--color-blue-300); /* #75AFFE */
-  --primary-background: var(--color-blue-50); /* #E3F1FF */
-  --primary-contrast: var(--theme-primary-foreground); /* #FFFFFF */
-  --primary-foreground: var(--theme-primary-foreground); /* #FFFFFF */
-
-  /*
-   * ==========================================================================
-   * SECONDARY COLOR SCALE (from Figma theme/secondary)
-   * Webapp uses yellow (#FFC523), styleguide uses midnight (#0B1529)
-   * ==========================================================================
-   */
-  --secondary: var(--theme-secondary); /* #0B1529 */
-  --secondary-dark: var(--color-midnight-950); /* #060B17 */
-  --secondary-main: var(--theme-secondary); /* #0B1529 */
-  --secondary-light: var(--color-midnight-700); /* #1D305C */
-  --secondary-background: var(--color-midnight-50); /* #ECF5FF */
-  --secondary-contrast: var(--theme-secondary-foreground); /* #FFFFFF */
-  --secondary-foreground: var(--theme-secondary-foreground); /* #FFFFFF */
-
-  /*
-   * ==========================================================================
-   * TERTIARY COLOR SCALE (Styleguide Accent/Halo Green)
-   * ==========================================================================
-   */
-  --tertiary: var(--brand-accent); /* #63D1A0 */
-  --tertiary-dark: var(--color-halo-green-700); /* #257F68 */
-  --tertiary-main: var(--brand-accent); /* #63D1A0 */
-  --tertiary-light: var(--color-halo-green-300); /* #7FDCB2 */
-  --tertiary-background: var(--color-halo-green-50); /* #DDF2E8 */
-  --tertiary-contrast: var(--brand-text-inverse); /* #FFFFFF */
-
-  /*
-   * ==========================================================================
-   * NEUTRAL COLOR SCALE (Styleguide Grayscale)
-   * ==========================================================================
-   */
-  --neutral: var(--color-grayscale-400); /* #B9C3CC */
-  --neutral-dark: var(--color-grayscale-600); /* #70757A */
-  --neutral-main: var(--color-grayscale-400); /* #B9C3CC */
-  --neutral-light: var(--color-grayscale-200); /* #E0E6EC */
-  --neutral-background: var(--color-grayscale-50); /* #F7FAFB */
-  --neutral-contrast: var(--brand-text-primary); /* #000000 */
-
-  /*
-   * ==========================================================================
-   * SEMANTIC COLOR SCALES (Error, Success, Info, Warning)
-   * These match between webapp and styleguide, but we define them for consistency
-   * ==========================================================================
-   */
-  /* Error */
-  --error: var(--semantic-danger-default); /* #DC2626 */
-  --error-dark: var(--semantic-danger-hover); /* #93081F */
-  --error-main: var(--semantic-danger-default); /* #DC2626 */
-  --error-light: var(--color-red-300); /* #FCA5A5 */
-  --error-background: var(--semantic-danger-subtle); /* #FEF2F2 */
-  --error-contrast: var(--brand-text-inverse); /* #FFFFFF */
-
-  /* Success */
-  --success: var(--semantic-success-default); /* #30A541 */
-  --success-dark: var(--semantic-success-hover); /* #0F5F31 */
-  --success-main: var(--semantic-success-default); /* #30A541 */
-  --success-light: var(--color-green-300); /* #86E382 */
-  --success-background: var(--semantic-success-subtle); /* #EEFFE9 */
-  --success-contrast: var(--brand-text-inverse); /* #FFFFFF */
-
-  /* Info */
-  --info: var(--semantic-info-default); /* #1B6AFC */
-  --info-dark: var(--semantic-info-hover); /* #0D3CB5 */
-  --info-main: var(--semantic-info-default); /* #1B6AFC */
-  --info-light: var(--color-blue-300); /* #75AFFE */
-  --info-background: var(--semantic-info-subtle); /* #E3F1FF */
-  --info-contrast: var(--brand-text-inverse); /* #FFFFFF */
-
-  /* Warning (updated to new orange-based scale from Figma) */
-  --warning: var(--semantic-warning-default); /* #FF9800 */
-  --warning-dark: var(--semantic-warning-hover); /* #DB7900 */
-  --warning-main: var(--semantic-warning-default); /* #FF9800 */
-  --warning-light: var(--color-warning-300); /* #FFCD66 */
-  --warning-background: var(--semantic-warning-subtle); /* #FFF5D5 */
-  --warning-contrast: var(--brand-text-primary); /* #000000 */
-
   /*
    * ==========================================================================
    * SHADCN/UI SEMANTIC VARIABLES
@@ -184,6 +63,8 @@
   --destructive-foreground: var(--theme-destructive-foreground); /* #FFFFFF */
   --color-destructive: var(--theme-destructive);
   --color-destructive-foreground: var(--theme-destructive-foreground);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
 
   /* Card */
   --card: var(--brand-surface-primary); /* #FFFFFF */
@@ -246,16 +127,16 @@
    * WARNING COLOR SCALE (override webapp's orange with Figma warning)
    * ==========================================================================
    */
-  --orange-50: var(--color-warning-50);
-  --orange-100: var(--color-warning-100);
-  --orange-200: var(--color-warning-200);
-  --orange-300: var(--color-warning-300);
-  --orange-400: var(--color-warning-400);
-  --orange-500: var(--color-warning-500);
-  --orange-600: var(--color-warning-600);
-  --orange-700: var(--color-warning-700);
-  --orange-800: var(--color-warning-800);
-  --orange-900: var(--color-warning-900);
+  --orange-50: var(--tw-orange-50);
+  --orange-100: var(--tw-orange-100);
+  --orange-200: var(--tw-orange-200);
+  --orange-300: var(--tw-orange-300);
+  --orange-400: var(--tw-orange-400);
+  --orange-500: var(--tw-orange-500);
+  --orange-600: var(--tw-orange-600);
+  --orange-700: var(--tw-orange-700);
+  --orange-800: var(--tw-orange-800);
+  --orange-900: var(--tw-orange-900);
 
   /*
    * ==========================================================================
@@ -334,6 +215,7 @@
   --base-background: var(--tw-neutral-950);
   --base-muted-foreground: var(--tw-neutral-400);
   --base-muted: var(--tw-neutral-800);
+  --base-inactive: var(--tw-neutral-700);
   --base-border: var(--tw-neutral-600);
   --base-accent: var(--tw-neutral-700);
   --base-accent-foreground: #ffffff;
@@ -341,74 +223,97 @@
   --base-surface-foreground: #ffffff;
   --base-focus-ring: var(--tw-neutral-500);
   --base-ring-offset: #ffffff;
-  --base-foreground-focus: #a3a3a380;
   --base-foreground-dark: var(--tw-neutral-950);
-  --base-foreground-dark-focus: #ffffff80;
   --base-background-dark: #ffffff;
 
   /*
    * ==========================================================================
    * THEME TOKENS (dark mode)
+   * Semantic: main = 300 | light = 800 | dark = 200
    * ==========================================================================
    */
-  --theme-primary: var(--tw-blue-300);
+  --theme-primary: var(--color-brand-blue-300);
+  --theme-primary-light: var(--color-brand-blue-950);
+  --theme-primary-dark: var(--color-brand-blue-100);
   --theme-primary-foreground: var(--tw-neutral-950);
   --theme-primary-focus: color-mix(
     in srgb,
-    var(--tw-blue-300) 50%,
+    var(--color-brand-blue-300) 50%,
     transparent
   );
-  --theme-secondary: var(--goodparty-cream);
+  --theme-secondary: var(--color-lavender-400);
+  --theme-secondary-light: var(--color-lavender-950);
+  --theme-secondary-dark: var(--color-lavender-200);
   --theme-secondary-foreground: var(--tw-neutral-950);
   --theme-secondary-focus: color-mix(
     in srgb,
-    var(--goodparty-cream) 50%,
+    var(--color-lavender-400) 50%,
     transparent
   );
-  --theme-destructive: var(--color-red-300);
+  --theme-tertiary: var(--tw-slate-400);
+  --theme-tertiary-light: var(--tw-slate-800);
+  --theme-tertiary-dark: var(--tw-slate-200);
+  --theme-tertiary-foreground: #0a0a0a;
+  --theme-tertiary-focus: color-mix(
+    in srgb,
+    var(--tw-slate-400) 50%,
+    transparent
+  );
+  --theme-destructive: var(--tw-red-300);
+  --theme-destructive-light: var(--tw-red-900);
+  --theme-destructive-dark: var(--tw-red-200);
   --theme-destructive-foreground: var(--tw-neutral-950);
   --theme-destructive-focus: color-mix(
     in srgb,
-    var(--color-red-300) 50%,
+    var(--tw-red-300) 50%,
     transparent
   );
-  --theme-success: var(--color-green-300);
+  --theme-success: var(--tw-green-300);
+  --theme-success-light: var(--tw-green-900);
+  --theme-success-dark: var(--tw-green-200);
   --theme-success-foreground: var(--tw-neutral-950);
   --theme-success-focus: color-mix(
     in srgb,
-    var(--color-green-300) 50%,
+    var(--tw-green-300) 50%,
     transparent
   );
-  --theme-info: var(--color-blue-300);
+  --theme-info: var(--tw-blue-300);
+  --theme-info-light: var(--tw-blue-900);
+  --theme-info-dark: var(--tw-blue-200);
   --theme-info-foreground: var(--tw-neutral-950);
-  --theme-info-focus: color-mix(
-    in srgb,
-    var(--color-blue-300) 50%,
-    transparent
-  );
-  --theme-warning: var(--color-warning-400);
+  --theme-info-focus: color-mix(in srgb, var(--tw-blue-300) 50%, transparent);
+  --theme-warning: var(--tw-orange-300);
+  --theme-warning-light: var(--tw-orange-900);
+  --theme-warning-dark: var(--tw-orange-200);
   --theme-warning-foreground: #000000;
   --theme-warning-focus: color-mix(
     in srgb,
-    var(--color-warning-400) 50%,
+    var(--tw-orange-300) 50%,
     transparent
   );
-  --theme-link: var(--tw-blue-300);
 
   /*
    * ==========================================================================
    * COMPONENT TOKENS (dark mode)
    * ==========================================================================
    */
+  --component-link: var(--color-brand-blue-300);
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
-  --component-input-border: var(--tw-neutral-600);
+  --component-card-border: var(--tw-neutral-600);
+  --component-input-active: var(--color-brand-blue-300);
+  --component-input-foreground: var(--tw-white);
   --component-input-base: var(--tw-neutral-950);
-  --component-input-active: var(--tw-blue-300);
-  --component-input-foreground: var(--tw-neutral-950);
-  --component-input-focus: color-mix(
+  --component-input-inactive: var(--tw-neutral-300);
+  --component-input-inactive-focus: color-mix(
     in srgb,
-    var(--tw-blue-300) 50%,
+    var(--tw-neutral-300) 50%,
+    transparent
+  );
+  --color-components-input-inactive: var(--tw-neutral-300);
+  --color-components-input-inactive-focus: color-mix(
+    in srgb,
+    var(--tw-neutral-300) 50%,
     transparent
   );
   --component-tooltip-base: var(--tw-neutral-100);
@@ -494,11 +399,38 @@
   --color-accent: var(--base-accent);
   --color-accent-foreground: var(--base-accent-foreground);
 
+  /* Secondary */
+  --secondary: var(--theme-secondary);
+  --secondary-foreground: var(--theme-secondary-foreground);
+  --color-secondary: var(--theme-secondary);
+  --color-secondary-foreground: var(--theme-secondary-foreground);
+
+  /* Tertiary */
+  --color-tertiary: var(--theme-tertiary);
+  --color-tertiary-light: var(--theme-tertiary-light);
+  --color-tertiary-dark: var(--theme-tertiary-dark);
+  --color-tertiary-foreground: var(--theme-tertiary-foreground);
+
+  /* Link */
+  --color-link: var(--component-link);
+
   /* Destructive */
   --destructive: var(--theme-destructive);
   --destructive-foreground: var(--theme-destructive-foreground);
   --color-destructive: var(--theme-destructive);
   --color-destructive-foreground: var(--theme-destructive-foreground);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
+
+  /* Info */
+  --color-info: var(--theme-info);
+  --color-info-dark: var(--theme-info-dark);
+  --color-info-contrast: var(--theme-info-foreground);
+
+  /* Success */
+  --color-success: var(--theme-success);
+  --color-success-dark: var(--theme-success-dark);
+  --color-success-contrast: var(--theme-success-foreground);
 
   /* Card */
   --card: var(--component-card-base);

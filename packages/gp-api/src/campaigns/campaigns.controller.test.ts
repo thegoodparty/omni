@@ -14,6 +14,7 @@ import { CampaignsController } from './campaigns.controller'
 import { CreateCampaignSchema } from './schemas/updateCampaign.schema'
 import { CampaignPlanVersionsService } from './services/campaignPlanVersions.service'
 import { CampaignsService } from './services/campaigns.service'
+import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 
@@ -127,6 +128,7 @@ describe('CampaignsController', () => {
   let organizationsService: OrganizationsService
   let analyticsService: AnalyticsService
   let filingInstructionsService: FilingInstructionsService
+  let eligibilityService: EligibilityService
 
   beforeEach(() => {
     const campaignsServiceMock: Partial<CampaignsService> = {
@@ -141,7 +143,6 @@ describe('CampaignsController', () => {
       updateJsonFields: vi.fn(),
       launch: vi.fn(),
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
-      hasCampaignStrategy: vi.fn().mockResolvedValue(false),
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
@@ -170,14 +171,21 @@ describe('CampaignsController', () => {
 
     const analyticsServiceMock: Partial<AnalyticsService> = {
       identify: vi.fn(),
+      group: vi.fn(),
     }
     analyticsService = analyticsServiceMock as AnalyticsService
 
     const filingInstructionsServiceMock: Partial<FilingInstructionsService> = {
       emailToCandidate: vi.fn(),
+      getContent: vi.fn(),
     }
     filingInstructionsService =
       filingInstructionsServiceMock as FilingInstructionsService
+
+    const eligibilityServiceMock: Partial<EligibilityService> = {
+      evaluate: vi.fn(),
+    }
+    eligibilityService = eligibilityServiceMock as EligibilityService
 
     controller = new CampaignsController(
       campaignsService,
@@ -186,6 +194,7 @@ describe('CampaignsController', () => {
       organizationsService,
       analyticsService,
       filingInstructionsService,
+      eligibilityService,
       createMockLogger(),
     )
   })
@@ -273,7 +282,6 @@ describe('CampaignsController', () => {
         ...campaignWithRelations,
         positionName: 'Mayor',
         raceTargetMetrics: null,
-        hasCampaignStrategy: false,
       })
     })
 
@@ -300,20 +308,6 @@ describe('CampaignsController', () => {
 
       expect(result.raceTargetMetrics).toEqual(liveMetrics)
       expect(result.positionName).toBe('Mayor')
-      expect(result.hasCampaignStrategy).toBe(false)
-    })
-
-    it('passes through hasCampaignStrategy: true from the service', async () => {
-      vi.spyOn(campaignsService, 'hasCampaignStrategy').mockResolvedValue(true)
-
-      const campaignWithRelations: CampaignWith<'organization'> = {
-        ...mockCampaign,
-        organization: {} as Organization,
-      }
-
-      const result = await controller.findMine(campaignWithRelations)
-
-      expect(result.hasCampaignStrategy).toBe(true)
     })
   })
 
@@ -359,6 +353,29 @@ describe('CampaignsController', () => {
         mockUser,
       )
       expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe('getFilingInstructions', () => {
+    it('returns the filing-instructions content for the caller campaign', async () => {
+      const content = {
+        filingWindow: 'June 1, 2026 – June 15, 2026',
+        filingFee: 100,
+        filingRequirementsText: 'Filing fee: $100.',
+        filingOfficeAddress: '500 Election Way, Sacramento, CA 95814',
+        filingPhoneNumber: '(916) 555-0199',
+        paperworkInstructions: 'Submit to the city clerk.',
+      }
+      vi.spyOn(filingInstructionsService, 'getContent').mockResolvedValue(
+        content,
+      )
+
+      const result = await controller.getFilingInstructions(mockCampaign)
+
+      expect(filingInstructionsService.getContent).toHaveBeenCalledWith(
+        mockCampaign,
+      )
+      expect(result).toEqual(content)
     })
   })
 
@@ -492,16 +509,28 @@ describe('CampaignsController', () => {
       ballotReadyPositionId: 'br-pos-1',
     } as CreateCampaignSchema
 
-    it('throws ConflictException when campaign already exists', async () => {
-      vi.spyOn(campaignsService, 'findByUserId').mockResolvedValue(mockCampaign)
+    it('throws ConflictException when not eligible to start a campaign', async () => {
+      vi.spyOn(eligibilityService, 'evaluate').mockResolvedValue({
+        hasActiveCampaign: true,
+        holdsOffice: false,
+        canStartCampaign: false,
+        canGainOffice: true,
+        reelectionOfficeSlug: null,
+      })
 
       await expect(controller.create(mockUser, mockCreateBody)).rejects.toThrow(
         ConflictException,
       )
     })
 
-    it('creates campaign for user when none exists', async () => {
-      vi.spyOn(campaignsService, 'findByUserId').mockResolvedValue(null!)
+    it('creates campaign for user when eligible to start one', async () => {
+      vi.spyOn(eligibilityService, 'evaluate').mockResolvedValue({
+        hasActiveCampaign: false,
+        holdsOffice: false,
+        canStartCampaign: true,
+        canGainOffice: true,
+        reelectionOfficeSlug: null,
+      })
       vi.spyOn(campaignsService, 'createForUser').mockResolvedValue(
         mockCampaign,
       )
@@ -588,8 +617,12 @@ describe('CampaignsController', () => {
       )
     })
 
-    it('calls analytics.identify with detail trait(s) on slug override', async () => {
-      const campaignWithUserId: Campaign = { ...mockOtherCampaign, userId: 5 }
+    it('sends office facts to group() and pledged to identify on slug override', async () => {
+      const campaignWithUserId: Campaign = {
+        ...mockOtherCampaign,
+        userId: 5,
+        organizationSlug: 'campaign-200',
+      }
       vi.spyOn(campaignsService, 'findFirstOrThrow').mockResolvedValue(
         campaignWithUserId,
       )
@@ -597,6 +630,7 @@ describe('CampaignsController', () => {
         campaignWithUserId,
       )
       vi.spyOn(analyticsService, 'identify').mockResolvedValue(undefined)
+      vi.spyOn(analyticsService, 'group').mockResolvedValue(undefined)
 
       await controller.update(mockAdminUser, mockCampaign, {
         slug: OVERRIDE_SLUG,
@@ -620,15 +654,19 @@ describe('CampaignsController', () => {
         },
       )
 
-      expect(analyticsService.identify).toHaveBeenCalledWith(5, {
+      // Campaign-scoped facts ride the org-scoped group(), not the user
+      // identity (which a second campaign would overwrite).
+      expect(analyticsService.group).toHaveBeenCalledWith(5, 'campaign-200', {
         officeMunicipality: 'Springfield',
         officeElectionDate: '2025-11-04',
         affiliation: 'Independent',
+      })
+      expect(analyticsService.identify).toHaveBeenCalledWith(5, {
         pledged: true,
       })
     })
 
-    it('does not call analytics.identify when details is missing', async () => {
+    it('does not call analytics.identify or group when details is missing', async () => {
       const campaignWithUserId: Campaign = { ...mockOtherCampaign, userId: 5 }
       vi.spyOn(campaignsService, 'findFirstOrThrow').mockResolvedValue(
         campaignWithUserId,
@@ -648,10 +686,15 @@ describe('CampaignsController', () => {
       )
 
       expect(analyticsService.identify).not.toHaveBeenCalled()
+      expect(analyticsService.group).not.toHaveBeenCalled()
     })
 
-    it('only sends truthy detail fields to analytics.identify', async () => {
-      const campaignWithUserId: Campaign = { ...mockOtherCampaign, userId: 5 }
+    it('groups only truthy office facts and skips identify without pledged', async () => {
+      const campaignWithUserId: Campaign = {
+        ...mockOtherCampaign,
+        userId: 5,
+        organizationSlug: 'campaign-200',
+      }
       vi.spyOn(campaignsService, 'findFirstOrThrow').mockResolvedValue(
         campaignWithUserId,
       )
@@ -659,6 +702,7 @@ describe('CampaignsController', () => {
         campaignWithUserId,
       )
       vi.spyOn(analyticsService, 'identify').mockResolvedValue(undefined)
+      vi.spyOn(analyticsService, 'group').mockResolvedValue(undefined)
 
       await controller.update(mockAdminUser, mockCampaign, {
         slug: OVERRIDE_SLUG,
@@ -670,9 +714,46 @@ describe('CampaignsController', () => {
         { details: { city: 'Springfield' } },
       )
 
-      expect(analyticsService.identify).toHaveBeenCalledWith(5, {
+      expect(analyticsService.group).toHaveBeenCalledWith(5, 'campaign-200', {
         officeMunicipality: 'Springfield',
       })
+      expect(analyticsService.identify).not.toHaveBeenCalled()
+    })
+
+    it('groups each edited campaign under its own slug, never the other', async () => {
+      vi.spyOn(analyticsService, 'identify').mockResolvedValue(undefined)
+      vi.spyOn(analyticsService, 'group').mockResolvedValue(undefined)
+
+      // Admin edits campaign B (the override-slug target) while their request
+      // campaign A is something else — group must key on B, not A.
+      const campaignB: Campaign = {
+        ...mockOtherCampaign,
+        userId: 5,
+        organizationSlug: 'campaign-200',
+      }
+
+      vi.spyOn(campaignsService, 'findFirstOrThrow').mockResolvedValueOnce(
+        campaignB,
+      )
+      vi.spyOn(campaignsService, 'updateJsonFields').mockResolvedValue(
+        campaignB,
+      )
+
+      await controller.update(mockAdminUser, mockCampaign, {
+        slug: OVERRIDE_SLUG,
+        details: { city: 'Capital City', party: 'Green' },
+      })
+
+      // Editing B groups under B's slug; A's slug (campaign-100) is never touched.
+      expect(analyticsService.group).toHaveBeenCalledWith(5, 'campaign-200', {
+        officeMunicipality: 'Capital City',
+        affiliation: 'Green',
+      })
+      expect(analyticsService.group).not.toHaveBeenCalledWith(
+        5,
+        'campaign-100',
+        expect.anything(),
+      )
     })
 
     it('throws NotFoundException when no campaign and no slug override', async () => {

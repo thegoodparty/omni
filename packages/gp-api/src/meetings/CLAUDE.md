@@ -67,7 +67,7 @@ MeetingBriefingsService.onExperimentRunCompleted(run)
 
 Schedule and briefing are decoupled. `onExperimentRunCompleted` does nothing on `meeting_schedule` completion — the schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
 
-The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice`, and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. The cron also requires the election-api position to be serve-ICP (`isServeIcp === true`, sourced from Databricks `int__icp_offices` via `resolveServeContext`); false, null, and unknown all fail closed, so no automated briefings dispatch until the ICP backfill populates the column. Manual dispatches are never ICP-gated.
+The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice`, and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. The cron also requires the election-api position to be serve-ICP (`isServeIcp === true`, sourced from Databricks `int__icp_offices` via `resolveServeContext`); false, null, and unknown all fail closed, so no automated briefings dispatch until the ICP backfill populates the column. Manual dispatches via `dispatchManual` apply the same ICP gate when called with `useImminenceGate: true` (the flag means "match the cron exactly"); only the ungated brief-now path skips it.
 
 `upsertBriefingRow` is selective about which `briefing_status` values it persists:
 
@@ -201,6 +201,7 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
 | Area                                          | Path                                                                                            |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Briefing dispatch + lifecycle                 | `src/meetings/services/meetingBriefings.service.ts`                                             |
+| Adding / changing analytics events            | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root)                                |
 | Briefing list + read endpoint                 | `src/meetings/controllers/meetingsBriefings.controller.ts`                                      |
 | Annotations service                           | `src/annotations/services/annotations.service.ts`                                               |
 | Attachment / presign / OCR trigger            | `src/annotations/services/annotationAttachment.service.ts`                                      |

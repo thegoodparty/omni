@@ -31,3 +31,4 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 - Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, etc.
 - `app/shared/user/UserProvider.tsx` — auth state the layout reads.
 - `app/shared/hooks/CampaignProvider.tsx` — current campaign context.
+- **Adding analytics to a feature here** — fire events per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).

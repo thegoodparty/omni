@@ -41,7 +41,7 @@ const ChatInput = (): React.JSX.Element => {
           variant="default"
           aria-label="Scroll to top"
         >
-          <ChevronUpIcon className="text-primary" />
+          <ChevronUpIcon className="text-primary-foreground" />
         </IconButton>
       </div>
       <form noValidate onSubmit={onSubmit}>
@@ -51,7 +51,7 @@ const ChatInput = (): React.JSX.Element => {
           multiline
           maxRows={6}
           autoFocus
-          className="bg-white pl-6 min-[1400px]:pl-0 rounded-3xl border-transparent"
+          className="bg-background pl-6 min-[1400px]:pl-0 rounded-3xl border-transparent"
           value={text}
           onKeyDown={onKeyDown}
           onChange={(e) => {

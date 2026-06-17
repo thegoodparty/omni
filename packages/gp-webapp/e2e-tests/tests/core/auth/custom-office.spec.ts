@@ -84,6 +84,7 @@ test.describe('Custom office flow', () => {
         district: string | null
         position: string | null
         positionName: string
+        status: 'active' | 'past'
       }[]
     }
 
@@ -108,6 +109,9 @@ test.describe('Custom office flow', () => {
       district: null,
       position: null,
       positionName: 'City Council',
+      // Org list now carries a derived status (ENG-10381); future election +
+      // no result => active.
+      status: 'active',
     })
 
     const { data: campaign } = await client.get<{

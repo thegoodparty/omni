@@ -72,12 +72,12 @@ export default function ImageStep({
         <FileDropZone maxSize={MAX_FILE_SIZE} onChange={handleOnChange} />
       )}
       <div className="mt-8 flex justify-between">
-        <Button size="large" variant="secondary" onClick={backCallback}>
+        <Button size="large" variant="neutral" onClick={backCallback}>
           Back
         </Button>
         <Button
           size="large"
-          variant="secondary"
+          variant="neutral"
           disabled={!file || fileTooLarge}
           onClick={nextCallback}
           {...trackingAttrs}

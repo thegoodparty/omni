@@ -1,4 +1,4 @@
-import { ElectedOffice } from '../../generated/prisma'
+import { Campaign, ElectedOffice } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactEngagementController } from '../contactEngagement.controller'
 import { ContactEngagementService } from '../contactEngagement.service'
@@ -11,9 +11,30 @@ describe('ContactEngagementController', () => {
   let controller: ContactEngagementController
   let contactEngagementService: ContactEngagementService
 
+  const mockElectedOffice: ElectedOffice = {
+    id: 'office-1',
+    userId: 1,
+    campaignId: 1,
+    organizationSlug: 'eo-office-1',
+    swornInDate: null,
+    electedDate: null,
+    termStartAt: null,
+    termEndAt: null,
+    termLengthDays: null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+
+  const noElectedOffice = undefined
+  const noCampaign = undefined as unknown as Campaign
+  const mockCampaign = { id: 99 } as unknown as Campaign
+
   beforeEach(() => {
     contactEngagementService = {
       getIndividualActivities: vi.fn(),
+      getCampaignActivities: vi.fn(),
+      getConstituentIssues: vi.fn(),
     } as unknown as ContactEngagementService
 
     controller = new ContactEngagementController(contactEngagementService)
@@ -21,16 +42,6 @@ describe('ContactEngagementController', () => {
   })
 
   describe('getIndividualActivities', () => {
-    const mockElectedOffice: ElectedOffice = {
-      id: 'office-1',
-      userId: 1,
-      campaignId: 1,
-      organizationSlug: 'eo-office-1',
-      swornInDate: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
     const mockParams = {
       id: 'person-123',
     }
@@ -69,6 +80,7 @@ describe('ContactEngagementController', () => {
         mockParams,
         mockQuery,
         mockElectedOffice,
+        noCampaign,
       )
 
       expect(
@@ -90,6 +102,11 @@ describe('ContactEngagementController', () => {
         campaignId: 1,
         organizationSlug: 'eo-office-1',
         swornInDate: null,
+        electedDate: null,
+        termStartAt: null,
+        termEndAt: null,
+        termLengthDays: null,
+        isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -103,6 +120,7 @@ describe('ContactEngagementController', () => {
         mockParams,
         mockQuery,
         differentElectedOffice,
+        noCampaign,
       )
 
       expect(
@@ -113,6 +131,68 @@ describe('ContactEngagementController', () => {
         take: 20,
         electedOfficeId: 'office-42',
       })
+    })
+
+    it('uses the campaign branch when no elected office is present', async () => {
+      const campaignResponse = { nextCursor: null, results: [] }
+      vi.spyOn(
+        contactEngagementService,
+        'getCampaignActivities',
+      ).mockResolvedValue(campaignResponse)
+
+      const result = await controller.getIndividualActivities(
+        { id: 'LAL-1' },
+        { take: 5, after: '10' },
+        noElectedOffice,
+        mockCampaign,
+      )
+
+      expect(
+        contactEngagementService.getCampaignActivities,
+      ).toHaveBeenCalledWith({
+        lalVoterId: 'LAL-1',
+        campaignId: 99,
+        take: 5,
+        after: '10',
+      })
+      expect(
+        contactEngagementService.getIndividualActivities,
+      ).not.toHaveBeenCalled()
+      expect(result).toEqual(campaignResponse)
+    })
+  })
+
+  describe('getConstituentIssues', () => {
+    it('delegates to the service for an elected office', async () => {
+      const issuesResponse = { nextCursor: null, results: [] }
+      vi.spyOn(
+        contactEngagementService,
+        'getConstituentIssues',
+      ).mockResolvedValue(issuesResponse)
+
+      const result = await controller.getConstituentIssues(
+        { id: 'person-123' },
+        { take: 3, after: '2' },
+        mockElectedOffice,
+      )
+
+      expect(
+        contactEngagementService.getConstituentIssues,
+      ).toHaveBeenCalledWith('person-123', 'office-1', 3, '2')
+      expect(result).toEqual(issuesResponse)
+    })
+
+    it('returns empty issues for a campaign context without calling the service', async () => {
+      const result = await controller.getConstituentIssues(
+        { id: 'LAL-1' },
+        { take: 3 },
+        noElectedOffice,
+      )
+
+      expect(result).toEqual({ nextCursor: null, results: [] })
+      expect(
+        contactEngagementService.getConstituentIssues,
+      ).not.toHaveBeenCalled()
     })
   })
 })

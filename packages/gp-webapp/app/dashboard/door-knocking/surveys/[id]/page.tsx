@@ -36,11 +36,11 @@ export const metadata = meta
 export default async function Page({
   params,
 }: {
-  params: Params
+  params: Promise<Params>
 }): Promise<React.JSX.Element> {
   await candidateAccess()
 
-  const { id } = params
+  const { id } = await params
 
   const survey = await fetchSurvey(id)
   const childProps = {

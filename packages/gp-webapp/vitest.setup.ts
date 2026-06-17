@@ -35,6 +35,12 @@ if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   Element.prototype.hasPointerCapture = () => false
 }
 
+// jsdom doesn't implement elementFromPoint; input-otp calls it from a timer to
+// position its fake caret, which otherwise throws an async uncaught error.
+if (typeof document !== 'undefined' && !document.elementFromPoint) {
+  document.elementFromPoint = (): null => null
+}
+
 // jsdom's CSSStyleDeclaration returns `""` for `transform` and
 // `undefined` for the webkit/moz variants. vaul reads them via
 // `(transform || webkitTransform || mozTransform).match(...)` in drag

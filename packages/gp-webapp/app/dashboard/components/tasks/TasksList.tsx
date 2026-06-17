@@ -2,17 +2,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import TaskItem, { Task } from './TaskItem'
-import H2 from '@shared/typography/H2'
-import Body2 from '@shared/typography/Body2'
-import { dateUsHelper } from 'helpers/dateHelper'
-import { DashboardHeader } from 'app/dashboard/components/DashboardHeader'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes, type ApiRoute } from 'gpApi/routes'
 import { useSnackbar } from 'helpers/useSnackbar'
-import LogTaskModal, {
-  TASK_TYPE_HEADINGS,
-  LogTaskFlowType,
-} from './LogTaskModal'
 import CountModal from './CountModal'
 import EventDetailModal from './EventDetailModal'
 import AwarenessDetailModal from './AwarenessDetailModal'
@@ -84,14 +76,12 @@ interface TasksListProps {
   campaign: Campaign
   tasks?: Task[]
   tcrCompliance?: TcrCompliance | null
-  isLegacyList?: boolean
 }
 
 const TasksList = ({
   campaign,
   tasks: tasksProp = [],
   tcrCompliance,
-  isLegacyList = true,
 }: TasksListProps): React.JSX.Element => {
   const router = useRouter()
   const { p2pUxEnabled } = useP2pUxEnabled()
@@ -231,20 +221,20 @@ const TasksList = ({
   const trackedWeekRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (isLegacyList || tasksCount === 0) return
+    if (tasksCount === 0) return
     const trackedWeekKey = `${campaign.id}:${viewMode}:${selectedWeek}`
     if (trackedWeekRef.current === trackedWeekKey) return
     trackedWeekRef.current = trackedWeekKey
     trackEvent(EVENTS.Dashboard.CampaignPlan.Viewed, viewedPayloadRef.current)
-  }, [campaign.id, isLegacyList, selectedWeek, tasksCount, viewMode])
+  }, [campaign.id, selectedWeek, tasksCount, viewMode])
 
   useEffect(() => {
-    if (isLegacyList || tasksCount === 0 || !user?.id) return
+    if (tasksCount === 0 || !user?.id) return
     void identifyUser(user.id, {
       campaignPlanTasksTotal: tasksCount,
       campaignPlanTasksCompleted: tasksCompletedCount,
     })
-  }, [isLegacyList, tasksCount, tasksCompletedCount, user?.id])
+  }, [tasksCount, tasksCompletedCount, user?.id])
 
   const [completeModalTask, setCompleteModalTask] = useState<Task | null>(null)
   const [eventDetailTask, setEventDetailTask] = useState<Task | null>(null)
@@ -294,28 +284,28 @@ const TasksList = ({
     statusChange: StatusChange,
     source: TrackingSource,
   ) => {
-    if (isLegacyList) return
     const campaignPlanTaskType = getCampaignPlanEventTaskType(task.flowType)
     const taskDueDate = task.date ?? null
     const daysFromDueDate = taskDueDate
       ? differenceInDays(new Date(), new Date(taskDueDate.replace(/-/g, '/')))
       : null
-    if (campaignPlanTaskType) {
-      trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
-        statusChange,
-        taskType: campaignPlanTaskType,
-        taskName: task.title,
-        taskDueDate,
-        daysFromDueDate,
-        source,
-      })
-    }
+    // Completion is a meaningful outcome for every task type, not just the
+    // outreach types with a normalized label — fall back to the raw flowType
+    // so education/compliance/etc. completions aren't dropped.
+    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
+      statusChange,
+      taskType: campaignPlanTaskType ?? task.flowType,
+      taskName: task.title,
+      taskDueDate,
+      daysFromDueDate,
+      source,
+    })
   }
 
   const handleCheckClick = async (task: Task) => {
     const { id: taskId, flowType: type, completed } = task
 
-    if (completed && !isLegacyList) {
+    if (completed) {
       const saved = taskCountsRef.current[taskId]
       if (saved) {
         updateVoterContactsLocal((prev) => ({
@@ -342,10 +332,7 @@ const TasksList = ({
       return
     }
 
-    if (
-      NON_OUTREACH_TYPES.includes(type) &&
-      (isLegacyList || type !== TASK_TYPES.events)
-    ) {
+    if (NON_OUTREACH_TYPES.includes(type) && type !== TASK_TYPES.events) {
       const ok = await completeTask(taskId)
       if (ok) {
         trackTaskStatusUpdate(
@@ -368,16 +355,12 @@ const TasksList = ({
         ? TASK_TYPES.text
         : task.flowType
 
-    let fieldForRollback: keyof VoterContactsState | undefined
-    if (!isLegacyList) {
-      const field = getVoterContactField(resolvedType)
-      fieldForRollback = field
-      updateVoterContactsLocal((prev) => ({
-        ...prev,
-        [field]: (prev[field] || 0) + count,
-      }))
-      taskCountsRef.current[task.id] = { field, count }
-    }
+    const fieldForRollback = getVoterContactField(resolvedType)
+    updateVoterContactsLocal((prev) => ({
+      ...prev,
+      [fieldForRollback]: (prev[fieldForRollback] || 0) + count,
+    }))
+    taskCountsRef.current[task.id] = { field: fieldForRollback, count }
 
     const ok = await completeTask(task.id, {
       type: resolvedType,
@@ -391,11 +374,10 @@ const TasksList = ({
         TRACKING_SOURCES.manualCheckoff,
       )
       setCompleteModalTask(null)
-    } else if (fieldForRollback !== undefined) {
-      const f = fieldForRollback
+    } else {
       updateVoterContactsLocal((prev) => ({
         ...prev,
-        [f]: Math.max((prev[f] || 0) - count, 0),
+        [fieldForRollback]: Math.max((prev[fieldForRollback] || 0) - count, 0),
       }))
       delete taskCountsRef.current[task.id]
     }
@@ -419,7 +401,7 @@ const TasksList = ({
       return
     }
 
-    if (task.completed && !isLegacyList) {
+    if (task.completed) {
       const href = task.link
       if (href?.startsWith('/')) {
         router.push(href)
@@ -427,19 +409,17 @@ const TasksList = ({
       return
     }
 
-    if (!isLegacyList) {
-      const campaignPlanTaskType = getCampaignPlanEventTaskType(flowType)
-      if (campaignPlanTaskType) {
-        trackEvent(EVENTS.Dashboard.CampaignPlan.TaskCTAClicked, {
-          taskType: campaignPlanTaskType,
-        })
-      }
+    const campaignPlanTaskType = getCampaignPlanEventTaskType(flowType)
+    if (campaignPlanTaskType) {
+      trackEvent(EVENTS.Dashboard.CampaignPlan.TaskCTAClicked, {
+        taskType: campaignPlanTaskType,
+      })
     }
 
     const isTextCompliant =
       tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
 
-    if (!isLegacyList && flowType === TASK_TYPES.events) {
+    if (flowType === TASK_TYPES.events) {
       setEventDetailTask(task)
       return
     }
@@ -562,11 +542,8 @@ const TasksList = ({
     taskId: string,
     voterContact?: { type: string; quantity: number },
   ) => {
-    const route = isLegacyList
-      ? apiRoutes.campaign.legacyTasks.complete
-      : apiRoutes.campaign.tasks.complete
     return sendTaskUpdate(
-      route,
+      apiRoutes.campaign.tasks.complete,
       taskId,
       'Failed to complete task',
       voterContact,
@@ -582,52 +559,35 @@ const TasksList = ({
 
   return (
     <>
-      {isLegacyList && <DashboardHeader campaign={campaign} tasks={tasks} />}
-      <Card
-        className={cn(
-          'mb-32 gap-0',
-          isLegacyList ? 'p-6' : 'p-0 font-opensans',
-        )}
-      >
-        {isLegacyList ? (
-          <>
-            <H2>Tasks for this week</H2>
-            <Body2 className="mt-1">
-              Election day: {electionDate ? dateUsHelper(electionDate) : ''}
-            </Body2>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-y-1 justify-between items-baseline border-b px-6 py-6">
-              <div className="text-lg font-semibold font-opensans">
-                Top priorities
-              </div>
-              <button
-                type="button"
-                className="text-sm font-semibold font-opensans text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-600 rounded-sm"
-                onClick={handleToggleViewMode}
-                aria-label={
-                  viewMode === VIEW_MODES.weekly
-                    ? 'View all weeks'
-                    : 'View current week only'
-                }
-              >
-                {viewMode === VIEW_MODES.weekly ? 'View all' : 'View weekly'}
-              </button>
-            </div>
-            {viewMode === VIEW_MODES.weekly && (
-              <WeeklyTaskNavigator
-                currentWeekStart={currentWeekStart}
-                onPrevious={handlePreviousWeek}
-                onNext={handleNextWeek}
-                canGoPrevious={canGoPrevious}
-                canGoNext={canGoNext}
-              />
-            )}
-          </>
+      <Card className="mb-32 gap-0 p-0 font-opensans">
+        <div className="flex flex-wrap gap-y-1 justify-between items-baseline border-b px-6 py-6">
+          <div className="text-lg font-semibold font-opensans">
+            Top priorities
+          </div>
+          <button
+            type="button"
+            className="text-sm font-semibold font-opensans text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-600 rounded-sm"
+            onClick={handleToggleViewMode}
+            aria-label={
+              viewMode === VIEW_MODES.weekly
+                ? 'View all weeks'
+                : 'View current week only'
+            }
+          >
+            {viewMode === VIEW_MODES.weekly ? 'View all' : 'View weekly'}
+          </button>
+        </div>
+        {viewMode === VIEW_MODES.weekly && (
+          <WeeklyTaskNavigator
+            currentWeekStart={currentWeekStart}
+            onPrevious={handlePreviousWeek}
+            onNext={handleNextWeek}
+            canGoPrevious={canGoPrevious}
+            canGoNext={canGoNext}
+          />
         )}
 
-        {!isLegacyList && viewMode === VIEW_MODES.full ? (
+        {viewMode === VIEW_MODES.full ? (
           tasks.length > 0 ? (
             tasksByWeek.map(([weekNum, weekTasks]) => {
               const isThisWeek =
@@ -664,7 +624,6 @@ const TasksList = ({
                           key={task.id}
                           task={task}
                           isPro={isPro}
-                          isLegacyList={isLegacyList}
                           tcrCompliance={tcrCompliance}
                           daysUntilElection={daysUntilElection}
                           electionDate={electionDate}
@@ -690,13 +649,12 @@ const TasksList = ({
           )
         ) : (
           <ul>
-            {(isLegacyList ? tasks : filteredTasks).length > 0 ? (
-              (isLegacyList ? tasks : filteredTasks).map((task) => (
+            {filteredTasks.length > 0 ? (
+              filteredTasks.map((task) => (
                 <TaskItem
                   key={task.id}
                   task={task}
                   isPro={isPro}
-                  isLegacyList={isLegacyList}
                   tcrCompliance={tcrCompliance}
                   daysUntilElection={daysUntilElection}
                   electionDate={electionDate}
@@ -712,26 +670,16 @@ const TasksList = ({
           </ul>
         )}
       </Card>
-      {completeModalTask &&
-        (isLegacyList ? (
-          ((value: Task['flowType']): value is LogTaskFlowType =>
-            value in TASK_TYPE_HEADINGS)(completeModalTask.flowType) && (
-            <LogTaskModal
-              onSubmit={handleCompleteSubmit}
-              onClose={handleCompleteCancel}
-              flowType={completeModalTask.flowType}
-            />
-          )
-        ) : (
-          <CountModal
-            open={true}
-            onOpenChange={(open) => {
-              if (!open) handleCompleteCancel()
-            }}
-            flowType={completeModalTask.flowType}
-            onSubmit={handleCompleteSubmit}
-          />
-        ))}
+      {completeModalTask && (
+        <CountModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) handleCompleteCancel()
+          }}
+          flowType={completeModalTask.flowType}
+          onSubmit={handleCompleteSubmit}
+        />
+      )}
       {eventDetailTask && (
         <EventDetailModal
           open={true}

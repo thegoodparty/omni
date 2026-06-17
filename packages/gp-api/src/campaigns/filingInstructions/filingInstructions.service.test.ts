@@ -55,6 +55,15 @@ describe('FilingInstructionsService.emailToCandidate', () => {
     expect(payload.message).toContain('Phone: (916) 555-0199')
   })
 
+  it('sends an HTML body with line breaks so it is not a wall of text', async () => {
+    await service.emailToCandidate(campaign, user)
+
+    const payload = sendEmail.mock.calls[0][0]
+    expect(payload.html).toContain('<br />')
+    expect(payload.html).not.toContain('\n')
+    expect(payload.html).toBe(payload.message.replace(/\n/g, '<br />'))
+  })
+
   it('still sends with just the window when live metrics are unavailable', async () => {
     fetchLiveRaceTargetMetrics.mockResolvedValue(null)
 
@@ -77,5 +86,43 @@ describe('FilingInstructionsService.emailToCandidate', () => {
     await expect(service.emailToCandidate(campaign, user)).rejects.toThrow(
       BadGatewayException,
     )
+  })
+})
+
+describe('FilingInstructionsService.getContent', () => {
+  let service: FilingInstructionsService
+  let fetchLiveRaceTargetMetrics: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchLiveRaceTargetMetrics = vi.fn().mockResolvedValue(metrics)
+    service = new FilingInstructionsService(
+      { fetchLiveRaceTargetMetrics } as unknown as CampaignsService,
+      { sendEmail: vi.fn() } as unknown as EmailService,
+      createMockLogger(),
+    )
+  })
+
+  it('returns the structured content the screen renders', async () => {
+    const content = await service.getContent(campaign)
+
+    expect(fetchLiveRaceTargetMetrics).toHaveBeenCalledWith(campaign)
+    expect(content).toEqual({
+      filingWindow: 'June 1, 2026 – June 15, 2026',
+      filingFee: 100,
+      filingRequirementsText: 'Filing fee: $100.',
+      filingOfficeAddress: '500 Election Way, Sacramento, CA 95814',
+      filingPhoneNumber: '(916) 555-0199',
+      paperworkInstructions: 'Submit to the city clerk.',
+    })
+  })
+
+  it('returns the window with null metrics fields when live metrics are absent', async () => {
+    fetchLiveRaceTargetMetrics.mockResolvedValue(null)
+
+    const content = await service.getContent(campaign)
+
+    expect(content.filingWindow).toBe('June 1, 2026 – June 15, 2026')
+    expect(content.filingFee).toBeNull()
+    expect(content.filingOfficeAddress).toBeNull()
   })
 })

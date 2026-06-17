@@ -52,13 +52,21 @@ export class S2SAuthGuard implements CanActivate {
       }
     }
 
-    // Optional localhost bypass for development/testing only if no header provided
+    // Optional localhost bypass for development/testing only if no header
+    // provided. Trust ONLY the real connection address: request.ip is the raw
+    // socket address (the Fastify adapter sets no trustProxy, so it is not
+    // taken from X-Forwarded-For). request.hostname is derived from the
+    // attacker-controllable Host header and must NOT gate auth — sending
+    // `Host: localhost` would otherwise skip S2S verification entirely
+    // (CWE-290).
     if (
       process.env.S2S_ALLOW_LOCALHOST &&
-      /^true|1|yes$/i.test(process.env.S2S_ALLOW_LOCALHOST) &&
+      // Anchored group — without the parens the alternation binds as
+      // (^true)|(1)|(yes$), so e.g. `false1` would wrongly enable the bypass.
+      /^(true|1|yes)$/i.test(process.env.S2S_ALLOW_LOCALHOST) &&
       (request.ip === '127.0.0.1' ||
         request.ip === '::1' ||
-        request.hostname === 'localhost')
+        request.ip === '::ffff:127.0.0.1')
     ) {
       return true
     }

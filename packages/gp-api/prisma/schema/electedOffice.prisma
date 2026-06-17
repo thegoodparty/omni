@@ -5,6 +5,12 @@ model ElectedOffice {
 
   swornInDate DateTime? @map("sworn_in_date") @db.Date
 
+  electedDate    DateTime? @map("elected_date") @db.Date
+  termStartAt    DateTime? @map("term_start_at")
+  termEndAt      DateTime? @map("term_end_at")
+  termLengthDays Int?      @map("term_length_days")
+  isActive       Boolean   @default(true) @map("is_active")
+
   user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int   @map("user_id")
 
@@ -22,7 +28,7 @@ model ElectedOffice {
   priorities               Priority[]
   dashboardCards           DashboardCard[]
 
-  @@unique([userId])
+  @@index([userId])
   @@index([campaignId])
   @@map("elected_office")
 }

@@ -14,20 +14,21 @@ const iconButtonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'button-primary',
-        secondary: 'button-secondary',
+        default:
+          'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+        secondary:
+          'bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80',
         destructive:
-          'button-destructive focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
-        outline: 'button-outline focus-visible:ring-[3px]',
-        ghost: 'button-ghost focus-visible:ring-[3px]',
-        link: 'button-link',
-        whiteOutline:
-          'button-whiteOutline focus-visible:border-white focus-visible:ring-white/20 focus-visible:ring-[3px]',
-        whiteGhost:
-          'button-whiteGhost focus-visible:border-white/20 focus-visible:ring-white/20 focus-visible:ring-[3px]',
+          'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
+        outline:
+          'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
+        ghost:
+          'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
+        link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
+        neutral:
+          'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',
       },
       size: {
-        xSmall: 'size-6',
         small: 'size-8',
         medium: 'size-10',
         large: 'size-12',
@@ -66,23 +67,14 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
     const Comp = asChild ? Slot : 'button'
     const isDisabled = disabled || loading
 
-    // Calculate spinner size based on button size
-    const getSpinnerSize = () => {
-      switch (size) {
-        case 'xSmall':
-          return 'size-3'
-        case 'small':
-          return 'size-4'
-        case 'medium':
-          return 'size-5'
-        case 'large':
-          return 'size-6'
-        case 'xLarge':
-          return 'size-8'
-        default:
-          return 'size-5'
-      }
-    }
+    const spinnerSize =
+      size === 'small'
+        ? 'size-4'
+        : size === 'large'
+          ? 'size-6'
+          : size === 'xLarge'
+            ? 'size-8'
+            : 'size-5'
 
     return (
       <Comp
@@ -93,7 +85,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         {...props}
         disabled={isDisabled}
       >
-        {loading ? <LoadingSpinner className={getSpinnerSize()} /> : children}
+        {loading ? <LoadingSpinner className={spinnerSize} /> : children}
       </Comp>
     )
   },

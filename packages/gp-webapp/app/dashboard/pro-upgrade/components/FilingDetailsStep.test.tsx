@@ -196,6 +196,24 @@ describe('FilingDetailsStep', () => {
     expect(mockSubmit).not.toHaveBeenCalled()
   })
 
+  it('stacks the footer buttons full-width on mobile and rows them at sm+', () => {
+    render(<FilingDetailsStep />)
+
+    const back = screen.getByRole('button', { name: 'Back' })
+    const next = screen.getByRole('button', { name: 'Continue' })
+
+    // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
+    // the two large buttons inside the mobile viewport.
+    const footer = back.parentElement as HTMLElement
+    expect(footer).toBe(next.parentElement)
+    expect(footer).toHaveClass('flex-col-reverse', 'sm:flex-row')
+
+    // Full-width when stacked so neither overflows; auto-width back in the row.
+    for (const button of [back, next]) {
+      expect(button).toHaveClass('w-full', 'sm:w-auto')
+    }
+  })
+
   it('submits the mapped payload to createAgentic and advances on success', async () => {
     render(<FilingDetailsStep />)
     fillValidNonFederalForm()
@@ -237,9 +255,24 @@ describe('FilingDetailsStep', () => {
     expect(goToNextStep).not.toHaveBeenCalled()
     // The guiding banner must name what's wrong — a silent return reads as a
     // dead Continue button.
-    expect(
-      screen.getByText('Please fix the following fields:'),
-    ).toBeInTheDocument()
+    const bannerHeading = screen.getByText('Please fix the following fields:')
+    expect(bannerHeading).toBeInTheDocument()
+    // The banner body must let long validation copy (the example fec.gov /
+    // filing URLs) wrap inside the alert instead of forcing horizontal overflow
+    // on narrow viewports (ENG-10358). `break-words` wraps the URL token,
+    // `min-w-0` lets the alert grid track shrink below it, `w-full` keeps the
+    // text filling the alert on desktop.
+    expect(bannerHeading.parentElement).toHaveClass(
+      'w-full',
+      'min-w-0',
+      'break-words',
+    )
+    // Each failing-field row must keep `list-item` so the global
+    // `[data-slot] ul li { display: flex }` rule (globals.css) can't split the
+    // bold label and message into two shrinking columns (ENG-10373).
+    for (const item of screen.getAllByRole('listitem')) {
+      expect(item).toHaveClass('list-item')
+    }
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
     expect(screen.getByText('Filing Address')).toBeInTheDocument()
     // `website` has no input in this form and must never be listed.

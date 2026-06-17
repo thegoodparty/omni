@@ -27,19 +27,9 @@ export default defineConfig({
   // Playwright tests (they'd crash on `import { ... } from 'vitest'`).
   testIgnore: ['**/*.test.ts', '**/*.test.tsx'],
   outputDir: './test-results',
-  snapshotPathTemplate:
-    '{testDir}/__visual_snapshots__/{testFileDir}/{testFileName}/{arg}{ext}',
   timeout: 120000,
   expect: {
     timeout: 15000,
-    toHaveScreenshot: {
-      // Full-viewport captures vary with layout/fonts; branch UI changes can exceed
-      // pixel-only caps. Ratio + high pixel cap keeps CI green while still catching big regressions.
-      maxDiffPixels: 25000,
-      maxDiffPixelRatio: 0.045,
-      animations: 'disabled', // freeze CSS animations for deterministic captures
-      scale: 'css', // use CSS pixels, consistent across machines
-    },
   },
 
   // Improved parallelization with better stability

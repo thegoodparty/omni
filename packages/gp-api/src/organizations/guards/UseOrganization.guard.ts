@@ -41,7 +41,7 @@ export class UseOrganizationGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>
-      user: { id: number }
+      user?: { id: number }
       organization?: Organization
     }>()
 
@@ -51,10 +51,13 @@ export class UseOrganizationGuard implements CanActivate {
         [context.getHandler(), context.getClass()],
       ) ?? {}
 
-    const userId = request.user.id
+    // This guard can sit on @PublicAccess routes (e.g. onboarding stats),
+    // where unauthenticated requests have no user — treat that like a
+    // missing slug instead of crashing on the property access.
+    const userId = request.user?.id
     const slug = request.headers['x-organization-slug']
 
-    if (!slug) {
+    if (!slug || !userId) {
       if (continueIfNotFound) return true
       this.logger.info('No organization slug header provided')
       throw new NotFoundException('Organization not found')

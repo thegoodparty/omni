@@ -1,7 +1,8 @@
 import { Controller, Get, Param, Query, Res, UsePipes } from '@nestjs/common'
-import { Organization } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
@@ -21,7 +22,9 @@ export class ContactsController {
   async listContacts(
     @Query() filterDto: ListContactsDTO,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
   ) {
+    await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.findContacts(filterDto, organization)
   }
 
@@ -29,8 +32,10 @@ export class ContactsController {
   async downloadContacts(
     @Query() dto: DownloadContactsDTO,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
     @Res() res: FastifyReply,
   ) {
+    await this.contactsService.assertContactsAccess(organization, user)
     // Headers (Content-Type, Content-Disposition, Set-Cookie) are written and
     // flushed inside the service AFTER pre-flight checks pass and the
     // upstream people-api stream is in hand. That keeps a structured 4xx/5xx
@@ -41,7 +46,11 @@ export class ContactsController {
   }
 
   @Get('stats')
-  getContactsStats(@ReqOrganization() organization: Organization) {
+  async getContactsStats(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.getDistrictStats(organization)
   }
 
@@ -49,7 +58,9 @@ export class ContactsController {
   async getContact(
     @Param() params: GetPersonParamsDTO,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
   ) {
+    await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.findPerson(params.id, organization)
   }
 }

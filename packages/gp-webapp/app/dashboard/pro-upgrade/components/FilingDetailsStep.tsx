@@ -200,13 +200,17 @@ const FilingDetailsForm = ({
 
       {attemptedSubmit && !isValid && (
         <StyledAlert severity="error" className="mb-6">
-          <Body2>
+          <Body2 className="w-full min-w-0 break-words">
             <span className="font-medium">
               Please fix the following fields:
             </span>
             <ul className="mt-1 list-disc pl-5">
               {failingFields.map((field) => (
-                <li key={field}>
+                // `list-item` overrides the global `[data-slot] ul li` rule
+                // (globals.css) that forces `display: flex` for sidebar lists.
+                // Inside the alert's data-slot that flex splits the bold label
+                // and the message into two shrinking columns (ENG-10373).
+                <li key={field} className="list-item">
                   <span className="font-medium">
                     {fieldDisplayNames[field]}
                   </span>
@@ -318,17 +322,24 @@ const FilingDetailsForm = ({
               placeholder="Address *"
               variant="outlined"
               error={showError('address')}
+              dropdownClassName="texting-compliance-address-dropdown"
             />
           </div>
         </div>
       </div>
 
-      <div className="mt-8 flex justify-between">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
           Back
         </Button>
         <Button
           size="large"
+          className="w-full sm:w-auto"
           onClick={handleContinue}
           loading={loading}
           disabled={loading}
@@ -399,6 +410,9 @@ const FilingDetailsStep = (): React.JSX.Element => {
       ])
       goToNextStep()
     } catch {
+      trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
+        email: getStringValue(formData.email),
+      })
       errorSnackbar('Failed to submit filing details. Please try again later.')
     } finally {
       setLoading(false)

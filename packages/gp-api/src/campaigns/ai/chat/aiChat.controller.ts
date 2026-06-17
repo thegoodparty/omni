@@ -29,6 +29,8 @@ import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { PromptReplaceCampaign } from 'src/ai/services/promptReplace.service'
 import { RaceTargetMetrics } from 'src/elections/types/elections.types'
 import { PinoLogger } from 'nestjs-pino'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream',
@@ -111,6 +113,7 @@ export class AiChatController {
     private aiChatService: AiChatService,
     private campaigns: CampaignsService,
     private slack: SlackService,
+    private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AiChatController.name)
@@ -277,6 +280,7 @@ export class AiChatController {
     },
   })
   async stream(
+    @ReqUser() { id: userId }: User,
     @ReqCampaign() campaign: PromptReplaceCampaign,
     @Body() body: StreamAiChatSchema,
     @Req() req: FastifyRequest,
@@ -317,11 +321,16 @@ export class AiChatController {
 
     let errored = false
     let doneWritten = false
+    // A service-yielded error chunk ends the loop cleanly (no throw), so it
+    // sets neither `errored` nor `timedOut`; capture its code here so the
+    // failure outcome below still fires for the common upstream-failure path.
+    let failureReason: string | null = null
     try {
       for await (const chunk of iterable) {
         if (abortController.signal.aborted) break
         const flushed: boolean = reply.raw.write(formatChunk(chunk))
         if (chunk.type === 'done') doneWritten = true
+        if (chunk.type === 'error') failureReason = chunk.code
         if (!flushed) {
           const drainResult = await waitForDrain(
             reply.raw,
@@ -351,6 +360,22 @@ export class AiChatController {
         } catch (err) {
           this.logger.warn({ e: err }, 'failed to write error chunk')
         }
+      }
+      // Server-truth outcome of the stream. A clean break with neither flag set
+      // is a client abort/disconnect (user pressed Stop), not an outcome — skip.
+      if (doneWritten) {
+        void this.analytics
+          .track(userId, EVENTS.AiChat.ResponseCompleted, {
+            campaignId: campaign.id,
+          })
+          .catch(() => undefined)
+      } else if (failureReason || timedOut || errored) {
+        void this.analytics
+          .track(userId, EVENTS.AiChat.ResponseFailed, {
+            campaignId: campaign.id,
+            reason: failureReason ?? (timedOut ? 'timeout' : 'internal'),
+          })
+          .catch(() => undefined)
       }
       try {
         reply.raw.end()

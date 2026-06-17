@@ -1,5 +1,8 @@
 import { notFound } from 'next/navigation'
-import { getBriefingBySlug } from '@shared/briefings/server'
+import {
+  getBriefingBySlug,
+  getBriefingReviewVerdict,
+} from '@shared/briefings/server'
 import {
   BRIEFING_EXECUTIVE_SUMMARY_CARD_PATH,
   BRIEFING_EXECUTIVE_SUMMARY_DOM_ID,
@@ -51,6 +54,8 @@ export default async function AdminReviewBriefingChromeLayout({
     )
   }
 
+  const review = await getBriefingReviewVerdict(slug)
+
   return (
     <DashboardLayout
       pathname="/dashboard/briefings"
@@ -72,7 +77,7 @@ export default async function AdminReviewBriefingChromeLayout({
           <ShareScope briefing={briefing}>
             <div className="relative">
               <div className="flex min-h-full flex-col bg-muted pb-20 lg:h-svh lg:min-h-0 lg:overflow-hidden lg:pb-20">
-                <ReviewDetailHeader briefing={briefing} />
+                <ReviewDetailHeader briefing={briefing} review={review} />
 
                 <div className="mx-auto w-full max-w-[1120px] px-4 py-6 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden lg:px-8">
                   <div className="lg:flex lg:min-h-0 lg:flex-1 lg:items-stretch lg:gap-8 lg:overflow-hidden">
@@ -92,7 +97,7 @@ export default async function AdminReviewBriefingChromeLayout({
                 </div>
               </div>
 
-              <ReviewBottomBars />
+              <ReviewBottomBars meetingDate={slug} />
             </div>
           </ShareScope>
         </ReviewAnnotationsScope>

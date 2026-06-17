@@ -26,14 +26,14 @@ export const IssuePosition = ({
         p-4
         ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}
         rounded-lg
-        bg-primary-background
+        bg-blue-50
         border-2
-        border-neutral-main
+        border-grayscale-400
         mb-3
         transition-colors
-        ${!disabled ? 'hover:border-tertiary-light' : ''}
-        ${selected && !disabled ? 'bg-tertiary-background' : ''}
-        ${disabled ? 'text-neutral' : ''}
+        ${!disabled ? 'hover:border-brand-halo-green-300' : ''}
+        ${selected && !disabled ? 'bg-brand-halo-green-50' : ''}
+        ${disabled ? 'text-grayscale-400' : ''}
       `}
     onClick={() => {
       !disabled && handleSelectPosition(position)

@@ -35,7 +35,7 @@ const readDownloadCookie = (): string | null => {
 
 export default function Download() {
   const showProUpgradeModal = useShowContactProModal()
-  const { customSegments, currentSegment, canUseProFeatures } =
+  const { customSegments, currentSegment, canUseProFeatures, isWinContext } =
     useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [isPreparing, setIsPreparing] = useState(false)
@@ -149,12 +149,14 @@ export default function Download() {
     string,
     string | number | boolean | null | undefined
   > => {
+    const context = isWinContext ? 'win' : 'serve'
     if (!currentSegment || !isCustomSegment(customSegments, currentSegment)) {
       return {
         filters: null,
         isCustomSegment: false,
         isDefaultSegment: true,
         segment: currentSegment,
+        context,
       }
     }
     const filterValues = filters()
@@ -162,6 +164,7 @@ export default function Download() {
       filters: filterValues ? JSON.stringify(filterValues) : null,
       isCustomSegment: true,
       isDefaultSegment: false,
+      context,
     }
   }
 
@@ -192,6 +195,7 @@ export default function Download() {
   return (
     <>
       <IconButton
+        data-testid="contacts-download-button"
         variant="outline"
         onClick={handleDownload}
         loading={isPreparing}

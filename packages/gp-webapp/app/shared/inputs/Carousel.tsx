@@ -31,7 +31,7 @@ export default function Carousel({
   }
 
   return (
-    <div className="m-0 w-[90vw] max-w-screen-xl h-[425px] md:h-[350px] lg:[300px] bg-primary-dark-dark rounded-2xl text-white">
+    <div className="m-0 w-[90vw] max-w-screen-xl h-[425px] md:h-[350px] lg:[300px] bg-secondary rounded-2xl text-white">
       <Slider {...settings}>
         {sections.map((section) => (
           <div key={section.name}>

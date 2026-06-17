@@ -1,13 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { subDays, subMonths } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { Prisma } from '@/generated/prisma'
+import {
+  ArtifactReview,
+  ArtifactReviewResourceType,
+  Prisma,
+} from '@/generated/prisma'
 import {
   BriefingAdminListQuery,
   BriefingAdminRow,
   BriefingDateRangeFilter,
+  BriefingReviewStatusFilter,
   PaginatedList,
 } from '@goodparty_org/contracts'
+import { ArtifactReviewService } from '@/artifactReview/services/artifactReview.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { DEFAULT_PAGINATION_OFFSET } from '@/shared/constants/paginationOptions.consts'
 
@@ -23,7 +29,10 @@ type BriefingWithRelations = Prisma.MeetingBriefingGetPayload<{
 // user is typed nullable because ElectedOffice.user is an optional relation,
 // but the userId FK is required — a briefing without an owner is impossible.
 // The null branch is defensive and drops nothing in practice.
-const toRow = (b: BriefingWithRelations): BriefingAdminRow | null => {
+const toRow = (
+  b: BriefingWithRelations,
+  review: ArtifactReview | null,
+): BriefingAdminRow | null => {
   const user = b.electedOffice.user
   if (!user) return null
   return {
@@ -42,6 +51,14 @@ const toRow = (b: BriefingWithRelations): BriefingAdminRow | null => {
       positionName: b.electedOffice.organization.customPositionName,
     },
     updatedAt: b.updatedAt,
+    review: review
+      ? {
+          verdict: review.verdict,
+          failReason: review.failReason,
+          reviewerEmail: review.reviewerEmail,
+          reviewedAt: review.updatedAt,
+        }
+      : null,
   }
 }
 
@@ -49,11 +66,16 @@ const toRow = (b: BriefingWithRelations): BriefingAdminRow | null => {
 export class AdminBriefingsService extends createPrismaBase(
   MODELS.MeetingBriefing,
 ) {
+  constructor(private readonly artifactReviews: ArtifactReviewService) {
+    super()
+  }
+
   async list({
     offset = DEFAULT_PAGINATION_OFFSET,
     limit = DEFAULT_LIMIT,
     q,
     dateRange,
+    reviewStatus,
   }: BriefingAdminListQuery): Promise<PaginatedList<BriefingAdminRow>> {
     const take = Math.min(limit, MAX_LIMIT)
     const where: Prisma.MeetingBriefingWhereInput = {
@@ -83,6 +105,7 @@ export class AdminBriefingsService extends createPrismaBase(
           }
         : {}),
       ...dateRangeWhere(dateRange),
+      ...(await this.reviewStatusWhere(reviewStatus)),
     }
 
     const [briefings, total] = await Promise.all([
@@ -98,9 +121,15 @@ export class AdminBriefingsService extends createPrismaBase(
       this.model.count({ where }),
     ])
 
+    const reviews = await this.artifactReviews.findForResources(
+      ArtifactReviewResourceType.briefing,
+      briefings.map((b) => b.id),
+    )
+    const reviewsById = new Map(reviews.map((r) => [r.resourceId, r]))
+
     return {
       data: briefings
-        .map(toRow)
+        .map((b) => toRow(b, reviewsById.get(b.id) ?? null))
         .filter((r): r is BriefingAdminRow => r !== null),
       meta: { total, offset, limit: take },
     }
@@ -113,9 +142,38 @@ export class AdminBriefingsService extends createPrismaBase(
         electedOffice: { include: { user: true, organization: true } },
       },
     })
-    const row = briefing ? toRow(briefing) : null
+    const reviews = briefing
+      ? await this.artifactReviews.findForResources(
+          ArtifactReviewResourceType.briefing,
+          [briefing.id],
+        )
+      : []
+    const row = briefing ? toRow(briefing, reviews[0] ?? null) : null
     if (!row) throw new NotFoundException('Briefing not found')
     return row
+  }
+
+  // No FK exists between artifact_review and meeting_briefing, so the
+  // filter resolves matching briefing ids in a pre-query.
+  private async reviewStatusWhere(
+    reviewStatus?: BriefingReviewStatusFilter,
+  ): Promise<Prisma.MeetingBriefingWhereInput> {
+    if (!reviewStatus) return {}
+    if (reviewStatus === 'pending') {
+      const reviewed = await this.client.artifactReview.findMany({
+        where: { resourceType: ArtifactReviewResourceType.briefing },
+        select: { resourceId: true },
+      })
+      return { id: { notIn: reviewed.map((r) => r.resourceId) } }
+    }
+    const matching = await this.client.artifactReview.findMany({
+      where: {
+        resourceType: ArtifactReviewResourceType.briefing,
+        verdict: reviewStatus,
+      },
+      select: { resourceId: true },
+    })
+    return { id: { in: matching.map((r) => r.resourceId) } }
   }
 }
 

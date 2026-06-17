@@ -40,7 +40,7 @@ const COMPARISON_ROWS: ComparisonRow[] = [
       'Get a personalized, data-driven campaign plan that maps out exactly how many voters you need to reach.',
   },
   {
-    label: 'Campaign advising',
+    label: 'Dedicated campaign expert',
     free: false,
     icon: HandHeartIcon,
     description:
@@ -149,13 +149,13 @@ const ValuePropStep = (): React.JSX.Element => {
             </Tooltip>
             <span className="flex justify-center">
               {free ? (
-                <CheckIcon className="h-4 w-4 text-blue-400" />
+                <CheckIcon className="h-4 w-4 text-primary" />
               ) : (
                 <XMarkIcon className="h-4 w-4 text-destructive" />
               )}
             </span>
             <span className="flex justify-center">
-              <CheckIcon className="h-4 w-4 text-blue-400" />
+              <CheckIcon className="h-4 w-4 text-primary" />
             </span>
           </div>
         ))}

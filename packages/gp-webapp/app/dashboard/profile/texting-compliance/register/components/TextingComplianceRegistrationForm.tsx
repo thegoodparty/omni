@@ -316,13 +316,18 @@ const TextingComplianceRegistrationForm = ({
         )}
         {attemptedSubmit && !isValid && (
           <StyledAlert severity="error">
-            <Body2>
+            <Body2 className="w-full min-w-0 break-words">
               <span className="font-medium">
                 Please fix the following fields:
               </span>
               <ul className="mt-1 list-disc pl-5">
                 {failingFields.map((field) => (
-                  <li key={field}>
+                  // `list-item` overrides the global `[data-slot] ul li` rule
+                  // (globals.css) that forces `display: flex` for sidebar
+                  // lists. Inside the alert's data-slot that flex splits the
+                  // bold label and the message into two shrinking columns
+                  // (ENG-10373).
+                  <li key={field} className="list-item">
                     <span className="font-medium">
                       {fieldDisplayNames[field]}
                     </span>
