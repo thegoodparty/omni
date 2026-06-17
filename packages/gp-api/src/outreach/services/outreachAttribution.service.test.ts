@@ -232,7 +232,7 @@ describe('OutreachAttributionService', () => {
     expect(await activitiesFor(outreach.id)).toHaveLength(0)
   })
 
-  it('emits recipient-sourced activities for a p2p send', async () => {
+  it('emits segmentDerived activities for a p2p send', async () => {
     const { campaign, outreach } = await seedOutreach({
       slug: 'p2p-emit',
       outreachType: OutreachType.p2p,
@@ -246,9 +246,12 @@ describe('OutreachAttributionService', () => {
     const rows = await activitiesFor(outreach.id)
     expect(rows.map((r) => r.lalVoterId)).toEqual(['LAL-1', 'LAL-2'])
     expect(rows.every((r) => r.outreachType === OutreachType.p2p)).toBe(true)
+    // segmentDerived, not recipient: attribution resolves the segment, not the
+    // SMS-reachable Peerly phone list the texts actually went to.
     expect(
       rows.every(
-        (r) => r.attributionSource === VoterOutreachAttributionSource.recipient,
+        (r) =>
+          r.attributionSource === VoterOutreachAttributionSource.segmentDerived,
       ),
     ).toBe(true)
   })

@@ -14,17 +14,21 @@ import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/v
 
 const WIN_VOTER_DATA_FEATURE_FLAG = 'win-voter-data'
 
-// Per-voter attribution source by outreach channel, resolved through the same
-// segment the outreach targeted. p2p uploads an explicit per-recipient list to
-// Peerly, so its voters are recipient-confirmed; the other channels have no
-// per-recipient confirmation (the resolved segment IS the recipient list), so
-// they are segment-derived. p2p + text are owned by this epic task (14),
+// Per-voter attribution source by outreach channel. Every channel here resolves
+// its voters from the outreach's saved segment (voterFileFilterId) via the
+// people-api path, so all are segment-derived — none can claim per-recipient
+// confirmation. p2p + text are owned by this epic task (14),
 // phoneBanking/robocall/socialMedia by task 15. doorKnocking is omitted — it
 // records its own per-recipient activities keyed on the upstream event (task 13).
+//
+// NOTE: p2p is segmentDerived (not recipient) because attribution resolves the
+// segment, not the Peerly phone list it actually sent to — the phone list is the
+// SMS-reachable subset of the segment, so the segment overstates true recipients.
+// Switch p2p to recipient only once attribution queries the phone list directly.
 const ATTRIBUTION_SOURCE_BY_OUTREACH_TYPE: Partial<
   Record<OutreachType, VoterOutreachAttributionSource>
 > = {
-  [OutreachType.p2p]: VoterOutreachAttributionSource.recipient,
+  [OutreachType.p2p]: VoterOutreachAttributionSource.segmentDerived,
   [OutreachType.text]: VoterOutreachAttributionSource.segmentDerived,
   [OutreachType.phoneBanking]: VoterOutreachAttributionSource.segmentDerived,
   [OutreachType.robocall]: VoterOutreachAttributionSource.segmentDerived,
