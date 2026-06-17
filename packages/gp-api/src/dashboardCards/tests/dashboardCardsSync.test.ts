@@ -195,6 +195,41 @@ describe('DashboardCardsService.syncFromBriefing', () => {
     expect(count).toBe(0)
   })
 
+  it('preserves existing cards when a re-sync artifact no longer parses', async () => {
+    const orgSlug = 'eo-sync-bad-resync'
+    const eo = await seedElectedOffice(orgSlug)
+    const briefing = await seedBriefing(
+      eo.id,
+      orgSlug,
+      DATE,
+      buildArtifact(DATE, [{ item_id: 'item_a', title: 'A', overview: 'a' }]),
+    )
+    await sync().syncFromBriefing(briefing)
+    expect(
+      await service.prisma.dashboardCard.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(2)
+
+    // Re-run after the artifact regenerated into an unparseable shape: the sync
+    // must leave the previously-synced cards intact rather than wipe the agenda
+    // items while stranding the briefing card.
+    const updated = await service.prisma.meetingBriefing.update({
+      where: { id: briefing.id },
+      data: { artifact: { briefing_status: 'briefing_ready' } },
+    })
+    await sync().syncFromBriefing(updated)
+
+    const types = (
+      await service.prisma.dashboardCard.findMany({
+        where: { electedOfficeId: eo.id },
+      })
+    )
+      .map((c) => c.type)
+      .sort()
+    expect(types).toEqual(['agenda_item', 'briefing'])
+  })
+
   it('a card-sync failure does not block the briefing row write', async () => {
     const orgSlug = 'eo-hook-no-block'
     const eo = await seedElectedOffice(orgSlug)

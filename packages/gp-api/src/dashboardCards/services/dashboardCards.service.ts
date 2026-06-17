@@ -34,6 +34,12 @@ export class DashboardCardsService extends createPrismaBase(
   // and removes cards for this briefing whose item is no longer featured.
   async syncFromBriefing(briefing: MeetingBriefing): Promise<void> {
     const desired = this.buildDesiredCards(briefing)
+    // A successful parse always yields at least the briefing card, so an empty
+    // list means the artifact failed to parse. Skip reconciliation entirely so
+    // a transient bad artifact doesn't strand the briefing card while wiping
+    // this briefing's agenda-item cards.
+    if (!desired.length) return
+
     const electedOfficeId = briefing.electedOfficeId
     const sourceBriefingId = briefing.id
 
