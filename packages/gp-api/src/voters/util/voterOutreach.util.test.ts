@@ -16,21 +16,24 @@ const collectTextElementGroups = (node: unknown): TextNode[][] => {
   return elements.flatMap(collectTextElementGroups)
 }
 
-const findDueDateValue = (
+const findLabeledValue = (
   blocks: ReturnType<typeof buildSlackBlocks>['blocks'],
+  label: string,
 ): string | undefined => {
   const groups = blocks.flatMap(collectTextElementGroups)
   const group = groups.find((els) =>
-    els.some(
-      (e) => e.type === SlackMessageType.TEXT && e.text === 'Due Date: ',
-    ),
+    els.some((e) => e.type === SlackMessageType.TEXT && e.text === label),
   )
   if (!group) return undefined
   const labelIdx = group.findIndex(
-    (e) => e.type === SlackMessageType.TEXT && e.text === 'Due Date: ',
+    (e) => e.type === SlackMessageType.TEXT && e.text === label,
   )
   return group[labelIdx + 1]?.text
 }
+
+const findDueDateValue = (
+  blocks: ReturnType<typeof buildSlackBlocks>['blocks'],
+): string | undefined => findLabeledValue(blocks, 'Due Date: ')
 
 describe('buildSlackBlocks - campaignPlanDueDate', () => {
   const baseParams = {
@@ -51,5 +54,98 @@ describe('buildSlackBlocks - campaignPlanDueDate', () => {
     const { blocks } = buildSlackBlocks(baseParams)
 
     expect(findDueDateValue(blocks)).toBe('N/A')
+  })
+})
+
+describe('buildSlackBlocks - Peerly IDs', () => {
+  const baseParams = {
+    type: OutreachType.p2p,
+    formattedAudience: [],
+  }
+
+  it('renders the raw Peerly Job ID when provided', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyJobId: 'peerly-job-123',
+    })
+
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('peerly-job-123')
+  })
+
+  it('renders the Peerly Identity ID when provided', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyIdentityId: 'identity-789',
+    })
+
+    expect(findLabeledValue(blocks, 'Peerly Identity ID: ')).toBe(
+      'identity-789',
+    )
+  })
+
+  it('renders "N/A" for both Peerly IDs when omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('N/A')
+    expect(findLabeledValue(blocks, 'Peerly Identity ID: ')).toBe('N/A')
+  })
+
+  it('keeps the clickable Peerly Job Link alongside the raw Job ID', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      peerlyJobId: 'peerly-job-123',
+      peerlyJobUrl: 'https://peerly.com/jobs/peerly-job-123',
+    })
+
+    const blob = JSON.stringify(blocks)
+    expect(blob).toContain('View Job in Peerly')
+    expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('peerly-job-123')
+  })
+})
+
+describe('buildSlackBlocks - text count', () => {
+  const baseParams = {
+    type: OutreachType.p2p,
+    formattedAudience: [],
+  }
+
+  it('always renders both lines when a discount applied', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 12259,
+      billableTextCount: 7259,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('12,259')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('7,259')
+  })
+
+  it('shows "0" billable when fully covered by the free-texts offer', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 3000,
+      billableTextCount: 0,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('3,000')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('0')
+  })
+
+  it('repeats the total on the billable line when there is no discount', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 300,
+      billableTextCount: 300,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('300')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('300')
+  })
+
+  it('renders "N/A" on both lines when the counts are omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('N/A')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('N/A')
   })
 })

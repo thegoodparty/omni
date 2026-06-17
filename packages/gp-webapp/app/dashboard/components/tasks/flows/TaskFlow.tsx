@@ -80,6 +80,7 @@ type TaskFlowProps = {
   onClose?: () => void
   onComplete?: () => void | Promise<void>
   defaultAiTemplateId?: string | number
+  campaignPlanDueDate?: string
 }
 
 const TaskFlow = ({
@@ -91,6 +92,7 @@ const TaskFlow = ({
   onClose,
   onComplete,
   defaultAiTemplateId,
+  campaignPlanDueDate,
 }: TaskFlowProps): React.JSX.Element => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
@@ -243,6 +245,9 @@ const TaskFlow = ({
         type,
         state,
         campaignId,
+        campaignPlanDueDate,
+        textCount: leadsLoaded ?? undefined,
+        hasFreeTextsOffer: p2pUxEnabled && !!campaign.hasFreeTextsOffer,
         outreaches,
         setOutreaches,
         errorSnackbar,
@@ -258,6 +263,9 @@ const TaskFlow = ({
       refreshCampaign,
       p2pUxEnabled,
       campaignId,
+      campaignPlanDueDate,
+      leadsLoaded,
+      campaign.hasFreeTextsOffer,
     ],
   )
 
