@@ -58,6 +58,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     urlQueryParams: new URLSearchParams(),
     pagination: null,
     isLoading: false,
+    isVoterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,

@@ -19,7 +19,9 @@ import {
   queryOptions,
   useQueryClient,
 } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   type Person,
   type ConstituentIssue,
@@ -27,7 +29,11 @@ import {
   type ListContactsResponse,
   type SegmentResponse,
 } from '../components/shared/contacts-types'
-import { DEFAULT_PAGE_SIZE, ALL_SEGMENTS } from '../components/shared/constants'
+import {
+  DEFAULT_PAGE_SIZE,
+  ALL_SEGMENTS,
+  VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+} from '../components/shared/constants'
 import defaultSegments from '../components/configs/defaultSegments.config'
 import { isCustomSegment } from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -78,6 +84,7 @@ interface ContactsTableState {
   urlQueryParams: URLSearchParams
   pagination: ListContactsResponse['pagination'] | null
   isLoading: boolean
+  isVoterDataUnavailable: boolean
   isCustomSegment: boolean
   totalSegmentContacts: number
   canUseProFeatures: boolean
@@ -324,6 +331,18 @@ export const ContactsTableProvider = ({
 
   const isLoading = contactsQuery.isLoading || contactsQuery.isFetching
 
+  // A Win campaign with no resolvable district (or that fails the
+  // federal/state download-access rule) gets a 400 with this error code from
+  // gp-api. Surface it as a clean ineligible state instead of a generic error.
+  const isVoterDataUnavailable = useMemo(() => {
+    const error = contactsQuery.error
+    if (!(error instanceof FetchError)) return false
+    return (
+      extractApiErrorInfo(error.data).errorCode ===
+      VOTER_DATA_UNAVAILABLE_ERROR_CODE
+    )
+  }, [contactsQuery.error])
+
   const updateURL = useCallback(
     (updates: Record<string, string | number | null | undefined>) => {
       const params = new URLSearchParams(searchParams?.toString() || '')
@@ -424,6 +443,7 @@ export const ContactsTableProvider = ({
     urlQueryParams,
     pagination,
     isLoading,
+    isVoterDataUnavailable,
     isCustomSegment: isCustomSegmentValue,
     totalSegmentContacts,
     canUseProFeatures,

@@ -73,6 +73,7 @@ function setContext({
     urlQueryParams: new URLSearchParams(),
     pagination: null,
     isLoading: false,
+    isVoterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,

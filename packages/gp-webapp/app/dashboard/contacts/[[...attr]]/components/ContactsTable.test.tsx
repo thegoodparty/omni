@@ -55,6 +55,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
       hasPreviousPage: false,
     },
     isLoading: false,
+    isVoterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,
