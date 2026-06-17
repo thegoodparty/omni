@@ -24,7 +24,7 @@ export interface CampaignStorySection {
 const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
 const STARTED_HINT =
   'Worth saying more: another 1-2 sentences will sharpen this a lot.'
-const ENOUGH_HINT = "That's great. You've given us plenty to work with."
+const ENOUGH_HINT = "That's great! The more you give us, the better!"
 
 // The counter denominator and the point where the nudge turns into positive
 // reinforcement. A suggestion shown to the writer, NOT an input cap — typing
