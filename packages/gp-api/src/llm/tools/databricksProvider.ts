@@ -177,7 +177,15 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     sql: string,
   ): Promise<void> {
     const op = await session.executeStatement(sql, { runAsync: true })
-    await op.close().catch(noop)
+    try {
+      // Await completion so USE CATALOG / USE SCHEMA actually applies before
+      // the next statement runs. Closing without fetching leaves the session on
+      // the warehouse's default catalog/schema, so unqualified table names fail
+      // to resolve (TABLE_OR_VIEW_NOT_FOUND).
+      await op.fetchAll()
+    } finally {
+      await op.close().catch(noop)
+    }
   }
 
   private async resolveColumns(
