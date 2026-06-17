@@ -76,8 +76,23 @@ describe('CampaignPlanRouter', () => {
 
   it('keeps showing the plan after navigating away mid-generation', async () => {
     setFlag(true, true)
-    sessionStorage.setItem('campaignPlanGenerateRequested', '1')
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(Date.now()),
+    )
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(await screen.findByTestId('plan-page')).toBeInTheDocument()
+  })
+
+  it('ignores a stale generate request and shows the gate', () => {
+    setFlag(true, true)
+    const sixteenMinutesAgo = Date.now() - 16 * 60 * 1000
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(sixteenMinutesAgo),
+    )
+    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    expect(generateButton()).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
   })
 })

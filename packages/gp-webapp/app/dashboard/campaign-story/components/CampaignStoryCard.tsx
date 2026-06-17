@@ -86,11 +86,14 @@ const CampaignStoryCard = ({
       return
     }
     savingRef.current = true
+    let lastAttempted = savedRef.current
     try {
       while (valueRef.current !== savedRef.current) {
-        const pending = valueRef.current
-        await clientRequest('PUT /v1/campaigns/mine/story', { [id]: pending })
-        savedRef.current = pending
+        lastAttempted = valueRef.current
+        await clientRequest('PUT /v1/campaigns/mine/story', {
+          [id]: lastAttempted,
+        })
+        savedRef.current = lastAttempted
       }
       setSaveFailed(false)
     } catch (error) {
@@ -101,6 +104,16 @@ const CampaignStoryCard = ({
       setSaveFailed(true)
     } finally {
       savingRef.current = false
+      // If the user edited again while a *failed* save was in flight, flush
+      // that newer text once. Guarded on the value differing from what we just
+      // tried, so a persistent failure with no new input falls back to the
+      // Retry button instead of looping.
+      if (
+        valueRef.current !== savedRef.current &&
+        valueRef.current !== lastAttempted
+      ) {
+        void save()
+      }
     }
   }
 

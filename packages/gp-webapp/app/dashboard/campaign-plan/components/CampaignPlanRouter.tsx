@@ -16,7 +16,11 @@ interface CampaignPlanRouterProps {
 // Survives same-session navigation: a user can click generate, leave, and
 // return during the brief window before the strategy row lands (which flips
 // `planExists` true) and still see the generating plan rather than the gate.
-const GENERATE_REQUESTED_KEY = 'campaignPlanGenerateRequested'
+// Stored as a timestamp and expired after the window below, so a generation
+// that never produces a plan (e.g. the POST never landed) can't bypass the
+// gate forever and re-fire on every return.
+const GENERATE_REQUESTED_KEY = 'campaignPlanGenerateRequestedAt'
+const GENERATE_REQUESTED_WINDOW_MS = 15 * 60 * 1000
 
 const Spinner = (): React.JSX.Element => (
   <DashboardLayout>
@@ -46,8 +50,16 @@ const CampaignPlanRouter = ({
   const [generateRequested, setGenerateRequested] = useState(false)
 
   useEffect(() => {
-    if (sessionStorage.getItem(GENERATE_REQUESTED_KEY) === '1') {
+    const raw = sessionStorage.getItem(GENERATE_REQUESTED_KEY)
+    if (!raw) return
+    const requestedAt = Number(raw)
+    const fresh =
+      Number.isFinite(requestedAt) &&
+      Date.now() - requestedAt < GENERATE_REQUESTED_WINDOW_MS
+    if (fresh) {
       setGenerateRequested(true)
+    } else {
+      sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
     }
   }, [])
 
@@ -58,7 +70,7 @@ const CampaignPlanRouter = ({
   }, [planExists])
 
   const requestGenerate = (): void => {
-    sessionStorage.setItem(GENERATE_REQUESTED_KEY, '1')
+    sessionStorage.setItem(GENERATE_REQUESTED_KEY, String(Date.now()))
     setGenerateRequested(true)
   }
 
