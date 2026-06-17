@@ -13,6 +13,7 @@ import {
   MdWeb,
 } from 'react-icons/md'
 import {
+  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -68,6 +69,7 @@ import {
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
   id: string
@@ -249,12 +251,22 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Campaign Story',
+  link: '/dashboard/campaign-story',
+  icon: <MdFileOpen />,
+  v2Icon: BookOpen,
+  v2Category: 'campaign',
+}
+
 export const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   campaignStrategyExists: boolean,
   winVoterDataEnabled: boolean,
+  campaignStoryEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -271,11 +283,22 @@ export const getDashboardMenuItems = (
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
+  // Campaign Manager (dashboard home) is index 0, unless an elected office is
+  // present — then BRIEFINGS is unshifted to index 0 and Campaign Manager moves
+  // to index 1. Insert campaign items right after Campaign Manager (and Story
+  // before Plan, so the Plan splice lands first) to render the campaign-category
+  // nav as [Campaign Manager, Campaign Plan, Campaign Story, …].
+  const afterCampaignManager = isElectedOffice ? 2 : 1
+
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
   // computed field (see useCampaignStrategyExists).
   if (campaignStrategyExists) {
-    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems
@@ -297,6 +320,9 @@ export default function DashboardMenu({
   // surface, not the menu — so the nav read doesn't inflate the exposed
   // population.
   const { enabled: winVoterDataEnabled } = useWinVoterDataFlag(false)
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here — mirrors the win-voter-data gate above.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -306,6 +332,7 @@ export default function DashboardMenu({
       !!electedOffice,
       campaignStrategyExists,
       winVoterDataEnabled,
+      campaignStoryEnabled,
     )
 
     if (ecanvasser) {
@@ -324,6 +351,7 @@ export default function DashboardMenu({
     proUpgradeEnabled,
     campaignStrategyExists,
     winVoterDataEnabled,
+    campaignStoryEnabled,
   ])
 
   useEffect(() => {

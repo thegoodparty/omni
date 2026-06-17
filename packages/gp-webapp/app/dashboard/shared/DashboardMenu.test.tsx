@@ -11,10 +11,12 @@ const links = (
     serveAccessEnabled = false,
     isElectedOffice = false,
     winVoterDataEnabled = false,
+    campaignStoryEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
     winVoterDataEnabled?: boolean
+    campaignStoryEnabled?: boolean
   } = {},
 ) =>
   getDashboardMenuItems(
@@ -23,6 +25,7 @@ const links = (
     isElectedOffice,
     false,
     winVoterDataEnabled,
+    campaignStoryEnabled,
   )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {

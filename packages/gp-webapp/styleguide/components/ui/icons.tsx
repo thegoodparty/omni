@@ -72,4 +72,7 @@ export {
   HandHeart as HandHeartIcon,
   Megaphone as MegaphoneIcon,
   ScrollText as ScrollTextIcon,
+  BookOpen as BookOpenIcon,
+  Sparkles as SparklesIcon,
+  WandSparkles as WandSparklesIcon,
 } from 'lucide-react'
