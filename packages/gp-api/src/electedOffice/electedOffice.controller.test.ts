@@ -305,6 +305,27 @@ describe('ElectedOfficeController', () => {
       expect(overlapping.status).toBe(409)
     })
 
+    it('adopts a term-less placeholder instead of creating a duplicate when term dates arrive later', async () => {
+      // A magic-link lead is provisioned with a term-less placeholder office.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+
+      // A later create carrying term dates must adopt the placeholder rather
+      // than insert a second office — a term-less range never "overlaps", so
+      // without the placeholder guard this would slip past the overlap check.
+      const withDates = await createElectedOffice({
+        termStartDate: '2024-01-01',
+        termEndDate: '2028-01-01',
+      })
+      expect(withDates.status).toBe(200)
+      expect(withDates.data.id).toBe(placeholder.data.id)
+
+      const offices = await service.prisma.electedOffice.findMany({
+        where: { userId: service.user.id },
+      })
+      expect(offices).toHaveLength(1)
+    })
+
     it('rejects a term whose end date is before its start date', async () => {
       const result = await createElectedOffice({
         termStartDate: '2028-01-01',
@@ -398,6 +419,33 @@ describe('ElectedOfficeController', () => {
       )
 
       expect(result.status).toBe(400)
+    })
+
+    it('rejects an update whose term would overlap another office the user holds', async () => {
+      const first = await createElectedOffice({
+        termStartDate: '2024-01-01',
+        termEndDate: '2028-01-01',
+      })
+      expect(first.status).toBe(200)
+
+      // A second, non-overlapping office is allowed.
+      const second = await createElectedOffice({
+        termStartDate: '2030-01-01',
+        termEndDate: '2034-01-01',
+      })
+      expect(second.status).toBe(200)
+      expect(second.data.id).not.toBe(first.data.id)
+
+      // Moving the second office's term into the first office's range must be
+      // rejected, mirroring the create-time no-overlap invariant.
+      const result = await service.client.put(
+        `/v1/elected-office/${second.data.id}`,
+        {
+          termStartDate: '2025-01-01',
+          termEndDate: '2027-01-01',
+        },
+      )
+      expect(result.status).toBe(409)
     })
 
     it('updates elected office with null values', async () => {

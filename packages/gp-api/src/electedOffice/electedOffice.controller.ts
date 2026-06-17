@@ -3,6 +3,7 @@ import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -32,7 +33,10 @@ import {
   UpdateElectedOfficeDto,
 } from './schemas/electedOffice.schema'
 import { ListElectedOfficePaginationSchema } from './schemas/ListElectedOfficePagination.schema'
-import { ElectedOfficeService } from './services/electedOffice.service'
+import {
+  dateRangesOverlap,
+  ElectedOfficeService,
+} from './services/electedOffice.service'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -165,6 +169,36 @@ export class ElectedOfficeController {
     if (!req.m2mToken && existing.userId !== req.user?.id) {
       throw new ForbiddenException('Not allowed to access this elected office')
     }
+
+    // Mirror create()'s no-overlap invariant: term dates are writable via PUT,
+    // so an update must not push this office's term into a range another office
+    // the same user holds already covers. Use the effective post-update bounds
+    // (a field left out of the body keeps its existing value).
+    const effectiveTermStart =
+      body.termStartDate !== undefined
+        ? body.termStartDate
+        : existing.termStartDate
+    const effectiveTermEnd =
+      body.termEndDate !== undefined ? body.termEndDate : existing.termEndDate
+    if (effectiveTermStart || effectiveTermEnd) {
+      const siblings = await this.electedOfficeService.findMany({
+        where: { userId: existing.userId, id: { not: id } },
+      })
+      const overlapping = siblings.find((office) =>
+        dateRangesOverlap(
+          office.termStartDate,
+          office.termEndDate,
+          effectiveTermStart ?? null,
+          effectiveTermEnd ?? null,
+        ),
+      )
+      if (overlapping) {
+        throw new ConflictException(
+          'Elected office term overlaps an existing elected office for this user',
+        )
+      }
+    }
+
     const data: Prisma.ElectedOfficeUpdateInput = {
       swornInDate: body.swornInDate,
       electedDate: body.electedDate,

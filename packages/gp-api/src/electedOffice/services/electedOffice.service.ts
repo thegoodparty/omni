@@ -97,6 +97,19 @@ export class ElectedOfficeService extends createPrismaBase(
         where: { userId: args.userId },
       })
 
+      // An existing office with no term range is a placeholder (e.g. a
+      // magic-link lead provisioned before any BallotReady / onboarding data).
+      // create() is idempotent per user, so adopt that office rather than
+      // inserting a duplicate — a term-less placeholder never "overlaps" a
+      // dated term, so without this guard a later dated create would slip past
+      // the overlap check below. Term dates are filled in later via update().
+      const placeholder = existingForUser.find(
+        (eo) => eo.termStartDate === null && eo.termEndDate === null,
+      )
+      if (placeholder) {
+        return placeholder
+      }
+
       const hasNewTerm = Boolean(newStart || newEnd)
       if (hasNewTerm) {
         // Core invariant: a user may hold multiple elected offices over time,

@@ -98,7 +98,10 @@ export class AdminElectedOfficeController {
         this.logger.warn({ err }, 'Failed to track magic-link-sent event')
       })
 
-    return { url, token, userId: user.id, prefill }
+    // Return only the ticketed URL — the raw Clerk sign-in token is already
+    // embedded in `url` as __clerk_ticket, and no caller reads a separate
+    // `token`. Omitting it keeps the credential out of extra logs/proxies.
+    return { url, userId: user.id, prefill }
   }
 
   private async prefillFromBallotReady(
