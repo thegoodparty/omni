@@ -60,3 +60,4 @@ Some tests need AWS auth: `aws sso login --profile gp-engineer`.
 
 - `e2e-tests/README.md` — onboarding + setup details (env vars, secret handoff).
 - `docs/testing.md` — Vitest (unit/component) testing.
+- `tests/app/contacts/contacts-staged-rollout.md` — Win Contacts (`win-voter-data`) staged-rollout + rollback plan, and the `@dev-only` Win Contacts e2e coverage scope.
