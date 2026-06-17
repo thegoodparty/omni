@@ -192,6 +192,7 @@ export default function Download() {
   return (
     <>
       <IconButton
+        data-testid="contacts-download-button"
         variant="outline"
         onClick={handleDownload}
         loading={isPreparing}
