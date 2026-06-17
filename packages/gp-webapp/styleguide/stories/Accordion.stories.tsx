@@ -12,20 +12,29 @@ const meta: Meta<typeof Accordion> = {
   tags: ['autodocs'],
   argTypes: {
     type: {
-      control: 'inline-radio',
+      control: {
+        type: 'inline-radio',
+        labels: { single: 'One at a time', multiple: 'Multiple at once' },
+      },
       options: ['single', 'multiple'],
       description:
-        'Single allows one item open at a time; multiple allows any number.',
+        '"One at a time" collapses any open item when you open another. "Multiple at once" lets any number of items stay open simultaneously.',
     },
     collapsible: {
       control: 'boolean',
       description:
-        'Only applies when type is "single". Allows closing the open item.',
+        'Allow closing the active item by clicking it again. Only applies when type is "One at a time".',
       if: { arg: 'type', eq: 'single' },
+    },
+    size: {
+      control: 'inline-radio',
+      options: ['default', 'sm'],
+      description:
+        'Controls trigger and content padding. Use "sm" in sidebars or compact layouts.',
     },
     disabled: {
       control: 'boolean',
-      description: 'Disable every item in the accordion.',
+      description: 'Disable all items in the accordion.',
     },
   },
 }
@@ -58,13 +67,14 @@ export const Playground: Story = {
   args: {
     type: 'single',
     collapsible: true,
+    size: 'default',
     disabled: false,
   },
   render: ({ disabled, collapsible, ...rootArgs }) => (
     <Accordion
       {...rootArgs}
       {...(rootArgs.type === 'single' ? { collapsible } : {})}
-      className="w-full max-w-md"
+      className="w-full"
     >
       {items.map(({ value, question, answer }) => (
         <AccordionItem key={value} value={value} disabled={disabled}>
@@ -76,88 +86,92 @@ export const Playground: Story = {
   ),
 }
 
-export const Default: Story = {
+export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Accordion type="single" collapsible className="w-full max-w-md">
-      {items.map(({ value, question, answer }) => (
-        <AccordionItem key={value} value={value}>
-          <AccordionTrigger>{question}</AccordionTrigger>
-          <AccordionContent>{answer}</AccordionContent>
-        </AccordionItem>
-      ))}
-    </Accordion>
-  ),
-}
+    <div className="flex w-full flex-col gap-10">
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Default — all closed
+        </p>
+        <Accordion type="single" collapsible className="w-full">
+          {items.map(({ value, question, answer }) => (
+            <AccordionItem key={value} value={value}>
+              <AccordionTrigger>{question}</AccordionTrigger>
+              <AccordionContent>{answer}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
 
-export const Multiple: Story = {
-  render: () => (
-    <Accordion type="multiple" className="w-full max-w-md">
-      <AccordionItem value="item-1">
-        <AccordionTrigger>Section one</AccordionTrigger>
-        <AccordionContent>
-          With <code>type=&quot;multiple&quot;</code> any number of items can be
-          open at the same time.
-        </AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-2">
-        <AccordionTrigger>Section two</AccordionTrigger>
-        <AccordionContent>
-          Each item is independent. Opening this one does not collapse the
-          others.
-        </AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-3">
-        <AccordionTrigger>Section three</AccordionTrigger>
-        <AccordionContent>
-          Useful for FAQ-style content or any layout where users may want to
-          compare expanded sections.
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
-  ),
-}
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          One pre-opened (defaultValue)
+        </p>
+        <Accordion
+          type="single"
+          collapsible
+          defaultValue="item-1"
+          className="w-full"
+        >
+          {items.map(({ value, question, answer }) => (
+            <AccordionItem key={value} value={value}>
+              <AccordionTrigger>{question}</AccordionTrigger>
+              <AccordionContent>{answer}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
 
-export const DefaultOpen: Story = {
-  render: () => (
-    <Accordion
-      type="single"
-      collapsible
-      defaultValue="item-2"
-      className="w-full max-w-md"
-    >
-      <AccordionItem value="item-1">
-        <AccordionTrigger>Collapsed by default</AccordionTrigger>
-        <AccordionContent>This item starts closed.</AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-2">
-        <AccordionTrigger>Open by default</AccordionTrigger>
-        <AccordionContent>
-          Set <code>defaultValue</code> on the root to pre-open an item.
-        </AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-3">
-        <AccordionTrigger>Also collapsed</AccordionTrigger>
-        <AccordionContent>This item also starts closed.</AccordionContent>
-      </AccordionItem>
-    </Accordion>
-  ),
-}
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Multiple at once — two open
+        </p>
+        <Accordion
+          type="multiple"
+          defaultValue={['item-1', 'item-3']}
+          className="w-full"
+        >
+          {items.map(({ value, question, answer }) => (
+            <AccordionItem key={value} value={value}>
+              <AccordionTrigger>{question}</AccordionTrigger>
+              <AccordionContent>{answer}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
 
-export const Disabled: Story = {
-  render: () => (
-    <Accordion type="single" collapsible className="w-full max-w-md">
-      <AccordionItem value="item-1">
-        <AccordionTrigger>Enabled item</AccordionTrigger>
-        <AccordionContent>This item can be toggled normally.</AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-2" disabled>
-        <AccordionTrigger>Disabled item</AccordionTrigger>
-        <AccordionContent>You should not be able to see this.</AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="item-3">
-        <AccordionTrigger>Another enabled item</AccordionTrigger>
-        <AccordionContent>This one works too.</AccordionContent>
-      </AccordionItem>
-    </Accordion>
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Disabled item (item 2)
+        </p>
+        <Accordion type="single" collapsible className="w-full">
+          {items.map(({ value, question, answer }) => (
+            <AccordionItem
+              key={value}
+              value={value}
+              disabled={value === 'item-2'}
+            >
+              <AccordionTrigger>{question}</AccordionTrigger>
+              <AccordionContent>{answer}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Compact (<code>{'size="sm"'}</code>)
+        </p>
+        <Accordion type="single" collapsible size="sm" className="w-full">
+          {items.map(({ value, question, answer }) => (
+            <AccordionItem key={value} value={value}>
+              <AccordionTrigger>{question}</AccordionTrigger>
+              <AccordionContent>{answer}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
+    </div>
   ),
 }
