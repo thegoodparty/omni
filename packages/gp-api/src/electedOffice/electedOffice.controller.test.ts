@@ -479,6 +479,24 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(400)
     })
 
+    it('rejects a partial update that inverts the term against the existing bound', async () => {
+      // Only termEndDate is in the body, but it lands on/before the existing
+      // termStartDate — the schema's both-bounds refinement doesn't catch this,
+      // so the controller must validate the effective bounds.
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { termEndDate: '2024-06-01' },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
     it('rejects an update whose term would overlap another office the user holds', async () => {
       const first = await createElectedOffice({
         termStartDate: '2024-01-01',

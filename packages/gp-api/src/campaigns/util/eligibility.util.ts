@@ -27,7 +27,12 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
 
 export const isHeldOffice = (office: ElectedOffice, now: Date): boolean =>
   office.isActive &&
-  (office.termEndDate === null || isAfter(office.termEndDate, now))
+  // termEndDate is a calendar date (UTC midnight) since the term columns
+  // became DATE, so the office is held through the whole term-end day — mirror
+  // isActiveCampaign's UTC calendar-day comparison rather than isAfter(end,
+  // now), which would flip the office to "past" at midnight on its last day.
+  (office.termEndDate === null ||
+    !isAfter(getMidnightForDate(now), office.termEndDate))
 
 export const organizationStatus = (
   org: { campaign: Campaign | null; electedOffice: ElectedOffice | null },

@@ -197,6 +197,16 @@ export class ElectedOfficeController {
         : existing.termStartDate
     const effectiveTermEnd =
       body.termEndDate !== undefined ? body.termEndDate : existing.termEndDate
+    // The schema's refineTermDates only fires when BOTH bounds are in the body,
+    // so a partial PUT could set one bound against the existing other and
+    // invert the term (end on/before start). Re-check the effective bounds.
+    if (
+      effectiveTermStart &&
+      effectiveTermEnd &&
+      effectiveTermEnd.getTime() <= effectiveTermStart.getTime()
+    ) {
+      throw new BadRequestException('termEndDate must be after termStartDate')
+    }
     if (effectiveTermStart || effectiveTermEnd) {
       const siblings = await this.electedOfficeService.findMany({
         where: { userId: existing.userId, id: { not: id } },
