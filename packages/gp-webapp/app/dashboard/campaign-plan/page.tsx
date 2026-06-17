@@ -2,12 +2,12 @@ import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from '../shared/candidateAccess'
 import { getServerUser } from 'helpers/userServerHelper'
 import { serverRequest } from 'gpApi/server-request'
-import { redirect } from 'next/navigation'
-import CampaignPlanPage from './components/CampaignPlanPage'
+import CampaignPlanRouter from './components/CampaignPlanRouter'
 
-// Same source of truth as the sidebar tab (useCampaignStrategyExists):
-// the dedicated existence endpoint, not a field on the campaign payload.
-// Fail closed — an error means we can't prove access, so redirect.
+// Same source of truth as the sidebar tab (useCampaignStrategyExists): the
+// dedicated existence endpoint, not a field on the campaign payload. Fail
+// closed — an error reads as "no plan", which the client router resolves
+// (legacy users redirect to /dashboard; campaign-story users see the gate).
 const strategyExists = async (): Promise<boolean> => {
   try {
     const res = await serverRequest('GET /v1/campaignStrategy/mine/exists', {})
@@ -28,13 +28,11 @@ export const dynamic = 'force-dynamic'
 
 export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
-  const [initialUser, exists] = await Promise.all([
+  const [initialUser, planExists] = await Promise.all([
     getServerUser(),
     strategyExists(),
   ])
-  // Don't show to users who haven't set up a campaign strategy during onboarding yet.
-  if (!exists) {
-    redirect('/dashboard')
-  }
-  return <CampaignPlanPage initialUser={initialUser} />
+  return (
+    <CampaignPlanRouter initialUser={initialUser} planExists={planExists} />
+  )
 }

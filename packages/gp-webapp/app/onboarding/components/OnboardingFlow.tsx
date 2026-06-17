@@ -34,6 +34,7 @@ import type { Campaign } from 'helpers/types'
 import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { ONBOARDING_STEPS, firstOnboardingStepId } from './onboardingConfig'
 import { getVisibleOnboardingSteps } from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
@@ -347,6 +348,10 @@ export default function OnboardingFlow({
   // pre-warm calls and route the candidate directly to /dashboard after
   // pledge instead of /onboarding/success.
   const { enabled: campaignStrategyEnabled } = useCampaignStrategyFlag()
+  // Campaign-story users don't auto-generate a plan during onboarding: they
+  // write their Campaign Story first, then generate from it. So we skip the
+  // pre-warm and route them to the story page instead of /onboarding/success.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag()
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -894,10 +899,12 @@ export default function OnboardingFlow({
         // Gated on the campaign-strategy flag: no point spending Gemini
         // calls if the user will be routed straight to /dashboard
         // post-pledge.
-        if (campaignStrategyEnabled) {
+        if (campaignStrategyEnabled && !campaignStoryEnabled) {
           // These prewarm calls are the real first request for the strategic
           // landscape and community events, so the `Requested` events fire
           // here (not on the success page, which only re-polls afterward).
+          // Skipped for campaign-story users — they generate on demand after
+          // completing their story, so there's nothing to pre-warm yet.
           const planCampaignId = liveCampaign?.id ?? campaign?.id
           trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
             campaignId: planCampaignId,
@@ -960,11 +967,16 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Flag off → /dashboard (legacy behavior, no campaign plan).
-      // Flag on → /onboarding/success (Sections 1-10 with LLM-backed
-      // strategic landscape, community events, voter insights).
+      // Campaign-story users go write their story first (the plan is
+      // generated from it later, on the Campaign Plan tab). Otherwise:
+      // campaign-strategy on → /onboarding/success (LLM-backed plan);
+      // off → /dashboard (legacy, no plan).
       router.push(
-        campaignStrategyEnabled ? '/onboarding/success' : '/dashboard',
+        campaignStoryEnabled
+          ? '/dashboard/campaign-story'
+          : campaignStrategyEnabled
+            ? '/onboarding/success'
+            : '/dashboard',
       )
       return
     }
@@ -1105,7 +1117,9 @@ export default function OnboardingFlow({
             {nextStep
               ? 'Continue'
               : activeStep.id === 'pledge'
-                ? 'Agree & Create My Plan'
+                ? campaignStoryEnabled
+                  ? "Let's Create Your Story"
+                  : 'Agree & Create My Plan'
                 : 'Complete'}
           </Button>
         </div>
