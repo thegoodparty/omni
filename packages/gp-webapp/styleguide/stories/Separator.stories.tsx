@@ -55,7 +55,7 @@ export const Horizontal: Story = {
         </p>
       </div>
       <Separator className="my-4" />
-      <p className="text-foreground text-sm">Public · Verified · Active</p>
+      <p className="text-muted-foreground text-sm">Public · Verified · Active</p>
     </div>
   ),
 }
