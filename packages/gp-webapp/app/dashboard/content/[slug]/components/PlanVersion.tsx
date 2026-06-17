@@ -41,7 +41,7 @@ export default function PlanVersion({
   return (
     <div className="flex justify-center relative">
       <Button
-        variant="secondary"
+        variant="neutral"
         size="medium"
         onClick={() => {
           trackEvent(EVENTS.ContentBuilder.Editor.OpenVersionPicker)

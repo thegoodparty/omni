@@ -68,7 +68,7 @@ const TogglePanel = ({
               <FiChevronUp />
             </Button>
           ) : (
-            <Button variant="secondary" size="medium" aria-label="expand">
+            <Button variant="neutral" size="medium" aria-label="expand">
               <FiChevronDown />
             </Button>
           )}

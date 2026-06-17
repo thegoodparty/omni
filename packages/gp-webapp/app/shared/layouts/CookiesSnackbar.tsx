@@ -25,7 +25,7 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
   return (
     <div className="fixed bottom-4 flex justify-center w-full">
       <div
-        className="bg-secondary text-white p-4 flex max-w-[440px] mx-8 rounded-lg"
+        className="bg-tertiary-light text-tertiary-dark p-4 flex max-w-[440px] mx-8 rounded-lg"
         data-testid="cookie-snackbar"
       >
         <Body2>
@@ -33,7 +33,7 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
         </Body2>
         <Button
           className="ml-6 self-center"
-          variant="whiteOutline"
+          variant="outline"
           size="medium"
           onClick={handleAccept}
           data-testid="cookie-accept-btn"

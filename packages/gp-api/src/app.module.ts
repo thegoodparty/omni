@@ -23,6 +23,7 @@ import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
+import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
@@ -84,6 +85,7 @@ import { loggerModule } from './observability/logging/logger-module'
     EcanvasserIntegrationModule,
     ScheduledMessagingModule,
     OutreachModule,
+    VoterOutreachActivityModule,
     SegmentModule,
     WebsitesModule,
     CommunityIssuesModule,

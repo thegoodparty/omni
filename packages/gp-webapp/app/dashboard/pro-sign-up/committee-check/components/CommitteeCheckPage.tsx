@@ -200,7 +200,7 @@ const CommitteeCheckPage = ({
           <section className="flex flex-col justify-between mt-4 md:mt-8 md:flex-row">
             <Button
               asChild
-              variant="secondary"
+              variant="neutral"
               size="large"
               className="mb-4 md:mb-0"
             >

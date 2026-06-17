@@ -34,7 +34,7 @@ const PurchaseSuccessPage = (): React.JSX.Element => {
       <div className="w-full flex flex-col justify-center md:flex-row md:justify-between">
         <Button
           asChild
-          variant="secondary"
+          variant="neutral"
           className="self-start mb-4 w-full md:w-auto md:mb-0"
         >
           <Link href="/dashboard">Go Back to Dashboard</Link>

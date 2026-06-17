@@ -103,7 +103,7 @@ export default function NeedHelp(): React.JSX.Element {
     <>
       <Button
         size="large"
-        variant="secondary"
+        variant="neutral"
         onClick={() => {
           trackEvent(EVENTS.VoterData.ClickNeedHelp)
           setOpen(true)
@@ -161,7 +161,7 @@ export default function NeedHelp(): React.JSX.Element {
                 />
               </div>
               <div className="flex justify-between mt-12">
-                <Button variant="secondary" onClick={handleClose}>
+                <Button variant="neutral" onClick={handleClose}>
                   Cancel
                 </Button>
                 <Button

@@ -168,8 +168,6 @@ export function P2PUpgradeModal({
             <Button
               asChild
               size="large"
-              className="text-white rounded-[32px]"
-              style={{ backgroundColor: '#14234D' }}
               onClick={handleButtonClick}
               {...trackingAttrs}
             >

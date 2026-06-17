@@ -139,7 +139,7 @@ const RightSideMobile = (): React.JSX.Element => {
                         {status === 'candidate' && !isDashboardPath && (
                           <Button
                             asChild
-                            variant="secondary"
+                            variant="neutral"
                             size="large"
                             id="mobile-nav-dashboard"
                             onClick={closeMenu}
@@ -151,7 +151,7 @@ const RightSideMobile = (): React.JSX.Element => {
                         {status === 'onboarding' && (
                           <Button
                             asChild
-                            variant="secondary"
+                            variant="neutral"
                             size="large"
                             id="mobile-nav-continue-onboarding"
                             onClick={closeMenu}

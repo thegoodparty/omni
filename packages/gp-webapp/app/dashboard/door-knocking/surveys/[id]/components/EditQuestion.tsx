@@ -175,7 +175,7 @@ export default function EditQuestion(
                   />
                   <div className="ml-2 min-w-[112px]">
                     <Button
-                      variant="secondary"
+                      variant="neutral"
                       onClick={handleNewAnswer}
                       className="w-full"
                     >
@@ -203,7 +203,7 @@ export default function EditQuestion(
               withOptions ? 'border-t border-gray-200' : ''
             }`}
           >
-            <Button variant="secondary" onClick={() => setIsOpen(false)}>
+            <Button variant="neutral" onClick={() => setIsOpen(false)}>
               Cancel
             </Button>
             <Button

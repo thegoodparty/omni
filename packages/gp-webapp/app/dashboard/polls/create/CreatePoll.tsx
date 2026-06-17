@@ -238,7 +238,7 @@ const DetailsForm: React.FC<{
       nextButton={
         <Button
           type="submit"
-          variant="secondary"
+          variant="neutral"
           disabled={isSubmitting}
           loading={isSubmitting}
           onClick={handleSubmit(onSubmit)}
@@ -357,7 +357,7 @@ const DateSelectionForm: React.FC<{
       nextButton={
         <Button
           type="submit"
-          variant="secondary"
+          variant="neutral"
           disabled={!scheduledDate}
           onClick={() => {
             if (!scheduledDate) {
@@ -421,7 +421,7 @@ const AudienceSelectionForm: React.FC<{
       nextButton={
         <Button
           type="submit"
-          variant="secondary"
+          variant="neutral"
           disabled={!selectedAudience}
           onClick={() => {
             if (!selectedAudience) {
@@ -478,7 +478,7 @@ const ImageSelectionForm: React.FC<{
       nextButton={
         <Button
           type="submit"
-          variant="secondary"
+          variant="neutral"
           onClick={() => {
             trackEvent(EVENTS.createPoll.addImageCompleted, {
               Image: !!imageUrl,
@@ -534,7 +534,7 @@ const ReviewForm: React.FC<{
       nextButton={
         <Button
           type="submit"
-          variant="secondary"
+          variant="neutral"
           onClick={() => {
             trackEvent(EVENTS.createPoll.pollPreviewCompleted)
             onSubmit()

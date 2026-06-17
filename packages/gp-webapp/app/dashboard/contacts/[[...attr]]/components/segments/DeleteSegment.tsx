@@ -26,7 +26,7 @@ export default function DeleteSegment({
   afterDeleteCallback,
 }: DeleteSegmentProps) {
   const { id } = segment
-  const { refreshCustomSegments } = useContactsTable()
+  const { refreshCustomSegments, isWinContext } = useContactsTable()
 
   const [isDeleting, setIsDeleting] = useState(false)
 
@@ -38,7 +38,9 @@ export default function DeleteSegment({
       })
       refreshCustomSegments()
       afterDeleteCallback()
-      trackEvent(EVENTS.Contacts.SegmentDeleted)
+      trackEvent(EVENTS.Contacts.SegmentDeleted, {
+        context: isWinContext ? 'win' : 'serve',
+      })
     } catch (error) {
       console.log('Error deleting segment', error)
     } finally {

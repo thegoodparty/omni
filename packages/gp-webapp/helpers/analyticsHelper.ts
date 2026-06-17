@@ -184,6 +184,7 @@ export const EVENTS = {
       StrategicLandscapeDisplayed:
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
+      PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
       CampaignManagerClicked:
         'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
@@ -390,13 +391,19 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Shared Serve (elected office) + Win (campaign) contacts experience, both on
+  // the People API. Every event carries a `context: 'win' | 'serve'` property
+  // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the
+  // unified path is a property filter in Amplitude, not a duplicate event set.
   Contacts: {
+    Viewed: 'Contacts - Contacts Viewed',
     Download: 'Contacts - Download',
     SegmentCreated: 'Contacts - Segment Created',
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     ColumnEdited: 'Contacts - Column Edited',
+    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
   },
   VoterData: {
     ClickNeedHelp: 'Voter Data: Click Need Help',
@@ -548,6 +555,7 @@ export const EVENTS = {
     },
     DlcCompliance: {
       RegistrationSubmitted: 'Pro Upgrade - Filing Details Submitted',
+      RegistrationSubmitError: 'Pro Upgrade - Filing Details Submit Error',
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
@@ -577,6 +585,7 @@ export const EVENTS = {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
     CampaignCompleted: 'Candidacy - Campaign Completed',
+    DebriefClicked: 'Candidacy - Debrief Clicked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -628,6 +637,7 @@ export const EVENTS = {
     ResourcesCompleted: 'Onboarding V2 - Resources Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
+    PlanShared: 'Onboarding V2 - Plan Shared',
     PlanDownloaded: 'Onboarding V2 - Plan Downloaded',
     CampaignManagerClicked: 'Onboarding V2 - Campaign Manager Clicked',
     MediaRequested: 'Onboarding V2 - Media Requested',

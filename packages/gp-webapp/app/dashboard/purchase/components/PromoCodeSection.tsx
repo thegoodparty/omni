@@ -124,7 +124,7 @@ export default function PromoCodeSection({
             disabled={!promoCode.trim() || isApplyingPromo}
             loading={isApplyingPromo}
             size="large"
-            variant="secondary"
+            variant="neutral"
           >
             Apply
           </Button>

@@ -1,80 +1,14 @@
+import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
+
 export interface SegmentResponse {
   id: number
   name?: string
   [key: string]: unknown
 }
 
-export type Person = {
-  id: string
-  lalVoterId: string
-  firstName: string | null
-  middleName: string | null
-  lastName: string | null
-  nameSuffix: string | null
-  age: number | null
-  state: string
-  address: {
-    line1: string | null
-    line2: string | null
-    city: string | null
-    state: string | null
-    zip: string | null
-    zipPlus4: string | null
-    latitude: string | null
-    longitude: string | null
-  }
-  cellPhone: string | null
-  landline: string | null
-  gender: 'Male' | 'Female' | null
-  politicalParty: 'Independent' | 'Democratic' | 'Republican' | 'Other'
-  registeredVoter: 'Yes' | 'No'
-  estimatedIncomeAmount: number | null
-  voterStatus:
-    | 'Super'
-    | 'Likely'
-    | 'Unreliable'
-    | 'Unlikely'
-    | 'First Time'
-    | null
-  maritalStatus:
-    | 'Likely Married'
-    | 'Likely Single'
-    | 'Married'
-    | 'Single'
-    | null
-  hasChildrenUnder18: 'Yes' | 'No' | null
-  veteranStatus: 'Yes' | null
-  homeowner: 'Yes' | 'Likely' | 'No' | null
-  businessOwner: 'Yes' | null
-  levelOfEducation:
-    | 'None'
-    | 'High School Diploma'
-    | 'Technical School'
-    | 'Some College'
-    | 'College Degree'
-    | 'Graduate Degree'
-    | null
-  ethnicityGroup:
-    | 'Asian'
-    | 'European'
-    | 'Hispanic'
-    | 'African American'
-    | 'Other'
-    | null
-  language: 'English' | 'Spanish' | 'Other'
-}
+export type { Person }
 
-export interface ListContactsResponse {
-  pagination: {
-    totalResults: number
-    currentPage: number
-    pageSize: number
-    totalPages: number
-    hasNextPage: boolean
-    hasPreviousPage: boolean
-  }
-  people: unknown[]
-}
+export type ListContactsResponse = PeopleListResponse
 
 export type ConstituentIssue = {
   issueTitle: string
@@ -96,8 +30,11 @@ export type ConstituentActivityEvent = {
   date: string
 }
 
-export type ConstituentActivity = {
-  type: string
+// Serve poll-interaction activity (elected office context). The literal
+// matches gp-api's ConstituentActivityType.POLL_INTERACTIONS so this and
+// OutreachConstituentActivity form a discriminated union on `type`.
+export type PollConstituentActivity = {
+  type: 'POLL_INTERACTIONS'
   date: string
   data: {
     pollId: string
@@ -105,6 +42,33 @@ export type ConstituentActivity = {
     events: ConstituentActivityEvent[]
   }
 }
+
+// Win outreach activity, mapped from VoterOutreachActivity by gp-api's campaign
+// branch. attributionSource lets the timeline label send-time vs per-recipient
+// attribution honestly (recipient for door knocking, segmentDerived otherwise).
+export type OutreachChannel =
+  | 'text'
+  | 'doorKnocking'
+  | 'phoneBanking'
+  | 'socialMedia'
+  | 'robocall'
+  | 'p2p'
+
+export type OutreachAttributionSource = 'recipient' | 'segmentDerived'
+
+export type OutreachConstituentActivity = {
+  type: 'OUTREACH'
+  date: string
+  data: {
+    activityId: number
+    outreachType: OutreachChannel
+    attributionSource: OutreachAttributionSource
+  }
+}
+
+export type ConstituentActivity =
+  | PollConstituentActivity
+  | OutreachConstituentActivity
 
 export type GetIndividualActivitiesResponse = {
   nextCursor: string | null

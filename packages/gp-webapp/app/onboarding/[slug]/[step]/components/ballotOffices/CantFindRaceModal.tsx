@@ -56,7 +56,7 @@ export default function CantFindRaceModal({
                 </ol>
               </Body2>
               <div className="my-8 text-center">
-                <Button variant="secondary" size="medium" onClick={onClose}>
+                <Button variant="neutral" size="medium" onClick={onClose}>
                   Back to search
                 </Button>
               </div>

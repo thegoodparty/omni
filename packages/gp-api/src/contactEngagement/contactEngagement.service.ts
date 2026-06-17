@@ -1,4 +1,5 @@
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
+import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
 import {
   Poll,
@@ -13,17 +14,61 @@ import {
   ConstituentActivityEventType,
   ConstituentActivityType,
   ConstituentIssue,
+  GetCampaignActivitiesResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  OutreachConstituentActivity,
 } from './contactEngagement.types'
 
 type PollIndividualMessageWithPoll = PollIndividualMessage & { poll: Poll }
+
+type CampaignActivityInput = {
+  campaignId: number
+  lalVoterId: string
+  take?: number
+  after?: string
+}
 
 @Injectable()
 export class ContactEngagementService {
   constructor(
     private readonly pollIndividualMessage: PollIndividualMessageService,
+    private readonly voterOutreachActivity: VoterOutreachActivityService,
   ) {}
+
+  async getCampaignActivities(
+    input: CampaignActivityInput,
+  ): Promise<GetCampaignActivitiesResponse> {
+    const { campaignId, lalVoterId, take, after } = input
+    const limit = take ?? 20
+
+    // Oversample by 1 to detect a next page. Pagination is bounded at the DB
+    // via cursor; a stale/foreign `after` matches no row and yields an empty
+    // page (no in-memory reset, so no infinite-loop on a bad cursor).
+    const activities = await this.voterOutreachActivity.getActivityForVoter(
+      campaignId,
+      lalVoterId,
+      limit + 1,
+      after,
+    )
+
+    const page = activities.slice(0, limit)
+    const results: OutreachConstituentActivity[] = page.map((activity) => ({
+      type: ConstituentActivityType.OUTREACH,
+      date: activity.occurredAt.toISOString(),
+      data: {
+        activityId: activity.id,
+        outreachType: activity.outreachType,
+        attributionSource: activity.attributionSource,
+      },
+    }))
+    const nextCursor =
+      activities.length > limit
+        ? (results[results.length - 1]?.data.activityId.toString() ?? null)
+        : null
+
+    return { nextCursor, results }
+  }
 
   async getIndividualActivities(
     input: IndividualActivityInput,

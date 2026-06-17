@@ -88,6 +88,27 @@ Each backend owns its own Postgres database, managed by Prisma with modular
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
 
+### Voter / people data path (unified)
+
+Both products that surface voter data — Serve (elected office) and Win (campaign) —
+now read it from **people-api** through gp-api, via the same `/dashboard/contacts`
+experience in gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the
+voter-file filter endpoints, and the contact-engagement endpoints); gp-api fans out
+to people-api over the S2S JWT. people-api owns the L2 records and runs its own
+queries (mostly raw SQL) against its partitioned `Voter` table — that raw SQL is an
+internal people-api implementation detail, not something gp-webapp talks to.
+
+- **Serve** has been on this People-API path.
+- **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.
+  This replaces the older Win voter-file experience at `dashboard/voter-records/`,
+  which read the pre-People-API `voters.voterFile.*` endpoints. That legacy page is
+  **not removed yet** — it still serves un-migrated Win users until the post-rollout
+  cleanup (ENG-10436). New Win voter work goes through `dashboard/contacts/`.
+
+Adoption of the unified path is measured via the `Contacts` analytics events, which
+carry a `context: 'win' | 'serve'` property. Detail:
+`packages/gp-webapp/app/dashboard/contacts/CLAUDE.md`.
+
 ## External repos (not in omni)
 
 Some systems live outside this monorepo. Consult them when:

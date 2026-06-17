@@ -1,4 +1,4 @@
-import React, { ReactNode, HTMLAttributes } from 'react'
+import { ReactNode, HTMLAttributes } from 'react'
 
 interface ChipProps extends Omit<
   HTMLAttributes<HTMLDivElement>,

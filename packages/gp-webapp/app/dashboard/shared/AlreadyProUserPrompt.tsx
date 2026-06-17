@@ -9,7 +9,7 @@ export const AlreadyProUserPrompt = (): React.JSX.Element => (
     <H2 className="text-center mb-8">
       Thank you! <span className="text-4xl">👏</span>
     </H2>
-    <Button asChild variant="secondary" className="mx-auto block w-fit">
+    <Button asChild variant="neutral" className="mx-auto block w-fit">
       <Link href="/dashboard">Go Back to your Dashboard</Link>
     </Button>
   </>
