@@ -122,11 +122,12 @@ test.describe('Win Contacts @dev-only', () => {
         response.request().method() === 'GET',
       { timeout: 30000 },
     )
-    // The download control is the icon-only IconButton in the toolbar
-    // (data-slot="icon-button", shown md+ via "hidden md:flex").
-    const downloadIconButton = page
-      .locator('[data-slot="icon-button"].hidden.md\\:flex')
-      .first()
+    // The download control is the icon-only IconButton in the toolbar. Select
+    // by its testid rather than a class selector: once a custom segment is
+    // active, SegmentSection's edit-list IconButton also carries
+    // data-slot="icon-button" + "hidden md:flex" and renders first, so a
+    // class-based locator would match it instead of Download.
+    const downloadIconButton = page.getByTestId('contacts-download-button')
     await downloadIconButton.scrollIntoViewIfNeeded()
     await expect(downloadIconButton).toBeVisible({ timeout: 10000 })
     await downloadIconButton.click({ force: true })
