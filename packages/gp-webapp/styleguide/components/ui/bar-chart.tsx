@@ -54,11 +54,11 @@ const BarChart = ({
           >
             <CartesianGrid
               vertical={false}
-              stroke="var(--color-border)"
+              stroke="var(--base-border)"
               strokeOpacity={0.5}
             />
             <XAxis dataKey="name" hide />
-            <YAxis hide />
+            <YAxis hide domain={percentage ? [0, 100] : ['auto', 'auto']} />
             <Bar
               dataKey="value"
               radius={[6, 6, 0, 0]}
@@ -86,10 +86,10 @@ const BarChart = ({
           >
             <CartesianGrid
               horizontal={false}
-              stroke="var(--color-border)"
+              stroke="var(--base-border)"
               strokeOpacity={0.5}
             />
-            <XAxis type="number" hide />
+            <XAxis type="number" hide domain={percentage ? [0, 100] : ['auto', 'auto']} />
             <YAxis type="category" dataKey="name" hide />
             <Bar
               dataKey="value"
