@@ -32,7 +32,7 @@ export const Playground: Story = {
       className={
         args.orientation === 'vertical'
           ? 'flex h-24 items-center gap-4'
-          : 'w-80 space-y-4'
+          : 'w-80'
       }
     >
       <span className="text-foreground text-sm">Section one</span>
@@ -43,6 +43,7 @@ export const Playground: Story = {
 }
 
 export const Horizontal: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="w-80">
       <div className="space-y-1">
@@ -54,11 +55,9 @@ export const Horizontal: Story = {
         </p>
       </div>
       <Separator className="my-4" />
-      <div className="text-foreground flex h-5 items-center gap-4 text-sm">
+      <div className="text-foreground flex items-center gap-4 text-sm">
         <span>Public</span>
-        <Separator orientation="vertical" />
         <span>Verified</span>
-        <Separator orientation="vertical" />
         <span>Active</span>
       </div>
     </div>
@@ -66,6 +65,7 @@ export const Horizontal: Story = {
 }
 
 export const Vertical: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="text-foreground flex h-12 items-center gap-3 text-sm">
       <span>Draft</span>
