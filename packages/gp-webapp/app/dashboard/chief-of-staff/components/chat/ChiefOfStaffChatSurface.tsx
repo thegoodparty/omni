@@ -1,12 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from '@styleguide'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
 

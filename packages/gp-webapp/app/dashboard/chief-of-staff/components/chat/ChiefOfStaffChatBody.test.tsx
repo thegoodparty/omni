@@ -47,9 +47,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     // string confirms it streamed rather than being dumped at once.
     await waitFor(
       () =>
-        expect(
-          screen.getByText(COS_INTRO_MESSAGES[0]!),
-        ).toBeInTheDocument(),
+        expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
       { timeout: 4000 },
     )
   })
