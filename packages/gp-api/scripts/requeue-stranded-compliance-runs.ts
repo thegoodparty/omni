@@ -16,13 +16,14 @@
  *
  * Idempotent: targets only status=FAILED rows with the terminal error string, so
  * a row already flipped (now AWAITING_RESUME / superseded) won't be re-matched.
- * `--failed-before` guards against resurrecting runs that fail legitimately after
- * the fix; default is now, so pass the deploy time on a delayed run.
+ * `--failed-before` is REQUIRED: pass the deploy timestamp so the query can't
+ * include runs that failed legitimately AFTER the fix (a site that genuinely
+ * never went live re-exhausts 48 attempts and carries the same error string) —
+ * re-queuing those would loop them forever.
  *
  * Usage (dry-run by default — prints what it would do, mutates nothing):
- *   npx tsx scripts/requeue-stranded-compliance-runs.ts
  *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-18T00:00:00Z
- *   npx tsx scripts/requeue-stranded-compliance-runs.ts --execute   # actually flips rows
+ *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-18T00:00:00Z --execute
  *
  * Required env vars:
  *   DATABASE_URL — Postgres connection string (point at prod to remediate prod)
@@ -42,7 +43,13 @@ const parseArgs = () => {
   const args = process.argv.slice(2)
   const execute = args.includes('--execute')
   const before = args.find((a) => a.startsWith('--failed-before='))
-  const failedBefore = before ? new Date(before.split('=')[1]) : new Date()
+  if (!before) {
+    throw new Error(
+      '--failed-before is required. Pass the deploy timestamp so post-fix ' +
+        'failures are excluded, e.g. --failed-before=2026-06-18T00:00:00Z',
+    )
+  }
+  const failedBefore = new Date(before.split('=')[1])
   if (Number.isNaN(failedBefore.getTime())) {
     throw new Error(`--failed-before is not a valid date: ${before}`)
   }
