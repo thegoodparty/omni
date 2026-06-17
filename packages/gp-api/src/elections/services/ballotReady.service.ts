@@ -779,7 +779,11 @@ export const selectPreferredOfficeHolder = (
     holders.find((holder) => {
       const start = holder.startAt ? new Date(holder.startAt) : null
       const end = holder.endAt ? new Date(holder.endAt) : null
-      return (!start || start <= now) && (!end || end >= now)
+      // endAt is the exclusive term boundary (the successor's start day), so a
+      // holder is current only while now < endAt — matching isHeldOffice and the
+      // half-open [start, end) overlap semantics. Using >= would keep selecting
+      // the outgoing holder on the successor's first day.
+      return (!start || start <= now) && (!end || end > now)
     })
   return current ?? null
 }

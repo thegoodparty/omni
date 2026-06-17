@@ -212,7 +212,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (!termStartDate && !termEndDate) return false
     const start = termStartDate ?? FAR_PAST
     const end = termEndDate ?? FAR_FUTURE
-    return otherRanges.some((range) => start <= range.to && range.from <= end)
+    // Terms are half-open [start, end): the end date is the exclusive boundary
+    // where the successor takes over, so a new term that starts exactly on a
+    // prior term's end day does not overlap — must match the API's
+    // dateRangesOverlap (< not <=) or the UI blocks a term the server accepts.
+    return otherRanges.some((range) => start < range.to && range.from < end)
   }, [termStartDate, termEndDate, otherRanges])
 
   const datesValid =

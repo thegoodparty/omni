@@ -1,17 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Organization } from 'gpApi/api-endpoints'
-import candidateAccess from './candidateAccess'
+import candidateAccess, { getPostAuthRedirectPath } from './candidateAccess'
 
 const {
   mockAuth,
   mockHeadersGet,
   mockRedirect,
   mockGetCurrentUserOrganizations,
+  mockServerFetch,
+  mockGetServerUser,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockHeadersGet: vi.fn(),
   mockRedirect: vi.fn(),
   mockGetCurrentUserOrganizations: vi.fn(),
+  mockServerFetch: vi.fn(),
+  mockGetServerUser: vi.fn(),
+}))
+
+vi.mock('gpApi/serverFetch', () => ({
+  serverFetch: (...args: unknown[]) => mockServerFetch(...args),
+}))
+
+vi.mock('helpers/userServerHelper', () => ({
+  getServerUser: () => mockGetServerUser(),
 }))
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -48,6 +60,69 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockRedirect.mockImplementation(() => undefined as never)
   mockGetCurrentUserOrganizations.mockResolvedValue([minimalOrg])
+  mockGetServerUser.mockResolvedValue(null)
+  mockServerFetch.mockResolvedValue({ ok: true, status: 200, data: {} })
+})
+
+// Dispatch serverFetch responses by the route's path so getPostAuthRedirectPath
+// sees a campaign-less user whose elected-office state we control per test.
+const routeServerFetch = (
+  responses: Record<string, { ok: boolean; status: number; data: unknown }>,
+) => {
+  mockServerFetch.mockImplementation(
+    async (route: { path?: string } | undefined) => {
+      const path = route?.path ?? ''
+      if (path.includes('/elected-office/mine')) {
+        return responses.mine ?? { ok: true, status: 200, data: [] }
+      }
+      if (path.includes('/elected-office/current')) {
+        return responses.current ?? { ok: false, status: 404, data: null }
+      }
+      // campaign status — default to "no campaign"
+      return (
+        responses.status ?? { ok: true, status: 200, data: { status: false } }
+      )
+    },
+  )
+}
+
+describe('getPostAuthRedirectPath', () => {
+  it('routes an EO with incomplete serve onboarding to /serve/onboarding', async () => {
+    routeServerFetch({
+      current: { ok: false, status: 404, data: null },
+      mine: {
+        ok: true,
+        status: 200,
+        data: [{ onboardingCompletedAt: null }],
+      },
+    })
+
+    await expect(getPostAuthRedirectPath()).resolves.toBe('/serve/onboarding')
+  })
+
+  it('routes an EO with completed serve onboarding to /dashboard', async () => {
+    routeServerFetch({
+      current: { ok: true, status: 200, data: { id: 'eo-1' } },
+      mine: {
+        ok: true,
+        status: 200,
+        data: [{ onboardingCompletedAt: '2026-01-01T00:00:00.000Z' }],
+      },
+    })
+
+    await expect(getPostAuthRedirectPath()).resolves.toBe('/dashboard')
+  })
+
+  it('routes a user with no elected office to office selection', async () => {
+    routeServerFetch({
+      current: { ok: false, status: 404, data: null },
+      mine: { ok: true, status: 200, data: [] },
+    })
+
+    await expect(getPostAuthRedirectPath()).resolves.toBe(
+      '/onboarding/office-selection',
+    )
+  })
 })
 
 describe('candidateAccess', () => {
