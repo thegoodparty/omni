@@ -219,7 +219,10 @@ describe('WebsitesService.verifyLive', () => {
 
   it('classifies a redirect loop as redirect_loop (reachable but misconfigured)', async () => {
     mockedAxiosGet.mockRejectedValue(
-      new AxiosError('too many redirects', 'ERR_TOO_MANY_REDIRECTS'),
+      new AxiosError(
+        'Maximum number of redirects exceeded',
+        'ERR_FR_TOO_MANY_REDIRECTS',
+      ),
     )
 
     const result = await service.verifyLive(1)

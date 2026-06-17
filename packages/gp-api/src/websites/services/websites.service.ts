@@ -269,13 +269,14 @@ const scoreLiveHtml = (
   const verified =
     http200 && hasPrivacyPolicy && hasTerms && hasCandidateIdentity
 
-  // A redirect loop (ERR_TOO_MANY_REDIRECTS) lands status 0, but the server IS
-  // reachable — it's a misconfiguration that waiting will never fix, so it gets
-  // its own reason the agent routes to an unrecoverable blocker rather than to
-  // wait_dns_propagation (unreachable) or an indefinite wait_vercel_verify.
+  // A redirect loop lands status 0, but the server IS reachable — it's a
+  // misconfiguration that waiting will never fix, so it gets its own reason the
+  // agent routes to an unrecoverable blocker rather than to wait_dns_propagation
+  // (unreachable) or an indefinite wait_vercel_verify. axios surfaces this via
+  // follow-redirects' code ERR_FR_TOO_MANY_REDIRECTS (not ERR_TOO_MANY_REDIRECTS).
   const reason = verified
     ? null
-    : fetched.errorCode === 'ERR_TOO_MANY_REDIRECTS'
+    : fetched.errorCode === 'ERR_FR_TOO_MANY_REDIRECTS'
       ? VerifyLiveReason.redirectLoop
       : fetched.status === 0
         ? VerifyLiveReason.unreachable
