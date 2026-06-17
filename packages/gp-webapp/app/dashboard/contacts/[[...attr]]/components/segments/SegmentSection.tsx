@@ -42,6 +42,7 @@ export default function SegmentSection() {
     selectSegment,
     refreshCustomSegments,
     canUseProFeatures,
+    isWinContext,
   } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
   const [sheetState, setSheetState] = useState<SheetState>({
@@ -93,6 +94,7 @@ export default function SegmentSection() {
     trackEvent(EVENTS.Contacts.SegmentViewed, {
       segment: segmentName,
       type: isCustomSegment ? 'custom' : 'default',
+      context: isWinContext ? 'win' : 'serve',
     })
 
     selectSegment(selectedSegment)

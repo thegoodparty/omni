@@ -6,6 +6,7 @@ import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { makePerson } from '../shared/test-fixtures'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type {
   ConstituentIssue,
   ConstituentActivity,
@@ -18,6 +19,12 @@ vi.mock('../../hooks/ContactsTableProvider', () => ({
 vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
 }))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 // Google Maps would otherwise try to attach a Script tag and reference
 // `window.google`. Stub it with a marker we can assert on.
@@ -99,6 +106,7 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    vi.mocked(trackEvent).mockClear()
   })
 
   it('does not open the overlay when no person is selected', () => {
@@ -264,6 +272,7 @@ describe('<PersonOverlay>', () => {
     setContext({
       isElectedOfficial: false,
       isWinContext: true,
+      selectedPersonId: 'p_42',
       selectedPerson: { activities },
     })
 
@@ -281,6 +290,58 @@ describe('<PersonOverlay>', () => {
     expect(
       screen.queryByRole('link', { name: /transit survey/i }),
     ).not.toBeInTheDocument()
+    // The Win outreach timeline rendering rows fires the adoption event once.
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_42' },
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities: [] },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed outside the Win context', () => {
+    // Serve poll-interaction timeline is shown via the Serve flag, but the
+    // outreach-adoption event is Win-only.
+    mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'POLL_INTERACTIONS',
+        date: '2026-05-02',
+        data: {
+          pollId: 'poll_1',
+          pollTitle: 'Transit Survey',
+          events: [{ type: 'SENT', date: '2026-05-02T00:00:00.000Z' }],
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: false,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
   })
 
   it('hides the Win Activity Feed when not in Win context', () => {

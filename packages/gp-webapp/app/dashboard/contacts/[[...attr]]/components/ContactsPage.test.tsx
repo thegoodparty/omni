@@ -1,12 +1,18 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import ContactsPage from './ContactsPage'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 vi.mock('../hooks/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 vi.mock('@shared/hooks/useCampaign', () => ({ useCampaign: () => [null] }))
 vi.mock('../../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -45,9 +51,36 @@ const setContext = (overrides: Partial<ContextValue>) => {
     searchTerm: '',
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
+    isWinContext: false,
     ...overrides,
   } as ContextValue)
 }
+
+describe('ContactsPage — Contacts Viewed analytics', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  it('fires Contacts Viewed with win context for a Win campaign', () => {
+    setContext({ isWinContext: true })
+
+    render(<ContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'win',
+    })
+  })
+
+  it('fires Contacts Viewed with serve context for an elected official', () => {
+    setContext({ isWinContext: false })
+
+    render(<ContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'serve',
+    })
+  })
+})
 
 describe('ContactsPage — ineligible (voter data unavailable) state', () => {
   it('renders the ineligible message and hides the table when voter data is unavailable', () => {

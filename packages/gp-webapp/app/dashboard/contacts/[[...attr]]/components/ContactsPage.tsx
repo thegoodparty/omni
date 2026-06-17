@@ -8,12 +8,13 @@ import SegmentSection from './segments/SegmentSection'
 import ContactsStatsSection from './ContactsStatsSection'
 import { ContactSearch } from './ContactSearch'
 import { ContactProModalProvider } from '../hooks/ContactProModal'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export default function ContactsPage() {
   const [campaign] = useCampaign()
@@ -23,7 +24,14 @@ export default function ContactsPage() {
     searchTerm,
     totalSegmentContacts,
     isVoterDataUnavailable,
+    isWinContext,
   } = useContactsTable()
+
+  useEffect(() => {
+    trackEvent(EVENTS.Contacts.Viewed, {
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>

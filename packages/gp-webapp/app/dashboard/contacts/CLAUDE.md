@@ -2,17 +2,19 @@
 
 Voter contact management. Browse the campaign's voter file, segment audiences, and drill into individual voter records. Powers audience selection for outreach.
 
+This is the **unified, People-API-backed** voter experience shared by Serve (elected office) and Win (campaign). All contacts data — list, counts, downloads, saved segments, per-person detail, the outreach timeline — is served by people-api through gp-api (`GET /v1/contacts`, the voter-file filter endpoints, and the contact-engagement endpoints). There is no raw-SQL voter path behind this route. Win access is the new home for what the legacy `dashboard/voter-records/` page used to serve; that page still exists for un-migrated Win users until the post-rollout cleanup (ENG-10436), but new Win voter work goes here. See `docs/architecture.md` (voter/people data path).
+
 ## Key files
 
-| File | Role |
-|------|------|
-| `[[...attr]]/page.tsx` | Single catch-all route — sub-views are query/path slugs handled inside |
-| `[[...attr]]/components/` | Top-level layout + tab content |
-| `[[...attr]]/components/segments/` | Saved audience segments (list, create, edit) |
-| `[[...attr]]/components/person/` | Individual voter detail (`PersonOverlay.tsx`) |
-| `[[...attr]]/components/configs/` | Filter / column configuration UI |
-| `[[...attr]]/components/shared/` | Cross-tab primitives (table, filter chips) |
-| `[[...attr]]/hooks/` | Data fetching hooks for voter file pages |
+| File                               | Role                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `[[...attr]]/page.tsx`             | Single catch-all route — sub-views are query/path slugs handled inside |
+| `[[...attr]]/components/`          | Top-level layout + tab content                                         |
+| `[[...attr]]/components/segments/` | Saved audience segments (list, create, edit)                           |
+| `[[...attr]]/components/person/`   | Individual voter detail (`PersonOverlay.tsx`)                          |
+| `[[...attr]]/components/configs/`  | Filter / column configuration UI                                       |
+| `[[...attr]]/components/shared/`   | Cross-tab primitives (table, filter chips)                             |
+| `[[...attr]]/hooks/`               | Data fetching hooks for voter file pages                               |
 
 ## Patterns
 
@@ -28,8 +30,19 @@ Voter contact management. Browse the campaign's voter file, segment audiences, a
 - A feature flag gates parts of `PersonOverlay` (see `app/shared/experiments/`).
 - This route is shared by Serve (elected office) and Win campaigns. Win access is gated by the `win-voter-data` flag + `campaign.isPro`: the nav entry is added in `DashboardMenu.tsx` (`WIN_CONTACTS_MENU_ITEM`, `campaign` category) and access is enforced server-side by gp-api. A Win campaign with no resolvable district gets a `400 { errorCode: 'VOTER_DATA_UNAVAILABLE' }`, which `ContactsTableProvider` surfaces as `isVoterDataUnavailable` so `ContactsPage` renders a clean ineligible state instead of an error.
 
+## Analytics
+
+Events live under the `Contacts` group in `helpers/analyticsHelper.ts` and fire frontend (screen views and user clicks the browser directly observes). Every event carries a `context: 'win' | 'serve'` property sourced from the provider's `isWinContext` — so Win adoption of the unified path is a property filter in Amplitude, not a duplicate event set. Don't mint per-context events.
+
+- `Contacts - Contacts Viewed` — fires once on page entry (`ContactsPage`), `context` only.
+- `Contacts - Outreach Timeline Viewed` — Win-only; fires when the Win outreach timeline renders rows in `PersonOverlay` (`context: 'win'`, `personId`). Not fired for an empty feed or the Serve poll-interaction timeline.
+- `Contacts - Download` / `Segment Viewed` / `Segment Created` / `Segment Updated` / `Segment Deleted` — existing events, now carrying `context`.
+
+Source the `context` from `isWinContext` (single source of truth in `ContactsTableProvider`) — don't recompute Win-vs-Serve. New events: follow `.claude/skills/instrument-analytics-event/SKILL.md`.
+
 ## Related
 
 - `helpers/createVoterFileFilter.ts` — filter payload builder.
 - `app/dashboard/outreach/` — consumer of saved segments.
 - `gpApi/api-endpoints.ts` — voter-file endpoints.
+- `app/dashboard/voter-records/CLAUDE.md` — the legacy Win voter-file page this route supersedes (still live until ENG-10436).
