@@ -208,6 +208,7 @@
     "p-retry": "^7.1.1",
     "postcss": "^8.4.23",
     "prettier": "^3.8.3",
+    "storybook": "^10.3.4",
     "tsx": "^4.22.3",
     "vite-tsconfig-paths": "^6.0.5",
     "vitest": "^4.0.18",
