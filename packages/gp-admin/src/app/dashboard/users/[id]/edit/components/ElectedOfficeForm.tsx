@@ -170,7 +170,10 @@ export function ElectedOfficeForm({
                 <Text as="label" size="2" weight="medium" mb="1">
                   Party
                 </Text>
-                <TextField.Root {...register('party')} placeholder="e.g., Independent" />
+                <TextField.Root
+                  {...register('party')}
+                  placeholder="e.g., Independent"
+                />
               </Box>
             </Flex>
           </Flex>

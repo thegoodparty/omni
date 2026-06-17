@@ -53,7 +53,8 @@ export class ElectedOfficeController {
       isActive: record.isActive,
       party: record.party,
       pledgedAt: record.pledgedAt?.toISOString() ?? null,
-      onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
+      onboardingCompletedAt:
+        record.onboardingCompletedAt?.toISOString() ?? null,
     }
   }
 
@@ -74,12 +75,11 @@ export class ElectedOfficeController {
   // greys out ranges already covered by an existing office).
   @Get('mine')
   async listMine(@ReqUser() user: User) {
-    const offices = await this.electedOfficeService.client.electedOffice.findMany(
-      {
+    const offices =
+      await this.electedOfficeService.client.electedOffice.findMany({
         where: { userId: user.id },
         orderBy: { termStartDate: 'asc' },
-      },
-    )
+      })
     return offices.map((office) => this.toApi(office))
   }
 

@@ -762,15 +762,13 @@ export const selectPreferredOfficeHolder = (
   const windowEnd = addMonths(now, FUTURE_OFFICEHOLDER_WINDOW_MONTHS)
 
   const upcoming = holders
-    .filter((holder) => {
+    .filter((holder): holder is PersonOfficeHolder & { startAt: string } => {
       if (!holder.startAt) return false
       const start = new Date(holder.startAt)
       return start > now && start <= windowEnd
     })
     .sort(
-      (a, b) =>
-        new Date(a.startAt as string).getTime() -
-        new Date(b.startAt as string).getTime(),
+      (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
     )
   if (upcoming.length) return upcoming[0]
 

@@ -4,9 +4,7 @@ import { useEffect, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { LoaderCircle } from 'lucide-react'
-import {
-  SERVE_ONBOARDING_PATH,
-} from 'helpers/resolvePostAuthRedirectPath.util'
+import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
 /**
  * Magic-link redemption landing page. A sales-sent link carries a Clerk

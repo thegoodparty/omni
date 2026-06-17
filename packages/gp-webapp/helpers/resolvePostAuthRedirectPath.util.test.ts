@@ -71,9 +71,9 @@ describe('resolvePostAuthRedirectPath', () => {
     expect(resolvePostAuthRedirectPath(null, null, true, false)).toBe(
       '/serve/onboarding',
     )
-    expect(resolvePostAuthRedirectPath(null, { status: false }, true, false)).toBe(
-      '/serve/onboarding',
-    )
+    expect(
+      resolvePostAuthRedirectPath(null, { status: false }, true, false),
+    ).toBe('/serve/onboarding')
   })
 
   it('falls back to /dashboard/profile for any other status', () => {
