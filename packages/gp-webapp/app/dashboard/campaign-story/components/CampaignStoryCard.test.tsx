@@ -93,6 +93,32 @@ describe('CampaignStoryCard', () => {
     })
   })
 
+  it('surfaces an error with a working retry when the save fails', async () => {
+    const user = userEvent.setup()
+    let shouldFail = true
+    api.mock('PUT /v1/campaigns/mine/story', async () => {
+      if (shouldFail) return { status: 500, data: emptyStory }
+      return { status: 200, data: emptyStory }
+    })
+
+    render(<CampaignStoryCard section={section} initialValue={null} />)
+    await user.type(
+      screen.getByPlaceholderText('Tap to write your why'),
+      'attempt',
+    )
+    await user.tab()
+
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    expect(screen.getByText(/Couldn't save/)).toBeInTheDocument()
+
+    shouldFail = false
+    await user.click(retry)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Couldn't save/)).not.toBeInTheDocument()
+    })
+  })
+
   it('does not save on blur when the value is unchanged', async () => {
     const user = userEvent.setup()
     let called = false

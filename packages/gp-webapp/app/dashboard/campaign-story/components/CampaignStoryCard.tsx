@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CampaignStory } from '@goodparty_org/contracts'
 import {
   Button,
@@ -47,6 +47,17 @@ const CampaignStoryCard = ({
   const valueRef = useRef(value)
   const savedRef = useRef(value)
   const savingRef = useRef(false)
+  const [saveFailed, setSaveFailed] = useState(false)
+
+  // Safety net for the navigate-away/refresh case: the only save trigger is
+  // blur, so warn before unload if the latest text hasn't been persisted.
+  useEffect(() => {
+    const warnIfUnsaved = (event: BeforeUnloadEvent): void => {
+      if (valueRef.current !== savedRef.current) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warnIfUnsaved)
+    return () => window.removeEventListener('beforeunload', warnIfUnsaved)
+  }, [])
 
   const trimmedLength = value.trim().length
   const hint =
@@ -75,11 +86,13 @@ const CampaignStoryCard = ({
         await clientRequest('PUT /v1/campaigns/mine/story', { [id]: pending })
         savedRef.current = pending
       }
+      setSaveFailed(false)
     } catch (error) {
       reportErrorToSentry(error, {
         context: 'CampaignStoryCard.save',
         field: id,
       })
+      setSaveFailed(true)
     } finally {
       savingRef.current = false
     }
@@ -105,6 +118,20 @@ const CampaignStoryCard = ({
             {value.length}/{SUGGESTED_CHARS}
           </span>
         </div>
+
+        {saveFailed && (
+          <p className="text-sm text-destructive">
+            Couldn&apos;t save your answer.{' '}
+            <Button
+              variant="link"
+              size="small"
+              className="h-auto p-0"
+              onClick={save}
+            >
+              Retry
+            </Button>
+          </p>
+        )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">

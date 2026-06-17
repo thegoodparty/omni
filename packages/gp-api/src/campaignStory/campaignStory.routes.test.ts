@@ -101,5 +101,18 @@ describe('CampaignStory routes', () => {
         issues: null,
       })
     })
+
+    it('persists both fields when two first-writes race', async () => {
+      await Promise.all([
+        service.client.put(STORY_URL, { why: 'w' }, { headers }),
+        service.client.put(STORY_URL, { background: 'b' }, { headers }),
+      ])
+
+      const row = await service.prisma.campaignStory.findUnique({
+        where: { campaignId: campaign.id },
+      })
+      expect(row?.why).toBe('w')
+      expect(row?.background).toBe('b')
+    })
   })
 })
