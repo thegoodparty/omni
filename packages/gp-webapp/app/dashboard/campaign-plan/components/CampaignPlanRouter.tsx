@@ -7,7 +7,6 @@ import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import DashboardLayout from '../../shared/DashboardLayout'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
-import GeneratingPlan from './GeneratingPlan'
 
 interface CampaignPlanRouterProps {
   initialUser: User | null
@@ -40,8 +39,12 @@ const CampaignPlanRouter = ({
     if (redirectToDashboard) router.replace('/dashboard')
   }, [redirectToDashboard, router])
 
-  if (planExists) return <CampaignPlanPage initialUser={initialUser} />
-  if (generateRequested) return <GeneratingPlan initialUser={initialUser} />
+  // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
+  // POSTs and streams sections in as they're ready — so "generate" lands on
+  // the same view as an existing plan, no blocking spinner.
+  if (planExists || generateRequested) {
+    return <CampaignPlanPage initialUser={initialUser} />
+  }
   if (!ready || redirectToDashboard) return <Spinner />
 
   return (
