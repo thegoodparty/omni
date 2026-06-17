@@ -337,19 +337,27 @@ const buildDescription = (scope: ConstituentDataScope): string => {
     .join(' AND ')
   const dims = [...scope.allowedDimensions].join(', ')
 
-  return `Answer AGGREGATE questions about your constituents (how many, what share, averages), optionally broken down by a coarse dimension. Returns counts/sums/averages only — never a list of people.
+  return `Answer AGGREGATE questions about your constituents (how many, what share, averages), optionally broken down by an approved dimension. Returns counts/sums/averages only — never a list of people.
 
-Table: ${table}
+Write ONE SELECT against this exact table — you MUST include the FROM clause:
 
-Required WHERE clause (your district scope, copy verbatim, AND-combined with any extra filters):
+  SELECT <approved dimension(s)>, COUNT(*) AS count, <other aggregates>
+  FROM ${table}
   WHERE ${whereClause}
+  GROUP BY <approved dimension(s)>
 
-Approved breakdown / filter dimensions (the ONLY columns you may SELECT, GROUP BY, or filter on besides the scope columns): ${dims}
+The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
+
+Approved dimensions (the ONLY columns you may SELECT, GROUP BY, or filter on besides the scope columns): ${dims}
 
 RULES:
-  - Single SELECT statement only.
-  - Every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a GROUP BY column.
-  - ALWAYS include COUNT(*) in the SELECT list (e.g. COUNT(*) AS count) — queries with no COUNT are rejected, because the cell-size floor can only be enforced when the row count is present. Any alias is fine.
+  - Single SELECT, and it MUST contain "FROM ${table}".
+  - ALWAYS include COUNT(*) (e.g. COUNT(*) AS count); any alias is fine. Queries with no COUNT are rejected.
+  - Every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column that appears in GROUP BY.
+  - GROUP BY only an approved dimension column BY NAME. Do NOT GROUP BY a computed expression such as a CASE — that is rejected.
+  - To bucket a numeric column (e.g. age ranges) or build a custom breakdown, do NOT use CASE in GROUP BY — use conditional aggregates in the SELECT instead, e.g.:
+      SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS age_under_35,
+      SUM(CASE WHEN Voters_Age BETWEEN 35 AND 64 THEN 1 ELSE 0 END) AS age_35_64
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
   - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.

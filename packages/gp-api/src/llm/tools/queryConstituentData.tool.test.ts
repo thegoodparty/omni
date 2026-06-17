@@ -69,6 +69,43 @@ describe('validateConstituentSql — happy paths still work', () => {
       ),
     ).not.toThrow()
   })
+
+  it('accepts conditional aggregation (SUM(CASE ...)) for buckets', () => {
+    // The recommended way to bucket without a computed GROUP BY: conditional
+    // sums over approved columns, no GROUP BY needed.
+    expect(() =>
+      validate(
+        `SELECT COUNT(*) AS count,
+                SUM(CASE WHEN turnout_band = 'high' THEN 1 ELSE 0 END) AS high,
+                SUM(CASE WHEN gender = 'F' THEN 1 ELSE 0 END) AS women
+         FROM ${TABLE} ${scopeWhere}`,
+      ),
+    ).not.toThrow()
+  })
+})
+
+describe('select-shape guidance boundaries (observed agent failures)', () => {
+  it('rejects a computed CASE expression as a GROUP BY dimension', () => {
+    // Agent failure mode: bucketing via a CASE select item + GROUP BY on it.
+    // Steered to conditional aggregates instead (see the accept case above).
+    expect(() =>
+      validate(
+        `SELECT CASE WHEN age_band = '18-34' THEN 'young' ELSE 'older' END AS g,
+                COUNT(*) AS count
+         FROM ${TABLE} ${scopeWhere}
+         GROUP BY g`,
+      ),
+    ).toThrow(SqlRejected)
+  })
+
+  it('rejects a query missing the FROM clause', () => {
+    // Agent failure mode: omitting FROM entirely.
+    expect(() =>
+      validate(
+        `SELECT gender, COUNT(*) AS count ${scopeWhere} GROUP BY gender`,
+      ),
+    ).toThrow(SqlRejected)
+  })
 })
 
 describe('bypass: row-returning query (no aggregation)', () => {
