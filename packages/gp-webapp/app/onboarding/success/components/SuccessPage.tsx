@@ -98,6 +98,10 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
     trackEvent(EVENTS.OnboardingV2.PlanDownloaded, { campaignId, source })
   }
 
+  const handleShared = (method: 'copy' | 'email') => {
+    trackEvent(EVENTS.OnboardingV2.PlanShared, { campaignId, method })
+  }
+
   const handleContinue = (source: PlanContinueSource) => {
     trackEvent(EVENTS.OnboardingV2.CampaignManagerClicked, {
       campaignId,
@@ -116,6 +120,7 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
       pressOutletsState={data.pressOutletsState}
       voterInsightsContext={data.voterInsightsContext}
       onDownload={handleDownload}
+      onShared={handleShared}
       onContinue={handleContinue}
     />
   )

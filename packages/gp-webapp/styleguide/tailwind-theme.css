@@ -69,6 +69,8 @@
   --color-popover-foreground: var(--popover-foreground, #020817);
   --color-destructive: var(--destructive, #ef4444);
   --color-destructive-foreground: var(--destructive-foreground, #f8fafc);
+  --color-destructive-dark: var(--theme-destructive-dark);
+  --color-destructive-light: var(--theme-destructive-light);
 
   --color-primary: var(--theme-primary);
   --color-primary-light: var(--theme-primary-light);
@@ -489,9 +491,9 @@
   --color-brand-lavender-500: #d7b2ff;
   --color-brand-lavender-600: #cda1ff;
   --color-brand-lavender-700: #9e6beb;
-  --color-brand-lavender-800: #783dde;
+  --color-brand-lavender-800: #652cc8;
   --color-brand-lavender-900: #441e9f;
-  --color-brand-lavender-950: #200b6a;
+  --color-brand-lavender-950: #1a0e46;
 
   /* brand-waxflower (Figma: waxflower/50-950) */
   --color-brand-waxflower-50: #ffebd8;
@@ -552,9 +554,7 @@
   --color-base-surface-foreground: #0a0a0a;
   --color-base-focus-ring: #a3a3a3;
   --color-base-ring-offset: #ffffff;
-  --color-base-foreground-focus: rgba(163, 163, 163, 0.5);
   --color-base-foreground-dark: #ffffff;
-  --color-base-foreground-dark-focus: rgba(255, 255, 255, 0.5);
   --color-base-background-dark: #0a0a0a;
 
   /* ==========================================================================
@@ -573,11 +573,16 @@
    * ========================================================================== */
   --color-components-card-base: #ffffff;
   --color-components-card-foreground: #0a0a0a;
+  --color-components-card-border: var(--component-card-border);
   --color-components-input-active: #2563eb;
+  --color-components-input-inactive: var(--component-input-inactive);
   --color-components-input-foreground: #ffffff;
   --color-components-input-base: #ffffff;
   --color-components-input-border: #d4d4d4;
   --color-components-input-focus: rgba(37, 99, 235, 0.3);
+  --color-components-input-inactive-focus: var(
+    --component-input-inactive-focus
+  );
   --color-components-tooltip-base: #262626;
   --color-components-tooltip-foreground: #ffffff;
 

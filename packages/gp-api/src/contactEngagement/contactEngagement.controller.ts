@@ -1,8 +1,9 @@
+import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
-import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { Controller, Get, Param, Query, UsePipes } from '@nestjs/common'
-import { ElectedOffice } from '../generated/prisma'
+import { Campaign, ElectedOffice } from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { UseEngagementContext } from './decorators/UseEngagementContext.decorator'
 import {
   ConstituentIssuesParamsDTO,
   ConstituentIssuesQueryDTO,
@@ -10,11 +11,15 @@ import {
   IndividualActivityQueryDTO,
 } from './contactEngagement.schema'
 import { ContactEngagementService } from './contactEngagement.service'
-import { GetIndividualActivitiesResponse } from './contactEngagement.types'
+import {
+  GetCampaignActivitiesResponse,
+  GetConstituentIssuesResponse,
+  GetIndividualActivitiesResponse,
+} from './contactEngagement.types'
 
 @Controller('contact-engagement')
 @UsePipes(ZodValidationPipe)
-@UseElectedOffice()
+@UseEngagementContext()
 export class ContactEngagementController {
   constructor(
     private readonly contactEngagementService: ContactEngagementService,
@@ -24,12 +29,22 @@ export class ContactEngagementController {
   async getIndividualActivities(
     @Param() params: IndividualActivityParamsDTO,
     @Query() query: IndividualActivityQueryDTO,
-    @ReqElectedOffice() electedOffice: ElectedOffice,
-  ): Promise<GetIndividualActivitiesResponse> {
-    return this.contactEngagementService.getIndividualActivities({
-      personId: params.id,
-      ...query,
-      electedOfficeId: electedOffice.id,
+    @ReqElectedOffice() electedOffice: ElectedOffice | undefined,
+    @ReqCampaign() campaign: Campaign,
+  ): Promise<GetIndividualActivitiesResponse | GetCampaignActivitiesResponse> {
+    if (electedOffice) {
+      return this.contactEngagementService.getIndividualActivities({
+        personId: params.id,
+        ...query,
+        electedOfficeId: electedOffice.id,
+      })
+    }
+    // Campaign context: :id is the durable lalVoterId (task 12 contract).
+    return this.contactEngagementService.getCampaignActivities({
+      lalVoterId: params.id,
+      campaignId: campaign.id,
+      take: query.take,
+      after: query.after,
     })
   }
 
@@ -37,13 +52,17 @@ export class ContactEngagementController {
   async getConstituentIssues(
     @Param() params: ConstituentIssuesParamsDTO,
     @Query() query: ConstituentIssuesQueryDTO,
-    @ReqElectedOffice() electedOffice: ElectedOffice,
-  ) {
-    return this.contactEngagementService.getConstituentIssues(
-      params.id,
-      electedOffice.id,
-      query.take,
-      query.after,
-    )
+    @ReqElectedOffice() electedOffice: ElectedOffice | undefined,
+  ): Promise<GetConstituentIssuesResponse> {
+    if (electedOffice) {
+      return this.contactEngagementService.getConstituentIssues(
+        params.id,
+        electedOffice.id,
+        query.take,
+        query.after,
+      )
+    }
+    // Issues are poll-specific (elected office); campaigns have none.
+    return { nextCursor: null, results: [] }
   }
 }

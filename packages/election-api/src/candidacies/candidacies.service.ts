@@ -41,9 +41,16 @@ export class CandidaciesService extends createPrismaBase(MODELS.Candidacy) {
       raceInclude,
     )
 
+    // The column allowlist already keeps PII out of the explicit-`select` path.
+    // The default/`include` path returns every scalar field, so omit PII there
+    // too — otherwise a plain `GET /candidacies` leaks candidate emails.
     return candidacySelectBase
       ? this.model.findMany({ where, select: candidacySelection })
-      : this.model.findMany({ where, include: candidacySelection })
+      : this.model.findMany({
+          where,
+          omit: { email: true },
+          include: candidacySelection,
+        })
   }
 
   private makeCandidacySelection(

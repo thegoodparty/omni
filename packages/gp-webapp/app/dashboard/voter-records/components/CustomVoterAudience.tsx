@@ -94,7 +94,7 @@ const CustomVoterAudience = ({
       />
 
       <div className="flex justify-between mt-12">
-        <Button variant="secondary" onClick={backCallback}>
+        <Button variant="neutral" onClick={backCallback}>
           Back
         </Button>
         <Button disabled={!canSave()} onClick={handleSubmit} {...trackingAttrs}>

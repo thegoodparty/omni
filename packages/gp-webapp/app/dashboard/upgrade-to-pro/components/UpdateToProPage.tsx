@@ -1,4 +1,6 @@
 'use client'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { CandidatePositionsProvider } from 'app/dashboard/campaign-details/components/issues/CandidatePositionsProvider'
 import H1 from '@shared/typography/H1'
@@ -6,6 +8,10 @@ import Body2 from '@shared/typography/Body2'
 import { Button } from '@styleguide'
 import Link from 'next/link'
 import { ProPricingCard } from 'app/dashboard/upgrade-to-pro/components/ProPricingCard'
+import {
+  PRO_UPGRADE_ENTRY_PATH,
+  useProUpgrade3Flag,
+} from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { usePageExit } from '@shared/hooks/usePageExit'
 import { Campaign, CandidatePosition } from 'helpers/types'
@@ -65,14 +71,38 @@ const CARD_COMPETITORS: PricingCardConfig = {
 
 export default function DetailsPage(
   props: UpdateToProPageProps,
-): React.JSX.Element {
-  usePageExit(() => {
-    trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
+): React.JSX.Element | null {
+  const router = useRouter()
+  const { ready, enabled } = useProUpgrade3Flag()
+
+  usePageExit((isWindowClose) => {
+    // The cohort is bounced to the new wizard (below) and never engages this
+    // splash, so its exit event would pollute the off-cohort funnel. The two
+    // exit paths need different gates. On unmount the flag-resolution
+    // re-render has consumed usePageExit's initial-mount guard, so emit only
+    // for the confirmed off-cohort. On window close the guard isn't involved
+    // and the flag may not have resolved yet, so emit unless the user is
+    // confirmed cohort — an off-cohort user who closes the tab mid-resolve
+    // still genuinely viewed the splash.
+    if (isWindowClose ? !(ready && enabled) : ready && !enabled) {
+      trackEvent(EVENTS.ProUpgrade.SplashPage.Exit)
+    }
   })
+
+  // This legacy splash is the off-cohort funnel. The pro-upgrade3 cohort can
+  // still land here via server-side redirects (voter-records, texting
+  // compliance) and the dashboard menu that can't read the client flag, so
+  // bounce them into the new wizard rather than the old pro-sign-up flow.
+  useEffect(() => {
+    if (ready && enabled) router.replace(PRO_UPGRADE_ENTRY_PATH)
+  }, [ready, enabled, router])
 
   const handleJoinProOnClick = (): void => {
     trackEvent(EVENTS.ProUpgrade.SplashPage.ClickUpgrade)
   }
+
+  // Cohort users are being redirected; don't flash the legacy splash content.
+  if (ready && enabled) return null
 
   return (
     <DashboardLayout {...props}>

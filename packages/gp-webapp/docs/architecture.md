@@ -4,7 +4,7 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and feature-level 
 
 ## Stack
 
-- **Next.js 15** App Router on Vercel (React 19)
+- **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker
 - **TanStack React Query 5** (5-minute stale time) for server-state caching
 - **Tailwind CSS v4** + custom design tokens (`styleguide/design-tokens.css`, `styleguide/tailwind-theme.css`)
 - **MUI 7** for some legacy material primitives; new code prefers `@styleguide`

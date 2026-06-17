@@ -89,7 +89,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
           // otherwise if tableVersion === false, then it's a documentMode
           <>
             <Button
-              variant="secondary"
+              variant="neutral"
               size="medium"
               className="ml-3 md:hidden"
               onClick={() => {
@@ -103,7 +103,7 @@ export default function Actions(props: ActionsProps): React.JSX.Element {
             </Button>
 
             <Button
-              variant="secondary"
+              variant="neutral"
               size="medium"
               onClick={() => {
                 setShowMenu(!showMenu)

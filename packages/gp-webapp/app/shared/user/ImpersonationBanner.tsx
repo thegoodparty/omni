@@ -117,7 +117,7 @@ export default function ImpersonationBanner() {
           {!isReviewMode && (
             <Button
               variant="outline"
-              size="xSmall"
+              size="small"
               onClick={() => setOpen(true)}
               className="bg-green-600 text-white border-green-600 hover:bg-green-700 hover:border-green-700"
             >
@@ -127,7 +127,7 @@ export default function ImpersonationBanner() {
           )}
           <Button
             variant="destructive"
-            size="xSmall"
+            size="small"
             onClick={handleStopImpersonating}
           >
             <Ban />

@@ -22,6 +22,11 @@ export const ElectionApiRoutes = {
     findById: {
       path: 'positions',
     },
+    nextElection: {
+      // Full path: /positions/:id/next-election
+      path: 'positions',
+      suffix: 'next-election',
+    },
     zipCodes: {
       path: 'positions/by-ballotready-id',
     },
@@ -36,6 +41,15 @@ export const ElectionApiRoutes = {
       // Full path: /races/by-br-hash-id/:brHashId/filing-fee
       path: 'races/by-br-hash-id',
       filingFeeSuffix: 'filing-fee',
+    },
+    frequencyByBrHashId: {
+      // Election cadence (Race.frequency) keyed by the same BR race hash on
+      // campaign.details.raceId. Source for elected-office term derivation —
+      // Position carries no frequency, and GET /races can't be keyed by the
+      // position id we hold at office creation.
+      // Full path: /races/by-br-hash-id/:brHashId/frequency
+      path: 'races/by-br-hash-id',
+      frequencySuffix: 'frequency',
     },
   },
   campaignStrategyContext: {

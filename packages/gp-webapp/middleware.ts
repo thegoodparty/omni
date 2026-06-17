@@ -14,6 +14,9 @@ const isPublicRoute = createRouteMatcher([
   // the rest of /serve (e.g. onboarding) still requires an active session.
   // Returning leads sign in via the shared /login (which surfaces email OTP).
   '/serve/welcome(.*)',
+  // Machine endpoint: gated by its own REVALIDATE_SECRET (see
+  // app/api/revalidate/route.ts), not a Clerk user session.
+  '/api/revalidate',
 ])
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

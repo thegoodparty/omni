@@ -55,6 +55,15 @@ export {
   ArtifactReviewVerdictSchema,
 } from './generated/enums'
 
+export {
+  PersonSchema,
+  type Person,
+  PeopleListPaginationSchema,
+  type PeopleListPagination,
+  PeopleListResponseSchema,
+  type PeopleListResponse,
+} from './people/Person.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'
@@ -295,6 +304,16 @@ export {
 } from './elections/raceListItem'
 
 export { RaceFullSchema, type RaceFull } from './elections/raceFull'
+
+export {
+  RaceFrequencyByBrHashSchema,
+  type RaceFrequencyByBrHash,
+} from './elections/raceFrequency'
+
+export {
+  NextElectionForPositionSchema,
+  type NextElectionForPosition,
+} from './elections/nextElectionForPosition'
 
 export { ZipCodesArraySchema } from './elections/zipCodes'
 

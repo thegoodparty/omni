@@ -10,28 +10,31 @@ const LoadingSpinner = ({ className }: { className?: string }) => (
 )
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-all disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border",
   {
     variants: {
       variant: {
-        default: 'button-primary',
-        secondary: 'button-secondary',
+        default:
+          'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+        secondary:
+          'bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80',
         destructive:
-          'button-destructive focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
-        outline: 'button-outline focus-visible:ring-[3px]',
-        ghost: 'button-ghost focus-visible:ring-[3px]',
-        link: 'button-link',
-        whiteOutline: 'button-whiteOutline',
-        whiteGhost: 'button-whiteGhost',
+          'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
+        outline:
+          'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
+        ghost:
+          'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
+        link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
+        neutral:
+          'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',
       },
       size: {
-        xSmall: 'h-6 px-3 py-1.5 button-text-small has-[>svg]:px-2',
-        small: 'h-8 px-4 py-2 button-text-medium has-[>svg]:px-3',
-        medium: 'h-10 px-5 py-2.5 button-text-large has-[>svg]:px-4',
-        large: 'h-12 px-6 py-3 button-text-large has-[>svg]:px-5',
+        small: 'h-8 px-4 py-2 text-sm tracking-wide has-[>svg]:px-3',
+        medium: 'h-10 px-5 py-2.5 text-base tracking-wide has-[>svg]:px-4',
+        large: 'h-12 px-6 py-3 text-base tracking-wide has-[>svg]:px-5',
       },
       iconPosition: {
-        left: '', // Default flex direction
+        left: '',
         right: '',
       },
     },
@@ -79,7 +82,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           data-slot="button"
           data-loading={loading}
           className={cn(
-            buttonVariants({ variant, size, iconPosition, className }),
+            buttonVariants({
+              variant,
+              size,
+              iconPosition,
+              className,
+            }),
           )}
           {...props}
           disabled={isDisabled}
@@ -88,6 +96,19 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </Comp>
       )
     }
+
+    const content = loading ? (
+      <>
+        <LoadingSpinner className="size-4" />
+        {loadingText || children}
+      </>
+    ) : (
+      <>
+        {icon && iconPosition === 'left' && icon}
+        {children}
+        {icon && iconPosition === 'right' && icon}
+      </>
+    )
 
     return (
       <Comp
@@ -100,10 +121,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
         disabled={isDisabled}
       >
-        {!loading && icon && iconPosition === 'left' && icon}
-        {loading && <LoadingSpinner className="size-4" />}
-        {loading ? loadingText || children : children}
-        {!loading && icon && iconPosition === 'right' && icon}
+        {content}
       </Comp>
     )
   },

@@ -68,7 +68,7 @@ const ChatFeedback = (): React.JSX.Element => {
             }
           />
           <div className="flex justify-between mt-8">
-            <Button variant="secondary" onClick={() => setShowModal(false)}>
+            <Button variant="neutral" onClick={() => setShowModal(false)}>
               Cancel
             </Button>
             <Button disabled={feedback === ''} onClick={handleSubmitNegative}>

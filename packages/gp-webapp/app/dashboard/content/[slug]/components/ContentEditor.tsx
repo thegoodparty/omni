@@ -310,7 +310,7 @@ export default function ContentEditor({
         <div className="flex justify-start">
           <Button
             asChild
-            variant="secondary"
+            variant="neutral"
             className="flex items-center whitespace-nowrap"
           >
             <Link href="/dashboard/content">

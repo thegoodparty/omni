@@ -54,6 +54,7 @@ const electedOfficeOrg = {
   district: null,
   electedOfficeId: 'eo-1',
   campaignId: null,
+  status: 'active' as const,
 }
 
 describe('ElectionResultPage', () => {

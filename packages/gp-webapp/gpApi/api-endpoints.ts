@@ -151,8 +151,30 @@ export type APIEndpoints = {
     Response: Organization
   }
 
+  // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
+  // @goodparty_org/contracts). Drives the org switcher's "run for" actions.
+  'GET /v1/eligibility': {
+    Request: {}
+    Response: Eligibility
+  }
+
   'GET /v1/campaigns/mine': {
     Request: {}
+    Response: Campaign
+  }
+
+  // The write path behind the switcher's "run for" actions; gp-api re-checks
+  // eligibility server-side. Mirrors createFollowOnCampaignBodySchema and the
+  // persisted-campaign response in gp-api's campaigns.controller.
+  'POST /v1/campaigns/follow-on': {
+    Request: {
+      intent: 'same-office' | 'new-office'
+      fromOrganizationSlug?: string | null | undefined
+      details?: CampaignDetails
+      data?: Record<string, unknown>
+      ballotReadyPositionId?: string | null | undefined
+      customPositionName?: string | null | undefined
+    }
     Response: Campaign
   }
 
@@ -193,6 +215,14 @@ export type APIEndpoints = {
     Response: {
       success: boolean
     }
+  }
+
+  // Accepts a multipart PDF upload and stores it as a public share link.
+  // The file part is sent as FormData — pass `{}` as the typed payload and
+  // supply `{ body: formData }` via the overrides argument of clientRequest.
+  'POST /v1/campaigns/mine/plan-pdf-share': {
+    Request: {}
+    Response: { url: string }
   }
 
   'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin': {
@@ -686,6 +716,19 @@ export type Organization = {
   district: null | { id: string; l2Type: string; l2Name: string }
   electedOfficeId: string | null
   campaignId: number | null
+  // Derived on read by gp-api (never persisted); present on every org response.
+  status: 'active' | 'past'
+}
+
+// Mirrors EligibilitySchema in @goodparty_org/contracts. Derived on read by
+// gp-api's EligibilityService; the webapp has no contracts dependency, so the
+// shape is mirrored here in lockstep with the source.
+export type Eligibility = {
+  hasActiveCampaign: boolean
+  holdsOffice: boolean
+  canStartCampaign: boolean
+  canGainOffice: boolean
+  reelectionOfficeSlug: string | null
 }
 
 export type AdminOrganization = Organization & {

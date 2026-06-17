@@ -246,12 +246,16 @@ export default function ContactSection({
             )}
             {content?.contact?.phone && (
               <p className="mt-1">
-                <a
-                  href={phoneUri(content.contact.phone)}
-                  className="hover:text-blue-600 underline "
-                >
-                  {formatPhoneNumber(content.contact.phone)}
-                </a>
+                {phoneUri(content.contact.phone) ? (
+                  <a
+                    href={phoneUri(content.contact.phone)}
+                    className="hover:text-blue-600 underline "
+                  >
+                    {formatPhoneNumber(content.contact.phone)}
+                  </a>
+                ) : (
+                  formatPhoneNumber(content.contact.phone)
+                )}
               </p>
             )}
           </div>

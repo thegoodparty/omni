@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Span } from './hooks/usePollBiasAnalysis'
 import LoadingDots from './LoadingDots'
 import SpanTextArea from './SpanTextArea'

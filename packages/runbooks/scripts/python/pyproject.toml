@@ -1,0 +1,29 @@
+[project]
+name = "runbook-scripts"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40.0",
+    "boto3>=1.43.0",
+    "databricks-sql-connector",
+    "google-generativeai>=0.8.0",
+    "pandas",
+    "pydantic>=2.0.0",
+    "python-dotenv",
+    "rapidfuzz>=3.0.0",
+    "requests",
+    "rouge-score>=0.1.2",
+    "sentence-transformers>=3.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+    "pytest>=9.0.3",
+]
+
+[tool.pyright]
+# basedpyright/pyright don't yet auto-resolve PEP 735 dependency-groups; point them
+# at the uv-managed venv so dev-only imports (pytest) resolve in editors.
+venvPath = "."
+venv = ".venv"

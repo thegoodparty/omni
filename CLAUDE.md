@@ -18,16 +18,17 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 
 ## Packages
 
-| Path                       | What                                           | Stack            | Port |
-| -------------------------- | ---------------------------------------------- | ---------------- | ---- |
-| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)   | NestJS + Fastify | 3000 |
-| `packages/gp-webapp`       | Product app for candidates & elected officials | Next.js 15       | 4000 |
-| `packages/election-api`    | Election/race/candidacy data microservice      | NestJS + Fastify | 3001 |
-| `packages/people-api`      | Voter/people data microservice (L2 records)    | NestJS + Fastify | 3002 |
-| `packages/gp-admin`        | Internal staff admin console (uses the SDK)    | Next.js 16       | 3500 |
-| `packages/candidate-sites` | Per-candidate static sites                     | Next.js          | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client        | TypeScript       | —    |
-| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types | TypeScript       | —    |
+| Path                       | What                                            | Stack             | Port |
+| -------------------------- | ----------------------------------------------- | ----------------- | ---- |
+| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)    | NestJS + Fastify  | 3000 |
+| `packages/gp-webapp`       | Product app for candidates & elected officials  | Next.js 16        | 4000 |
+| `packages/election-api`    | Election/race/candidacy data microservice       | NestJS + Fastify  | 3001 |
+| `packages/people-api`      | Voter/people data microservice (L2 records)     | NestJS + Fastify  | 3002 |
+| `packages/gp-admin`        | Internal staff admin console (uses the SDK)     | Next.js 16        | 3500 |
+| `packages/candidate-sites` | Per-candidate static sites                      | Next.js           | 4001 |
+| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | TypeScript        | —    |
+| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | TypeScript        | —    |
+| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | Markdown + Python | —    |
 
 ## Where to look (read the nearest doc first)
 
@@ -64,6 +65,10 @@ its doc stale is incomplete. Update docs in place; never leave them to rot.
 These apply across all TypeScript packages. Per-package docs add detail and may
 tighten them (e.g. gp-api enforces an 80-char line width via `.cursor/rules/`); when
 a nested rule conflicts with this list, the nested rule wins for that package.
+
+`packages/runbooks` is the one polyglot exception: its `scripts/python/` is a
+uv-managed Python project (its own `pyproject.toml`/`uv.lock`), independent of the
+npm workspace graph. npm owns the TS packages; uv owns that subtree.
 
 - **TypeScript style:** no semicolons, single quotes, trailing commas. Arrow
   functions over `function` declarations. No `any` (and avoid `unknown`) in new code.

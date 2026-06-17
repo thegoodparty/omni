@@ -8,6 +8,7 @@ import { AuthenticationModule } from '@/authentication/authentication.module'
 import { SessionGuard } from '@/authentication/guards/Session.guard'
 import { ImpersonationInterceptor } from '@/analytics/interceptors/Impersonation.interceptor'
 import { AdminAuditInterceptor } from '@/authentication/interceptors/AdminAudit.interceptor'
+import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShares.module'
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
@@ -22,6 +23,7 @@ import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
+import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
@@ -83,6 +85,7 @@ import { loggerModule } from './observability/logging/logger-module'
     EcanvasserIntegrationModule,
     ScheduledMessagingModule,
     OutreachModule,
+    VoterOutreachActivityModule,
     SegmentModule,
     WebsitesModule,
     CommunityIssuesModule,
@@ -90,6 +93,7 @@ import { loggerModule } from './observability/logging/logger-module'
     ContactsModule,
     ContactEngagementModule,
     PollsModule,
+    CampaignPlanSharesModule,
     MeetingsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,

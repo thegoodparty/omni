@@ -98,7 +98,7 @@ const FilingStatusStep = (): React.JSX.Element => {
             type="button"
             onClick={() => void handleSelect(option)}
             disabled={submitting}
-            className="flex w-full items-center justify-between gap-4 rounded-xl border border-components-input-border p-4 text-left transition-colors hover:border-primary hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-60"
+            className="flex w-full items-center justify-between gap-4 rounded-xl border border-components-input-border p-4 text-left transition-colors hover:border-primary hover:bg-primary-light disabled:pointer-events-none disabled:opacity-60"
           >
             <span>
               <span className="block">{option.title}</span>

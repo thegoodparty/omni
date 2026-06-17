@@ -12,10 +12,11 @@ describe('PaymentEventsService', () => {
 
   const usersService = {
     findUser: vi.fn(),
+    findByCustomerId: vi.fn(),
     patchUserMetaData: vi.fn(),
   }
   const campaignsService = {
-    findByUserId: vi.fn(),
+    findActiveByUserId: vi.fn(),
     patchCampaignDetails: vi.fn(),
     setIsPro: vi.fn(),
   }
@@ -26,7 +27,7 @@ describe('PaymentEventsService', () => {
   const slackService = { message: vi.fn() }
   const voterFileDownloadAccess = { downloadAccessAlert: vi.fn() }
   const organizationsService = {
-    getDistrictForOrgSlug: vi.fn(),
+    getDistrictAndBallotLevelForOrgSlug: vi.fn(),
     resolvePositionNameByOrganizationSlug: vi.fn(),
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }
@@ -78,14 +79,22 @@ describe('PaymentEventsService', () => {
     },
   } as unknown as Stripe.CheckoutSessionCompletedEvent
 
+  const subscriptionResumedEvent = {
+    type: WebhookEventType.CustomerSubscriptionResumed,
+    data: {
+      object: { id: 'sub_resumed', customer: 'cus_test' },
+    },
+  } as unknown as Stripe.CustomerSubscriptionResumedEvent
+
   beforeEach(() => {
     vi.clearAllMocks()
     purchaseService.completeCheckoutSession.mockResolvedValue({
       alreadyProcessed: false,
     })
     usersService.findUser.mockResolvedValue(mockUser)
+    usersService.findByCustomerId.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
-    campaignsService.findByUserId.mockResolvedValue(mockCampaign)
+    campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
     campaignsService.setIsPro.mockResolvedValue(undefined)
     analytics.trackProPayment.mockResolvedValue(undefined)
@@ -122,6 +131,33 @@ describe('PaymentEventsService', () => {
         { pro: true },
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // The alert must judge eligibility by the server-determined level, not the
+      // user-editable details.ballotLevel.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
     })
 
     it('swallows analytics.track errors and continues the flow', async () => {
@@ -184,6 +220,35 @@ describe('PaymentEventsService', () => {
     })
   })
 
+  describe('handleEvent — customer.subscription.resumed', () => {
+    it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        organizationSlug: 'team-acme',
+      })
+      organizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+        {
+          district: { id: 'd1', state: 'CA', l2Type: 'City', l2Name: 'Acme' },
+          ballotLevel: 'FEDERAL',
+        },
+      )
+
+      await service.handleEvent(subscriptionResumedEvent)
+
+      expect(
+        organizationsService.getDistrictAndBallotLevelForOrgSlug,
+      ).toHaveBeenCalledWith('team-acme')
+      // Same server-authoritative requirement as the checkout-completed path:
+      // the resumed handler must not let details.ballotLevel decide the alert.
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationSlug: 'team-acme' }),
+        mockUser,
+        expect.objectContaining({ id: 'd1' }),
+        'FEDERAL',
+      )
+    })
+  })
+
   describe('handleEvent — checkout.session.async_payment_succeeded', () => {
     it('completes the deferred one-time purchase using the confirmed event session', async () => {
       await service.handleEvent(asyncPaymentEvent)
@@ -235,6 +300,126 @@ describe('PaymentEventsService', () => {
 
       await expect(service.handleEvent(oneTimePaymentEvent)).rejects.toThrow(
         fulfillmentError,
+      )
+    })
+  })
+
+  describe('active-campaign selection (multi-org)', () => {
+    const activeCampaign = {
+      id: 222,
+      organizationSlug: null,
+      details: {
+        electionDate: new Date(Date.now() + 365 * 86_400_000).toISOString(),
+      },
+      data: {},
+    } as unknown as Campaign
+
+    it('writes Pro state to the active campaign for a multi-campaign user', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(activeCampaign)
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(campaignsService.findActiveByUserId).toHaveBeenCalledWith(
+        mockUser.id,
+      )
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        activeCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_test' }),
+      )
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(activeCampaign.id)
+    })
+
+    it('completes an election-day checkout for the active campaign', async () => {
+      const today = new Date()
+      const electionDayCampaign = {
+        id: 333,
+        organizationSlug: null,
+        details: { electionDate: today.toISOString() },
+        data: {},
+      } as unknown as Campaign
+      campaignsService.findActiveByUserId.mockResolvedValue(electionDayCampaign)
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        electionDayCampaign.id,
+      )
+    })
+
+    it('no-ops and warns on checkout when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
+      )
+    })
+  })
+
+  describe('customerSubscriptionCreatedHandler', () => {
+    const createdEvent = {
+      data: { object: { id: 'sub_new', customer: 'cus_test' } },
+    } as unknown as Stripe.CustomerSubscriptionCreatedEvent
+
+    it('persists the subscriptionId on the active campaign', async () => {
+      await service.customerSubscriptionCreatedHandler(createdEvent)
+
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_new' }),
+      )
+    })
+
+    it('no-ops and warns when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionCreatedHandler(createdEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
+      )
+    })
+  })
+
+  describe('customerSubscriptionResumedHandler', () => {
+    const resumedEvent = {
+      data: { object: { id: 'sub_resumed', customer: 'cus_test' } },
+    } as unknown as Stripe.CustomerSubscriptionResumedEvent
+
+    it('marks the active campaign Pro', async () => {
+      await service.customerSubscriptionResumedHandler(resumedEvent)
+
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        expect.objectContaining({ subscriptionId: 'sub_resumed' }),
+      )
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
+    it('no-ops and warns when the user has no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionResumedHandler(resumedEvent),
+      ).resolves.not.toThrow()
+
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+        expect.stringContaining('active campaign'),
       )
     })
   })

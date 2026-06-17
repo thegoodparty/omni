@@ -148,8 +148,19 @@ interface UseFlagOnResult {
   on: boolean
 }
 
-export const useFlagOn = (key: string): UseFlagOnResult => {
-  const { ready, variant } = useFeatureFlags()
-  const v = variant(key, { value: 'off' })
-  return { ready, on: v.value === 'on' }
+interface UseFlagOnOptions {
+  // automaticExposureTracking is on, so client.variant() emits an Amplitude
+  // exposure event. Pass false to read the flag without exposing the user
+  // (via client.all(), which does not track) — for callers that read the flag
+  // on a surface that isn't actually the experiment's treatment.
+  trackExposure?: boolean
+}
+
+export const useFlagOn = (
+  key: string,
+  { trackExposure = true }: UseFlagOnOptions = {},
+): UseFlagOnResult => {
+  const { ready, variant, all } = useFeatureFlags()
+  const v = trackExposure ? variant(key, { value: 'off' }) : all()[key]
+  return { ready, on: v?.value === 'on' }
 }

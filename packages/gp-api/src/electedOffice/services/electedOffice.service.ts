@@ -15,8 +15,10 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
+import { differenceInCalendarDays } from 'date-fns'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
+import { ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY } from '../electedOffice.consts'
 
 export type CreateElectedOfficeArgs = {
   swornInDate?: Date | null
@@ -72,49 +74,61 @@ export class ElectedOfficeService extends createPrismaBase(
   }
 
   async create(args: CreateElectedOfficeArgs) {
-    const existingForUser = await this.model.findMany({
-      where: { userId: args.userId },
-    })
-
     const newStart = args.termStartDate ?? null
     const newEnd = args.termEndDate ?? null
-    const hasNewTerm = Boolean(newStart || newEnd)
+    // Term dates are to-the-day values supplied by onboarding input or the
+    // BallotReady office-holder prefill — never derived from election cadence
+    // (that only yields rough year-level specificity). Derive the term length
+    // precisely from the two dates when both are present; otherwise honor an
+    // explicitly provided value.
+    const termLengthDays =
+      args.termLengthDays ??
+      (newStart && newEnd ? differenceInCalendarDays(newEnd, newStart) : null)
 
-    if (hasNewTerm) {
-      // Core invariant: a user may hold multiple elected offices over time, but
-      // their term date ranges must never overlap.
-      const overlapping = existingForUser.find((eo) =>
-        dateRangesOverlap(eo.termStartDate, eo.termEndDate, newStart, newEnd),
-      )
-      if (overlapping) {
-        // A prior call may have committed the row but crashed before dispatching
-        // the schedule. When the overlap is the very same office (identical term
-        // start), treat this as an idempotent retry and re-dispatch instead of
-        // failing. onElectedOfficeCreated tolerates re-dispatch.
-        if (isSameDay(overlapping.termStartDate, newStart)) {
-          await this.dispatchScheduleAfterCreate(overlapping)
-          return overlapping
-        }
-        throw new ConflictException(
-          'Elected office term overlaps an existing elected office for this user',
+    const office = await this.client.$transaction(async (tx) => {
+      // Serialize office creation per user. Task 01 removed the
+      // @@unique([userId]) constraint, so this advisory lock is what stops two
+      // concurrent creates from both passing the non-overlap check below and
+      // inserting overlapping offices (+ orphan orgs). pg_advisory_xact_lock
+      // auto-releases on commit/rollback — no TTL or claim-row cleanup needed.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY}::integer, ${args.userId}::integer)`
+
+      const existingForUser = await tx.electedOffice.findMany({
+        where: { userId: args.userId },
+      })
+
+      const hasNewTerm = Boolean(newStart || newEnd)
+      if (hasNewTerm) {
+        // Core invariant: a user may hold multiple elected offices over time,
+        // but their term date ranges must never overlap. The advisory lock
+        // above guarantees this check and the insert below are atomic per user.
+        const overlapping = existingForUser.find((eo) =>
+          dateRangesOverlap(eo.termStartDate, eo.termEndDate, newStart, newEnd),
         )
+        if (overlapping) {
+          // Idempotent retry: a prior call may have committed the row but
+          // crashed before dispatching the schedule. When the overlap is the
+          // very same office (identical term start), return it so the
+          // out-of-transaction dispatch below re-fires instead of failing.
+          if (isSameDay(overlapping.termStartDate, newStart)) {
+            return overlapping
+          }
+          throw new ConflictException(
+            'Elected office term overlaps an existing elected office for this user',
+          )
+        }
+      } else if (existingForUser.length > 0) {
+        // No term dates provided (e.g. the legacy win→serve path). Preserve the
+        // historical "one elected office per user" idempotency / crash-recovery
+        // behavior by returning the existing record.
+        return existingForUser[0]
       }
-    } else if (existingForUser.length > 0) {
-      // No term dates provided (e.g. the legacy win→serve path). Preserve the
-      // historical "one elected office per user" idempotency / crash-recovery
-      // behavior by returning the existing record.
-      const existing = existingForUser[0]
-      await this.dispatchScheduleAfterCreate(existing)
-      return existing
-    }
 
-    const orgData = args.orgData ?? {
-      positionId: null,
-      customPositionName: null,
-      overrideDistrictId: null,
-    }
-
-    const created = await this.client.$transaction(async (tx) => {
+      const orgData = args.orgData ?? {
+        positionId: null,
+        customPositionName: null,
+        overrideDistrictId: null,
+      }
       const id = uuidv7()
 
       await tx.organization.create({
@@ -132,7 +146,7 @@ export class ElectedOfficeService extends createPrismaBase(
           electedDate: args.electedDate,
           termStartDate: args.termStartDate,
           termEndDate: args.termEndDate,
-          termLengthDays: args.termLengthDays,
+          termLengthDays,
           isActive: args.isActive,
           party: args.party,
           pledgedAt: args.pledgedAt,
@@ -144,9 +158,14 @@ export class ElectedOfficeService extends createPrismaBase(
       })
     })
 
-    await this.dispatchScheduleAfterCreate(created)
+    // Fires for both a fresh create and an idempotent return: a prior call may
+    // have committed the row but crashed before dispatching the schedule, and
+    // the dispatch is the only recovery path. onElectedOfficeCreated tolerates
+    // re-dispatch. Kept outside the transaction so the lock isn't held across
+    // the queue round-trip.
+    await this.dispatchScheduleAfterCreate(office)
 
-    return created
+    return office
   }
 
   private async dispatchScheduleAfterCreate(

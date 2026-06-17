@@ -153,6 +153,14 @@ export const EVENTS = {
     },
   },
 
+  // Multi-org dashboard switcher (ENG-10377). The follow-on funnel the
+  // "run for" actions open is tracked under OnboardingV2 (intent step) and,
+  // for the created/blocked outcome, server-side in gp-api.
+  OrgSwitcher: {
+    RunForOfficeClicked: 'Org Switcher - Run For Office Clicked',
+    OrganizationSwitched: 'Org Switcher - Organization Switched',
+  },
+
   Dashboard: {
     Viewed: 'Dashboard - Candidate Dashboard Viewed',
     CampaignPlan: {
@@ -180,6 +188,7 @@ export const EVENTS = {
       StrategicLandscapeDisplayed:
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
+      PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
       CampaignManagerClicked:
         'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
@@ -386,13 +395,19 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Shared Serve (elected office) + Win (campaign) contacts experience, both on
+  // the People API. Every event carries a `context: 'win' | 'serve'` property
+  // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the
+  // unified path is a property filter in Amplitude, not a duplicate event set.
   Contacts: {
+    Viewed: 'Contacts - Contacts Viewed',
     Download: 'Contacts - Download',
     SegmentCreated: 'Contacts - Segment Created',
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     ColumnEdited: 'Contacts - Column Edited',
+    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
   },
   VoterData: {
     ClickNeedHelp: 'Voter Data: Click Need Help',
@@ -544,6 +559,7 @@ export const EVENTS = {
     },
     DlcCompliance: {
       RegistrationSubmitted: 'Pro Upgrade - Filing Details Submitted',
+      RegistrationSubmitError: 'Pro Upgrade - Filing Details Submit Error',
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
@@ -573,6 +589,7 @@ export const EVENTS = {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
     CampaignCompleted: 'Candidacy - Campaign Completed',
+    DebriefClicked: 'Candidacy - Debrief Clicked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -601,6 +618,12 @@ export const EVENTS = {
   // never mix with historical data. Server-side generation is tracked
   // separately under `Campaign Plan V2 -` in gp-api.
   OnboardingV2: {
+    // Follow-on "new campaign context" screen (the multi-org re-election vs
+    // new-office choice). Only office-holders see it; candidates skip straight
+    // to welcome. The chosen path is carried as the `intent` property.
+    NewCampaignContextViewed: 'Onboarding V2 - New Campaign Context Viewed',
+    NewCampaignContextCompleted:
+      'Onboarding V2 - New Campaign Context Completed',
     WelcomeViewed: 'Onboarding V2 - Welcome Viewed',
     WelcomeCompleted: 'Onboarding V2 - Welcome Completed',
     BallotStatusViewed: 'Onboarding V2 - Ballot Status Viewed',
@@ -618,6 +641,7 @@ export const EVENTS = {
     ResourcesCompleted: 'Onboarding V2 - Resources Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
+    PlanShared: 'Onboarding V2 - Plan Shared',
     PlanDownloaded: 'Onboarding V2 - Plan Downloaded',
     CampaignManagerClicked: 'Onboarding V2 - Campaign Manager Clicked',
     MediaRequested: 'Onboarding V2 - Media Requested',

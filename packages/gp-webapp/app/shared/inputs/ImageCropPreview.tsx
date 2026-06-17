@@ -118,16 +118,16 @@ const ImageCropPreview = ({
             <div className="absolute inset-0 hidden group-hover:flex flex-col gap-2 items-center justify-center bg-black/40">
               <Button
                 onClick={() => setShowCrop(true)}
-                variant="whiteOutline"
-                className="flex items-center gap-2 justify-center w-[150px]"
+                variant="outline"
+                className="flex items-center gap-2 justify-center w-[150px] border-white text-white hover:bg-white/5"
               >
                 <CropIcon />
                 Crop
               </Button>
               <Button
                 onClick={() => onClear()}
-                variant="whiteOutline"
-                className="flex items-center gap-2 justify-center w-[150px]"
+                variant="outline"
+                className="flex items-center gap-2 justify-center w-[150px] border-white text-white hover:bg-white/5"
               >
                 <Trash2Icon />
                 Remove

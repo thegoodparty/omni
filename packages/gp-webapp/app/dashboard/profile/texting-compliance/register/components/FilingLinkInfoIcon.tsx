@@ -47,7 +47,7 @@ export const FilingLinkInfoIcon = () => {
           https://fec.gov/data/committee/C00123456 ).
         </Body2>
         <Button
-          variant="secondary"
+          variant="neutral"
           size="large"
           className="flex-1 md:flex-initial w-full"
           onClick={closeModal}

@@ -162,19 +162,38 @@ export class AdminCampaignsService {
     const districtResults = await Promise.allSettled(
       campaigns.map((c) =>
         c.organizationSlug
-          ? this.organizations.getDistrictForOrgSlug(c.organizationSlug)
+          ? this.organizations.getDistrictAndBallotLevelForOrgSlug(
+              c.organizationSlug,
+            )
           : null,
       ),
     )
 
-    return campaigns.filter(
-      (campaign, i) =>
-        !this.voterFileDownloadAccess.canDownload(
-          campaign,
-          districtResults[i].status === 'fulfilled'
-            ? districtResults[i].value
-            : null,
-        ),
-    )
+    return campaigns.filter((campaign, i) => {
+      const result = districtResults[i]
+      if (result.status === 'rejected') {
+        // Fail closed: if we can't resolve the authoritative level, don't let
+        // canDownload fall back to the user-editable details.ballotLevel — that
+        // would drop a spoofed-local FEDERAL campaign off this audit list.
+        const err: unknown = result.reason
+        this.logger.warn(
+          { campaignId: campaign.id, err },
+          'Failed to resolve district/ballotLevel for campaign — treating as blocked',
+        )
+        return true
+      }
+      const resolved = result.value
+      if (resolved === null) {
+        // No organizationSlug — no authoritative ballot level available, so we
+        // can't confirm eligibility without trusting details.ballotLevel. Fail
+        // closed, same as the rejected case above.
+        return true
+      }
+      return !this.voterFileDownloadAccess.canDownload(
+        campaign,
+        resolved.district ?? null,
+        resolved.ballotLevel ?? null,
+      )
+    })
   }
 }

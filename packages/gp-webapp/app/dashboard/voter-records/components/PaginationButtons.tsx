@@ -22,7 +22,7 @@ export default function PaginationButtons({
       <Button
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
-        variant="secondary"
+        variant="neutral"
         size="small"
       >
         Previous
@@ -33,7 +33,7 @@ export default function PaginationButtons({
       <Button
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
-        variant="secondary"
+        variant="neutral"
         size="small"
       >
         Next

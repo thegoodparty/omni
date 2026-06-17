@@ -34,7 +34,7 @@ export function WebsiteSunsetBanner({
         href={HUBSPOT_DOMAIN_TRANSFER_FORM_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className={buttonVariants({ variant: 'outline', size: 'xSmall' })}
+        className={buttonVariants({ variant: 'outline', size: 'small' })}
       >
         Transfer
       </a>

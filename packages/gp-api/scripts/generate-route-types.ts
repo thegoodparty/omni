@@ -45,7 +45,10 @@ for (const filePath of controllerFiles) {
     }
   }
 
-  routeMap[controller] = routes
+  // Multiple controller files may share a prefix (e.g. a feature module
+  // mounting a route under 'campaigns') — merge instead of overwrite, or the
+  // later file silently erases the earlier one's routes.
+  routeMap[controller] = [...(routeMap[controller] ?? []), ...routes]
 }
 
 const endpoints = Object.values(routeMap).flatMap((routes) =>
