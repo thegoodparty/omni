@@ -204,6 +204,19 @@ export class ElectedOfficeController {
       throw new ForbiddenException('Not allowed to access this elected office')
     }
 
+    // onboardingCompletedAt gates the serve-onboarding redirect, so only the
+    // authenticated onboarding flow (which runs on the user session) may write
+    // it. An M2M token carries no user context; letting it set this field would
+    // let any trusted service permanently suppress another user's serve
+    // onboarding. Reject explicitly (incl. null) rather than silently stripping
+    // so misuse is visible. Every OTHER field stays M2M-updatable, preserving
+    // the established SDK update() capability for provisioning/integrations.
+    if (req.m2mToken && body.onboardingCompletedAt !== undefined) {
+      throw new ForbiddenException(
+        'onboardingCompletedAt cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
+
     // Mirror create()'s no-overlap invariant: term dates are writable via PUT,
     // so an update must not push this office's term into a range another office
     // the same user holds already covers. Use the effective post-update bounds

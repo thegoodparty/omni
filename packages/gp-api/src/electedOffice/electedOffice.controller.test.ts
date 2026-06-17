@@ -1,7 +1,8 @@
 import { useTestService } from '@/test-service'
+import { IncomingRequest } from '@/authentication/authentication.types'
 import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { UnauthorizedException } from '@nestjs/common'
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 
 const service = useTestService()
@@ -593,6 +594,65 @@ describe('ElectedOfficeController', () => {
 
       expect(result.status).toBe(200)
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
+
+    const m2mRequest = () =>
+      ({
+        m2mToken: { sub: 'svc' },
+        user: undefined,
+      }) as unknown as IncomingRequest
+
+    it('rejects an M2M update that sets onboardingCompletedAt', async () => {
+      // onboardingCompletedAt gates the serve-onboarding redirect; an M2M token
+      // (no user context) must not be able to suppress it for any user.
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.update(
+          created.data.id,
+          { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' } as never,
+          m2mRequest(),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('rejects an M2M update that clears onboardingCompletedAt (null)', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.update(
+          created.data.id,
+          { onboardingCompletedAt: null } as never,
+          m2mRequest(),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('allows an M2M update of other fields (provisioning capability preserved)', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const controller = service.app.get(ElectedOfficeController)
+
+      const updated = await controller.update(
+        created.data.id,
+        { party: 'Independent' } as never,
+        m2mRequest(),
+      )
+
+      expect((updated as { party: string | null }).party).toBe('Independent')
     })
   })
 })
