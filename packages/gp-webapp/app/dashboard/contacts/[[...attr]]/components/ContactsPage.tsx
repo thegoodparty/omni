@@ -48,12 +48,18 @@ export default function ContactsPage() {
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>
         <Paper className="h-full">
-          <div className="flex flex-col">
-            <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
-            <p className="text-lg font-normal text-muted-foreground">
-              {labels.subheading}
-            </p>
-          </div>
+          {/* Wait for the Win/Serve context to settle before naming anything:
+              isWinContext reads false until the elected-office query and the
+              win-voter-data flag resolve, so rendering early would flash the
+              Serve copy ("constituent") to a Win user (ENG-10448). */}
+          {isWinContextReady && (
+            <div className="flex flex-col">
+              <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              <p className="text-lg font-normal text-muted-foreground">
+                {labels.subheading}
+              </p>
+            </div>
+          )}
 
           {isVoterDataUnavailable ? (
             <div className="mt-6">
@@ -76,12 +82,17 @@ export default function ContactsPage() {
                 </div>
               </div>
 
-              <div className="mt-6">
-                <ContactsStatsSection
-                  totalVisibleContacts={totalSegmentContacts}
-                  onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
-                />
-              </div>
+              {/* Same gate as the heading: the stat cards are labelled
+                  "Voters" (Win) / "Constituents" (Serve), so hold them until
+                  the context settles rather than flash the wrong noun. */}
+              {isWinContextReady && (
+                <div className="mt-6">
+                  <ContactsStatsSection
+                    totalVisibleContacts={totalSegmentContacts}
+                    onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
+                  />
+                </div>
+              )}
 
               <div className="flex align-right md:hidden sm:w-full">
                 <ContactSearch />

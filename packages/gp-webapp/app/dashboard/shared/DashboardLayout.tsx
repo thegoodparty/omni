@@ -15,6 +15,7 @@ import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
+import { useWinVoterContext } from './useWinVoterContext'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -131,13 +132,16 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
 const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
-  const organization = useOrganization()
-  // The Contacts route is shared: Serve (elected office) reads "Constituent
-  // Data", Win reads "Voter Data". Mirror the nav's own win/serve
-  // discriminator (organization.electedOfficeId) so both surfaces agree.
+  // The Contacts route is shared: Win reads "Voter Data", Serve reads
+  // "Constituent Data". Use the same Win/Serve source as the page body
+  // (useWinVoterContext) so the header and content always agree — and wait for
+  // isReady so a Win user never flashes "Constituent Data" during load.
+  const { isWin, isReady } = useWinVoterContext()
   const pageTitle =
     pathname && isContactsPath(pathname)
-      ? CONTACTS_DATA_TITLE[organization?.electedOfficeId ? 'serve' : 'win']
+      ? isReady
+        ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
+        : null
       : getMobilePageTitle(pathname)
   return (
     <>
