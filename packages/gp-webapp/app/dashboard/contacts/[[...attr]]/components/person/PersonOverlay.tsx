@@ -219,13 +219,13 @@ const ActivitiesContent: React.FC = () => {
   // the overlay open". Keyed on the person id so paginating in more rows
   // doesn't re-fire.
   useEffect(() => {
-    if (isWinContext && currentlySelectedPersonId && hasActivities) {
+    if (isWinContext && currentlySelectedPersonId && hasActivities && !isError) {
       trackEvent(EVENTS.Contacts.OutreachTimelineViewed, {
         context: 'win',
         personId: currentlySelectedPersonId,
       })
     }
-  }, [isWinContext, currentlySelectedPersonId, hasActivities])
+  }, [isWinContext, currentlySelectedPersonId, hasActivities, isError])
 
   if (isError || activities.length === 0) {
     return (

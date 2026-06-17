@@ -314,6 +314,37 @@ describe('<PersonOverlay>', () => {
     )
   })
 
+  it('does not fire Outreach Timeline Viewed when the feed errors with stale rows', () => {
+    // useInfiniteQuery keeps prior successful data on a failed refetch, so
+    // activities can be non-empty while isErrorActivities is true. The overlay
+    // renders the error state (not the timeline), so the adoption event must
+    // not fire as if the user saw real outreach.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities, isErrorActivities: true },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
   it('does not fire Outreach Timeline Viewed outside the Win context', () => {
     // Serve poll-interaction timeline is shown via the Serve flag, but the
     // outreach-adoption event is Win-only.
