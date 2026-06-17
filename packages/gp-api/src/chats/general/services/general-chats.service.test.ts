@@ -142,7 +142,7 @@ describe('GeneralChatsService', () => {
       { softDeleteConversation: softDelete } as never,
       {} as never,
     )
-    await service.deleteConversation('c1', SCOPE, USER_ID)
+    await service.deleteConversation('c1', SCOPE, USER_ID, ORG)
     expect(softDelete).toHaveBeenCalledWith('c1', USER_ID)
   })
 
@@ -157,7 +157,7 @@ describe('GeneralChatsService', () => {
       {} as never,
     )
     await expect(
-      service.deleteConversation('c1', SCOPE, USER_ID),
+      service.deleteConversation('c1', SCOPE, USER_ID, ORG),
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 
@@ -193,6 +193,7 @@ describe('GeneralChatsService', () => {
           conversationId: 'c1',
           scope: SCOPE,
           userId: USER_ID,
+          organizationSlug: ORG,
           userMessage: 'What should I do about the housing vote?',
         }),
       )
@@ -226,6 +227,7 @@ describe('GeneralChatsService', () => {
         conversationId: 'missing',
         scope: SCOPE,
         userId: USER_ID,
+        organizationSlug: ORG,
         userMessage: 'hi',
       }),
     )

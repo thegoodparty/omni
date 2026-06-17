@@ -15,7 +15,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// slice 4 — support estimate (GET /v1/dashboard/support-estimate)
+// slice 4 — support estimate (GET /v1/elected-office/support-estimate)
 // ---------------------------------------------------------------------------
 
 export interface SupportEstimate {

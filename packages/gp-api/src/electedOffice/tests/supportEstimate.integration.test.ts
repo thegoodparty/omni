@@ -10,7 +10,7 @@ const INTERIM_ESTIMATE = {
   trendVsLastMonth: 2.1,
 }
 
-describe('GET /v1/dashboard/support-estimate (integration)', () => {
+describe('GET /v1/elected-office/support-estimate (integration)', () => {
   let orgSlug: string
 
   beforeEach(async () => {
@@ -36,16 +36,19 @@ describe('GET /v1/dashboard/support-estimate (integration)', () => {
   })
 
   it('returns the interim estimate for the resolved office', async () => {
-    const result = await service.client.get('/v1/dashboard/support-estimate', {
-      headers: { 'x-organization-slug': orgSlug },
-    })
+    const result = await service.client.get(
+      '/v1/elected-office/support-estimate',
+      { headers: { 'x-organization-slug': orgSlug } },
+    )
 
     expect(result.status).toBe(200)
     expect(result.data).toEqual(INTERIM_ESTIMATE)
   })
 
   it('returns 404 when the org header is missing', async () => {
-    const result = await service.client.get('/v1/dashboard/support-estimate')
+    const result = await service.client.get(
+      '/v1/elected-office/support-estimate',
+    )
 
     expect(result.status).toBe(404)
   })

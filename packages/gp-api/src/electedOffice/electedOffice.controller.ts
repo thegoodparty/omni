@@ -33,6 +33,12 @@ import {
 } from './schemas/electedOffice.schema'
 import { ListElectedOfficePaginationSchema } from './schemas/ListElectedOfficePagination.schema'
 import { ElectedOfficeService } from './services/electedOffice.service'
+import { SupportEstimateService } from './services/supportEstimate.service'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import {
+  SupportEstimate,
+  SupportEstimateSchema,
+} from '@goodparty_org/contracts'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -40,6 +46,7 @@ export class ElectedOfficeController {
   constructor(
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly organizationsService: OrganizationsService,
+    private readonly supportEstimateService: SupportEstimateService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -59,6 +66,15 @@ export class ElectedOfficeController {
   @Get('current')
   async getCurrent(@ReqElectedOffice() electedOffice: ElectedOffice) {
     return this.toApi(electedOffice)
+  }
+
+  @UseElectedOffice()
+  @Get('support-estimate')
+  @ResponseSchema(SupportEstimateSchema)
+  getSupportEstimate(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+  ): SupportEstimate {
+    return this.supportEstimateService.getSupportEstimate(electedOffice.id)
   }
 
   @UseGuards(UserOrM2MGuard)

@@ -80,8 +80,8 @@ describe('GeneralChatsController (integration)', () => {
     )
   })
 
-  describe('POST /v1/chats (find-or-create)', () => {
-    it('creates a CoS conversation, then finds the same one (idempotent)', async () => {
+  describe('POST /v1/chats (always creates a new conversation)', () => {
+    it('creates a distinct CoS conversation on each call', async () => {
       const first = await service.client.post(
         '/v1/chats',
         { scope: COS_SCOPE },
@@ -96,8 +96,8 @@ describe('GeneralChatsController (integration)', () => {
         { scope: COS_SCOPE },
         headers,
       )
-      expect(second.data.created).toBe(false)
-      expect(second.data.conversationId).toBe(first.data.conversationId)
+      expect(second.data.created).toBe(true)
+      expect(second.data.conversationId).not.toBe(first.data.conversationId)
 
       const row = await service.prisma.chatConversation.findUnique({
         where: { id: first.data.conversationId },

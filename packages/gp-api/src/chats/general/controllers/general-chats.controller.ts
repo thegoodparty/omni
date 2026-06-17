@@ -149,6 +149,7 @@ export class GeneralChatsController {
   @UseElectedOffice()
   async streamMessage(
     @ReqUser() user: User,
+    @ReqElectedOffice() office: ElectedOffice,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
     @Body(ZodValidationPipe) body: SendChatMessageDto,
@@ -159,6 +160,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
+      office.organizationSlug,
     )
 
     const abortController = new AbortController()
@@ -176,6 +178,7 @@ export class GeneralChatsController {
       conversationId,
       scope: query.scope,
       userId: user.id,
+      organizationSlug: office.organizationSlug,
       userMessage: body.content,
       signal: abortController.signal,
       ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
@@ -227,6 +230,7 @@ export class GeneralChatsController {
   @ResponseSchema(ChatConversationSchema)
   async getConversation(
     @ReqUser() user: User,
+    @ReqElectedOffice() office: ElectedOffice,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatConversationResponse> {
@@ -234,6 +238,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
+      office.organizationSlug,
     )
     return {
       conversationId,
@@ -253,9 +258,15 @@ export class GeneralChatsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConversation(
     @ReqUser() user: User,
+    @ReqElectedOffice() office: ElectedOffice,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<void> {
-    await this.chats.deleteConversation(conversationId, query.scope, user.id)
+    await this.chats.deleteConversation(
+      conversationId,
+      query.scope,
+      user.id,
+      office.organizationSlug,
+    )
   }
 }

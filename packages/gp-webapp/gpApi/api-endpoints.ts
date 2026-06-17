@@ -231,7 +231,7 @@ export type APIEndpoints = {
     Response: { dispatched: true; kind: 'schedule' | 'briefing' }
   }
 
-  'GET /v1/dashboard/support-estimate': {
+  'GET /v1/elected-office/support-estimate': {
     Request: {}
     Response: SupportEstimate
   }

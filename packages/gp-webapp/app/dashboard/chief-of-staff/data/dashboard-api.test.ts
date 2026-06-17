@@ -32,7 +32,7 @@ const CARD: DashboardCard = {
 describe('dashboardApi', () => {
   describe('getSupportEstimate', () => {
     it('GETs the support-estimate endpoint and returns the estimate', async () => {
-      api.mock('GET /v1/dashboard/support-estimate', {
+      api.mock('GET /v1/elected-office/support-estimate', {
         status: 200,
         data: ESTIMATE,
       })
@@ -41,7 +41,10 @@ describe('dashboardApi', () => {
     })
 
     it('throws on a non-2xx response', async () => {
-      api.mock('GET /v1/dashboard/support-estimate', { status: 500, data: {} })
+      api.mock('GET /v1/elected-office/support-estimate', {
+        status: 500,
+        data: {},
+      })
       await expect(dashboardApi.getSupportEstimate()).rejects.toThrow(/500/)
     })
   })

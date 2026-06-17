@@ -20,7 +20,7 @@ import type {
 export const dashboardApi = {
   async getSupportEstimate(): Promise<SupportEstimate> {
     const { data } = await clientRequest(
-      'GET /v1/dashboard/support-estimate',
+      'GET /v1/elected-office/support-estimate',
       {},
     )
     return data

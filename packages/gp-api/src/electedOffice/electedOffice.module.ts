@@ -6,6 +6,7 @@ import { ElectedOfficeController } from './electedOffice.controller'
 import { UseElectedOfficeGuard } from './guards/UseElectedOffice.guard'
 import { UserOrM2MGuard } from './guards/UserOrM2M.guard'
 import { ElectedOfficeService } from './services/electedOffice.service'
+import { SupportEstimateService } from './services/supportEstimate.service'
 
 @Module({
   imports: [
@@ -14,7 +15,12 @@ import { ElectedOfficeService } from './services/electedOffice.service'
     forwardRef(() => PrioritiesModule),
   ],
   controllers: [ElectedOfficeController],
-  providers: [ElectedOfficeService, UseElectedOfficeGuard, UserOrM2MGuard],
+  providers: [
+    ElectedOfficeService,
+    SupportEstimateService,
+    UseElectedOfficeGuard,
+    UserOrM2MGuard,
+  ],
   exports: [ElectedOfficeService, UseElectedOfficeGuard],
 })
 export class ElectedOfficeModule {}

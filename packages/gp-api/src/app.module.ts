@@ -14,7 +14,6 @@ import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.m
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
 import { CrmModule } from '@/crm/crmModule'
-import { DashboardModule } from '@/dashboard/dashboard.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
@@ -107,7 +106,6 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     OnboardingModule,
     SpeechModule,
     BriefingChatsModule,
-    DashboardModule,
     GeneralChatsModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,

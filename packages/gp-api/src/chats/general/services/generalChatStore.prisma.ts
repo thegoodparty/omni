@@ -33,9 +33,10 @@ export class GeneralChatStoreService extends createPrismaBase(
     id: string,
     ownerUserId: number,
     scope: ChatScope,
+    organizationSlug: string | null,
   ): Promise<ChatConversation | null> {
     return this.findFirst({
-      where: { id, ownerUserId, scope, deletedAt: null },
+      where: { id, ownerUserId, scope, organizationSlug, deletedAt: null },
     })
   }
 

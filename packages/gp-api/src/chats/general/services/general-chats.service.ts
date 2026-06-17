@@ -33,6 +33,7 @@ export interface SendMessageArgs {
   conversationId: string
   scope: ChatScope
   userId: number
+  organizationSlug: string | null
   userMessage: string
   signal?: AbortSignal
   clientMessageId?: string
@@ -92,12 +93,14 @@ export class GeneralChatsService {
     conversationId: string,
     scope: ChatScope,
     userId: number,
+    organizationSlug: string | null,
   ): Promise<LoadedConversation> {
     this.requireHandler(scope)
     const conversation = await this.store.findOwnedConversation(
       conversationId,
       userId,
       scope,
+      organizationSlug,
     )
     if (!conversation) {
       throw new NotFoundException('Conversation not found')
@@ -116,12 +119,14 @@ export class GeneralChatsService {
     conversationId: string,
     scope: ChatScope,
     userId: number,
+    organizationSlug: string | null,
   ): Promise<void> {
     this.requireHandler(scope)
     const conversation = await this.store.findOwnedConversation(
       conversationId,
       userId,
       scope,
+      organizationSlug,
     )
     if (!conversation) {
       throw new NotFoundException('Conversation not found')
@@ -133,12 +138,14 @@ export class GeneralChatsService {
     conversationId: string,
     scope: ChatScope,
     userId: number,
+    organizationSlug: string | null,
   ): Promise<void> {
     this.requireHandler(scope)
     const conversation = await this.store.findOwnedConversation(
       conversationId,
       userId,
       scope,
+      organizationSlug,
     )
     if (!conversation) {
       throw new NotFoundException('Conversation not found')
@@ -154,6 +161,7 @@ export class GeneralChatsService {
         args.conversationId,
         args.userId,
         args.scope,
+        args.organizationSlug,
       )
       if (!conversation) {
         yield {

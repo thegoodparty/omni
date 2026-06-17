@@ -37,6 +37,17 @@ describe('validateConstituentSql — happy paths still work', () => {
     ).not.toThrow()
   })
 
+  it('accepts APPROX_COUNT_DISTINCT without GROUP BY', () => {
+    // Parses as type 'function', not 'aggr_func' — must not be rejected by the
+    // base validator's no-GROUP-BY shape re-check (skipSelectShapeCheck).
+    expect(() =>
+      validate(
+        `SELECT APPROX_COUNT_DISTINCT(turnout_band) AS d, COUNT(*) AS n
+         FROM ${TABLE} ${scopeWhere}`,
+      ),
+    ).not.toThrow()
+  })
+
   it('accepts a GROUP BY over an approved coarse dimension', () => {
     expect(() =>
       validate(

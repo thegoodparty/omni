@@ -259,6 +259,10 @@ export const validateConstituentSql = (
   validateInsightsSql(sql, {
     allowedTables: scope.allowedTables,
     mandatoryFilters: scope.mandatoryFilters,
+    // validateSelectList above already enforced the (richer) aggregate-only
+    // shape, including APPROX_COUNT_DISTINCT; skip the base check's coarser
+    // re-validation, which rejects APPROX_COUNT_DISTINCT in a no-GROUP-BY query.
+    skipSelectShapeCheck: true,
   })
 
   const referencedColumns = new Set<string>()
