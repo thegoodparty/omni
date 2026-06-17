@@ -61,6 +61,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     canUseProFeatures: true,
     isElectedOfficial: false,
     isWinContext: false,
+    isWinContextReady: true,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),

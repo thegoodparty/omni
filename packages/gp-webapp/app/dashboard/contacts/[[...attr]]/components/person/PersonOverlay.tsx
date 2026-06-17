@@ -33,9 +33,10 @@ import {
   Person,
 } from '../shared/contacts-types'
 import { isNotNil } from 'es-toolkit'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -206,7 +207,43 @@ const ActivitiesContent: React.FC = () => {
       activitiesFetchNextPage: onViewMore,
       isFetchingNextActivities: isFetchingNextPage,
     },
+    currentlySelectedPersonId,
+    isWinContext,
+    isWinContextReady,
   } = useContactsTable()
+
+  const hasActivities = activities.length > 0
+
+  // Fire once per opened person when the Win outreach timeline actually
+  // renders rows (not while loading and not for an empty/error feed), so the
+  // event answers "did a Win user see attributed outreach" rather than "did
+  // the overlay open". Gate on isWinContextReady and latch on the person id
+  // (same pattern as ContactsPage) so a post-settle isWinContext toggle
+  // (focus revalidation, flag re-fetch) can't duplicate the event for the
+  // same person; switching to a different person re-arms the latch.
+  const firedForPersonRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      isWinContextReady &&
+      isWinContext &&
+      currentlySelectedPersonId &&
+      hasActivities &&
+      !isError &&
+      firedForPersonRef.current !== currentlySelectedPersonId
+    ) {
+      firedForPersonRef.current = currentlySelectedPersonId
+      trackEvent(EVENTS.Contacts.OutreachTimelineViewed, {
+        context: 'win',
+        personId: currentlySelectedPersonId,
+      })
+    }
+  }, [
+    isWinContextReady,
+    isWinContext,
+    currentlySelectedPersonId,
+    hasActivities,
+    isError,
+  ])
 
   if (isError || activities.length === 0) {
     return (

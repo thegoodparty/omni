@@ -91,6 +91,7 @@ interface ContactsTableState {
   canUseProFeatures: boolean
   isElectedOfficial: boolean
   isWinContext: boolean
+  isWinContextReady: boolean
 }
 
 interface ContactsTableActions {
@@ -164,7 +165,8 @@ export const ContactsTableProvider = ({
     useElectedOffice()
   // Data-wiring read only (picks the engagement :id); the overlay's
   // PersonContent is the treatment surface that tracks exposure.
-  const { enabled: isWinVoterDataOn } = useWinVoterDataFlag(false)
+  const { enabled: isWinVoterDataOn, ready: isWinVoterDataFlagReady } =
+    useWinVoterDataFlag(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const params = useParams()
@@ -258,6 +260,11 @@ export const ContactsTableProvider = ({
   // rather than recomputing, so both surfaces share the load guard.
   const isWinContext =
     isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
+  // isWinContext is only meaningful once both inputs that can flip it have
+  // settled: the elected-office query and the win-voter-data flag. Until then it
+  // reads false regardless of the real value, so consumers that branch on it
+  // once (analytics) must wait for this before acting.
+  const isWinContextReady = !isElectedOfficeLoading && isWinVoterDataFlagReady
   const activitiesEngagementId = isWinContext
     ? (personQuery.data?.lalVoterId ?? null)
     : currentlySelectedPersonId
@@ -482,6 +489,7 @@ export const ContactsTableProvider = ({
     canUseProFeatures,
     isElectedOfficial,
     isWinContext,
+    isWinContextReady,
     pageUp,
     pageDown,
     goToPage,
