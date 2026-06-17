@@ -203,6 +203,11 @@ export {
 } from './campaigns/CommunityEvents.schema'
 
 export {
+  CampaignStorySchema,
+  type CampaignStory,
+} from './campaigns/CampaignStory.schema'
+
+export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
 } from './campaigns/CampaignWithPositionName.schema'
