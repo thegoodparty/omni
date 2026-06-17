@@ -51,7 +51,8 @@ function CheckboxLabel({
   return (
     <div
       data-slot="checkbox-label"
-      className={cn('flex items-start gap-2', className)}
+      data-disabled={disabled ? 'true' : undefined}
+      className={cn('group flex items-start gap-2', className)}
     >
       <span className="flex size-5 shrink-0 items-center justify-center">
         <Checkbox
@@ -71,10 +72,7 @@ function CheckboxLabel({
         {description && (
           <p
             id={descriptionId}
-            className={cn(
-              'text-xs text-muted-foreground',
-              disabled && 'opacity-50',
-            )}
+            className="text-xs text-muted-foreground group-data-[disabled=true]:opacity-50"
           >
             {description}
           </p>
