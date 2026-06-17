@@ -175,4 +175,34 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
     await waitFor(() => expect(capturedId).toBe('p_1'))
   })
+
+  it('never fires the Win-keyed lalVoterId request for an elected official while the flag is on (loading-window guard)', async () => {
+    mockParams = { attr: ['p_1'] }
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    mockContactsList()
+    // Delay the elected-office resolution so the person fetch (with its
+    // lalVoterId) settles first, recreating the loading window where
+    // `electedOffice` is still undefined for a Serve user. Without the
+    // isElectedOfficeLoading guard, isWinContext would be true here and a
+    // lal_1 request would fire against the wrong endpoint.
+    api.mock('GET /v1/elected-office/current', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return { status: 200, data: { id: 'eo_1', swornInDate: null } }
+    })
+    api.mock('GET /v1/contacts/:id', {
+      status: 200,
+      data: makePerson({ id: 'p_1', lalVoterId: 'lal_1' }),
+    })
+
+    const capturedIds: string[] = []
+    api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
+      capturedIds.push(request.params.id)
+      return { status: 200, data: { nextCursor: null, results: [] } }
+    })
+
+    renderProvider()
+
+    await waitFor(() => expect(capturedIds).toContain('p_1'))
+    expect(capturedIds).not.toContain('lal_1')
+  })
 })

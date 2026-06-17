@@ -159,7 +159,8 @@ export const ContactsTableProvider = ({
   const router = useRouter()
 
   const [campaign] = useCampaign()
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
   // Data-wiring read only (picks the engagement :id); the overlay's
   // PersonContent is the treatment surface that tracks exposure.
   const { enabled: isWinVoterDataOn } = useWinVoterDataFlag(false)
@@ -249,8 +250,11 @@ export const ContactsTableProvider = ({
   // lalVoterId for Win, but on person.id for the Serve/elected-office path
   // (task 12 contract). Win context = win-voter-data flag on and not an
   // elected official. lalVoterId comes from the person fetch, so the query
-  // waits on it before firing.
-  const isWinContext = isWinVoterDataOn && !electedOffice
+  // waits on it before firing. Gate on the elected-office load: until it
+  // settles `electedOffice` is undefined, which would briefly mistake a
+  // Serve user for Win and fire against the wrong endpoint.
+  const isWinContext =
+    isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
   const activitiesEngagementId = isWinContext
     ? (personQuery.data?.lalVoterId ?? null)
     : currentlySelectedPersonId
