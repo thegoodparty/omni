@@ -71,10 +71,17 @@ const buildDisabledRanges = (
   offices
     .filter((office) => office.id !== excludeId)
     .filter((office) => office.termStartDate || office.termEndDate)
-    .map((office) => ({
-      from: toDate(office.termStartDate) ?? FAR_PAST,
-      to: toDate(office.termEndDate) ?? FAR_FUTURE,
-    }))
+    .map((office) => {
+      const end = toDate(office.termEndDate)
+      return {
+        from: toDate(office.termStartDate) ?? FAR_PAST,
+        // termEndDate is the exclusive boundary (successor's start day), so the
+        // last day actually occupied is the day before it. Disabling the
+        // boundary day inclusively would block a new term from starting on a
+        // prior term's end day even though the API/overlap check allow it.
+        to: end ? addDays(end, -1) : FAR_FUTURE,
+      }
+    })
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
