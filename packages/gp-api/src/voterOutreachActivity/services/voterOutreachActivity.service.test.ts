@@ -210,4 +210,34 @@ describe('VoterOutreachActivityService', () => {
 
     expect(result).toEqual([])
   })
+
+  it('upserts idempotently on (campaign, type, sourceId) so a retry never duplicates', async () => {
+    const campaignId = await seedCampaign('campaign-idempotent')
+
+    const write = (lalVoterId: string) =>
+      activities.recordActivityIdempotent({
+        campaignId,
+        lalVoterId,
+        outreachType: OutreachType.doorKnocking,
+        attributionSource: VoterOutreachAttributionSource.recipient,
+        occurredAt: new Date('2026-03-01T12:00:00.000Z'),
+        sourceId: 'interaction-55',
+      })
+
+    const first = await write('LAL-a')
+    const second = await write('LAL-b')
+
+    // Same source event id → same row id, mutable fields refreshed.
+    expect(second.id).toBe(first.id)
+    expect(second.lalVoterId).toBe('LAL-b')
+
+    const rows = await activities.findMany({ where: { campaignId } })
+    expect(rows).toHaveLength(1)
+
+    const sourceIds = await activities.findSourceIds(
+      campaignId,
+      OutreachType.doorKnocking,
+    )
+    expect(sourceIds).toEqual(new Set(['interaction-55']))
+  })
 })
