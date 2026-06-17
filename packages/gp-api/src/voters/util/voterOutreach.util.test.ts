@@ -109,25 +109,36 @@ describe('buildSlackBlocks - text count', () => {
     formattedAudience: [],
   }
 
-  it('renders the total text count', () => {
+  it('renders the total and no billable line when no discount applied', () => {
     const { blocks } = buildSlackBlocks({ ...baseParams, textCount: 5200 })
 
     expect(findLabeledValue(blocks, '# of Texts: ')).toBe('5,200')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
   })
 
-  it('appends the billable count when a discount applied', () => {
+  it('renders a separate billable line when a discount applied', () => {
     const { blocks } = buildSlackBlocks({
       ...baseParams,
-      textCount: 5200,
-      billableTextCount: 200,
+      textCount: 12259,
+      billableTextCount: 7259,
     })
 
-    expect(findLabeledValue(blocks, '# of Texts: ')).toBe(
-      '5,200 (200 billable)',
-    )
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('12,259')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('7,259')
   })
 
-  it('shows only the total when billable equals total', () => {
+  it('shows "0" billable when fully covered by the free-texts offer', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 3000,
+      billableTextCount: 0,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('3,000')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('0')
+  })
+
+  it('omits the billable line when billable equals total', () => {
     const { blocks } = buildSlackBlocks({
       ...baseParams,
       textCount: 300,
@@ -135,11 +146,13 @@ describe('buildSlackBlocks - text count', () => {
     })
 
     expect(findLabeledValue(blocks, '# of Texts: ')).toBe('300')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
   })
 
   it('renders "N/A" when text count is omitted', () => {
     const { blocks } = buildSlackBlocks(baseParams)
 
     expect(findLabeledValue(blocks, '# of Texts: ')).toBe('N/A')
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
   })
 })

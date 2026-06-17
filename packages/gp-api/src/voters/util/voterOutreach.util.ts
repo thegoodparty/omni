@@ -43,18 +43,6 @@ type SlackBlocksParams = {
   billableTextCount?: number
 }
 
-/** "5,200 (200 billable)" when discounted, "5,200" otherwise, "N/A" if absent. */
-function formatTextCount(
-  textCount?: number,
-  billableTextCount?: number,
-): string {
-  if (textCount === undefined) return 'N/A'
-  const total = textCount.toLocaleString('en-US')
-  return billableTextCount !== undefined && billableTextCount !== textCount
-    ? `${total} (${billableTextCount.toLocaleString('en-US')} billable)`
-    : total
-}
-
 export function buildSlackBlocks({
   name,
   email,
@@ -246,10 +234,32 @@ export function buildSlackBlocks({
                 },
                 {
                   type: SlackMessageType.TEXT,
-                  text: formatTextCount(textCount, billableTextCount),
+                  text:
+                    textCount === undefined
+                      ? 'N/A'
+                      : textCount.toLocaleString('en-US'),
                 },
               ],
             },
+            // Only when the free-texts discount applied (billable < total).
+            billableTextCount !== undefined && billableTextCount !== textCount
+              ? {
+                  type: SlackMessageType.RICH_TEXT_SECTION,
+                  elements: [
+                    {
+                      type: SlackMessageType.TEXT,
+                      text: '# of Billable Texts: ',
+                      style: {
+                        bold: true,
+                      },
+                    },
+                    {
+                      type: SlackMessageType.TEXT,
+                      text: billableTextCount.toLocaleString('en-US'),
+                    },
+                  ],
+                }
+              : undefined,
             {
               type: SlackMessageType.RICH_TEXT_SECTION,
               elements: [
