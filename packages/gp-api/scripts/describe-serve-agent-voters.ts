@@ -18,17 +18,13 @@
  */
 import '../src/configrc'
 import { DatabricksSqlProvider } from '../src/llm/tools/databricksProvider'
+import { resolveDatabricksConnection } from '../src/llm/tools/databricksConnection'
 
 const TABLE = 'goodparty_data_catalog.mart_serve_agents.serve_agent_voters'
 
 const main = async () => {
-  const hostname = process.env.DATABRICKS_SERVER_HOSTNAME
-  const httpPath = process.env.DATABRICKS_HTTP_PATH
-  const oauthClientId = process.env.DATABRICKS_CLIENT_ID
-  const oauthClientSecret = process.env.DATABRICKS_CLIENT_SECRET
-  const accessToken = process.env.DATABRICKS_API_KEY
-  const hasOauth = Boolean(oauthClientId && oauthClientSecret)
-  if (!hostname || !httpPath || (!hasOauth && !accessToken)) {
+  const conn = resolveDatabricksConnection()
+  if (!conn) {
     console.error(
       'Missing Databricks config. Need DATABRICKS_SERVER_HOSTNAME, ' +
         'DATABRICKS_HTTP_PATH, and either DATABRICKS_CLIENT_ID + ' +
@@ -36,13 +32,10 @@ const main = async () => {
     )
     process.exit(1)
   }
-  console.log(`auth: ${hasOauth ? 'oauth (client id + secret)' : 'pat'}`)
+  const auth = conn.oauthClientId ? 'oauth (client id + secret)' : 'pat'
+  console.log(`auth: ${auth}`)
   const provider = new DatabricksSqlProvider({
-    hostname,
-    httpPath,
-    oauthClientId,
-    oauthClientSecret,
-    accessToken,
+    ...conn,
     catalog: 'goodparty_data_catalog',
     schema: 'mart_serve_agents',
   })

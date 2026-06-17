@@ -2,7 +2,7 @@
 //
 // Column names of
 // goodparty_data_catalog.mart_serve_agents.serve_agent_voters, captured via
-// `npx tsx src/scripts/describeServeVoters.dev.ts`. The table itself is the
+// `npx tsx scripts/describe-serve-agent-voters.ts`. The table itself is the
 // approved allowlist — curated upstream by the research + product teams — so
 // this list mirrors the table 1:1; when columns are added or removed there,
 // regenerate this file. voter_key is intentionally omitted: it is the
