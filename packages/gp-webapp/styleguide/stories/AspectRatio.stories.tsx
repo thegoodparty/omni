@@ -43,10 +43,20 @@ export const Playground: Story = {
 export const ObjectCover: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="w-96">
-      <AspectRatio ratio={16 / 9} className="overflow-hidden rounded-md">
-        <Gradient />
-      </AspectRatio>
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground text-xs">
+        A portrait image (2:3) displayed inside a 16:9 container — cropped to
+        fill via <code>object-cover</code>.
+      </p>
+      <div className="w-96">
+        <AspectRatio ratio={16 / 9} className="overflow-hidden rounded-md">
+          <img
+            src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80"
+            alt="Mountain landscape"
+            className="h-full w-full object-cover"
+          />
+        </AspectRatio>
+      </div>
     </div>
   ),
 }
