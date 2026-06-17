@@ -4,10 +4,14 @@ import { z } from 'zod'
 // only bounds stored text so an oversized body can't bloat the row.
 const MAX_LENGTH = 10000
 
-export const UpdateCampaignStorySchema = z.object({
-  why: z.string().max(MAX_LENGTH).optional(),
-  background: z.string().max(MAX_LENGTH).optional(),
-  issues: z.string().max(MAX_LENGTH).optional(),
-})
+export const UpdateCampaignStorySchema = z
+  .object({
+    why: z.string().max(MAX_LENGTH).optional(),
+    background: z.string().max(MAX_LENGTH).optional(),
+    issues: z.string().max(MAX_LENGTH).optional(),
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: 'At least one of why, background, or issues must be provided',
+  })
 
 export type UpdateCampaignStoryInput = z.infer<typeof UpdateCampaignStorySchema>
