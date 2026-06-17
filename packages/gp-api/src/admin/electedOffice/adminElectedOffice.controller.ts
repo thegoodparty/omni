@@ -10,6 +10,7 @@ import { parseIsoDateAsUTC, toDateOnlyString } from '@/shared/util/date.util'
 import { UsersService } from '@/users/services/users.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
+  BadRequestException,
   Body,
   Controller,
   HttpCode,
@@ -20,7 +21,10 @@ import {
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { CreateMagicLinkDto } from './schemas/magicLink.schema'
+import {
+  CreateMagicLinkDto,
+  MAGIC_LINK_NAME_REQUIRED_ERROR,
+} from './schemas/magicLink.schema'
 
 type ElectedOfficePrefill = {
   electedOfficeId: string
@@ -52,7 +56,13 @@ export class AdminElectedOfficeController {
   @Post('magic-link')
   @HttpCode(HttpStatus.OK)
   async createMagicLink(@Body() body: CreateMagicLinkDto) {
-    const { email, firstName, lastName, personId } = body
+    const { email, personId } = body
+    // Trim before validating so a name of only whitespace is treated as blank.
+    const firstName = body.firstName.trim()
+    const lastName = body.lastName.trim()
+    if (!firstName || !lastName) {
+      throw new BadRequestException(MAGIC_LINK_NAME_REQUIRED_ERROR)
+    }
 
     const { user, token } = await this.usersService.provisionMagicLinkUser({
       email,

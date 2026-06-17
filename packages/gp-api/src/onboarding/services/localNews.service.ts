@@ -250,36 +250,34 @@ export class OnboardingLocalNewsService {
   }
 
   // Attempt to claim the slot for the (office, city, state) jurisdiction.
-  // Re-reads the row inside the same call so a concurrent request can't both
-  // see "no fresh pending marker" and both kick off an AI run. Returns true if
-  // this caller claimed the slot and should run the AI fetch; false if another
-  // caller already owns a fresh pending marker for the same jurisdiction.
-  //
-  // Note: this is "good enough" for the single-user onboarding case (the only
-  // realistic concurrency is React Strict Mode double-mounts or multi-tab).
-  // True transactional safety would need a serializable tx + conditional
-  // update; the cost-benefit doesn't justify it here.
+  // The read-then-upsert runs under a jurisdiction-scoped advisory lock so two
+  // concurrent callers can't both observe "no fresh pending marker" and both
+  // kick off an AI run. Returns true if this caller claimed the slot and should
+  // run the AI fetch; false if another caller already owns a fresh pending
+  // marker for the same jurisdiction.
   private async markPending(key: LocalNewsJurisdiction): Promise<boolean> {
-    const current = await this.cache.findByJurisdiction(key)
-    if (
-      current?.status === 'pending' &&
-      current.startedAt != null &&
-      Date.now() - Number(current.startedAt) < PENDING_TTL_MS
-    ) {
-      return false
-    }
-    await this.cache.model.upsert({
-      where: { jurisdiction: key },
-      create: { ...key, status: 'pending', startedAt: BigInt(Date.now()) },
-      // Clear any stale `outlets` from a prior ready write so a later ready
-      // write replaces rather than layers onto it.
-      update: {
-        status: 'pending',
-        startedAt: BigInt(Date.now()),
-        outlets: Prisma.DbNull,
-      },
+    return this.cache.withJurisdictionLock(key, async () => {
+      const current = await this.cache.findByJurisdiction(key)
+      if (
+        current?.status === 'pending' &&
+        current.startedAt != null &&
+        Date.now() - Number(current.startedAt) < PENDING_TTL_MS
+      ) {
+        return false
+      }
+      await this.cache.model.upsert({
+        where: { jurisdiction: key },
+        create: { ...key, status: 'pending', startedAt: BigInt(Date.now()) },
+        // Clear any stale `outlets` from a prior ready write so a later ready
+        // write replaces rather than layers onto it.
+        update: {
+          status: 'pending',
+          startedAt: BigInt(Date.now()),
+          outlets: Prisma.DbNull,
+        },
+      })
+      return true
     })
-    return true
   }
 
   private async writeReady(

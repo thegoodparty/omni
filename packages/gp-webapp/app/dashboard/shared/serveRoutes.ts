@@ -11,6 +11,10 @@ export const SERVE_ROUTE_PREFIXES = [
   // org, and reached via a deep link from gp-admin that must survive the
   // post-auth org switch.
   '/dashboard/admin-review/briefings',
+  // Elected-official onboarding. NOTE: the public /serve/welcome magic-link
+  // redemption page is intentionally NOT listed — it is reached pre-auth and
+  // must not trigger the post-auth elected-office org-slug switch.
+  '/serve/onboarding',
 ] as const
 
 export const isServeRoutePath = (path: string): boolean => {

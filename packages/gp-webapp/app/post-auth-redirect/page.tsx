@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { useUser as useClerkUser } from '@clerk/nextjs'
 import { clientRequest } from 'gpApi/typed-request'
-import type { Organization } from 'gpApi/api-endpoints'
+import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
@@ -69,9 +69,11 @@ const PostAuthRedirectPage = () => {
         // `resolveSlug` falls back to the first org and those pages can't find
         // the elected office, bouncing the user to /dashboard.
         const electedOrg = organizations.find((o) => o.electedOfficeId)
-        const wantsServe =
-          !!safeNext &&
-          (isServeRoutePath(safeNext) || safeNext.startsWith('/serve'))
+        // Only switch to the elected-office org for actual serve routes. The
+        // public /serve/welcome redemption page is deliberately excluded by
+        // isServeRoutePath so landing there can't overwrite the org-slug cookie
+        // for a user who also owns a campaign org.
+        const wantsServe = !!safeNext && isServeRoutePath(safeNext)
         const slug =
           wantsServe && electedOrg
             ? electedOrg.slug
@@ -80,29 +82,57 @@ const PostAuthRedirectPage = () => {
           setCookie(ORG_SLUG_COOKIE, slug)
         }
 
-        const [userRes, statusRes, electedRes] = await Promise.all([
-          clientRequest('GET /v1/users/me', {}, { ignoreResponseError: true }),
-          clientRequest(
-            'GET /v1/campaigns/mine/status',
-            {},
-            { ignoreResponseError: true },
-          ),
-          clientRequest(
-            'GET /v1/elected-office/current',
-            {},
-            { ignoreResponseError: true },
-          ),
-        ])
+        const [userRes, statusRes, electedRes, electedMineRes] =
+          await Promise.all([
+            clientRequest(
+              'GET /v1/users/me',
+              {},
+              { ignoreResponseError: true },
+            ),
+            clientRequest(
+              'GET /v1/campaigns/mine/status',
+              {},
+              { ignoreResponseError: true },
+            ),
+            clientRequest(
+              'GET /v1/elected-office/current',
+              {},
+              { ignoreResponseError: true },
+            ),
+            // `current` resolves only the active-slug org's office, so it 404s
+            // when a campaign org sorts first. `mine` lists every office the
+            // user holds so we don't misclassify a provisioned EO as net-new.
+            clientRequest(
+              'GET /v1/elected-office/mine',
+              {},
+              { ignoreResponseError: true },
+            ),
+          ])
 
         const user = userRes.ok ? (userRes.data as { roles?: string[] }) : null
         const campaignStatus = statusRes.ok
           ? (statusRes.data as CampaignStatus)
           : null
-        const hasElectedOffice = electedRes.ok
-        const electedOfficeOnboardingComplete =
-          electedRes.ok &&
-          !!(electedRes.data as { onboardingCompletedAt?: string | null })
-            .onboardingCompletedAt
+
+        const currentEO = electedRes.ok
+          ? (electedRes.data as ElectedOffice)
+          : null
+        const myElectedOffices = electedMineRes.ok
+          ? (electedMineRes.data as ElectedOffice[])
+          : []
+        // Route to serve onboarding whenever ANY office the user holds is
+        // incomplete (scan all orgs, not just the slug-resolved one). An
+        // incomplete office wins over a completed `current` so a not-yet-
+        // onboarded EO behind a campaign org isn't stranded on /dashboard.
+        const incompleteEO = myElectedOffices.find(
+          (eo) => !eo.onboardingCompletedAt,
+        )
+        const relevantEO =
+          incompleteEO ?? currentEO ?? myElectedOffices[0] ?? null
+        const hasElectedOffice = !!relevantEO || !!electedOrg
+        const electedOfficeOnboardingComplete = relevantEO
+          ? !!relevantEO.onboardingCompletedAt
+          : false
 
         // Fire the registration event only on a true fresh sign-up. The
         // ?source=signup hint set by <SignUp /> is just a re-fire guard for

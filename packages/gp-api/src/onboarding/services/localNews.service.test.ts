@@ -45,6 +45,12 @@ function makeService() {
   }
   const cache = {
     findByJurisdiction: vi.fn(),
+    // Pass-through: invoke the claim callback directly so the read/upsert
+    // assertions below still observe the calls (the real advisory lock is a
+    // DB concern exercised by integration tests, not these pure mocks).
+    withJurisdictionLock: vi.fn(
+      <T>(_jurisdiction: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+    ),
     model,
   }
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }

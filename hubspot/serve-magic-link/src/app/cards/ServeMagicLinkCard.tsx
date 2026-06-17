@@ -64,6 +64,9 @@ function ServeMagicLinkCard({ actions }: { actions: Actions }) {
   const brPersonId = (properties?.br_person_id as string | undefined) || ''
   const fullName =
     [firstName, lastName].filter(Boolean).join(' ') || '(no name on contact)'
+  // gp-api rejects blank first/last names, so block the request up front and
+  // tell the rep how to fix it rather than waiting for the 400 round-trip.
+  const nameMissing = !firstName.trim() || !lastName.trim()
 
   const generate = async () => {
     setSubmitting(true)
@@ -137,7 +140,18 @@ function ServeMagicLinkCard({ actions }: { actions: Actions }) {
         </Text>
       </Flex>
 
-      <Button variant="primary" onClick={generate} disabled={submitting || !email}>
+      {nameMissing && email ? (
+        <Alert title="Add a first and last name first" variant="warning">
+          This contact is missing a first or last name. Add both to the HubSpot
+          contact, then reload this card to generate the link.
+        </Alert>
+      ) : null}
+
+      <Button
+        variant="primary"
+        onClick={generate}
+        disabled={submitting || !email || nameMissing}
+      >
         {submitting ? 'Sending…' : 'Generate & send magic link'}
       </Button>
 

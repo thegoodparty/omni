@@ -126,7 +126,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           ),
         ])
 
-        const eo = currentRes.ok ? (currentRes.data as ElectedOffice) : null
+        const currentEOData = currentRes.ok
+          ? (currentRes.data as ElectedOffice)
+          : null
+        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+        // `current` resolves only the active-slug org's office, so it 404s when
+        // a campaign org is the active org. Fall back to the user's own offices
+        // (preferring one whose onboarding is unfinished) before treating them
+        // as net-new — otherwise persist() would POST a duplicate office
+        // instead of editing the EO sales already provisioned for this lead.
+        const eo =
+          currentEOData ??
+          mine.find((office) => !office.onboardingCompletedAt) ??
+          mine[0] ??
+          null
         setCurrentEO(eo)
 
         let officePrefilled = false
@@ -160,7 +173,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           }
         }
 
-        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
         setOtherRanges(buildDisabledRanges(mine, eo?.id))
 
         trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Activated, {

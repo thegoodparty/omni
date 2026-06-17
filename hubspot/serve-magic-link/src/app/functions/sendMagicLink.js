@@ -115,9 +115,22 @@ exports.main = async (context = {}) => {
 
     const text = await res.text()
     if (!res.ok) {
+      // Surface gp-api's own message (e.g. the name-required or existing-account
+      // refusal) so the rep sees actionable guidance instead of a raw status
+      // dump. NestJS errors serialize as { statusCode, message, error }.
+      let message = `gp-api returned ${res.status}.`
+      try {
+        const parsed = JSON.parse(text)
+        message =
+          (typeof parsed.message === 'string' && parsed.message) ||
+          (typeof parsed.error === 'string' && parsed.error) ||
+          message
+      } catch (_) {
+        if (text) message = `${message} ${text}`
+      }
       return {
         statusCode: res.status,
-        body: { error: `gp-api returned ${res.status}: ${text}` },
+        body: { error: message },
       }
     }
 

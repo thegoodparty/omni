@@ -49,6 +49,13 @@ const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const TEST_USER_DOMAIN = '@test.goodparty.org'
 
+// Refusal shown to sales when an EO magic link targets an email that already
+// belongs to a real, self-owned GoodParty login (password set or owns a
+// campaign). Reusing such an account would hand an admin-initiated sign-in
+// token to someone else's account.
+export const EXISTING_ACCOUNT_MAGIC_LINK_ERROR =
+  "This email already belongs to an existing GoodParty account and can't be sent an elected-official magic link."
+
 @Injectable()
 export class UsersService extends createPrismaBase(MODELS.User) {
   constructor(
@@ -539,6 +546,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const existing = await this.resolveClerkIdByEmail(email)
     if (existing.source === 'clerk') {
       clerkId = existing.clerkId
+      // The magic link is only for passwordless EO leads. A password-enabled
+      // Clerk account is a real login the person controls, so reusing it would
+      // hand an admin-initiated sign-in token to someone else's account.
+      const clerkUser = await this.clerkClient.users.getUser(clerkId)
+      if (clerkUser.passwordEnabled) {
+        throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      }
     } else {
       const created = await this.clerkClient.users.createUser({
         emailAddress: [email],
@@ -559,6 +573,18 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       throw new ConflictException(
         'This email is already linked to a different Clerk identity',
       )
+    }
+
+    // A user who already owns a campaign is a real candidate account, not a
+    // fresh EO lead, so never repurpose it for a magic-link sign-in. (Only an
+    // existing identity can have one; a just-created lead never does.)
+    if (existing.source === 'clerk') {
+      const campaignCount = await this.client.campaign.count({
+        where: { userId: user.id },
+      })
+      if (campaignCount > 0) {
+        throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      }
     }
 
     const signInToken = await this.clerkClient.signInTokens.createSignInToken({
