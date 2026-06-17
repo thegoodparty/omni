@@ -36,11 +36,13 @@ function setContext({
   selectedPersonId = 'p_1',
   selectedPerson,
   isElectedOfficial = false,
+  isWinContext = false,
   selectPerson = vi.fn(),
 }: {
   selectedPersonId?: string | null
   selectedPerson?: Partial<SelectedPerson>
   isElectedOfficial?: boolean
+  isWinContext?: boolean
   selectPerson?: ContextValue['selectPerson']
 } = {}) {
   const currentlySelectedPerson: SelectedPerson = {
@@ -78,6 +80,7 @@ function setContext({
     totalSegmentContacts: 0,
     canUseProFeatures: true,
     isElectedOfficial,
+    isWinContext,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
@@ -212,7 +215,7 @@ describe('<PersonOverlay>', () => {
     ]
     const activities: ConstituentActivity[] = [
       {
-        type: 'poll',
+        type: 'POLL_INTERACTIONS',
         date: '2026-05-02',
         data: {
           pollId: 'poll_1',
@@ -235,5 +238,103 @@ describe('<PersonOverlay>', () => {
     expect(
       screen.getByRole('link', { name: /transit survey/i }),
     ).toBeInTheDocument()
+  })
+
+  it('renders Win outreach activities with per-channel labels and date', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+      {
+        type: 'OUTREACH',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 2,
+          outreachType: 'doorKnocking',
+          attributionSource: 'recipient',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    // Honest send-time labels, not "Delivered".
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+    expect(screen.getByText('Knocked')).toBeInTheDocument()
+    // segmentDerived is send-time attribution; recipient (door knock) is not.
+    expect(screen.getByText('Sent to segment')).toBeInTheDocument()
+    // Date rendered for the activity.
+    expect(screen.getByText(/May 10, 2026/)).toBeInTheDocument()
+    // Poll-only chrome must not appear for outreach rows.
+    expect(
+      screen.queryByRole('link', { name: /transit survey/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the Win Activity Feed when not in Win context', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: false,
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.queryByText('Activity Feed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Texted')).not.toBeInTheDocument()
+  })
+
+  it('paginates the Win outreach timeline via View more', async () => {
+    const user = userEvent.setup()
+    const activitiesFetchNextPage = vi.fn()
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'phoneBanking',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPerson: {
+        activities,
+        activitiesHasNextPage: true,
+        activitiesFetchNextPage,
+      },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Called')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /view more/i }))
+    expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 })

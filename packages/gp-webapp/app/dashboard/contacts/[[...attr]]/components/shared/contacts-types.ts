@@ -30,8 +30,11 @@ export type ConstituentActivityEvent = {
   date: string
 }
 
-export type ConstituentActivity = {
-  type: string
+// Serve poll-interaction activity (elected office context). The literal
+// matches gp-api's ConstituentActivityType.POLL_INTERACTIONS so this and
+// OutreachConstituentActivity form a discriminated union on `type`.
+export type PollConstituentActivity = {
+  type: 'POLL_INTERACTIONS'
   date: string
   data: {
     pollId: string
@@ -39,6 +42,33 @@ export type ConstituentActivity = {
     events: ConstituentActivityEvent[]
   }
 }
+
+// Win outreach activity, mapped from VoterOutreachActivity by gp-api's campaign
+// branch. attributionSource lets the timeline label send-time vs per-recipient
+// attribution honestly (recipient for door knocking, segmentDerived otherwise).
+export type OutreachChannel =
+  | 'text'
+  | 'doorKnocking'
+  | 'phoneBanking'
+  | 'socialMedia'
+  | 'robocall'
+  | 'p2p'
+
+export type OutreachAttributionSource = 'recipient' | 'segmentDerived'
+
+export type OutreachConstituentActivity = {
+  type: 'OUTREACH'
+  date: string
+  data: {
+    activityId: number
+    outreachType: OutreachChannel
+    attributionSource: OutreachAttributionSource
+  }
+}
+
+export type ConstituentActivity =
+  | PollConstituentActivity
+  | OutreachConstituentActivity
 
 export type GetIndividualActivitiesResponse = {
   nextCursor: string | null

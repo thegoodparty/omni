@@ -38,6 +38,7 @@ import defaultSegments from '../components/configs/defaultSegments.config'
 import { isCustomSegment } from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 
 const extractPersonIdFromParams = (
   params: ReturnType<typeof useParams> | null,
@@ -89,6 +90,7 @@ interface ContactsTableState {
   totalSegmentContacts: number
   canUseProFeatures: boolean
   isElectedOfficial: boolean
+  isWinContext: boolean
 }
 
 interface ContactsTableActions {
@@ -158,7 +160,11 @@ export const ContactsTableProvider = ({
   const router = useRouter()
 
   const [campaign] = useCampaign()
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
+  // Data-wiring read only (picks the engagement :id); the overlay's
+  // PersonContent is the treatment surface that tracks exposure.
+  const { enabled: isWinVoterDataOn } = useWinVoterDataFlag(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const params = useParams()
@@ -241,17 +247,32 @@ export const ContactsTableProvider = ({
     enabled: Boolean(currentlySelectedPersonId),
   })
 
+  // The campaign engagement endpoint keys activities on the durable
+  // lalVoterId for Win, but on person.id for the Serve/elected-office path
+  // (task 12 contract). Win context = win-voter-data flag on and not an
+  // elected official. lalVoterId comes from the person fetch, so the query
+  // waits on it before firing. Gate on the elected-office load: until it
+  // settles `electedOffice` is undefined, which would briefly mistake a
+  // Serve user for Win and fire against the wrong endpoint. This is the one
+  // Win-vs-Serve decision; PersonOverlay's activity feed reads it from context
+  // rather than recomputing, so both surfaces share the load guard.
+  const isWinContext =
+    isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
+  const activitiesEngagementId = isWinContext
+    ? (personQuery.data?.lalVoterId ?? null)
+    : currentlySelectedPersonId
+
   const activitiesInfiniteQuery = useInfiniteQuery({
-    queryKey: ['contact-engagement', 'activities', currentlySelectedPersonId],
+    queryKey: ['contact-engagement', 'activities', activitiesEngagementId],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/activities', {
-        id: currentlySelectedPersonId!,
+        id: activitiesEngagementId!,
         take: 2,
         ...(pageParam ? { after: pageParam } : {}),
       }).then((res) => res.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(currentlySelectedPersonId),
+    enabled: Boolean(activitiesEngagementId),
   })
 
   const customSegmentsQuery = useQuery({
@@ -460,6 +481,7 @@ export const ContactsTableProvider = ({
     totalSegmentContacts,
     canUseProFeatures,
     isElectedOfficial,
+    isWinContext,
     pageUp,
     pageDown,
     goToPage,
