@@ -3,7 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import {
   WebsitesService,
@@ -215,6 +215,17 @@ describe('WebsitesService.verifyLive', () => {
     expect(result.verified).toBe(false)
     expect(result.reason).toBe('unreachable')
     expect(result.checks.http_200).toBe(false)
+  })
+
+  it('classifies a redirect loop as not_live, not unreachable (server is reachable)', async () => {
+    mockedAxiosGet.mockRejectedValue(
+      new AxiosError('too many redirects', 'ERR_TOO_MANY_REDIRECTS'),
+    )
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(false)
+    expect(result.reason).toBe('not_live')
   })
 
   it('throws BadRequestException when no domain is attached', async () => {
