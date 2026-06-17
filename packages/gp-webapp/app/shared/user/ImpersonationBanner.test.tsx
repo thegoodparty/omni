@@ -13,6 +13,11 @@ vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => mockClientRequest(...args),
 }))
 
+const mockClearElectionResultDismissed = vi.fn()
+vi.mock('app/dashboard/election-result/dismissal', () => ({
+  clearElectionResultDismissed: () => mockClearElectionResultDismissed(),
+}))
+
 const mockSignOut = vi.fn()
 const mockSetActive = vi.fn()
 const mockSignInCreate = vi.fn()
@@ -44,6 +49,7 @@ beforeEach(() => {
     createdSessionId: 'session-123',
   })
   mockErrorSnackbar.mockReset()
+  mockClearElectionResultDismissed.mockReset()
 
   vi.mocked(useIsImpersonating).mockReturnValue(false)
   vi.mocked(useClerk).mockReturnValue({
@@ -194,6 +200,9 @@ describe('ImpersonationBanner', () => {
       ticket: 'actor-token-xyz',
     })
     expect(mockSetActive).toHaveBeenCalledWith({ session: 'session-123' })
+    // The swap starts a new impersonation session in the same tab, so the
+    // prior candidate's election-result dismissal must be cleared.
+    expect(mockClearElectionResultDismissed).toHaveBeenCalled()
   })
 
   it('shows error snackbar when impersonation swap fails', async () => {
