@@ -154,7 +154,9 @@ export const States: Story = {
       </div>
 
       <div>
-        <p className="mb-2 text-sm text-muted-foreground">Compact (size="sm")</p>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Compact (<code>{'size="sm"'}</code>)
+        </p>
         <Accordion type="single" collapsible size="sm" className="w-full">
           {items.map(({ value, question, answer }) => (
             <AccordionItem key={value} value={value}>
