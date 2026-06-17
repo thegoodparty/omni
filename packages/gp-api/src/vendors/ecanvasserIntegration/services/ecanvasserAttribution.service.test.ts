@@ -242,4 +242,63 @@ describe('EcanvasserAttributionService', () => {
     })
     expect(count).toBe(0)
   })
+
+  it('prefers the phone-bearing row when an externalId is duplicated', async () => {
+    const { campaignId, organization } = await seedCampaign('dup-contact')
+    // Two contact rows share externalId 105 (a delta re-sync appended a second).
+    // The newer (higher id) row has no phone; the older one carries the phone.
+    // Attribution must use the phone-bearing row, not the most recent.
+    const ecanvasser = await service.prisma.ecanvasser.create({
+      data: {
+        campaignId,
+        apiKey: 'test-key',
+        contacts: {
+          create: [
+            {
+              externalId: 105,
+              firstName: 'John',
+              lastName: 'Smith',
+              type: 'Resident',
+              mobilePhone: '5557778888',
+              createdBy: 0,
+            },
+            {
+              externalId: 105,
+              firstName: 'John',
+              lastName: 'Smith',
+              type: 'Resident',
+              mobilePhone: null,
+              createdBy: 0,
+            },
+          ],
+        },
+        interactions: {
+          create: [
+            {
+              externalId: 905,
+              type: 'Canvass',
+              contactId: 105,
+              createdBy: 0,
+              date: new Date('2026-03-01T12:00:00.000Z'),
+            },
+          ],
+        },
+      },
+      include: { contacts: true, interactions: true },
+    })
+
+    const lookup = vi
+      .spyOn(contacts, 'findPersonByPhone')
+      .mockResolvedValue(matchPerson('LAL-105', 'Smith'))
+
+    const result = await attribution.attributeDoorKnocking(
+      campaignId,
+      organization,
+      ecanvasser.contacts,
+      ecanvasser.interactions,
+    )
+
+    expect(result).toEqual({ matched: 1, skipped: 0 })
+    expect(lookup).toHaveBeenCalledWith('5557778888', expect.anything())
+  })
 })

@@ -35,9 +35,16 @@ export class EcanvasserAttributionService {
     contacts: EcanvasserContact[],
     interactions: EcanvasserInteraction[],
   ): Promise<AttributionResult> {
+    // The delta sync appends contacts (create, not upsert), so the same eCanvasser
+    // contact can appear as more than one row across sync windows. Resolve each
+    // externalId deterministically — prefer a row that has a phone, then the most
+    // recently synced (highest id) — so attribution never picks a stale phone by
+    // accident (a wrong voter match is worse than a miss).
     const contactByExternalId = new Map<number, EcanvasserContact>()
     for (const contact of contacts) {
-      if (contact.externalId !== null) {
+      if (contact.externalId === null) continue
+      const existing = contactByExternalId.get(contact.externalId)
+      if (!existing || this.isFresherContact(contact, existing)) {
         contactByExternalId.set(contact.externalId, contact)
       }
     }
@@ -59,7 +66,7 @@ export class EcanvasserAttributionService {
       if (alreadyAttributed.has(sourceId)) continue
 
       const contact = contactByExternalId.get(interaction.contactId)
-      const phone = contact?.mobilePhone ?? contact?.homePhone ?? null
+      const phone = contact ? this.phoneOf(contact) : null
       if (!contact || !phone) {
         skipped++
         continue
@@ -105,6 +112,22 @@ export class EcanvasserAttributionService {
       'Door-knock attribution complete',
     )
     return { matched, skipped }
+  }
+
+  private phoneOf(contact: EcanvasserContact): string | null {
+    return contact.mobilePhone ?? contact.homePhone ?? null
+  }
+
+  // Pick between two contact rows sharing an externalId: a row with a phone beats
+  // one without; otherwise the higher id (most recently synced) wins.
+  private isFresherContact(
+    candidate: EcanvasserContact,
+    current: EcanvasserContact,
+  ): boolean {
+    const candidateHasPhone = this.phoneOf(candidate) !== null
+    const currentHasPhone = this.phoneOf(current) !== null
+    if (candidateHasPhone !== currentHasPhone) return candidateHasPhone
+    return candidate.id > current.id
   }
 
   private isConfidentMatch(
