@@ -298,20 +298,30 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         include: { contacts: true, interactions: true },
       })
       await this.crm.trackCampaign(campaignId)
-      // Emit per-voter door-knock attribution from the freshly-synced rows.
-      // Best-effort and idempotent; expected failures (voter data ineligible,
-      // People-API down) are handled inside the service and never throw.
+      // Emit per-voter door-knock attribution from the freshly-synced rows. This
+      // is a best-effort side effect of the sync: idempotent, and its expected
+      // failures (ineligible campaign, People-API down) are handled inside the
+      // service. Guard the call so an unexpected attribution failure (e.g. a DB
+      // error) is logged without marking the eCanvasser sync itself failed or
+      // rolling lastSync back.
       const campaign = await this.campaignsService.findFirst({
         where: { id: campaignId },
         include: { organization: true },
       })
       if (campaign?.organization) {
-        await this.attribution.attributeDoorKnocking(
-          campaignId,
-          campaign.organization,
-          updated.contacts,
-          updated.interactions,
-        )
+        try {
+          await this.attribution.attributeDoorKnocking(
+            campaignId,
+            campaign.organization,
+            updated.contacts,
+            updated.interactions,
+          )
+        } catch (error) {
+          this.logger.error(
+            { error, campaignId },
+            'Door-knock attribution failed; eCanvasser sync result is unaffected',
+          )
+        }
       }
       return updated
     } catch (error) {
