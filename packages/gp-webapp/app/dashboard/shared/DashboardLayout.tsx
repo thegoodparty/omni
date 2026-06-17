@@ -14,6 +14,8 @@ import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
+import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
+import { isElectionResultDismissed } from '../election-result/dismissal'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -37,6 +39,7 @@ const DashboardLayout = ({
   const organization = useOrganization()
   const router = useRouter()
   const hookPathname = usePathname()
+  const isImpersonating = useIsImpersonating()
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -59,6 +62,13 @@ const DashboardLayout = ({
       return
     }
 
+    // An impersonating admin can dismiss the forced election-result gate
+    // without answering it; don't bounce them back to it for the rest of
+    // the session.
+    if (isImpersonating && isElectionResultDismissed()) {
+      return
+    }
+
     const weeksResult = weeksTill(electionDate)
     const shouldRedirect =
       typeof details?.wonGeneral !== 'boolean' &&
@@ -69,7 +79,7 @@ const DashboardLayout = ({
     if (shouldRedirect) {
       router.push('/dashboard/election-result')
     }
-  }, [currentPath, details?.wonGeneral, electionDate, router])
+  }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
   return (
     <EcanvasserProvider>

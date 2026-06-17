@@ -21,6 +21,10 @@ vi.mock('@shared/hooks/usePositionName', () => ({
   usePositionName: () => 'Mayor',
 }))
 
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => false,
+}))
+
 vi.mock('@shared/hooks/CampaignProvider', () => ({
   CAMPAIGN_QUERY_KEY: ['campaign'],
 }))
