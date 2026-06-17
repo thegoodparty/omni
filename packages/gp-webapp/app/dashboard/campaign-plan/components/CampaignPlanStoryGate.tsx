@@ -59,13 +59,13 @@ const CampaignPlanStoryGate = ({
           race.
         </p>
       </div>
-      <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+      <div className="flex flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
         <Button onClick={onGenerate} icon={<SparklesIcon />}>
           I&apos;m ready, Generate my Plan
         </Button>
         <Button variant="ghost" asChild>
           <Link href="/dashboard/campaign-story">
-            Give me a moment, I want to update my Story first
+            Let&apos;s update the Story
           </Link>
         </Button>
       </div>

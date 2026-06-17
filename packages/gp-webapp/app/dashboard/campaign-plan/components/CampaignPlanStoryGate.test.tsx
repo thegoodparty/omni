@@ -42,7 +42,7 @@ describe('CampaignPlanStoryGate', () => {
     expect(onGenerate).toHaveBeenCalledTimes(1)
 
     expect(
-      screen.getByRole('link', { name: /update my Story first/ }),
+      screen.getByRole('link', { name: /update the Story/ }),
     ).toHaveAttribute('href', '/dashboard/campaign-story')
   })
 })
