@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card, ScrollTextIcon } from '@styleguide'
+import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
 import {
   isCampaignStoryComplete,
   useCampaignStory,
@@ -59,9 +59,11 @@ const CampaignPlanStoryGate = ({
           race.
         </p>
       </div>
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <Button onClick={onGenerate}>I&apos;m ready, Generate my Plan</Button>
-        <Button variant="outline" asChild>
+      <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+        <Button onClick={onGenerate} icon={<SparklesIcon />}>
+          I&apos;m ready, Generate my Plan
+        </Button>
+        <Button variant="ghost" asChild>
           <Link href="/dashboard/campaign-story">
             Give me a moment, I want to update my Story first
           </Link>
