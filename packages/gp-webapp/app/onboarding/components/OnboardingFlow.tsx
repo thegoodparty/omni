@@ -347,14 +347,16 @@ export default function OnboardingFlow({
   // Gates the post-pledge Campaign Plan flow. When off, we skip the LLM
   // pre-warm calls and route the candidate directly to /dashboard after
   // pledge instead of /onboarding/success.
-  const { enabled: campaignStrategyEnabled } = useCampaignStrategyFlag()
+  const { ready: campaignStrategyReady, enabled: campaignStrategyEnabled } =
+    useCampaignStrategyFlag()
   // Campaign-story users don't auto-generate a plan during onboarding: they
   // write their Campaign Story first, then generate from it. So we skip the
   // pre-warm and route them to the story page instead of /onboarding/success.
   // trackExposure=false: onboarding only reads the flag for routing, it's not
   // the treatment surface (the story page is), so the read mustn't fire
   // exposure for every onboarding visitor.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
+  const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
+    useCampaignStoryFlag(false)
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -407,11 +409,18 @@ export default function OnboardingFlow({
     liveCampaign?.organization?.customPositionName ||
     liveCampaign?.office ||
     null
+  // Block the pledge step's Continue until both plan flags resolve — routing
+  // post-pledge depends on them, and reading them mid-init would default to
+  // false and misroute (e.g. a campaign-story user sent to /onboarding/success
+  // and into the pre-warm they're excluded from).
+  const pledgeFlagsReady =
+    activeStep.id !== 'pledge' || (campaignStrategyReady && campaignStoryReady)
   const canContinue =
     isActiveStepValid &&
     !isSavingOffice &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking
+    !isOfficeHydrationBlocking &&
+    pledgeFlagsReady
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
     setIsP2vLoading(loading)
