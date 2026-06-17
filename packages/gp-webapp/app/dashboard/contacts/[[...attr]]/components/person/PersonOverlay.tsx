@@ -36,7 +36,6 @@ import { isNotNil } from 'es-toolkit'
 import { ReactNode } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -339,16 +338,17 @@ const getIncomeBucket = (income: number | null) => {
 const PersonContent: React.FC<{
   person: Person
   hidePoliticalParty: boolean
-  isElectedOfficial: boolean
-}> = ({ person, hidePoliticalParty, isElectedOfficial }) => {
+  showWinActivities: boolean
+}> = ({ person, hidePoliticalParty, showWinActivities }) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
-  const { enabled: isWinVoterDataOn } = useWinVoterDataFlag()
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
-  // Win adds the outreach timeline behind win-voter-data for campaigns (not
-  // elected officials). Top Issues stays Serve-only.
-  const showWinActivities = isWinVoterDataOn && !isElectedOfficial
+  // Win adds the outreach timeline for campaigns (not elected officials). The
+  // Win decision (flag on, not an elected official, elected-office load
+  // settled) is computed once in the provider as isWinContext; reuse it so the
+  // feed and the provider's activities query never disagree. Top Issues stays
+  // Serve-only.
   const showActivityFeed = showActivitiesAndIssues || showWinActivities
   const details = [person.gender, person.age ? `${person.age} years old` : null]
     .filter(isNotNil)
@@ -453,6 +453,7 @@ export default function PersonOverlay(): React.JSX.Element {
     selectPerson,
     currentlySelectedPersonId,
     isElectedOfficial,
+    isWinContext,
   } = useContactsTable()
   const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
 
@@ -515,7 +516,7 @@ export default function PersonOverlay(): React.JSX.Element {
               <PersonContent
                 person={person}
                 hidePoliticalParty={isElectedOfficial}
-                isElectedOfficial={isElectedOfficial}
+                showWinActivities={isWinContext}
               />
             )
           )}

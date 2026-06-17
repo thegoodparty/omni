@@ -5,7 +5,6 @@ import { render } from 'helpers/test-utils/render'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { makePerson } from '../shared/test-fixtures'
 import type {
   ConstituentIssue,
@@ -20,10 +19,6 @@ vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
 }))
 
-vi.mock('@shared/experiments/winVoterDataFlag', () => ({
-  useWinVoterDataFlag: vi.fn(),
-}))
-
 // Google Maps would otherwise try to attach a Script tag and reference
 // `window.google`. Stub it with a marker we can assert on.
 vi.mock('@shared/utils/Map', () => ({
@@ -33,7 +28,6 @@ vi.mock('@shared/utils/Map', () => ({
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
-const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 
 type ContextValue = ReturnType<typeof useContactsTable>
 type SelectedPerson = ContextValue['currentlySelectedPerson']
@@ -42,11 +36,13 @@ function setContext({
   selectedPersonId = 'p_1',
   selectedPerson,
   isElectedOfficial = false,
+  isWinContext = false,
   selectPerson = vi.fn(),
 }: {
   selectedPersonId?: string | null
   selectedPerson?: Partial<SelectedPerson>
   isElectedOfficial?: boolean
+  isWinContext?: boolean
   selectPerson?: ContextValue['selectPerson']
 } = {}) {
   const currentlySelectedPerson: SelectedPerson = {
@@ -84,6 +80,7 @@ function setContext({
     totalSegmentContacts: 0,
     canUseProFeatures: true,
     isElectedOfficial,
+    isWinContext,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
@@ -102,8 +99,6 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
-    mockedUseWinVoterDataFlag.mockReset()
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('does not open the overlay when no person is selected', () => {
@@ -234,7 +229,6 @@ describe('<PersonOverlay>', () => {
   })
 
   it('renders Win outreach activities with per-channel labels and date', () => {
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     const activities: ConstituentActivity[] = [
       {
         type: 'OUTREACH',
@@ -257,6 +251,7 @@ describe('<PersonOverlay>', () => {
     ]
     setContext({
       isElectedOfficial: false,
+      isWinContext: true,
       selectedPerson: { activities },
     })
 
@@ -276,8 +271,7 @@ describe('<PersonOverlay>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('hides the Win Activity Feed when the win-voter-data flag is off', () => {
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
+  it('hides the Win Activity Feed when not in Win context', () => {
     const activities: ConstituentActivity[] = [
       {
         type: 'OUTREACH',
@@ -291,6 +285,7 @@ describe('<PersonOverlay>', () => {
     ]
     setContext({
       isElectedOfficial: false,
+      isWinContext: false,
       selectedPerson: { activities },
     })
 
@@ -302,7 +297,6 @@ describe('<PersonOverlay>', () => {
 
   it('paginates the Win outreach timeline via View more', async () => {
     const user = userEvent.setup()
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     const activitiesFetchNextPage = vi.fn()
     const activities: ConstituentActivity[] = [
       {
@@ -317,6 +311,7 @@ describe('<PersonOverlay>', () => {
     ]
     setContext({
       isElectedOfficial: false,
+      isWinContext: true,
       selectedPerson: {
         activities,
         activitiesHasNextPage: true,

@@ -90,6 +90,7 @@ interface ContactsTableState {
   totalSegmentContacts: number
   canUseProFeatures: boolean
   isElectedOfficial: boolean
+  isWinContext: boolean
 }
 
 interface ContactsTableActions {
@@ -252,7 +253,9 @@ export const ContactsTableProvider = ({
   // elected official. lalVoterId comes from the person fetch, so the query
   // waits on it before firing. Gate on the elected-office load: until it
   // settles `electedOffice` is undefined, which would briefly mistake a
-  // Serve user for Win and fire against the wrong endpoint.
+  // Serve user for Win and fire against the wrong endpoint. This is the one
+  // Win-vs-Serve decision; PersonOverlay's activity feed reads it from context
+  // rather than recomputing, so both surfaces share the load guard.
   const isWinContext =
     isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
   const activitiesEngagementId = isWinContext
@@ -478,6 +481,7 @@ export const ContactsTableProvider = ({
     totalSegmentContacts,
     canUseProFeatures,
     isElectedOfficial,
+    isWinContext,
     pageUp,
     pageDown,
     goToPage,
