@@ -24,6 +24,7 @@ const links = (
     serveAccessEnabled,
     isElectedOffice,
     false,
+    false,
     winVoterDataEnabled,
     campaignStoryEnabled,
   )

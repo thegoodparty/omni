@@ -1,0 +1,25 @@
+model Priority {
+  id              String        @id @default(cuid())
+  electedOfficeId String        @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String @db.Text
+
+  source                   PrioritySource
+  sourceCampaignPositionId Int?           @map("source_campaign_position_id")
+
+  targetDate DateTime? @map("target_date") @db.Date
+  archivedAt DateTime? @map("archived_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([electedOfficeId, archivedAt])
+  @@map("priority")
+}
+
+enum PrioritySource {
+  win_import
+  user_stated
+}

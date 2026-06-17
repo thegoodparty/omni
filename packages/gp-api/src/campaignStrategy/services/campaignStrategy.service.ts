@@ -594,7 +594,17 @@ export class CampaignStrategyService
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    if (run?.status === ExperimentRunStatus.RUNNING) return 'inflight'
+    // QUEUED (waiting to launch), RUNNING, and AWAITING_RESUME (paused mid-run)
+    // are all in flight — none should be re-dispatched. Re-dispatching an
+    // AWAITING_RESUME run would overwrite its run id, orphan the paused run, and
+    // let sweepResumableRuns resume it into a second concurrent task.
+    if (
+      run?.status === ExperimentRunStatus.QUEUED ||
+      run?.status === ExperimentRunStatus.RUNNING ||
+      run?.status === ExperimentRunStatus.AWAITING_RESUME
+    ) {
+      return 'inflight'
+    }
     // COMPLETED but unpersisted: in-flight until the grace window (waiting for
     // its rows to land), then treated as stuck and re-dispatched.
     if (

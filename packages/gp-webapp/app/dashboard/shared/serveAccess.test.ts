@@ -135,6 +135,24 @@ describe('serveAccess', () => {
     )
   })
 
+  it('falls back to Briefing Assistant when the requested path is not a serve route', async () => {
+    mockServerFetch.mockResolvedValue({ ok: false, data: null })
+    mockGetCurrentUserOrganizations.mockResolvedValue([
+      campaignOrg,
+      electedOfficeOrg,
+    ])
+    setCookieSlug('campaign-1')
+    setPathname('/dashboard/account')
+
+    await serveAccess()
+
+    // Not the flag-gated Chief of Staff home, which would bounce a flag-off
+    // elected-office user back out.
+    expect(mockRedirect).toHaveBeenCalledWith(
+      '/post-auth-redirect?next=%2Fdashboard%2Fbriefings',
+    )
+  })
+
   it('falls back to /dashboard (no loop) when the elected-office org is already selected', async () => {
     mockServerFetch.mockResolvedValue({ ok: false, data: null })
     mockGetCurrentUserOrganizations.mockResolvedValue([electedOfficeOrg])

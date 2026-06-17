@@ -5,6 +5,7 @@
  * default first org) when landing a user on any of them.
  */
 export const SERVE_ROUTE_PREFIXES = [
+  '/dashboard/chief-of-staff',
   '/dashboard/briefings',
   '/dashboard/polls',
   // Staff briefing review (impersonation) — scoped to the same elected-office

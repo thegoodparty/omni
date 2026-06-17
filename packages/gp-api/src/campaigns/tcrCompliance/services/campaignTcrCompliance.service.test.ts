@@ -778,7 +778,11 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     expect(JSON.stringify(dispatchCall)).not.toContain('actorTokenUrl')
   })
 
-  it.each([ExperimentRunStatus.RUNNING, ExperimentRunStatus.COMPLETED])(
+  it.each([
+    ExperimentRunStatus.QUEUED,
+    ExperimentRunStatus.RUNNING,
+    ExperimentRunStatus.COMPLETED,
+  ])(
     'skips dispatch when claim fails and existing run is %s',
     async (status) => {
       const recordWithRun = {

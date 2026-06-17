@@ -26,6 +26,7 @@ import {
   LogOut,
   Send,
   Settings,
+  Sparkles,
   UserCog,
   UserRound,
   UsersRound,
@@ -68,6 +69,7 @@ import {
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
@@ -241,6 +243,15 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
+  id: 'chief-of-staff-dashboard',
+  label: 'Chief of Staff',
+  link: '/dashboard/chief-of-staff',
+  icon: <MdAutoAwesome />,
+  v2Icon: Sparkles,
+  v2Category: 'elected-office',
+}
+
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
   label: 'Campaign Plan',
@@ -264,6 +275,7 @@ export const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
@@ -283,12 +295,22 @@ export const getDashboardMenuItems = (
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
   }
 
-  // Campaign Manager (dashboard home) is index 0, unless an elected office is
-  // present — then BRIEFINGS is unshifted to index 0 and Campaign Manager moves
-  // to index 1. Insert campaign items right after Campaign Manager (and Story
+  // Chief of Staff is the primary Serve tab (Serve home), so it sits above
+  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
+  // chief-of-staff flag so it can ramp to internal staff independently.
+  const chiefOfStaffShown =
+    serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled
+  if (chiefOfStaffShown) {
+    menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
+  }
+
+  // Campaign Manager (dashboard home) is index 0, pushed down by each item
+  // unshifted above it: BRIEFINGS for an elected office, then Chief of Staff
+  // when shown. Insert campaign items right after Campaign Manager (and Story
   // before Plan, so the Plan splice lands first) to render the campaign-category
   // nav as [Campaign Manager, Campaign Plan, Campaign Story, …].
-  const afterCampaignManager = isElectedOffice ? 2 : 1
+  const afterCampaignManager =
+    1 + (isElectedOffice ? 1 : 0) + (chiefOfStaffShown ? 1 : 0)
 
   if (campaignStoryEnabled) {
     menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
@@ -314,6 +336,7 @@ export default function DashboardMenu({
     useFlagOn('serve-access')
   const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
     useProUpgradeFlag()
+  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
   // Master gate for the Win voter-data rollout. When on, a pro Win campaign
   // sees the Contacts item (reusing the Serve route) in place of the legacy
   // Voter Data item. Read with trackExposure=false — the page is the treatment
@@ -330,6 +353,7 @@ export default function DashboardMenu({
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      chiefOfStaffEnabled,
       campaignStrategyExists,
       winVoterDataEnabled,
       campaignStoryEnabled,
@@ -349,6 +373,7 @@ export default function DashboardMenu({
     electedOffice,
     proUpgradeReady,
     proUpgradeEnabled,
+    chiefOfStaffEnabled,
     campaignStrategyExists,
     winVoterDataEnabled,
     campaignStoryEnabled,

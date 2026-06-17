@@ -69,6 +69,7 @@ import {
 } from '../queue.types'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { v5 as uuidv5 } from 'uuid'
@@ -81,6 +82,11 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
+
+const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
+  ExperimentRunStatus.COMPLETED,
+  ExperimentRunStatus.FAILED,
+]
 
 const buildIssueProperties = (
   issue: PollAnalysisIssue | undefined,
@@ -874,7 +880,10 @@ export class QueueConsumerService {
   // message only says success/failed; data_quality/next_action live in the S3
   // artifact. Falls back to COMPLETED on any read/parse failure so a transient
   // S3 miss never strands a run.
-  private async resolveSuccessPatch(data: AgentExperimentResultData): Promise<{
+  private async resolveSuccessPatch(
+    data: AgentExperimentResultData,
+    experimentType: string,
+  ): Promise<{
     status: ExperimentRunStatus
     stage: string | null
     dataQuality: string | null
@@ -923,7 +932,14 @@ export class QueueConsumerService {
         ? parsedScheduledFor
         : null
 
-    if (overall === 'partial') {
+    // The resume loop exists for compliance_setup recovery. Briefings/schedules
+    // must never auto-resume on a partial; they fall through to COMPLETED (where
+    // onExperimentRunCompleted skips writing a MeetingBriefing row for the
+    // awaiting_agenda placeholder, leaving the next cron to retry).
+    const resumable = !(
+      NON_RESUMABLE_EXPERIMENT_TYPES as readonly string[]
+    ).includes(experimentType)
+    if (overall === 'partial' && resumable) {
       return {
         status: ExperimentRunStatus.AWAITING_RESUME,
         stage,
@@ -952,26 +968,37 @@ export class QueueConsumerService {
       return true
     }
 
-    if (run.status !== ExperimentRunStatus.RUNNING) {
+    if (TERMINAL_STATUSES.includes(run.status)) {
       this.logger.info(
-        { runId: data.runId },
-        'Experiment run already completed, skipping',
+        { runId: data.runId, status: run.status },
+        'Experiment run already terminal, skipping',
       )
       return true
     }
 
+    // The scheduler emits `started` when it actually launches the Fargate task.
+    // Move QUEUED -> RUNNING so the 45-minute stale sweep measures execution
+    // time, not queue-wait time. Idempotent: a RUNNING/AWAITING_RESUME row is
+    // left untouched.
+    if (data.status === 'started') {
+      await this.experimentRunsService.markStarted(data.runId)
+      return true
+    }
+
     const successPatch =
-      data.status === 'success' ? await this.resolveSuccessPatch(data) : null
+      data.status === 'success'
+        ? await this.resolveSuccessPatch(data, run.experimentType)
+        : null
 
     const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
       { where: { runId: data.runId } },
       async (currentRun) => {
-        if (currentRun.status !== ExperimentRunStatus.RUNNING) {
+        if (TERMINAL_STATUSES.includes(currentRun.status)) {
           this.logger.info(
             { runId: data.runId },
-            'Experiment run already completed, skipping',
+            'Experiment run already terminal, skipping',
           )
-          throw new Error('Experiment run already completed')
+          throw new Error('Experiment run already terminal')
         }
         return {
           status: successPatch
@@ -1009,9 +1036,10 @@ export class QueueConsumerService {
     // failure surfaces (requeue + DLQ visibility) rather than silently acking
     // a COMPLETED run that never got its section persisted. This is for
     // visibility, not retry: onExperimentRunCompleted already calls markFailed
-    // before it rethrows, so on redelivery the status guard above (!= RUNNING)
-    // drops the message. That same guard bounds the requeue, so the raw throw
-    // can't infinite-redrive. The user-facing 'failed' state comes from
+    // before it rethrows, so on redelivery the status guard above
+    // (terminal-status check) drops the message. That same guard bounds the
+    // requeue, so the raw throw can't infinite-redrive. The user-facing
+    // 'failed' state comes from
     // markFailed (or, if markFailed itself faults, the isStuck grace-window
     // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
     // non-campaign-strategy runs, so this only throws on a real persist failure.

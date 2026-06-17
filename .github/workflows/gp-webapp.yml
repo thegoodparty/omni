@@ -108,6 +108,36 @@ jobs:
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
           api-base: ${{ steps.ctx.outputs.api_base }}
 
+  # The Storybook styleguide (packages/gp-webapp/styleguide) ships to its own
+  # Vercel project, served at style.goodparty.org. Only on merges to develop —
+  # it's a single-environment site. vercel build runs the project's configured
+  # `build-storybook` on the runner against the installed workspace deps (same
+  # as the webapp's next build), then deploys --prebuilt to the project's
+  # production target, which Vercel serves at its production domain.
+  deploy-styleguide:
+    name: Deploy styleguide
+    if: >-
+      github.event_name == 'push' && github.ref_name == 'develop'
+      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: "true"
+
+      - name: Deploy to Vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
+          target: production
+
   # Imperatively run the Playwright suite against the freshly deployed preview.
   # Depends on deploy (not on Validate) so e2e starts as soon as the preview URL
   # exists. Runs on PRs and on develop pushes (the dev deploy), not qa/master.
