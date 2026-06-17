@@ -65,7 +65,7 @@ const CampaignPlanStoryGate = ({
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
           <Link href="/dashboard/campaign-story">
-            Let&apos;s update the Story
+            Let&apos;s update my Story
           </Link>
         </Button>
       </div>
