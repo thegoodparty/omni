@@ -5,6 +5,12 @@ const meta: Meta<typeof AspectRatio> = {
   title: 'Components/Aspect Ratio',
   component: AspectRatio,
   tags: ['autodocs'],
+  argTypes: {
+    ratio: {
+      control: { type: 'number', min: 0.25, max: 4, step: 0.05 },
+      description: 'Width-to-height ratio. 16/9 ≈ 1.78, 4/3 ≈ 1.33, 1/1 = 1.',
+    },
+  },
 }
 
 export default meta
@@ -23,13 +29,6 @@ const Gradient = ({ className }: { className?: string }) => (
 export const Playground: Story = {
   args: {
     ratio: 16 / 9,
-  },
-  argTypes: {
-    ratio: {
-      name: 'Ratio',
-      control: { type: 'number', min: 0.25, max: 4, step: 0.05 },
-      description: 'Width-to-height ratio. 16/9 ≈ 1.78, 4/3 ≈ 1.33, 1/1 = 1.',
-    },
   },
   render: (args) => (
     <div className="w-96">
