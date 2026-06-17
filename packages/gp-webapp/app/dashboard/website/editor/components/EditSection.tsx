@@ -137,7 +137,7 @@ export default function EditSection({
       <div className="mt-auto flex justify-between">
         <Button
           className="block lg:hidden"
-          variant="secondary"
+          variant="neutral"
           size="large"
           onClick={onClose}
         >

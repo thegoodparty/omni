@@ -135,7 +135,7 @@ export const ServiceAgreementPage = ({
           <div className="flex flex-col justify-between md:flex-row">
             <Button
               asChild
-              variant="secondary"
+              variant="neutral"
               className="w-full mb-4 md:mb-0 md:w-auto"
             >
               <Link

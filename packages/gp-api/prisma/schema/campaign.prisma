@@ -50,6 +50,7 @@ model Campaign {
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
   electedOffices           ElectedOffice[]
+  voterOutreachActivities  VoterOutreachActivity[]
 
   @@index([slug])
   @@map("campaign")

@@ -152,7 +152,7 @@ export default function CreateSurvey({
               </div>
             ))}
             <div className="flex justify-end mt-6 items-center">
-              <Button variant="secondary" onClick={() => setIsOpen(false)}>
+              <Button variant="neutral" onClick={() => setIsOpen(false)}>
                 Cancel
               </Button>
               <Button

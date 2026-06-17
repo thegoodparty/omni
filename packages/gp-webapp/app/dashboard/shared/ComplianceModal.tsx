@@ -129,21 +129,21 @@ export function ComplianceModal({
         <H1 className="m-0 sm:whitespace-nowrap">{title}</H1>
         <Body2 className="my-4">{description}</Body2>
         <div className="flex justify-between gap-4 mt-8">
-          <Button size="large" variant="secondary" onClick={onClose}>
+          <Button size="large" variant="neutral" onClick={onClose}>
             Cancel
           </Button>
           {ctaHref ? (
             ctaHref.startsWith('mailto:') ? (
-              <Button asChild size="large" variant="secondary">
+              <Button asChild size="large" variant="neutral">
                 <a href={ctaHref}>{cta}</a>
               </Button>
             ) : (
-              <Button asChild size="large" variant="secondary">
+              <Button asChild size="large" variant="neutral">
                 <Link href={ctaHref}>{cta}</Link>
               </Button>
             )
           ) : (
-            <Button size="large" variant="secondary" onClick={onClose}>
+            <Button size="large" variant="neutral" onClick={onClose}>
               {cta}
             </Button>
           )}

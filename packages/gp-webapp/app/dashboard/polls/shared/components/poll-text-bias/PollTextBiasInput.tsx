@@ -280,7 +280,7 @@ export default function PollTextBiasInput({
       />
       <div className="absolute bottom-3 right-3 z-10">
         <Button
-          variant="secondary"
+          variant="neutral"
           className={`border-0 shadow-sm disabled:text-gray-500 disabled:bg-gray-100 disabled:opacity-100 font-normal ${
             hasIssues
               ? 'text-warning-dark bg-warning-background hover:!bg-orange-100 active:!bg-warning-background'

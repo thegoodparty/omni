@@ -4,6 +4,7 @@ import Body1 from '@shared/typography/Body1'
 import H1 from '@shared/typography/H1'
 import ScheduleModal from 'app/onboarding/shared/ScheduleModal'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 import Image from 'next/image'
 
@@ -28,7 +29,13 @@ const ElectionOver = (): React.JSX.Element => {
       {isPro && (
         <ScheduleModal
           calendar="https://join.goodparty.org/meetings/campaign-success/election-debrief"
-          btn={<Button>Contact us for a debrief</Button>}
+          btn={
+            <Button
+              onClick={() => trackEvent(EVENTS.Candidacy.DebriefClicked, {})}
+            >
+              Contact us for a debrief
+            </Button>
+          }
         />
       )}
     </section>

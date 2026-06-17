@@ -1,3 +1,10 @@
+// Injection token for EcanvasserAttributionService. Used so the integration
+// service can inject it via `import type` without a runtime import, breaking the
+// module-eval cycle (integration → attribution → contacts → features → users →
+// … → crmCampaigns → integration) that would otherwise leave UsersService
+// undefined at bootstrap.
+export const ECANVASSER_ATTRIBUTION_SERVICE = 'ECANVASSER_ATTRIBUTION_SERVICE'
+
 export interface EcanvasserSummary {
   contacts: number
   houses: number
@@ -10,6 +17,7 @@ export interface EcanvasserSummary {
 
 // API Response Types (snake_case)
 export interface ApiEcanvasserContact {
+  id: number
   first_name: string
   last_name: string
   type: string

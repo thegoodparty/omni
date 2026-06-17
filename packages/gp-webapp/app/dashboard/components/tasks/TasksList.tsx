@@ -289,16 +289,17 @@ const TasksList = ({
     const daysFromDueDate = taskDueDate
       ? differenceInDays(new Date(), new Date(taskDueDate.replace(/-/g, '/')))
       : null
-    if (campaignPlanTaskType) {
-      trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
-        statusChange,
-        taskType: campaignPlanTaskType,
-        taskName: task.title,
-        taskDueDate,
-        daysFromDueDate,
-        source,
-      })
-    }
+    // Completion is a meaningful outcome for every task type, not just the
+    // outreach types with a normalized label — fall back to the raw flowType
+    // so education/compliance/etc. completions aren't dropped.
+    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
+      statusChange,
+      taskType: campaignPlanTaskType ?? task.flowType,
+      taskName: task.title,
+      taskDueDate,
+      daysFromDueDate,
+      source,
+    })
   }
 
   const handleCheckClick = async (task: Task) => {

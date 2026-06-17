@@ -30,7 +30,7 @@ export default function CandidateProfile(): React.JSX.Element {
 
       <div className="mx-auto flex w-full max-w-2xl justify-end p-4 md:p-8">
         <Button
-          variant="secondary"
+          variant="neutral"
           type="button"
           onClick={() => void form.handleSubmit()}
           loading={form.submitting}

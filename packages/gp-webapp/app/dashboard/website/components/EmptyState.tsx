@@ -26,7 +26,7 @@ const EmptyState = ({
       </Body2>
       <StepList />
       <Button
-        variant="secondary"
+        variant="neutral"
         className="mt-12 w-full md:w-auto px-10"
         onClick={onClickCreate}
         disabled={createLoading}

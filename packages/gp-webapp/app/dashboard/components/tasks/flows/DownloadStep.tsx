@@ -93,7 +93,7 @@ export default function DownloadStep({
         />
         <Button
           size="large"
-          variant="secondary"
+          variant="neutral"
           onClick={handleDownload}
           disabled={downloading}
           loading={downloading}
@@ -101,7 +101,7 @@ export default function DownloadStep({
         >
           Download voter list
         </Button>
-        <Button asChild size="large" variant="secondary" {...blogTrackingAttrs}>
+        <Button asChild size="large" variant="neutral" {...blogTrackingAttrs}>
           <Link
             href={blogUrl}
             target="_blank"

@@ -26,7 +26,7 @@ const DashboardOrContinue = ({
     return (
       <Button
         asChild
-        variant="secondary"
+        variant="neutral"
         id="nav-continue-setup"
         onClick={closeAll}
         className="!py-2 !text-base font-medium border-none ml-2"
@@ -50,7 +50,7 @@ const DashboardOrContinue = ({
       ) : (
         <Button
           asChild
-          variant="secondary"
+          variant="neutral"
           id="nav-continue-onboarding"
           onClick={closeAll}
           className="!py-2 !text-base font-medium border-none"

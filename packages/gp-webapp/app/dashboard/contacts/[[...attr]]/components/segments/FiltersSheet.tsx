@@ -152,6 +152,7 @@ export default function Filters({
     refreshCustomSegments,
     selectSegment,
     isElectedOfficial,
+    isWinContext,
   } = useContactsTable()
 
   const displayFilterSections = useMemo(
@@ -191,6 +192,7 @@ export default function Filters({
       successSnackbar('Segment created successfully')
       trackEvent(EVENTS.Contacts.SegmentCreated, {
         filters: filterOnlyTrueValues(filters),
+        context: isWinContext ? 'win' : 'serve',
       })
       await refreshCustomSegments()
       afterSave(response.id)
@@ -214,6 +216,7 @@ export default function Filters({
       successSnackbar('Segment updated successfully')
       trackEvent(EVENTS.Contacts.SegmentUpdated, {
         filters: filterOnlyTrueValues(filters),
+        context: isWinContext ? 'win' : 'serve',
       })
       await refreshCustomSegments()
       selectSegment(variables.id.toString())

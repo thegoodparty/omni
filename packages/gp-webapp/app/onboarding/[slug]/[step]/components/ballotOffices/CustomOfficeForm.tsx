@@ -208,7 +208,7 @@ export default function CustomOfficeForm({
       </div>
 
       <div className="flex justify-between mt-12">
-        <Button variant="secondary" size="medium" onClick={onBack}>
+        <Button variant="neutral" size="medium" onClick={onBack}>
           Back to search
         </Button>
         <Button

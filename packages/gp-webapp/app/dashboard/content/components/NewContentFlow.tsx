@@ -173,7 +173,7 @@ const NewContentFlow = (props: NewContentFlowProps): React.JSX.Element => {
             "
           >
             <Button
-              variant="secondary"
+              variant="neutral"
               size="medium"
               disabled={isProcessing}
               onClick={closeModal}
