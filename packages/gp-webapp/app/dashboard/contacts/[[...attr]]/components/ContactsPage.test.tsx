@@ -52,6 +52,7 @@ const setContext = (overrides: Partial<ContextValue>) => {
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
     isWinContext: false,
+    isElectedOfficeLoading: false,
     ...overrides,
   } as ContextValue)
 }
@@ -61,23 +62,52 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  it('fires Contacts Viewed with win context for a Win campaign', () => {
+  it('fires Contacts Viewed once with win context for a Win campaign', () => {
     setContext({ isWinContext: true })
 
     render(<ContactsPage />)
 
+    expect(trackEvent).toHaveBeenCalledTimes(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
       context: 'win',
     })
   })
 
-  it('fires Contacts Viewed with serve context for an elected official', () => {
+  it('fires Contacts Viewed once with serve context for an elected official', () => {
     setContext({ isWinContext: false })
 
     render(<ContactsPage />)
 
+    expect(trackEvent).toHaveBeenCalledTimes(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
       context: 'serve',
+    })
+  })
+
+  it('does not fire while the elected-office query is loading', () => {
+    setContext({ isWinContext: false, isElectedOfficeLoading: true })
+
+    render(<ContactsPage />)
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('fires once with win context after loading settles, with no spurious serve event', () => {
+    // Reproduces the production sequence for a Win user: isWinContext is false
+    // while isElectedOfficeLoading is true, then both flip once the query
+    // settles. The event must fire exactly once, with win — never a serve event
+    // on the loading render.
+    setContext({ isWinContext: false, isElectedOfficeLoading: true })
+
+    const { rerender } = render(<ContactsPage />)
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    setContext({ isWinContext: true, isElectedOfficeLoading: false })
+    rerender(<ContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'win',
     })
   })
 })

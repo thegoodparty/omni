@@ -25,13 +25,19 @@ export default function ContactsPage() {
     totalSegmentContacts,
     isVoterDataUnavailable,
     isWinContext,
+    isElectedOfficeLoading,
   } = useContactsTable()
 
+  // isWinContext starts false while the elected-office query is loading, then
+  // flips to true for a Win user once it settles. Wait for it to settle so we
+  // fire one Contacts Viewed with the right context, not a spurious serve event
+  // followed by a win one on every Win page load.
   useEffect(() => {
+    if (isElectedOfficeLoading) return
     trackEvent(EVENTS.Contacts.Viewed, {
       context: isWinContext ? 'win' : 'serve',
     })
-  }, [isWinContext])
+  }, [isElectedOfficeLoading, isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>

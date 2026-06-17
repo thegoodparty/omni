@@ -91,6 +91,7 @@ interface ContactsTableState {
   canUseProFeatures: boolean
   isElectedOfficial: boolean
   isWinContext: boolean
+  isElectedOfficeLoading: boolean
 }
 
 interface ContactsTableActions {
@@ -482,6 +483,7 @@ export const ContactsTableProvider = ({
     canUseProFeatures,
     isElectedOfficial,
     isWinContext,
+    isElectedOfficeLoading,
     pageUp,
     pageDown,
     goToPage,
