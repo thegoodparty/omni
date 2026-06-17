@@ -8,6 +8,7 @@ import { Module } from '@nestjs/common'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { FeaturesModule } from '@/features/features.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   TavilySearchProvider,
@@ -37,23 +38,20 @@ const searchProviderFactory = (): SearchProvider | null => {
 }
 
 // Aggregate-only Databricks provider for the constituent-data tool. Reads the
-// SAME shared DATABRICKS_* credential the briefing chat uses (same hostname,
-// path, token, catalog, and schema). Returns null unless host/path/token are
-// set, so with no key configured the tool never registers and prod/local stay
-// off until the key is deployed. The aggregate-only safety comes from the
-// app-layer scope (allowlist + forbidden columns + cell-size floor), not from a
-// separate warehouse identity.
+// SAME shared Databricks credential the briefing chat uses (OAuth M2M, or a PAT
+// fallback — see resolveDatabricksConnection), against the serve_agent_voters
+// mart in the mart_serve_agents schema. Returns null unless host/path and a
+// credential are set, so with nothing configured the tool never registers and
+// prod/local stay off until the credential is deployed. The aggregate-only
+// safety comes from the app-layer scope (allowlist + forbidden columns +
+// cell-size floor), not from a separate warehouse identity.
 const constituentDataProviderFactory = (): DatabricksProvider | null => {
-  const hostname = process.env.DATABRICKS_SERVER_HOSTNAME
-  const httpPath = process.env.DATABRICKS_HTTP_PATH
-  const accessToken = process.env.DATABRICKS_API_KEY
-  if (!hostname || !httpPath || !accessToken) return null
+  const conn = resolveDatabricksConnection()
+  if (!conn) return null
   return new DatabricksSqlProvider({
-    hostname,
-    httpPath,
-    accessToken,
+    ...conn,
     catalog: 'goodparty_data_catalog',
-    schema: 'dbt',
+    schema: 'mart_serve_agents',
   })
 }
 

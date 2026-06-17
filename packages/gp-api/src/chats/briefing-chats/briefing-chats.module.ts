@@ -6,6 +6,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ChatsModule } from '@/chats/chats.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   TavilySearchProvider,
@@ -26,14 +27,10 @@ import { BriefingNotesService } from './services/briefingNotes.service'
 import { DistrictResolverService } from './services/districtResolver.service'
 
 const databricksProviderFactory = (): DatabricksProvider | null => {
-  const hostname = process.env.DATABRICKS_SERVER_HOSTNAME
-  const httpPath = process.env.DATABRICKS_HTTP_PATH
-  const accessToken = process.env.DATABRICKS_API_KEY
-  if (!hostname || !httpPath || !accessToken) return null
+  const conn = resolveDatabricksConnection()
+  if (!conn) return null
   return new DatabricksSqlProvider({
-    hostname,
-    httpPath,
-    accessToken,
+    ...conn,
     catalog: 'goodparty_data_catalog',
     schema: 'dbt',
   })

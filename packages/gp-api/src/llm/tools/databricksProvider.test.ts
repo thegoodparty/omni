@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DatabricksSqlProvider,
   type DbsqlClientLike,
+  type DbsqlConnectOptions,
   type DbsqlOperationLike,
   type DbsqlSessionInstanceLike,
   type DbsqlSessionLike,
@@ -390,8 +391,8 @@ describe('DatabricksSqlProvider', () => {
     ).not.toThrow()
   })
 
-  it('passes connection credentials to the underlying client', async () => {
-    const connectArgs: Array<{ host: string; path: string; token: string }> = []
+  it('passes a PAT to the underlying client', async () => {
+    const connectArgs: DbsqlConnectOptions[] = []
     const factory = (): DbsqlClientLike => ({
       connect: async (opts) => {
         connectArgs.push(opts)
@@ -422,5 +423,53 @@ describe('DatabricksSqlProvider', () => {
         token: 'dapi-token',
       },
     ])
+  })
+
+  it('uses OAuth M2M when client id + secret are set (over a PAT)', async () => {
+    const connectArgs: DbsqlConnectOptions[] = []
+    const factory = (): DbsqlClientLike => ({
+      connect: async (opts) => {
+        connectArgs.push(opts)
+        return {
+          openSession: async () => ({
+            executeStatement: async () =>
+              makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+            close: async () => noop(),
+          }),
+          close: async () => noop(),
+        }
+      },
+    })
+
+    const provider = new DatabricksSqlProvider({
+      hostname: HOST,
+      httpPath: PATH,
+      accessToken: 'dapi-token',
+      oauthClientId: 'client-id',
+      oauthClientSecret: 'client-secret',
+      clientFactory: factory,
+    })
+
+    await provider.query(SELECT_N)
+
+    expect(connectArgs).toEqual([
+      {
+        host: HOST,
+        path: PATH,
+        authType: 'databricks-oauth',
+        oauthClientId: 'client-id',
+        oauthClientSecret: 'client-secret',
+      },
+    ])
+  })
+
+  it('throws on query when no credential is configured', async () => {
+    const provider = new DatabricksSqlProvider({
+      hostname: HOST,
+      httpPath: PATH,
+      clientFactory: () => ({ connect: async () => ({}) as never }),
+    })
+
+    await expect(provider.query(SELECT_N)).rejects.toThrow(/no credential/)
   })
 })

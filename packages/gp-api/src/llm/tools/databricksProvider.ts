@@ -25,18 +25,27 @@ export interface DbsqlSessionLike {
   close: () => Promise<void>
 }
 
+export type DbsqlConnectOptions = { host: string; path: string } & (
+  | { token: string }
+  | {
+      authType: 'databricks-oauth'
+      oauthClientId: string
+      oauthClientSecret: string
+    }
+)
+
 export interface DbsqlClientLike {
-  connect: (opts: {
-    token: string
-    host: string
-    path: string
-  }) => Promise<DbsqlSessionLike>
+  connect: (opts: DbsqlConnectOptions) => Promise<DbsqlSessionLike>
 }
 
 export interface DatabricksSqlProviderOptions {
   hostname: string
   httpPath: string
-  accessToken: string
+  // Provide either a PAT (accessToken) or OAuth M2M service-principal creds
+  // (oauthClientId + oauthClientSecret). OAuth wins when both are present.
+  accessToken?: string
+  oauthClientId?: string
+  oauthClientSecret?: string
   catalog?: string
   schema?: string
   clientFactory?: () => DbsqlClientLike
@@ -148,13 +157,30 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     return this.session
   }
 
+  private connectOptions(): DbsqlConnectOptions {
+    const host = this.opts.hostname
+    const path = this.opts.httpPath
+    if (this.opts.oauthClientId && this.opts.oauthClientSecret) {
+      return {
+        host,
+        path,
+        authType: 'databricks-oauth',
+        oauthClientId: this.opts.oauthClientId,
+        oauthClientSecret: this.opts.oauthClientSecret,
+      }
+    }
+    if (this.opts.accessToken) {
+      return { host, path, token: this.opts.accessToken }
+    }
+    throw new Error(
+      'DatabricksSqlProvider: no credential — set oauthClientId + ' +
+        'oauthClientSecret, or accessToken',
+    )
+  }
+
   private async openSession(): Promise<void> {
     const client = this.clientFactory()
-    const conn = await client.connect({
-      token: this.opts.accessToken,
-      host: this.opts.hostname,
-      path: this.opts.httpPath,
-    })
+    const conn = await client.connect(this.connectOptions())
     let session: DbsqlSessionInstanceLike
     try {
       session = await conn.openSession()

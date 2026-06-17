@@ -1,6 +1,6 @@
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { ConstituentDataScope } from '@/llm/tools/queryConstituentData.tool'
-import { HAYSTAQ_DIMENSIONS } from './constituentDimensions.haystaq'
+import { SERVE_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.serveAgentVoters'
 
 // Suppression floor for aggregate cells. Counts below this are dropped before
 // any result reaches the model (anti-differencing backstop).
@@ -12,21 +12,19 @@ export interface ConstituentTableConfig {
 }
 
 // App-layer allowlist (lever 1): a deliberate, code-reviewed security control
-// kept in code (typed, reviewed, covered by bypass tests) NOT env. Add a table
-// here only when the data team approves it (one reviewed line). Empty by
-// default, so the tool stays unregistered until an approved table lands.
-// TODO(data-team): add the approved aggregate table(s), e.g.
-//   { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] }
-//
-// TEMPORARY (flag-gated): the Haystaq L2 table with every non-PII / non-party
-// column as an allowed aggregate dimension, so internal testers with the
-// cos-constituent-data-tool flag can exercise the tool end-to-end. NOT a
-// production allowlist — before broad rollout this must be replaced with a
-// small curated set and the tool moved onto a scoped, PII-excluding credential.
+// kept in code (typed, reviewed, covered by bypass tests) NOT env. The approved
+// surface is the purpose-built serve_agent_voters mart, curated upstream by the
+// research + product teams: one pseudonymous row per voter (voter_key is a
+// SHA-256 hash, never the raw L2 id), modeled issue scores, and geography. The
+// table is the allowlist — columns are added/removed there, and the dimension
+// list mirrors it (regenerate constituentDimensions.serveAgentVoters.ts when the
+// schema changes). Aggregate-only safety still comes from the SQL validator,
+// mandatory district filters, the forbidden-column backstop, and the cell-size
+// floor below.
 export const CONSTITUENT_TABLES: ConstituentTableConfig[] = [
   {
-    table: 'int__l2_nationwide_uniform_w_haystaq',
-    dimensions: HAYSTAQ_DIMENSIONS,
+    table: 'serve_agent_voters',
+    dimensions: SERVE_AGENT_VOTER_DIMENSIONS,
   },
 ]
 
