@@ -53,6 +53,15 @@ const parseArgs = () => {
   if (Number.isNaN(failedBefore.getTime())) {
     throw new Error(`--failed-before is not a valid date: ${before}`)
   }
+  // A future cutoff would re-match runs that exhausted their attempts AFTER the
+  // fix (legitimate failures), looping them forever — the exact case the flag
+  // exists to prevent. Only a past timestamp can mean "before the fix shipped".
+  if (failedBefore.getTime() >= Date.now()) {
+    throw new Error(
+      `--failed-before must be in the past (got ${failedBefore.toISOString()}). ` +
+        'Pass the deploy timestamp, not a future date.',
+    )
+  }
   return { execute, failedBefore }
 }
 
