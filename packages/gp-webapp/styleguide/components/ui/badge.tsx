@@ -20,7 +20,7 @@ const badgeVariants = cva(
           'text-foreground [a&]:hover:bg-base-accent [a&]:hover:text-base-accent-foreground [button&]:hover:bg-base-accent [button&]:hover:text-base-accent-foreground',
       },
       shape: {
-        default: 'rounded-md px-3 py-1',
+        default: 'rounded-md px-2.5 py-1',
         pill: 'rounded-full h-5 min-w-5 px-1.5',
       },
     },
