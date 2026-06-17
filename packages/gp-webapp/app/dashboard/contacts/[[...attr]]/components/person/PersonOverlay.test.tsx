@@ -44,12 +44,14 @@ function setContext({
   selectedPerson,
   isElectedOfficial = false,
   isWinContext = false,
+  isWinContextReady = true,
   selectPerson = vi.fn(),
 }: {
   selectedPersonId?: string | null
   selectedPerson?: Partial<SelectedPerson>
   isElectedOfficial?: boolean
   isWinContext?: boolean
+  isWinContextReady?: boolean
   selectPerson?: ContextValue['selectPerson']
 } = {}) {
   const currentlySelectedPerson: SelectedPerson = {
@@ -88,7 +90,7 @@ function setContext({
     canUseProFeatures: true,
     isElectedOfficial,
     isWinContext,
-    isWinContextReady: true,
+    isWinContextReady,
     pageUp: vi.fn(),
     pageDown: vi.fn(),
     goToPage: vi.fn(),
@@ -342,6 +344,123 @@ describe('<PersonOverlay>', () => {
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       expect.anything(),
+    )
+  })
+
+  it('does not fire Outreach Timeline Viewed until the win context is ready', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      isWinContextReady: false,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('fires Outreach Timeline Viewed once per person across an error-recovery re-render', () => {
+    // The feed stays mounted (isWinContext true) but a failed refetch flips
+    // isErrorActivities true (stale rows retained) then false on recovery.
+    // That re-runs the effect for the same person; the per-person latch must
+    // keep the event at exactly one fire.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    const { rerender } = render(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_42' },
+    )
+
+    // Refetch fails: stale rows retained, isError true (no fire).
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities, isErrorActivities: true },
+    })
+    rerender(<PersonOverlay />)
+
+    // Recovery: rows present again, isError false. Latch must suppress.
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+    rerender(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms Outreach Timeline Viewed when a different person is opened', () => {
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    const { rerender } = render(<PersonOverlay />)
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_99',
+      selectedPerson: { activities },
+    })
+    rerender(<PersonOverlay />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(2)
+    expect(trackEvent).toHaveBeenLastCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      { context: 'win', personId: 'p_99' },
     )
   })
 
