@@ -97,13 +97,13 @@ export const States: Story = {
         <CheckboxLabel
           id="focused-unchecked"
           label="Unchecked focused"
-          className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-base-focus-ring"
+          checkboxClassName="ring-[3px] ring-components-input-focus border-base-focus-ring"
         />
         <CheckboxLabel
           id="focused-checked"
           label="Checked focused"
           defaultChecked
-          className="[&_[data-slot=checkbox]]:ring-[3px] [&_[data-slot=checkbox]]:ring-components-input-focus [&_[data-slot=checkbox]]:border-components-input-active"
+          checkboxClassName="ring-[3px] ring-components-input-focus border-components-input-active"
         />
       </div>
       <div className="flex flex-col gap-3">

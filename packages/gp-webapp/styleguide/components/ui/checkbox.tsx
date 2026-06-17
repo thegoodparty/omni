@@ -36,6 +36,7 @@ interface CheckboxLabelProps extends React.ComponentProps<
   id: string
   label: string
   description?: string
+  checkboxClassName?: string
 }
 
 function CheckboxLabel({
@@ -43,6 +44,7 @@ function CheckboxLabel({
   label,
   description,
   className,
+  checkboxClassName,
   disabled,
   ...props
 }: CheckboxLabelProps) {
@@ -59,6 +61,7 @@ function CheckboxLabel({
           id={id}
           aria-describedby={descriptionId}
           disabled={disabled}
+          className={checkboxClassName}
           {...props}
         />
       </span>
