@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   EcanvasserContact,
@@ -227,6 +228,32 @@ describe('EcanvasserAttributionService', () => {
 
     vi.spyOn(contacts, 'findPersonByPhone').mockRejectedValue(
       new Error('people-api down'),
+    )
+
+    const result = await attribution.attributeDoorKnocking(
+      campaignId,
+      organization,
+      ecanvasser.contacts,
+      ecanvasser.interactions,
+    )
+
+    expect(result).toEqual({ matched: 0, skipped: 0 })
+    const count = await service.prisma.voterOutreachActivity.count({
+      where: { campaignId },
+    })
+    expect(count).toBe(0)
+  })
+
+  it('stops without throwing when the campaign is ineligible (non-pro)', async () => {
+    const { campaignId, organization } = await seedCampaign('ineligible')
+    const ecanvasser = await seedEcanvasser(
+      campaignId,
+      { externalId: 106, lastName: 'Smith', mobilePhone: '5556667777' },
+      { externalId: 906, contactId: 106 },
+    )
+
+    vi.spyOn(contacts, 'findPersonByPhone').mockRejectedValue(
+      new BadRequestException('Search is only available for pro campaigns'),
     )
 
     const result = await attribution.attributeDoorKnocking(
