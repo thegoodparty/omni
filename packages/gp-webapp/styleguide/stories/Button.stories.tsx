@@ -150,45 +150,87 @@ export const States: Story = {
 
       <span className={labelClass}>Default</span>
       <Button variant="default">Button</Button>
-      <Button variant="default" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="default" loading>Button</Button>
-      <Button variant="default" disabled>Button</Button>
+      <Button variant="default" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="default" loading>
+        Button
+      </Button>
+      <Button variant="default" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Secondary</span>
       <Button variant="secondary">Button</Button>
-      <Button variant="secondary" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="secondary" loading>Button</Button>
-      <Button variant="secondary" disabled>Button</Button>
+      <Button variant="secondary" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="secondary" loading>
+        Button
+      </Button>
+      <Button variant="secondary" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Destructive</span>
       <Button variant="destructive">Button</Button>
-      <Button variant="destructive" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="destructive" loading>Button</Button>
-      <Button variant="destructive" disabled>Button</Button>
+      <Button variant="destructive" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="destructive" loading>
+        Button
+      </Button>
+      <Button variant="destructive" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Outline</span>
       <Button variant="outline">Button</Button>
-      <Button variant="outline" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="outline" loading>Button</Button>
-      <Button variant="outline" disabled>Button</Button>
+      <Button variant="outline" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="outline" loading>
+        Button
+      </Button>
+      <Button variant="outline" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Ghost</span>
       <Button variant="ghost">Button</Button>
-      <Button variant="ghost" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="ghost" loading>Button</Button>
-      <Button variant="ghost" disabled>Button</Button>
+      <Button variant="ghost" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="ghost" loading>
+        Button
+      </Button>
+      <Button variant="ghost" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Neutral</span>
       <Button variant="neutral">Button</Button>
-      <Button variant="neutral" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="neutral" loading>Button</Button>
-      <Button variant="neutral" disabled>Button</Button>
+      <Button variant="neutral" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="neutral" loading>
+        Button
+      </Button>
+      <Button variant="neutral" disabled>
+        Button
+      </Button>
 
       <span className={labelClass}>Link</span>
       <Button variant="link">Button</Button>
-      <Button variant="link" icon={<DownloadIcon />}>Button</Button>
-      <Button variant="link" loading>Button</Button>
-      <Button variant="link" disabled>Button</Button>
+      <Button variant="link" icon={<DownloadIcon />}>
+        Button
+      </Button>
+      <Button variant="link" loading>
+        Button
+      </Button>
+      <Button variant="link" disabled>
+        Button
+      </Button>
     </div>
   ),
 }

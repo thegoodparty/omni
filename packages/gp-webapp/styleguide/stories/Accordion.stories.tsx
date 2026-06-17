@@ -91,7 +91,9 @@ export const States: Story = {
   render: () => (
     <div className="flex w-full flex-col gap-10">
       <div>
-        <p className="mb-2 text-sm text-muted-foreground">Default — all closed</p>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Default — all closed
+        </p>
         <Accordion type="single" collapsible className="w-full">
           {items.map(({ value, question, answer }) => (
             <AccordionItem key={value} value={value}>
@@ -145,7 +147,11 @@ export const States: Story = {
         </p>
         <Accordion type="single" collapsible className="w-full">
           {items.map(({ value, question, answer }) => (
-            <AccordionItem key={value} value={value} disabled={value === 'item-2'}>
+            <AccordionItem
+              key={value}
+              value={value}
+              disabled={value === 'item-2'}
+            >
               <AccordionTrigger>{question}</AccordionTrigger>
               <AccordionContent>{answer}</AccordionContent>
             </AccordionItem>
@@ -169,4 +175,3 @@ export const States: Story = {
     </div>
   ),
 }
-

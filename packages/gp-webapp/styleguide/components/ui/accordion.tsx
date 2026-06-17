@@ -77,7 +77,9 @@ function AccordionContent({
       )}
       {...props}
     >
-      <div className={size === 'sm' ? 'pt-0 pb-3' : 'pt-0 pb-4'}>{children}</div>
+      <div className={size === 'sm' ? 'pt-0 pb-3' : 'pt-0 pb-4'}>
+        {children}
+      </div>
     </AccordionPrimitive.Content>
   )
 }
