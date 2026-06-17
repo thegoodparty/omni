@@ -15,6 +15,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 
 export default function ContactsPage() {
   const [campaign] = useCampaign()
@@ -27,6 +28,7 @@ export default function ContactsPage() {
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
+  const labels = getContactsLabels(isWinContext)
 
   // isWinContext reads false until both the elected-office query and the
   // win-voter-data flag settle, so firing before then would emit a spurious
@@ -47,9 +49,9 @@ export default function ContactsPage() {
       <DashboardLayout>
         <Paper className="h-full">
           <div className="flex flex-col">
-            <h1 className="text-3xl font-semibold">Constituents</h1>
+            <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
             <p className="text-lg font-normal text-muted-foreground">
-              Manage and filter on your constituent list
+              {labels.subheading}
             </p>
           </div>
 

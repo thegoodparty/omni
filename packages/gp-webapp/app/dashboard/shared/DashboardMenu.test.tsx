@@ -39,6 +39,9 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     // Win orgs render under the 'campaign' category, so the item must be
     // categorized there to survive the sidebar's category filter.
     expect(contacts?.v2Category).toBe('campaign')
+    // Win reads "Voter Data" (v2Name is the displayed label), never
+    // "Constituents" (ENG-10448).
+    expect(contacts?.v2Name).toBe('Voter Data')
     expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
   })
 
@@ -72,6 +75,8 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
       const contacts = items.find((i) => i.id === 'contacts-dashboard')
       expect(contacts).toBeDefined()
       expect(contacts?.v2Category).toBe('elected-office')
+      // Serve reads "Constituent Data" in the sidebar (ENG-10448).
+      expect(contacts?.v2Name).toBe('Constituent Data')
       // The Win-specific item must never appear on the Serve path.
       expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
     }

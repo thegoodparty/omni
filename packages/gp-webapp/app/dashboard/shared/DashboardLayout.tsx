@@ -14,6 +14,7 @@ import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
+import { CONTACTS_DATA_TITLE } from './contactsLabels'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -105,10 +106,8 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/outreach', 'Voter Outreach'],
   ['/dashboard/voter-records', 'Voter Data'],
-  // Sidebar renders this item's `v2Name` ("Constituents") in place of its
-  // `label` ("Contacts") via `item.v2Name || label`. Keep the mobile title
-  // in sync so the same page reads the same name in both surfaces.
-  ['/dashboard/contacts', 'Constituents'],
+  // /dashboard/contacts is intentionally absent: its title depends on Win vs
+  // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
   ['/dashboard/campaign-details', 'My Profile'],
@@ -116,6 +115,10 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
 ]
+
+const isContactsPath = (pathname: string): boolean =>
+  pathname === '/dashboard/contacts' ||
+  pathname.startsWith('/dashboard/contacts/')
 
 const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
@@ -128,7 +131,14 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
 const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
-  const pageTitle = getMobilePageTitle(pathname)
+  const organization = useOrganization()
+  // The Contacts route is shared: Serve (elected office) reads "Constituent
+  // Data", Win reads "Voter Data". Mirror the nav's own win/serve
+  // discriminator (organization.electedOfficeId) so both surfaces agree.
+  const pageTitle =
+    pathname && isContactsPath(pathname)
+      ? CONTACTS_DATA_TITLE[organization?.electedOfficeId ? 'serve' : 'win']
+      : getMobilePageTitle(pathname)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

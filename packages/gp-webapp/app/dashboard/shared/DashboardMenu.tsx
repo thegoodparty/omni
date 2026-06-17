@@ -42,6 +42,7 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { Campaign } from 'helpers/types'
 import {
   Avatar,
@@ -201,7 +202,7 @@ const ECANVASSER_MENU_ITEM: MenuItem = {
 const CONTACTS_MENU_ITEM: MenuItem = {
   id: 'contacts-dashboard',
   label: 'Contacts',
-  v2Name: 'Constituents',
+  v2Name: CONTACTS_DATA_TITLE.serve,
   link: '/dashboard/contacts',
   icon: <MdPeople />,
   v2Icon: UsersRound,
@@ -212,10 +213,11 @@ const CONTACTS_MENU_ITEM: MenuItem = {
 // Win campaigns reuse the Serve Contacts route/components but are categorized
 // as 'campaign', so they need their own item — the elected-office
 // CONTACTS_MENU_ITEM is filtered out for campaign orgs (see the v2Category
-// filter in NewNavMenu).
+// filter in NewNavMenu). Win reads "Voter Data", never "Constituents".
 const WIN_CONTACTS_MENU_ITEM: MenuItem = {
   id: 'win-contacts-dashboard',
   label: 'Contacts',
+  v2Name: CONTACTS_DATA_TITLE.win,
   link: '/dashboard/contacts',
   icon: <MdPeople />,
   v2Icon: UsersRound,

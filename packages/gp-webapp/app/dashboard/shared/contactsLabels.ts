@@ -1,0 +1,29 @@
+// Win and Serve share the Contacts experience but must read with different
+// nouns: Win never says "constituent" (ENG-10448). Keep the menu, mobile
+// title, page heading, and stat labels in one place so they can't drift apart.
+export const CONTACTS_DATA_TITLE = {
+  win: 'Voter Data',
+  serve: 'Constituent Data',
+} as const
+
+export interface ContactsLabels {
+  dataTitle: string
+  subheading: string
+  totalLabel: string
+  percentLabel: string
+}
+
+export const getContactsLabels = (isWin: boolean): ContactsLabels =>
+  isWin
+    ? {
+        dataTitle: CONTACTS_DATA_TITLE.win,
+        subheading: 'Manage and filter on your voter list',
+        totalLabel: 'Total Voters',
+        percentLabel: '% of Voters',
+      }
+    : {
+        dataTitle: CONTACTS_DATA_TITLE.serve,
+        subheading: 'Manage and filter on your constituent list',
+        totalLabel: 'Total Constituents',
+        percentLabel: '% of Constituents',
+      }
