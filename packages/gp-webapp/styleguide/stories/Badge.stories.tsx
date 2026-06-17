@@ -1,4 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
+import {
+  CheckIcon,
+  CircleAlertIcon,
+  ArrowRightIcon,
+} from '../components/ui/icons'
 import { Badge } from '../components/ui/badge'
 
 const meta: Meta<typeof Badge> = {
@@ -10,88 +15,100 @@ const meta: Meta<typeof Badge> = {
 export default meta
 type Story = StoryObj<typeof Badge>
 
-export const Default: Story = {
+export const Playground: Story = {
   args: {
     children: 'Badge',
+    variant: 'default',
+    shape: 'default',
+  },
+  argTypes: {
+    variant: {
+      name: 'Variant',
+      control: 'select',
+      options: ['default', 'secondary', 'soft', 'destructive', 'outline'],
+    },
+    shape: {
+      name: 'Shape',
+      control: 'select',
+      options: ['default', 'pill'],
+    },
+    children: {
+      name: 'Label',
+      control: 'text',
+    },
   },
 }
 
-export const Secondary: Story = {
-  args: {
-    variant: 'secondary',
-    children: 'Secondary',
-  },
-}
-
-export const Soft: Story = {
-  args: {
-    variant: 'soft',
-    children: 'Soft',
-  },
-}
-
-export const Outline: Story = {
-  args: {
-    variant: 'outline',
-    children: 'Outline',
-  },
-}
-
-export const Destructive: Story = {
-  args: {
-    variant: 'destructive',
-    children: 'Destructive',
-  },
-}
-
-export const WithIcon: Story = {
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex gap-2">
-      <Badge>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="mr-1 h-3 w-3"
-        >
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-        </svg>
-        New
+    <div className="flex flex-wrap gap-2">
+      <Badge variant="default">Default</Badge>
+      <Badge variant="secondary">Secondary</Badge>
+      <Badge variant="soft">Soft</Badge>
+      <Badge variant="outline">Outline</Badge>
+      <Badge variant="destructive">Destructive</Badge>
+    </div>
+  ),
+}
+
+export const IconLeft: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-wrap gap-2">
+      <Badge variant="outline">
+        <CheckIcon />
+        Verified
       </Badge>
-      <Badge variant="secondary">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="mr-1 h-3 w-3"
-        >
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-        </svg>
-        Sale
+      <Badge variant="destructive">
+        <CircleAlertIcon />
+        Alert
+      </Badge>
+      <Badge variant="default">
+        <CheckIcon />
+        Done
       </Badge>
     </div>
   ),
 }
 
-export const WithCount: Story = {
+export const IconRight: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex gap-2">
-      <Badge>5</Badge>
-      <Badge variant="secondary">12</Badge>
-      <Badge variant="outline">3</Badge>
-      <Badge variant="destructive">1</Badge>
+    <div className="flex flex-wrap gap-2">
+      <Badge variant="default" asChild>
+        <a href="#">
+          Link
+          <ArrowRightIcon />
+        </a>
+      </Badge>
+      <Badge variant="secondary" asChild>
+        <a href="#">
+          Link
+          <ArrowRightIcon />
+        </a>
+      </Badge>
+      <Badge variant="outline" asChild>
+        <a href="#">
+          Link
+          <ArrowRightIcon />
+        </a>
+      </Badge>
+    </div>
+  ),
+}
+
+export const Pill: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge shape="pill">8</Badge>
+      <Badge shape="pill" variant="destructive">
+        99
+      </Badge>
+      <Badge shape="pill" variant="outline">
+        20+
+      </Badge>
     </div>
   ),
 }
