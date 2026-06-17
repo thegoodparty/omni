@@ -34,7 +34,8 @@ const generateButton = () => screen.queryByRole('button', { name: 'generate' })
 
 describe('CampaignPlanRouter', () => {
   beforeEach(() => {
-    vi.mocked(router.replace).mockClear()
+    router.replace?.mockClear()
+    sessionStorage.clear()
     setFlag(true, true)
   })
 
@@ -71,5 +72,12 @@ describe('CampaignPlanRouter', () => {
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     await userEvent.click(screen.getByRole('button', { name: 'generate' }))
     expect(planPage()).toBeInTheDocument()
+  })
+
+  it('keeps showing the plan after navigating away mid-generation', async () => {
+    setFlag(true, true)
+    sessionStorage.setItem('campaignPlanGenerateRequested', '1')
+    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    expect(await screen.findByTestId('plan-page')).toBeInTheDocument()
   })
 })

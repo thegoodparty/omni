@@ -13,6 +13,11 @@ interface CampaignPlanRouterProps {
   planExists: boolean
 }
 
+// Survives same-session navigation: a user can click generate, leave, and
+// return during the brief window before the strategy row lands (which flips
+// `planExists` true) and still see the generating plan rather than the gate.
+const GENERATE_REQUESTED_KEY = 'campaignPlanGenerateRequested'
+
 const Spinner = (): React.JSX.Element => (
   <DashboardLayout>
     <div className="flex h-[60vh] items-center justify-center">
@@ -35,7 +40,27 @@ const CampaignPlanRouter = ({
   // (the story page's FeatureFlagGuard is), so the read mustn't fire exposure
   // for every plan visitor — mirrors DashboardMenu.
   const { ready, enabled: storyEnabled } = useCampaignStoryFlag(false)
+  // Initialized false (not from sessionStorage) so the client's first render
+  // matches the server's — then rehydrated from sessionStorage in an effect to
+  // avoid a hydration mismatch.
   const [generateRequested, setGenerateRequested] = useState(false)
+
+  useEffect(() => {
+    if (sessionStorage.getItem(GENERATE_REQUESTED_KEY) === '1') {
+      setGenerateRequested(true)
+    }
+  }, [])
+
+  // Once a plan exists the request is satisfied — clear the flag so a later
+  // visit doesn't skip the gate for someone who has since lost their plan.
+  useEffect(() => {
+    if (planExists) sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
+  }, [planExists])
+
+  const requestGenerate = (): void => {
+    sessionStorage.setItem(GENERATE_REQUESTED_KEY, '1')
+    setGenerateRequested(true)
+  }
 
   const redirectToDashboard = !planExists && ready && !storyEnabled
   useEffect(() => {
@@ -52,7 +77,7 @@ const CampaignPlanRouter = ({
 
   return (
     <DashboardLayout>
-      <CampaignPlanStoryGate onGenerate={() => setGenerateRequested(true)} />
+      <CampaignPlanStoryGate onGenerate={requestGenerate} />
     </DashboardLayout>
   )
 }
