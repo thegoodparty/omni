@@ -102,3 +102,44 @@ describe('buildSlackBlocks - Peerly IDs', () => {
     expect(findLabeledValue(blocks, 'Peerly Job ID: ')).toBe('peerly-job-123')
   })
 })
+
+describe('buildSlackBlocks - text count', () => {
+  const baseParams = {
+    type: OutreachType.p2p,
+    formattedAudience: [],
+  }
+
+  it('renders the total text count', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, textCount: 5200 })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('5,200')
+  })
+
+  it('appends the billable count when a discount applied', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 5200,
+      billableTextCount: 200,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe(
+      '5,200 (200 billable)',
+    )
+  })
+
+  it('shows only the total when billable equals total', () => {
+    const { blocks } = buildSlackBlocks({
+      ...baseParams,
+      textCount: 300,
+      billableTextCount: 300,
+    })
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('300')
+  })
+
+  it('renders "N/A" when text count is omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('N/A')
+  })
+})

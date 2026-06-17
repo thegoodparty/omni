@@ -203,6 +203,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         outreach,
         audienceRequest: createOutreachDto.audienceRequest,
         campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        textCount: createOutreachDto.textCount,
+        billableTextCount: createOutreachDto.billableTextCount,
       })
     } catch (err) {
       this.logger.error(
@@ -217,10 +219,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
   ) {
-    // campaignPlanDueDate is notification-only metadata; it has no Outreach
-    // column, so it must not reach Prisma's create.
+    // campaignPlanDueDate and the text counts are notification-only metadata;
+    // they have no Outreach column, so they must not reach Prisma's create.
     const outreachData = { ...createOutreachDto }
     delete outreachData.campaignPlanDueDate
+    delete outreachData.textCount
+    delete outreachData.billableTextCount
     return await this.model.create({
       data: {
         ...outreachData,

@@ -189,6 +189,21 @@ describe('OutreachNotificationService', () => {
       expect(JSON.stringify(blocks)).not.toContain('peerly.com')
     })
 
+    it('renders the text count with billable breakdown', async () => {
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+        textCount: 5200,
+        billableTextCount: 200,
+      })
+
+      const [message] = mockSlackMessage.mock.calls[0]
+      expect(findLabeledValue(message, '# of Texts: ')).toBe(
+        '5,200 (200 billable)',
+      )
+    })
+
     it('includes the campaign plan due date', async () => {
       await service.notifySuccess({
         user: mockUser,

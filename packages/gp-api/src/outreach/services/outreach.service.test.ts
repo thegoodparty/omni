@@ -210,6 +210,28 @@ describe('OutreachService', () => {
       expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
     })
 
+    it('forwards text counts into notifySuccess without persisting them', async () => {
+      const dto: CreateOutreachSchema = {
+        ...baseCreateDto,
+        textCount: 5200,
+        billableTextCount: 200,
+      }
+      mockOutreachCreate.mockResolvedValue({
+        id: 1,
+        ...baseCreateDto,
+        voterFileFilter: null,
+      })
+
+      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+
+      expect(mockNotifySuccess).toHaveBeenCalledWith(
+        expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
+      )
+      const [createArg] = mockOutreachCreate.mock.calls[0]
+      expect(createArg.data).not.toHaveProperty('textCount')
+      expect(createArg.data).not.toHaveProperty('billableTextCount')
+    })
+
     it('creates non-P2P outreach without imageUrl when both omitted', async () => {
       const created = { id: 1, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)

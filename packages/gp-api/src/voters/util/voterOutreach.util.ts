@@ -39,6 +39,20 @@ type SlackBlocksParams = {
   peerlyJobId?: string
   peerlyIdentityId?: string
   campaignPlanDueDate?: string
+  textCount?: number
+  billableTextCount?: number
+}
+
+/** "5,200 (200 billable)" when discounted, "5,200" otherwise, "N/A" if absent. */
+function formatTextCount(
+  textCount?: number,
+  billableTextCount?: number,
+): string {
+  if (textCount === undefined) return 'N/A'
+  const total = textCount.toLocaleString('en-US')
+  return billableTextCount !== undefined && billableTextCount !== textCount
+    ? `${total} (${billableTextCount.toLocaleString('en-US')} billable)`
+    : total
 }
 
 export function buildSlackBlocks({
@@ -59,6 +73,8 @@ export function buildSlackBlocks({
   peerlyJobId,
   peerlyIdentityId,
   campaignPlanDueDate,
+  textCount,
+  billableTextCount,
 }: SlackBlocksParams) {
   const blocks = [
     {
@@ -215,6 +231,22 @@ export function buildSlackBlocks({
                 {
                   type: SlackMessageType.TEXT,
                   text: campaignPlanDueDate || 'N/A',
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: '# of Texts: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text: formatTextCount(textCount, billableTextCount),
                 },
               ],
             },

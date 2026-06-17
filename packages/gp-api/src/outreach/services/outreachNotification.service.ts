@@ -57,6 +57,8 @@ interface NotifySuccessParams {
   outreach: OutreachWithVoterFileFilter
   audienceRequest?: string
   campaignPlanDueDate?: string
+  textCount?: number
+  billableTextCount?: number
 }
 
 interface NotifyFailureParams {
@@ -90,6 +92,8 @@ export class OutreachNotificationService {
     outreach,
     audienceRequest,
     campaignPlanDueDate,
+    textCount,
+    billableTextCount,
   }: NotifySuccessParams): Promise<void> {
     if (!shouldNotifyCAS(outreach.outreachType)) return
 
@@ -159,6 +163,8 @@ export class OutreachNotificationService {
           peerlyJobId: outreach.projectId ?? undefined,
           peerlyIdentityId,
           campaignPlanDueDate,
+          textCount,
+          billableTextCount,
         }),
         TARGET_CHANNEL,
       )

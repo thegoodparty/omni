@@ -246,6 +246,8 @@ const TaskFlow = ({
         state,
         campaignId,
         campaignPlanDueDate,
+        textCount: leadsLoaded ?? undefined,
+        hasFreeTextsOffer: p2pUxEnabled && !!campaign.hasFreeTextsOffer,
         outreaches,
         setOutreaches,
         errorSnackbar,
@@ -262,6 +264,8 @@ const TaskFlow = ({
       p2pUxEnabled,
       campaignId,
       campaignPlanDueDate,
+      leadsLoaded,
+      campaign.hasFreeTextsOffer,
     ],
   )
 
