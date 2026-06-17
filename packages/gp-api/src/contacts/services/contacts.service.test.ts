@@ -3,7 +3,7 @@ import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownl
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign, Organization } from '../../generated/prisma'
+import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
@@ -754,6 +754,106 @@ describe('ContactsService', () => {
           }),
           expect.any(Object),
         )
+      })
+    })
+
+    describe('political party exposure (Win vs Serve)', () => {
+      const partySegment = {
+        id: 7,
+        name: 'Democrats',
+        partyDemocrat: true,
+      } as VoterFileFilter
+
+      it('forwards the political-party filter to people-api for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('returns the people-api politicalParty field unchanged for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Republican' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+          org,
+        )
+
+        expect(result.people[0].politicalParty).toBe('Republican')
+      })
+
+      // Regression guard: the backend treats Win and Serve identically — it
+      // forwards the party filter and passes politicalParty through for eo-
+      // (Serve) orgs too. The Win/Serve party-visibility rule is a frontend
+      // display concern (the contacts person overlay's hidePoliticalParty
+      // gate), not duplicated on the backend. This locks that in so a future
+      // change that strips party server-side can't silently break Serve.
+      it('does not strip party or the party filter for Serve (eo-) orgs', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Democratic' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+        expect(result.people[0].politicalParty).toBe('Democratic')
       })
     })
   })
