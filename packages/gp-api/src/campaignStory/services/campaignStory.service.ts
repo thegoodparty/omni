@@ -72,4 +72,15 @@ export class CampaignStoryService extends createPrismaBase(
     })
     return count > 0
   }
+
+  // Refunds an attempt admitted by admitRewriteAttempt when the downstream
+  // Gemini call fails, so an infra error (timeout, 502, bad output) doesn't
+  // permanently burn one of the campaign's non-resetting lifetime slots. The
+  // `gt: 0` guard keeps the counter from going negative.
+  async rollbackRewriteAttempt(campaignId: number): Promise<void> {
+    await this.model.updateMany({
+      where: { campaignId, rewriteCount: { gt: 0 } },
+      data: { rewriteCount: { decrement: 1 } },
+    })
+  }
 }

@@ -64,6 +64,9 @@ const CampaignStoryCard = ({
   // Set when the server returns 403 — the campaign has hit its lifetime AI
   // rewrite cap. Permanent for the session: no point retrying.
   const [limitReached, setLimitReached] = useState(false)
+  // Set on a 429 — the per-user hourly burst limit. Temporary, so we show a
+  // "wait a bit" notice but don't disable retrying.
+  const [rateLimited, setRateLimited] = useState(false)
   // Guards against overlapping rewrite calls (e.g. a double-click landing
   // before the disabled state re-renders), so an older response can't resolve
   // after a newer one and show a stale suggestion.
@@ -156,6 +159,7 @@ const CampaignStoryCard = ({
     rewritingRef.current = true
     setIsRewriting(true)
     setRewriteError(false)
+    setRateLimited(false)
     setRewrite(null)
     try {
       const { data } = await clientRequest(
@@ -164,10 +168,14 @@ const CampaignStoryCard = ({
       )
       setRewrite(data.rewrite)
     } catch (error) {
-      // 403 means the campaign hit its lifetime rewrite cap — an expected
-      // limit, not an error to report. Show the limit notice instead.
+      // 403 = campaign hit its lifetime rewrite cap (permanent); 429 = the
+      // per-user hourly burst limit (temporary). Both are expected limits, not
+      // errors to report — show the right notice instead of the generic retry
+      // message.
       if (error instanceof FetchError && error.status === 403) {
         setLimitReached(true)
+      } else if (error instanceof FetchError && error.status === 429) {
+        setRateLimited(true)
       } else {
         reportErrorToSentry(error, {
           context: 'CampaignStoryCard.rewrite',
@@ -248,6 +256,13 @@ const CampaignStoryCard = ({
           <p className="text-sm text-muted-foreground">
             You&apos;ve reached your AI rewrite limit for this campaign. You can
             still edit your answers yourself.
+          </p>
+        )}
+
+        {rateLimited && (
+          <p className="text-sm text-muted-foreground">
+            You&apos;re requesting rewrites too quickly. Please wait a little
+            while and try again.
           </p>
         )}
 

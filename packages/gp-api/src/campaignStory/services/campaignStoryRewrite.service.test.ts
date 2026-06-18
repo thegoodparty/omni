@@ -8,9 +8,18 @@ const buildSubject = (rewrite = 'A polished passage.') => {
   const generateStructured = vi.fn().mockResolvedValue({ rewrite })
   const gemini = { generateStructured } as unknown as GeminiService
   const admitRewriteAttempt = vi.fn().mockResolvedValue(true)
-  const story = { admitRewriteAttempt } as unknown as CampaignStoryService
+  const rollbackRewriteAttempt = vi.fn().mockResolvedValue(undefined)
+  const story = {
+    admitRewriteAttempt,
+    rollbackRewriteAttempt,
+  } as unknown as CampaignStoryService
   const subject = new CampaignStoryRewriteService(gemini, story)
-  return { subject, generateStructured, admitRewriteAttempt }
+  return {
+    subject,
+    generateStructured,
+    admitRewriteAttempt,
+    rollbackRewriteAttempt,
+  }
 }
 
 describe('CampaignStoryRewriteService', () => {
@@ -73,5 +82,16 @@ describe('CampaignStoryRewriteService', () => {
       subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 1, 5),
     ).rejects.toThrow(/AI rewrite limit/i)
     expect(generateStructured).not.toHaveBeenCalled()
+  })
+
+  it('refunds the admitted attempt when the Gemini call fails', async () => {
+    const { subject, generateStructured, rollbackRewriteAttempt } =
+      buildSubject()
+    generateStructured.mockRejectedValue(new Error('gemini down'))
+
+    await expect(
+      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 1, 5),
+    ).rejects.toThrow('gemini down')
+    expect(rollbackRewriteAttempt).toHaveBeenCalledWith(5)
   })
 })

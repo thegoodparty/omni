@@ -204,6 +204,7 @@ export {
 
 export {
   CampaignStorySchema,
+  CAMPAIGN_STORY_FIELD_MAX_LENGTH,
   type CampaignStory,
 } from './campaigns/CampaignStory.schema'
 

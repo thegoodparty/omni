@@ -79,11 +79,18 @@ export class CampaignStoryRewriteService {
         'You have reached your AI rewrite limit for this campaign.',
       )
     }
-    return this.gemini.generateStructured(
-      this.buildPrompt(input, candidateName),
-      CampaignStoryRewriteSchema,
-      { model: REWRITE_MODEL, systemInstruction: SYSTEM_INSTRUCTION },
-    )
+    // Refund the admitted attempt if the Gemini call fails so an infra error
+    // doesn't permanently consume a lifetime slot.
+    try {
+      return await this.gemini.generateStructured(
+        this.buildPrompt(input, candidateName),
+        CampaignStoryRewriteSchema,
+        { model: REWRITE_MODEL, systemInstruction: SYSTEM_INSTRUCTION },
+      )
+    } catch (error) {
+      await this.campaignStory.rollbackRewriteAttempt(campaignId)
+      throw error
+    }
   }
 
   private buildPrompt(

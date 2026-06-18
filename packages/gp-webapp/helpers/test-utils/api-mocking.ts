@@ -11,7 +11,7 @@ export type APIMockerResponse<T> =
       headers?: Record<string, string>
     }
   | {
-      status: 400 | 401 | 403 | 404 | 500
+      status: 400 | 401 | 403 | 404 | 429 | 500
       data: any
       headers?: Record<string, string>
     }

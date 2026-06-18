@@ -310,5 +310,21 @@ describe('CampaignStoryCard', () => {
         screen.getByRole('button', { name: /Help me rewrite/ }),
       ).toBeDisabled()
     })
+
+    it('shows a wait notice on a 429 without disabling rewriting', async () => {
+      const user = userEvent.setup()
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 429,
+        data: { rewrite: '' },
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+
+      expect(await screen.findByText(/too quickly/i)).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Help me rewrite/ }),
+      ).toBeEnabled()
+    })
   })
 })
