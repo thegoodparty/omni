@@ -7,6 +7,7 @@ import {
   Card,
   Textarea,
   CheckIcon,
+  LoaderCircleIcon,
   SparklesIcon,
   WandSparklesIcon,
   XMarkIcon,
@@ -281,7 +282,8 @@ const CampaignStoryCard = ({
               </div>
 
               {isRewriting ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircleIcon className="size-4 animate-spin text-primary" />
                   Your Campaign Manager is writing a draft&hellip;
                 </p>
               ) : rateLimited ? (
