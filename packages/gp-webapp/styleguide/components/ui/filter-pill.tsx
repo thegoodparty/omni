@@ -36,8 +36,10 @@ function FilterPillGroup({
   type = 'single',
   ...props
 }: FilterPillGroupProps) {
+  const sharedClass = cn('flex flex-wrap gap-2', className)
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!ARROW_KEYS.includes(e.key) || type === 'multiple') return
+    if (!ARROW_KEYS.includes(e.key)) return
     setTimeout(() => {
       const focused = document.activeElement as HTMLElement | null
       const value = focused?.getAttribute('data-value') ?? ''
@@ -45,19 +47,39 @@ function FilterPillGroup({
     }, 0)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const Root = ToggleGroupPrimitive.Root as any
+  if (type === 'multiple') {
+    const multiProps = props as Omit<
+      MultipleToggleGroupProps,
+      'type' | 'className' | 'onValueChange'
+    >
+    return (
+      <ToggleGroupPrimitive.Root
+        type="multiple"
+        className={sharedClass}
+        onValueChange={
+          onValueChange as MultipleToggleGroupProps['onValueChange']
+        }
+        {...multiProps}
+      >
+        {children}
+      </ToggleGroupPrimitive.Root>
+    )
+  }
 
+  const singleProps = props as Omit<
+    SingleToggleGroupProps,
+    'type' | 'className' | 'onValueChange'
+  >
   return (
-    <Root
-      type={type}
-      className={cn('flex flex-wrap gap-2', className)}
+    <ToggleGroupPrimitive.Root
+      type="single"
+      className={sharedClass}
       onKeyDown={handleKeyDown}
-      onValueChange={onValueChange}
-      {...props}
+      onValueChange={onValueChange as SingleToggleGroupProps['onValueChange']}
+      {...singleProps}
     >
       {children}
-    </Root>
+    </ToggleGroupPrimitive.Root>
   )
 }
 
