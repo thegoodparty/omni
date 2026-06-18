@@ -234,7 +234,7 @@ export const RichContent: Story = {
           <TooltipTrigger asChild>
             <Button variant="outline">Custom content</Button>
           </TooltipTrigger>
-          <TooltipContent className="w-80 p-3">
+          <TooltipContent showArrow={false} className="w-80 p-3">
             <div className="space-y-1">
               <h4 className="text-xs font-semibold">Custom tooltip</h4>
               <p className="text-xs text-components-tooltip-foreground/70">
