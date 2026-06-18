@@ -34,8 +34,8 @@ const SUGGESTED_CHARS = 100
 interface CampaignStoryCardProps {
   section: CampaignStorySection
   initialValue: string | null
-  // Reports this field's persisted answered-state (non-empty once saved) so the
-  // page can show its "generate" CTA only when the whole story is saved.
+  // Reports this field's live answered-state (non-empty as the user types) so
+  // the page's "generate" footer appears immediately, not only after blur/save.
   onAnsweredChange?: (answered: boolean) => void
 }
 
@@ -76,6 +76,7 @@ const CampaignStoryCard = ({
   ): void => {
     valueRef.current = event.target.value
     setValue(event.target.value)
+    onAnsweredChange?.(event.target.value.trim().length > 0)
   }
 
   // Autosave on blur. The loop flushes any edits that arrived while a request
@@ -107,7 +108,6 @@ const CampaignStoryCard = ({
         savedRef.current = lastAttempted
       }
       setSaveFailed(false)
-      onAnsweredChange?.(savedRef.current.trim().length > 0)
     } catch (error) {
       reportErrorToSentry(error, {
         context: 'CampaignStoryCard.save',

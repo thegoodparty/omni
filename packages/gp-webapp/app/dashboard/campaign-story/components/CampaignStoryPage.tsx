@@ -31,8 +31,9 @@ const CampaignStoryPage = ({
   pathname,
   initialStory,
 }: CampaignStoryPageProps): React.JSX.Element => {
-  // Seeded from the persisted story; each card reports its saved state so the
-  // footer reflects what's actually stored (and what the plan tab will read).
+  // Seeded from the persisted story, then updated live as each card reports its
+  // answered-state on every keystroke — so the footer appears as soon as all
+  // three have content, without waiting for blur/save.
   const [answered, setAnswered] = useState(() =>
     answeredFromStory(initialStory),
   )
