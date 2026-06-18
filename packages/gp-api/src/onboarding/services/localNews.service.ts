@@ -288,20 +288,22 @@ export class OnboardingLocalNewsService {
 
   private async expirePending(key: LocalNewsJurisdiction): Promise<void> {
     try {
-      const current = await this.cache.findByJurisdiction(key)
-      // Only invalidate if the marker is still pending. A newer caller may
-      // have already written a successful ready result for this jurisdiction
-      // and we don't want to clobber that.
-      if (!current || current.status !== 'pending') {
-        return
-      }
-      // Set startedAt to 0 so the TTL check immediately treats this as
-      // expired. The next poll will trigger a fresh fetch instead of waiting
-      // out the full TTL window.
-      await this.cache.model.update({
-        where: { jurisdiction: key },
-        data: { status: 'pending', startedAt: BigInt(0) },
-      })
+      // Collapse the read + conditional write into a single atomic UPDATE so we
+      // never clobber a 'ready' result a concurrent runFetch winner wrote
+      // between our read and our write. The WHERE status = 'pending' guard means
+      // the statement is a no-op once the row has been marked ready. started_at
+      // is set to 0 so the next poll's TTL check treats this as immediately
+      // expired and re-fetches instead of waiting out the full TTL window.
+      await this.cache.client.$executeRaw`
+        UPDATE local_news_cache
+        SET status = 'pending',
+            started_at = 0,
+            updated_at = now()
+        WHERE office = ${key.office}
+          AND city = ${key.city}
+          AND state = ${key.state}
+          AND status = 'pending'
+      `
     } catch (error) {
       this.logger.error(
         { error, ...key },

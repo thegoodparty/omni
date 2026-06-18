@@ -49,6 +49,9 @@ function makeService() {
   // it to resolve []. The raw SQL itself is exercised by integration coverage.
   const client = {
     $queryRaw: vi.fn().mockResolvedValue([{ id: 'claim-id' }]),
+    // expirePending invalidates the marker with a single atomic conditional
+    // UPDATE (WHERE status = 'pending') run through client.$executeRaw.
+    $executeRaw: vi.fn().mockResolvedValue(1),
   }
   const cache = {
     findByJurisdiction: vi.fn(),
@@ -205,18 +208,11 @@ describe('OnboardingLocalNewsService', () => {
       expect(gemini.generateStructured).not.toHaveBeenCalled()
     })
 
-    it('expires the pending marker (startedAt: 0) when the background fetch fails', async () => {
-      const { service, cache, gemini, model } = makeService()
+    it('expires the pending marker with an atomic conditional UPDATE when the background fetch fails', async () => {
+      const { service, cache, gemini, client, model } = makeService()
       cache.findByJurisdiction
         // getLocalNews lookup (miss); the atomic claim then wins the slot
         .mockResolvedValueOnce(null)
-        // expirePending re-read sees the pending marker this caller wrote
-        .mockResolvedValue({
-          ...cacheKey(),
-          status: 'pending',
-          startedAt: BigInt(12345),
-          outlets: null,
-        })
       gemini.generateStructured.mockRejectedValue(new Error('Gemini exploded'))
 
       await service.getLocalNews({
@@ -228,12 +224,16 @@ describe('OnboardingLocalNewsService', () => {
       await new Promise((resolve) => setImmediate(resolve))
       await new Promise((resolve) => setImmediate(resolve))
 
-      const expireWrite = model.update.mock.calls[0]?.[0]
-      expect(expireWrite).toBeDefined()
-      expect(expireWrite?.where).toEqual({
-        jurisdiction: { office: OFFICE, city: CITY, state: STATE },
-      })
-      expect(expireWrite?.data).toEqual({ status: 'pending', startedAt: 0n })
+      // expirePending must not read-then-write (that TOCTOU could clobber a
+      // concurrent 'ready'); it issues a single guarded UPDATE via $executeRaw.
+      expect(model.update).not.toHaveBeenCalled()
+      // First $executeRaw call is markPending? No — markPending uses $queryRaw.
+      // So the only $executeRaw is expirePending's guarded invalidation.
+      expect(client.$executeRaw).toHaveBeenCalledTimes(1)
+      const expireValues = client.$executeRaw.mock.calls[0] ?? []
+      expect(expireValues).toContain(OFFICE)
+      expect(expireValues).toContain(CITY)
+      expect(expireValues).toContain(STATE)
     })
 
     it('persists outlets from gemini.generateStructured on a successful fetch', async () => {

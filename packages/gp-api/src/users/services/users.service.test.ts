@@ -545,6 +545,42 @@ describe('UsersService', () => {
       expect(signIn).not.toHaveBeenCalled()
     })
 
+    it('refuses an existing account linked to an OAuth/SSO identity', async () => {
+      // A Google (or other OAuth) user has passwordEnabled: false but still
+      // controls the account via SSO, so the magic link must not mint a token
+      // for it even though no password is set and no campaign is owned.
+      const suffix = uniqueSuffix()
+      const email = `eo-oauth-${suffix}@example.com`
+      const clerkId = `clerk_oauth_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Google',
+          lastName: 'User',
+          name: 'Google User',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+        externalAccounts: [{ provider: 'oauth_google' }],
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Google',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
     it('refuses an existing account that owns a campaign', async () => {
       const suffix = uniqueSuffix()
       const email = `eo-camp-${suffix}@example.com`
