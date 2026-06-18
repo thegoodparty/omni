@@ -102,16 +102,23 @@ export function getTestUserCredentials(userType: TestUserType): {
  * Clerk defaults to a different factor.
  */
 async function ensurePasswordField(page: Page): Promise<void> {
-  const passwordInput = page.getByRole('textbox', { name: /password/i })
+  // Match by label, not role: an `<input type="password">` has no `textbox`
+  // role, so getByRole('textbox') would never match Clerk's password field.
+  const passwordInput = page.getByLabel(/password/i).first()
   if (await passwordInput.isVisible().catch(() => false)) return
 
-  // Stepped (identifier-first) flow: advance past the email step first.
+  // Stepped (identifier-first) flow: advance past the email step first, then
+  // give Clerk's UI time to transition before snapshotting the next screen
+  // (click() resolves on dispatch, not after the resulting render).
   const continueBtn = page.getByRole('button', {
     name: 'Continue',
     exact: true,
   })
   if (await continueBtn.isVisible().catch(() => false)) {
     await continueBtn.click()
+    await passwordInput
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .catch(() => undefined)
   }
   if (await passwordInput.isVisible().catch(() => false)) return
 
@@ -147,7 +154,10 @@ export async function signIn(
 
   await emailInput.fill(email)
   await ensurePasswordField(page)
-  await page.getByRole('textbox', { name: /password/i }).fill(password)
+  await page
+    .getByLabel(/password/i)
+    .first()
+    .fill(password)
 
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
