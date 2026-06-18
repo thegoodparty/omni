@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -57,6 +57,19 @@ describe('CampaignPlanRouter', () => {
     setFlag(true, false)
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('redirects (never generates) when the flag is off, even with a stale generate request', async () => {
+    setFlag(true, false)
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(Date.now()),
+    )
+    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    await waitFor(() =>
+      expect(router.replace).toHaveBeenCalledWith('/dashboard'),
+    )
     expect(planPage()).not.toBeInTheDocument()
   })
 

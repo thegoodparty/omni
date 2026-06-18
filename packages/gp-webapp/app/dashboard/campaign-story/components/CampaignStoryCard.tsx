@@ -124,6 +124,10 @@ const CampaignStoryCard = ({
         valueRef.current !== savedRef.current &&
         valueRef.current !== lastAttempted
       ) {
+        // Hide the stale error banner while the auto-flush is in flight, so a
+        // Retry click can't be silently dropped by the savingRef guard. If the
+        // flush also fails, the catch re-sets it.
+        setSaveFailed(false)
         void save()
       }
     }

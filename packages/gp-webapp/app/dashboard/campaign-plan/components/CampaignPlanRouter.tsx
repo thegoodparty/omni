@@ -81,6 +81,11 @@ const CampaignPlanRouter = ({
     if (redirectToDashboard) router.replace('/dashboard')
   }, [redirectToDashboard, router])
 
+  // Redirect wins over a persisted generate request: a user whose flag was
+  // turned off must still go to /dashboard, even if sessionStorage holds a
+  // stale generate flag — otherwise they'd render the plan and fire generation.
+  if (redirectToDashboard) return <Spinner />
+
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
   // the same view as an existing plan, no blocking spinner.
@@ -88,7 +93,7 @@ const CampaignPlanRouter = ({
     return <CampaignPlanPage initialUser={initialUser} />
   }
 
-  if (!ready || redirectToDashboard) return <Spinner />
+  if (!ready) return <Spinner />
 
   return (
     <DashboardLayout>
