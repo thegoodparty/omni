@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
 import { Campaign } from '../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignStoryRewriteService } from './services/campaignStoryRewrite.service'
 
 const service = useTestService()
 
@@ -120,10 +121,32 @@ describe('CampaignStory routes', () => {
     })
   })
 
-  // The rewrite happy path calls Gemini, so it's covered by the service unit
-  // test (campaignStoryRewrite.service.test.ts). Here we only assert that
-  // invalid input is rejected before any LLM call is made.
+  // The real rewrite calls Gemini, so the happy path spies on the service to
+  // exercise the full HTTP pipeline (validation, controller name derivation,
+  // ZodResponseInterceptor) without a live LLM call.
   describe('POST /campaigns/mine/story/rewrite', () => {
+    it('returns the rewritten text on a valid request', async () => {
+      const rewriteService = service.app.get(CampaignStoryRewriteService)
+      const spy = vi
+        .spyOn(rewriteService, 'rewrite')
+        .mockResolvedValue({ rewrite: 'Polished text.' })
+
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: 'i care about schools' },
+        { headers },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({ rewrite: 'Polished text.' })
+      expect(spy).toHaveBeenCalledWith(
+        { field: 'why', text: 'i care about schools' },
+        'Johnny Goodparty',
+        service.user.id,
+      )
+      spy.mockRestore()
+    })
+
     it('rejects an unknown field', async () => {
       const result = await service.client.post(
         REWRITE_URL,

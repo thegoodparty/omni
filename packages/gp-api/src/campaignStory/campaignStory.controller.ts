@@ -65,6 +65,10 @@ export class CampaignStoryController {
     @Body(new ZodValidationPipe(RewriteCampaignStorySchema))
     input: RewriteCampaignStoryInput,
   ): Promise<CampaignStoryRewrite> {
-    return this.campaignStoryRewrite.rewrite(input, candidateName(user))
+    return this.campaignStoryRewrite.rewrite(
+      input,
+      candidateName(user),
+      user.id,
+    )
   }
 }
