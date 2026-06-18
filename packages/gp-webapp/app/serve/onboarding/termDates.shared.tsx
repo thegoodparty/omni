@@ -33,6 +33,12 @@ export const formatDisplay = (date: Date | undefined): string =>
  * and the overlap check. Stores the EXCLUSIVE end (termEndDate is the
  * successor's start day) so the overlap check matches the API's half-open
  * dateRangesOverlap; the inclusive calendar matcher decrements it by a day.
+ *
+ * Mirrors the server's dateRangesOverlap null-handling so the UI never blocks
+ * dates the API would accept: an office with a null START (all-null placeholder
+ * OR a partial BallotReady prefill with only an end) is non-comparable and is
+ * skipped; a non-null start with a null end is an indefinite term that blocks
+ * from its start onward (FAR_FUTURE).
  */
 export const buildDisabledRanges = (
   offices: ElectedOffice[],
@@ -40,7 +46,7 @@ export const buildDisabledRanges = (
 ): DisabledRange[] =>
   offices
     .filter((office) => office.id !== excludeId)
-    .filter((office) => office.termStartDate || office.termEndDate)
+    .filter((office) => !!office.termStartDate)
     .map((office) => ({
       from: toDate(office.termStartDate) ?? FAR_PAST,
       to: toDate(office.termEndDate) ?? FAR_FUTURE,
