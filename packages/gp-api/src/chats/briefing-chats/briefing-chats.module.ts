@@ -32,7 +32,7 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
   return new DatabricksSqlProvider({
     ...conn,
     catalog: 'goodparty_data_catalog',
-    schema: 'dbt',
+    schema: 'mart_serve_agents',
   })
 }
 
