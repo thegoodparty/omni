@@ -174,9 +174,7 @@ export const Disabled: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const span = canvas.getByRole('button', {
-      name: /disabled action/i,
-    }).parentElement!
+    const span = canvas.getByText('Disabled action').closest('span')!
     await userEvent.hover(span)
   },
 }

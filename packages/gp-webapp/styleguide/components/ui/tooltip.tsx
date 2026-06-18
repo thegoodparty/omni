@@ -36,6 +36,7 @@ function Tooltip({
    * opens on hover and keyboard focus, and a tap on touch devices would
    * otherwise never show the tooltip; a second tap dismisses it). Manages
    * open state internally — don't combine with `open`/`onOpenChange`.
+   * `defaultOpen` seeds the initial state but is ignored after first mount.
    */
   openOnClick?: boolean
 }) {
@@ -135,7 +136,7 @@ function TooltipContent({
       >
         {children}
         {showArrow && (
-          <TooltipPrimitive.Arrow className="bg-components-tooltip-base fill-components-tooltip-base z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+          <TooltipPrimitive.Arrow className="fill-components-tooltip-base z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
         )}
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
