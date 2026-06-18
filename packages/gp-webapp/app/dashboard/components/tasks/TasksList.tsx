@@ -757,6 +757,7 @@ const TasksList = ({
             }
           }}
           defaultAiTemplateId={flowModalTask.task.defaultAiTemplateId}
+          campaignPlanDueDate={flowModalTask.task.date?.slice(0, 10)}
         />
       )}
     </>

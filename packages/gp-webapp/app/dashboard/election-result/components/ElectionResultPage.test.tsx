@@ -2,12 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import ElectionResultPage from './ElectionResultPage'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 
-const { mockErrorSnackbar } = vi.hoisted(() => ({
-  mockErrorSnackbar: vi.fn(),
-}))
+const { mockErrorSnackbar, mockIsImpersonating, mockDismissElectionResult } =
+  vi.hoisted(() => ({
+    mockErrorSnackbar: vi.fn(),
+    mockIsImpersonating: vi.fn(() => false),
+    mockDismissElectionResult: vi.fn(),
+  }))
 
 vi.mock('app/onboarding/shared/ajaxActions', () => ({
   updateCampaign: vi.fn(),
@@ -19,6 +23,14 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 
 vi.mock('@shared/hooks/usePositionName', () => ({
   usePositionName: () => 'Mayor',
+}))
+
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => mockIsImpersonating(),
+}))
+
+vi.mock('../dismissal', () => ({
+  dismissElectionResult: mockDismissElectionResult,
 }))
 
 vi.mock('@shared/hooks/CampaignProvider', () => ({
@@ -60,6 +72,20 @@ const electedOfficeOrg = {
 describe('ElectionResultPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsImpersonating.mockReturnValue(false)
+  })
+
+  it('lets an impersonating admin dismiss the gate without saving a result', () => {
+    mockIsImpersonating.mockReturnValue(true)
+
+    render(<ElectionResultPage />)
+
+    expect(screen.getByText(/Impersonation mode/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+
+    expect(mockDismissElectionResult).toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('does not create an elected office when saving the result fails', async () => {

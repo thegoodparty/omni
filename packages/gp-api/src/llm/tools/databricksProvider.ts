@@ -25,18 +25,27 @@ export interface DbsqlSessionLike {
   close: () => Promise<void>
 }
 
+export type DbsqlConnectOptions = { host: string; path: string } & (
+  | { token: string }
+  | {
+      authType: 'databricks-oauth'
+      oauthClientId: string
+      oauthClientSecret: string
+    }
+)
+
 export interface DbsqlClientLike {
-  connect: (opts: {
-    token: string
-    host: string
-    path: string
-  }) => Promise<DbsqlSessionLike>
+  connect: (opts: DbsqlConnectOptions) => Promise<DbsqlSessionLike>
 }
 
 export interface DatabricksSqlProviderOptions {
   hostname: string
   httpPath: string
-  accessToken: string
+  // Provide either a PAT (accessToken) or OAuth M2M service-principal creds
+  // (oauthClientId + oauthClientSecret). OAuth wins when both are present.
+  accessToken?: string
+  oauthClientId?: string
+  oauthClientSecret?: string
   catalog?: string
   schema?: string
   clientFactory?: () => DbsqlClientLike
@@ -123,6 +132,7 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     const conn = this.clientConn
     this.session = undefined
     this.clientConn = undefined
+    this.connectPromise = undefined
     if (session) {
       await session.close().catch(noop)
     }
@@ -132,6 +142,9 @@ export class DatabricksSqlProvider implements DatabricksProvider {
   }
 
   private async ensureSession(): Promise<DbsqlSessionInstanceLike> {
+    if (this.closed) {
+      throw new Error('DatabricksSqlProvider: provider is closed')
+    }
     if (this.session) return this.session
     if (!this.connectPromise) {
       this.connectPromise = this.openSession().catch((err) => {
@@ -148,13 +161,30 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     return this.session
   }
 
+  private connectOptions(): DbsqlConnectOptions {
+    const host = this.opts.hostname
+    const path = this.opts.httpPath
+    if (this.opts.oauthClientId && this.opts.oauthClientSecret) {
+      return {
+        host,
+        path,
+        authType: 'databricks-oauth',
+        oauthClientId: this.opts.oauthClientId,
+        oauthClientSecret: this.opts.oauthClientSecret,
+      }
+    }
+    if (this.opts.accessToken) {
+      return { host, path, token: this.opts.accessToken }
+    }
+    throw new Error(
+      'DatabricksSqlProvider: no credential — set oauthClientId + ' +
+        'oauthClientSecret, or accessToken',
+    )
+  }
+
   private async openSession(): Promise<void> {
     const client = this.clientFactory()
-    const conn = await client.connect({
-      token: this.opts.accessToken,
-      host: this.opts.hostname,
-      path: this.opts.httpPath,
-    })
+    const conn = await client.connect(this.connectOptions())
     let session: DbsqlSessionInstanceLike
     try {
       session = await conn.openSession()
@@ -167,6 +197,14 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     } catch (err) {
       await conn.close().catch(noop)
       throw err
+    }
+    // A close() may have landed while we were connecting. close() already ran
+    // and zeroed its handles, so publishing these live ones would leak them —
+    // tear down here instead.
+    if (this.closed) {
+      await session.close().catch(noop)
+      await conn.close().catch(noop)
+      throw new Error('DatabricksSqlProvider: provider is closed')
     }
     this.clientConn = conn
     this.session = session

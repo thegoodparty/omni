@@ -150,7 +150,7 @@ test('validate contacts filters', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/dashboard\/contacts/)
   await expect(
-    page.getByRole('heading', { name: 'Constituents' }),
+    page.getByRole('heading', { name: 'Constituent Data' }),
   ).toBeVisible()
 
   const table = page.locator('table').first()

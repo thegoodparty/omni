@@ -72,8 +72,8 @@ export const BRIEFING_CHATS_SEARCH_PROVIDER = 'BRIEFING_CHATS_SEARCH_PROVIDER'
 export const BRIEFING_CHATS_DATABRICKS_PROVIDER =
   'BRIEFING_CHATS_DATABRICKS_PROVIDER'
 
-const HAYSTAQ_TABLE = 'int__l2_nationwide_uniform_w_haystaq'
-const HAYSTAQ_ALLOWED_TABLES = new Set([HAYSTAQ_TABLE])
+const SERVE_AGENT_VOTERS_TABLE = 'serve_agent_voters'
+const SERVE_AGENT_VOTERS_ALLOWED_TABLES = new Set([SERVE_AGENT_VOTERS_TABLE])
 
 export const BRIEFING_CHAT_MODELS = [
   'claude-sonnet-4-6',
@@ -238,7 +238,7 @@ export class BriefingChatsService {
           this.districtResolver.toMandatoryFilters(resolved)
         tools.district_insights = buildDistrictInsightsTool({
           provider: this.databricks,
-          allowedTables: HAYSTAQ_ALLOWED_TABLES,
+          allowedTables: SERVE_AGENT_VOTERS_ALLOWED_TABLES,
           mandatoryFilters,
         })
         tools.list_district_topics = buildDistrictTopicsTool()
