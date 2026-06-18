@@ -16,7 +16,7 @@ import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 // Markdown bubble — same override set as Chief of Staff and briefing chat
 // ---------------------------------------------------------------------------
 const ASSISTANT_BUBBLE =
-  'self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground ' +
+  'w-full text-sm text-foreground ' +
   'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
   '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
@@ -506,15 +506,17 @@ export default function AiChatBody({
       {suggestions.length > 0 && history.length === 0 && streaming === null && !error && (
         <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2">
           {suggestions.map((s) => (
-            <button
+            <Button
               key={s}
               type="button"
+              variant="outline"
+              size="small"
               disabled={busy}
               onClick={() => void sendContent(s)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
+              className="rounded-full"
             >
               {s}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -546,10 +548,10 @@ export default function AiChatBody({
             />
             <IconButton
               type="button"
-              size="small"
+              size="medium"
               variant="ghost"
               aria-label={dictation.status === 'recording' ? 'Stop dictation' : 'Dictate a message'}
-              className="size-10 shrink-0"
+              className="shrink-0"
               disabled={busy || dictation.status === 'stopping'}
               onClick={() => void dictation.toggle()}
             >
@@ -563,17 +565,17 @@ export default function AiChatBody({
             </IconButton>
             <IconButton
               type="button"
-              size="small"
+              size="medium"
               aria-label="Send"
-              className="size-10 shrink-0 bg-primary text-primary-foreground"
+              className="shrink-0 bg-primary text-primary-foreground"
               onClick={() => void onSend()}
               disabled={composer.trim().length === 0 || busy}
               loading={busy}
             >
               {composer.trim().length > 0 ? (
-                <SendIcon className="size-5" aria-hidden />
+                <SendIcon className="size-4" aria-hidden />
               ) : (
-                <SparklesIcon className="size-5" aria-hidden />
+                <SparklesIcon className="size-4" aria-hidden />
               )}
             </IconButton>
           </div>

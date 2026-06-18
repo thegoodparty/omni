@@ -50,22 +50,21 @@ export default function AiChatBar({
             </button>
             <IconButton
               type="button"
-              size="small"
+              size="medium"
               variant="ghost"
               aria-label="Dictate a message"
-              className="size-10"
               onClick={onOpen}
             >
               <MicIcon className="size-5" aria-hidden />
             </IconButton>
             <IconButton
               type="button"
-              size="small"
+              size="medium"
               aria-label={`Open ${config.title} chat`}
-              className="size-10 bg-primary text-primary-foreground"
+              className="bg-primary text-primary-foreground"
               onClick={onOpen}
             >
-              <SparklesIcon className="size-5" aria-hidden />
+              <SparklesIcon className="size-4" aria-hidden />
             </IconButton>
           </div>
         </div>

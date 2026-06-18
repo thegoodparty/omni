@@ -33,10 +33,10 @@ export default function AiChatHistoryPopover({ chatApi, configTitle, onSelect }:
       <PopoverTrigger asChild>
         <IconButton
           type="button"
-          size="small"
+          size="medium"
           variant="ghost"
           aria-label="Previous conversations"
-          className="size-10 shrink-0"
+          className="shrink-0"
         >
           <ClockIcon className="size-5" aria-hidden />
         </IconButton>
@@ -70,7 +70,7 @@ export default function AiChatHistoryPopover({ chatApi, configTitle, onSelect }:
                   onClick={() => deleteConversation.mutate(c.conversationId)}
                   disabled={deleteConversation.isPending}
                 >
-                  <Trash2Icon className="size-4" aria-hidden />
+                  <Trash2Icon aria-hidden />
                 </IconButton>
               </div>
             ))}
