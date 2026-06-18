@@ -282,11 +282,23 @@ export class OnboardingLocalNewsService {
     key: LocalNewsJurisdiction,
     outlets: LocalNewsOutlet[],
   ): Promise<void> {
-    await this.cache.model.upsert({
-      where: { jurisdiction: key },
-      create: { ...key, status: 'ready', startedAt: null, outlets },
-      update: { status: 'ready', startedAt: null, outlets },
-    })
+    // Guard the ready write with WHERE status = 'pending', same reasoning as
+    // markPending/expirePending. A zombie fetch that outlived PENDING_TTL_MS
+    // (process restart, AI hang) can complete after a fresh claim already wrote
+    // a newer result; without the guard it would silently overwrite good outlets
+    // with stale AI output. Only the legitimate current owner (row still
+    // 'pending') writes ready; a zombie hitting an already-'ready' row no-ops.
+    const outletsJson = JSON.stringify(outlets)
+    await this.cache.client.$executeRaw`
+      INSERT INTO local_news_cache (id, office, city, state, status, started_at, outlets, created_at, updated_at)
+      VALUES (gen_random_uuid()::text, ${key.office}, ${key.city}, ${key.state}, 'ready', NULL, ${outletsJson}::jsonb, now(), now())
+      ON CONFLICT (office, city, state) DO UPDATE
+        SET status = 'ready',
+            started_at = NULL,
+            outlets = ${outletsJson}::jsonb,
+            updated_at = now()
+        WHERE local_news_cache.status = 'pending'
+    `
   }
 
   private async expirePending(key: LocalNewsJurisdiction): Promise<void> {

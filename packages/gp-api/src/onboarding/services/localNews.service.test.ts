@@ -257,7 +257,7 @@ describe('OnboardingLocalNewsService', () => {
     })
 
     it('persists outlets from gemini.generateStructured on a successful fetch', async () => {
-      const { service, cache, gemini, model, analytics } = makeService()
+      const { service, cache, gemini, client, analytics } = makeService()
       const aiOutlets = readyOutlets([{ name: 'Denver Post' }])
       cache.findByJurisdiction.mockResolvedValue(null)
       gemini.generateStructured.mockResolvedValue({ outlets: aiOutlets })
@@ -271,17 +271,17 @@ describe('OnboardingLocalNewsService', () => {
       await new Promise((resolve) => setImmediate(resolve))
       await new Promise((resolve) => setImmediate(resolve))
 
-      const readyWrite = model.upsert.mock.calls.find(
-        (call) => call[0]?.update.status === 'ready',
-      )?.[0]
-      expect(readyWrite?.where).toEqual({
-        jurisdiction: { office: OFFICE, city: CITY, state: STATE },
-      })
-      expect(readyWrite?.update).toEqual({
-        status: 'ready',
-        startedAt: null,
-        outlets: aiOutlets,
-      })
+      // writeReady is the only $executeRaw on the success path (expirePending
+      // only runs on failure). It writes the outlets but is guarded by
+      // status = 'pending' so a zombie fetch can't clobber a newer result.
+      expect(client.$executeRaw).toHaveBeenCalledTimes(1)
+      const readyValues = client.$executeRaw.mock.calls[0] ?? []
+      const readySql = (readyValues[0] as unknown as string[]).join('?')
+      expect(readySql).toContain("status = 'ready'")
+      expect(readySql).toContain("status = 'pending'")
+      expect(readyValues).toContain(OFFICE)
+      expect(readyValues).toContain(STATE)
+      expect(readyValues).toContain(JSON.stringify(aiOutlets))
 
       // Analytics is keyed on the resolved userId (campaign-less EOs have no
       // campaignId, so it must not appear in the payload).
