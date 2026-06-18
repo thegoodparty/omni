@@ -587,30 +587,102 @@ the current bug where setup tasks were dated election-relative:
 - `recurring {interval: weekly|monthly|evenWeeks|oddWeeks, dayOfWeek}`
 - `perItem` — date comes from the generated item (event/outlet/meeting)
 
-### Dynamic-task personalization (LLM, backend)
+### Dynamic tasks + community events via CAP (tentative — for review)
 
-Static tasks render their template copy. Dynamic tasks are personalized by an
-LLM, server-side, following the existing `campaignStrategy` / `communityEvents`
-pattern (Gemini, cached on the `campaign_strategy` row, background-generated with
-the generating/ready polling shape, race-stamped so an office change resets it):
+Static tasks render their template copy. Dynamic tasks (and community events) are
+personalized and curated by **CAP** — the Campaign AI Platform / PMF experiment
+engine in `packages/runbooks/experiments/` that already generates the plan's
+opposition/opportunities sections. This is a tentative approach we can iterate on.
 
-- New gp-api service + endpoint (e.g. `POST /v1/campaignStrategy/mine/tasks`)
-  that takes the dynamic task templates + the candidate's plan context (the Live
-  pill values: name, office, issues, opponents, events, win number, dates, …)
-  and returns `{ tasks: { id, title, description }[] }` keyed by catalog id.
-- One batched call per candidate, generated upfront and cached; regenerate only
-  on race change or explicit refresh. No cron — never per page load.
-- Layer-3 guardrail (from the one-pager): the model rewrites copy only; it never
-  invents a date, number, or compliance step — those stay deterministic from the
-  catalog timing + pill values.
-- Webapp hook `usePersonalizedTasks` (mirrors `useCommunityEvents`) merges
-  personalized copy onto the catalog by id, falling back to template copy while
-  generating or on error.
-- Open decision: where the dynamic templates live so gp-api can prompt with
-  them — recommend `@goodparty_org/contracts` (single source of truth, shared by
-  webapp + gp-api) rather than duplicating the catalog.
+How CAP works (grounded in the existing strategic-landscape integration):
+- Author an experiment under `packages/runbooks/experiments/<id>/`: a
+  `manifest.json` (id, version, model, max_turns, timeout, `input_schema`,
+  `output_schema`) + an `instruction.md` (the agent's system prompt + rules).
+  Publish with `scripts/python/publish_experiments.py` (uploads to S3, atomic
+  `index.json`); types generate into `AgentJobContracts`.
+- Dispatch from gp-api: `ExperimentRunsService.dispatchRun({ type,
+  organizationSlug, clerkUserId, params })` creates an `ExperimentRun` (runId,
+  status RUNNING) and enqueues to the agent-dispatch FIFO SQS. A cloud agent
+  (Claude per the manifest, with web search) runs `instruction.md` and writes a
+  JSON artifact to S3.
+- Result: SQS `AGENT_EXPERIMENT_RESULT { runId, status, artifactBucket/Key,
+  costUsd }` -> `queueConsumer.handleAgentExperimentResult` -> loads the artifact
+  -> a feature callback (like `campaignStrategy.onExperimentRunCompleted`) parses
+  and persists it in a race-guarded transaction. Partial results can resume.
+- Link the `runId` on the owning row; match the result by runId/type. Runs are
+  observable via `admin/agentRuns`; a sweeper fails runs stuck >45 min.
+
+New experiment (working name `campaign_tracker_tasks`):
+- Input params: identity + `race_id` (as strategic-landscape), the campaign
+  context (issues, opponents, win number, contact goal, budget, dates),
+  `election_date`, `today`; the **dynamic task catalog** (id, phase, channel,
+  tier, template copy, pills — the menu to personalize/select from); `prior_tasks`
+  (previously-generated dynamic tasks + completion status); `prior_events`
+  (previously-generated community events); and `mode: initial | weekly`.
+- Output artifact: `dynamic_tasks` (personalized — full set on initial, the
+  curated upcoming-week set on weekly, each `{ catalog_id, title, description,
+  priority_tier, phase, channel }`) and `community_events` (curated
+  `{ title, description, date, address, url }` across `[today, electionDate]`,
+  multiday-deduped).
+- `instruction.md` encodes the skills: personalize copy in the candidate's voice;
+  use the full generated set to **avoid repeating same-type tasks**; on weekly,
+  **push incomplete-but-important tasks forward** (e.g. unfinished door-knocking
+  becomes a focus next week); reframe to GOTV in the last 30 days; never invent a
+  date, number, or compliance step (Layer-3 guardrail).
+
+Flows:
+- **Initial generation — generate everything.** Trigger when the candidate
+  finishes Pre-launch/Launch (first opens the tracker). Dispatch
+  `campaign_tracker_tasks` `mode=initial`, empty `prior_*`. Persist the full
+  personalized `dynamic_tasks` set + `community_events` (whole campaign) on
+  `campaign_strategy`; store the runId.
+- **Weekly cron — re-evaluate the upcoming week.** Mirror `weeklyTasksDigest`
+  (`@Cron` weekly + SQS-FIFO dedup). Fan out one dispatch per eligible campaign
+  (active, setup done, future election). `mode=weekly` with `prior_tasks`
+  (current week + completion status) and `prior_events`. The agent re-evaluates
+  the **upcoming week's** dynamic tasks — re-prioritizing and curating against
+  what was completed and the full prior set (so it doesn't repeat similar tasks)
+  — and refreshes community events (curate prior + search new for the window,
+  multiday-dedup, lookahead to end of campaign). Persist the new upcoming-week
+  selection + curated events.
+
+Deterministic vs CAP split (keeps the Layer-3 guardrail):
+- **CAP (the agent):** personalize copy, select/prioritize the week's dynamic
+  tasks, avoid repeats, discover/curate community events.
+- **Deterministic (gp-api sequencer + persist):** the hard rules — lock Active
+  until setup done, the 30-day GOTV window, the 3-visible cap + progressive
+  reveal, date placement from the timing model, event merge/dedup. The model
+  never sets those gates or dates.
+
+Persistence: new `campaign_strategy` JSON for `dynamic_tasks` (the personalized
+pool + per-week selection + completion) plus the existing `community_events`; add
+a `priority` field (the meeting's schema change); a `<feature>RunId` +
+refreshed-at for the weekly guard; race-guarded like the existing persisters.
+
+Reuse vs new:
+- Reuse: the entire CAP dispatch/result/queue/monitoring infra, the `@Cron` +
+  SQS-dedup skeleton, the eligible-campaigns query, and (for events) the existing
+  search pipeline if we keep it separate.
+- New: the `campaign_tracker_tasks` experiment (manifest + instruction), a weekly
+  cron service + 1–2 QueueTypes (trigger + per-campaign), a result/persist
+  callback for this experiment, the `campaign_strategy` fields + `priority`, and
+  the event merge/curation.
+
+Open questions:
+- One experiment for tasks+events (agent web-searches events too, shared context
+  to avoid repeats), or keep community events on the existing Gemini pipeline and
+  drive both from the same weekly cron? Recommend one experiment for shared
+  context, but the events pipeline already exists.
+- Catalog location so the agent input can include it — recommend
+  `@goodparty_org/contracts` (shared by webapp + gp-api), not duplicated.
+- Cost: one CAP agent run per active campaign per week; throttle via per-campaign
+  SQS; cost is already tracked per run (`costUsd`).
 
 ### Community events coverage (weekly cron)
+
+This is the events-specific detail for the same weekly run described in "Dynamic
+tasks + community events via CAP" above — whether events are curated inside that
+CAP experiment or kept on the existing Gemini pipeline, these rules apply.
 
 Decision: catalog tasks are generated upfront (no cron), but community events DO
 get a weekly cron. We want **real, customized, district-specific** events across
