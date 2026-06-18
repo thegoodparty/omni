@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 9,
+  "version": 10,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -457,6 +457,12 @@
                   "minLength": 1,
                   "maxLength": 300,
                   "description": "One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing."
+                },
+                "priority_id": {
+                  "type": "string"
+                },
+                "community_issue_feed_id": {
+                  "type": "string"
                 }
               }
             }
