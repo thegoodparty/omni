@@ -53,7 +53,7 @@ export class CampaignStoryRewriteService {
 
   constructor(private readonly gemini: GeminiService) {}
 
-  rewrite(
+  async rewrite(
     input: RewriteCampaignStoryInput,
     candidateName: string,
     userId: number,

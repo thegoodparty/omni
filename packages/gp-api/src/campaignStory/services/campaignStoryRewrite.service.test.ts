@@ -54,7 +54,7 @@ describe('CampaignStoryRewriteService', () => {
       subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 7)
 
     for (let i = 0; i < 20; i++) await call()
-    expect(call).toThrow(/rate limit/i)
+    await expect(call()).rejects.toThrow(/rate limit/i)
     // The blocked request never reaches Gemini.
     expect(generateStructured).toHaveBeenCalledTimes(20)
   })
