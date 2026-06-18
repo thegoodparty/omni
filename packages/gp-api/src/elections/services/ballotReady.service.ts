@@ -10,6 +10,7 @@ import {
 import { gql, GraphQLClient } from 'graphql-request'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { PositionLevel } from 'src/generated/graphql.types'
+import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import { truncateZip } from 'src/shared/util/zipcodes.util'
 import zipcodes from 'zipcodes'
 import { ElectionLevels } from '../../shared/constants/governmentLevels'
@@ -770,19 +771,21 @@ export const selectPreferredOfficeHolder = (
   const upcoming = active
     .filter((holder): holder is PersonOfficeHolder & { startAt: string } => {
       if (!holder.startAt) return false
-      const start = new Date(holder.startAt)
+      const start = parseIsoDateAsUTC(holder.startAt)
       return start > now && start <= windowEnd
     })
     .sort(
-      (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+      (a, b) =>
+        parseIsoDateAsUTC(a.startAt).getTime() -
+        parseIsoDateAsUTC(b.startAt).getTime(),
     )
   if (upcoming.length) return upcoming[0]
 
   const current =
     active.find((holder) => holder.isCurrent) ??
     active.find((holder) => {
-      const start = holder.startAt ? new Date(holder.startAt) : null
-      const end = holder.endAt ? new Date(holder.endAt) : null
+      const start = holder.startAt ? parseIsoDateAsUTC(holder.startAt) : null
+      const end = holder.endAt ? parseIsoDateAsUTC(holder.endAt) : null
       // endAt is the exclusive term boundary (the successor's start day), so a
       // holder is current only while now < endAt — matching isHeldOffice and the
       // half-open [start, end) overlap semantics. Using >= would keep selecting

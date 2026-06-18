@@ -81,4 +81,20 @@ describe('selectPreferredOfficeHolder', () => {
       'active',
     )
   })
+
+  it('parses term boundaries with the shared UTC date util', () => {
+    // Selection parses startAt/endAt with parseIsoDateAsUTC — the same util the
+    // controller uses to persist them — so the 3-month window decision and the
+    // stored calendar day never disagree. A date-only and an equivalent
+    // TZ-offset datetime that resolve to the same in-window day both select.
+    const dateOnly = holder({ id: 'date-only', startAt: '2026-02-15' })
+    expect(selectPreferredOfficeHolder([dateOnly], now)?.id).toBe('date-only')
+
+    const offset = holder({
+      // 2026-02-14T20:00-05:00 === 2026-02-15T01:00Z — within the 3-month window.
+      id: 'offset',
+      startAt: '2026-02-14T20:00:00-05:00',
+    })
+    expect(selectPreferredOfficeHolder([offset], now)?.id).toBe('offset')
+  })
 })
