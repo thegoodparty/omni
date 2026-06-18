@@ -14,6 +14,7 @@ import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
+import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -82,6 +83,7 @@ const DashboardLayout = ({
         <SidebarInset className="bg-[#f5f5f5]">
           {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
+          <ElectedOfficeTermDatesModalController />
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             {activeCampaign && showAlert && (
               <AlertSection campaign={activeCampaign} />

@@ -12,7 +12,6 @@ import {
   LoaderCircle,
   Pencil,
 } from 'lucide-react'
-import { addDays, format, parse } from 'date-fns'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
@@ -21,8 +20,19 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
-import DateInputCalendar from '@shared/inputs/DateInputCalendar'
 import ServeOfficePicker from './ServeOfficePicker'
+import {
+  buildDisabledRanges,
+  CALENDAR_END,
+  CALENDAR_START,
+  formatDisplay,
+  overlapsExisting as overlapsExistingRanges,
+  TermDatesFields,
+  termDateError,
+  toApiDate,
+  toDate,
+  type DisabledRange,
+} from './termDates.shared'
 import {
   trackServeOnboarding,
   SERVE_ONBOARDING_EVENTS,
@@ -39,49 +49,7 @@ import {
   type ServeStepId,
 } from './serveOnboardingConfig'
 
-type DisabledRange = { from: Date; to: Date }
-
-const FAR_FUTURE = new Date(3000, 0, 1)
-const FAR_PAST = new Date(1900, 0, 1)
-
-// Term dates legitimately reach into the future (a term end, or a soon-to-be
-// sworn-in official's start), so the calendar's year dropdown must span well
-// past today rather than capping at the current year.
-const CALENDAR_START = new Date(2000, 0, 1)
-const CALENDAR_END = new Date(new Date().getFullYear() + 20, 11, 31)
-
 const DEFAULT_OFFICE_LABEL = 'your elected office'
-
-const toDate = (value: string | null | undefined): Date | undefined => {
-  if (!value) return undefined
-  const parsed = parse(value, 'yyyy-MM-dd', new Date())
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed
-}
-
-const toApiDate = (value: Date | undefined): string | null =>
-  value ? format(value, 'yyyy-MM-dd') : null
-
-const formatDisplay = (date: Date | undefined): string =>
-  date ? format(date, 'MMMM d, yyyy') : 'Not set'
-
-const buildDisabledRanges = (
-  offices: ElectedOffice[],
-  excludeId: string | undefined,
-): DisabledRange[] =>
-  offices
-    .filter((office) => office.id !== excludeId)
-    .filter((office) => office.termStartDate || office.termEndDate)
-    .map((office) => {
-      const end = toDate(office.termEndDate)
-      return {
-        from: toDate(office.termStartDate) ?? FAR_PAST,
-        // Store the EXCLUSIVE end (termEndDate is the successor's start day) so
-        // the overlap check matches the API's half-open dateRangesOverlap. The
-        // calendar's inclusive disabled matcher decrements this by a day on its
-        // own, so the boundary day stays selectable for a consecutive term.
-        to: end ?? FAR_FUTURE,
-      }
-    })
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
@@ -99,6 +67,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
   const [otherRanges, setOtherRanges] = useState<DisabledRange[]>([])
 
+  // UX-only: drives the onboarding branch (e.g. `campaigning` hands off to the
+  // Win flow) and gates Continue. Intentionally not persisted to the EO record.
   const [inOffice, setInOffice] = useState<InOfficeStatus | null>(null)
   const [party, setParty] = useState<string | null>(null)
 
@@ -197,23 +167,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })()
   }, [])
 
-  const disabledMatchers = useMemo(
-    // range.to is the exclusive term end; the day-picker's disabled matcher is
-    // inclusive, so decrement by a day to leave the boundary day selectable for
-    // a consecutive term (matching the half-open API semantics).
-    () =>
-      otherRanges.map((range) => ({
-        from: range.from,
-        to: addDays(range.to, -1),
-      })),
-    [otherRanges],
-  )
-
-  const endDisabledMatchers = useMemo(() => {
-    if (!termStartDate) return disabledMatchers
-    return [...disabledMatchers, { before: addDays(termStartDate, 1) }]
-  }, [disabledMatchers, termStartDate])
-
   const officeIsChosen = Boolean(
     office?.positionId ||
     customOfficeName.trim() ||
@@ -222,35 +175,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
 
-  const overlapsExisting = useMemo(() => {
-    if (!termStartDate && !termEndDate) return false
-    const start = termStartDate ?? FAR_PAST
-    const end = termEndDate ?? FAR_FUTURE
-    // Terms are half-open [start, end): the end date is the exclusive boundary
-    // where the successor takes over, so a new term that starts exactly on a
-    // prior term's end day does not overlap — must match the API's
-    // dateRangesOverlap (< not <=) or the UI blocks a term the server accepts.
-    return otherRanges.some((range) => start < range.to && range.from < end)
-  }, [termStartDate, termEndDate, otherRanges])
-
   const datesValid =
     !!termStartDate &&
     !!termEndDate &&
     termStartDate < termEndDate &&
-    !overlapsExisting
+    !overlapsExistingRanges(termStartDate, termEndDate, otherRanges)
 
-  const dateError = useMemo(() => {
-    if (!termStartDate || !termEndDate) {
-      return 'Enter both your term start and end dates to continue.'
-    }
-    if (termStartDate >= termEndDate) {
-      return 'Your term end date must be after your start date.'
-    }
-    if (overlapsExisting) {
-      return 'These dates overlap a term you already hold. Adjust them so your offices don’t overlap.'
-    }
-    return null
-  }, [termStartDate, termEndDate, overlapsExisting])
+  const dateError = useMemo(
+    () => termDateError(termStartDate, termEndDate, otherRanges),
+    [termStartDate, termEndDate, otherRanges],
+  )
 
   const officeDisplayLabel = office?.positionName
     ? office.positionName
@@ -541,8 +475,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           termEndDate={termEndDate}
           onStartChange={setTermStartDate}
           onEndChange={setTermEndDate}
-          startDisabled={disabledMatchers}
-          endDisabled={endDisabledMatchers}
+          otherRanges={otherRanges}
           calendarStart={CALENDAR_START}
           calendarEnd={CALENDAR_END}
           error={dateError}
@@ -863,8 +796,7 @@ const TermDatesStep = ({
   termEndDate,
   onStartChange,
   onEndChange,
-  startDisabled,
-  endDisabled,
+  otherRanges,
   calendarStart,
   calendarEnd,
   error,
@@ -873,8 +805,7 @@ const TermDatesStep = ({
   termEndDate: Date | undefined
   onStartChange: (date: Date | undefined) => void
   onEndChange: (date: Date | undefined) => void
-  startDisabled: { from: Date; to: Date }[]
-  endDisabled: ({ from: Date; to: Date } | { before: Date })[]
+  otherRanges: DisabledRange[]
   calendarStart: Date
   calendarEnd: Date
   error: string | null
@@ -885,35 +816,17 @@ const TermDatesStep = ({
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-4 sm:p-6">
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Term start date</Label>
-            <DateInputCalendar
-              value={termStartDate}
-              onChange={onStartChange}
-              showTextInput
-              label="Term start"
-              startMonth={calendarStart}
-              endMonth={calendarEnd}
-              disabled={startDisabled}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Term end date</Label>
-            <DateInputCalendar
-              value={termEndDate}
-              onChange={onEndChange}
-              showTextInput
-              label="Term end"
-              startMonth={calendarStart}
-              endMonth={calendarEnd}
-              disabled={endDisabled}
-            />
-          </div>
-        </div>
+        <TermDatesFields
+          termStartDate={termStartDate}
+          termEndDate={termEndDate}
+          onStartChange={onStartChange}
+          onEndChange={onEndChange}
+          otherRanges={otherRanges}
+          calendarStart={calendarStart}
+          calendarEnd={calendarEnd}
+          error={error}
+        />
       </Panel>
-
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
       {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
     </main>
