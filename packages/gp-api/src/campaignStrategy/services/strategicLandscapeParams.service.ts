@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { RacesService } from '@/elections/services/races.service'
+import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from './electionApi.service'
 
@@ -34,15 +35,17 @@ export class StrategicLandscapeParamsService {
   constructor(
     private readonly electionApi: ElectionApiService,
     private readonly races: RacesService,
+    private readonly campaignStory: CampaignStoryService,
   ) {}
 
   async build(
     campaign: CampaignWith<'user'>,
     brHashId: string,
   ): Promise<StrategicLandscapeInput> {
-    const [context, primary] = await Promise.all([
+    const [context, primary, campaignStory] = await Promise.all([
       this.electionApi.getStrategyContext(brHashId),
       this.buildPrimaryContext(brHashId),
+      this.campaignStory.getForCampaign(campaign.id),
     ])
     const { user } = campaign
     const { party, otherParty } = resolveParty(campaign.details)
@@ -56,6 +59,7 @@ export class StrategicLandscapeParamsService {
       other_party: otherParty,
       campaign_strategy_context: context,
       campaign_primary_strategy_context: primary,
+      campaign_story: campaignStory,
     }
   }
 
