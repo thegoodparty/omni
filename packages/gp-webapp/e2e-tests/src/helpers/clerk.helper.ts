@@ -92,8 +92,14 @@ export const fillClerkSignUpForm = async (page: Page) => {
 
   // Password is optional on the instance now (email_code is also offered as a
   // factor), so only fill it when the prebuilt form actually renders the field.
+  // Wait for it rather than snapshotting, since fill() above doesn't guarantee
+  // the rest of the form has finished hydrating on a slow CI render.
   const passwordField = page.locator('input[name=password]')
-  if (await passwordField.isVisible().catch(() => false)) {
+  const passwordVisible = await passwordField
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  if (passwordVisible) {
     await passwordField.fill(testUser.password)
   }
 
