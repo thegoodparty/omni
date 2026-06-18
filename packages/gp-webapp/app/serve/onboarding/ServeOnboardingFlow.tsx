@@ -75,11 +75,11 @@ const buildDisabledRanges = (
       const end = toDate(office.termEndDate)
       return {
         from: toDate(office.termStartDate) ?? FAR_PAST,
-        // termEndDate is the exclusive boundary (successor's start day), so the
-        // last day actually occupied is the day before it. Disabling the
-        // boundary day inclusively would block a new term from starting on a
-        // prior term's end day even though the API/overlap check allow it.
-        to: end ? addDays(end, -1) : FAR_FUTURE,
+        // Store the EXCLUSIVE end (termEndDate is the successor's start day) so
+        // the overlap check matches the API's half-open dateRangesOverlap. The
+        // calendar's inclusive disabled matcher decrements this by a day on its
+        // own, so the boundary day stays selectable for a consecutive term.
+        to: end ?? FAR_FUTURE,
       }
     })
 
@@ -198,7 +198,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   }, [])
 
   const disabledMatchers = useMemo(
-    () => otherRanges.map((range) => ({ from: range.from, to: range.to })),
+    // range.to is the exclusive term end; the day-picker's disabled matcher is
+    // inclusive, so decrement by a day to leave the boundary day selectable for
+    // a consecutive term (matching the half-open API semantics).
+    () =>
+      otherRanges.map((range) => ({
+        from: range.from,
+        to: addDays(range.to, -1),
+      })),
     [otherRanges],
   )
 
