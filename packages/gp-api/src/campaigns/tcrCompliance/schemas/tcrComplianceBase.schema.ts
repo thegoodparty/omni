@@ -11,6 +11,8 @@ import { Logger } from '@nestjs/common'
 
 const logger = new Logger('TcrComplianceDto')
 
+export const FEC_COMMITTEE_ID_PATTERN = /^C\d{8}$/
+
 export const tcrComplianceBaseShape = {
   ein: EinSchema,
   placeId: z.string(),
@@ -37,21 +39,29 @@ type TcrComplianceBaseData = {
 export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   data: T,
   ctx: z.RefinementCtx,
+  // The agent submit path (submitToPeerlyForAgent) defers the federal
+  // "fecCommitteeId required" check to the service, which falls back to the
+  // value persisted on the TcrCompliance row when the request omits it. Format
+  // is still validated here whenever a value IS present.
+  options: { requireFecCommitteeId?: boolean } = {},
 ) => {
+  const { requireFecCommitteeId = true } = options
   const isFederal = data.officeLevel === OfficeLevel.federal
 
   if (isFederal) {
-    if (!data.fecCommitteeId) {
+    if (data.fecCommitteeId) {
+      if (!FEC_COMMITTEE_ID_PATTERN.test(data.fecCommitteeId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'FEC Committee ID must be "C" followed by 8 digits (e.g., C00123456)',
+          path: ['fecCommitteeId'],
+        })
+      }
+    } else if (requireFecCommitteeId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'FEC Committee ID is required for federal office level',
-        path: ['fecCommitteeId'],
-      })
-    } else if (!/^C\d{8}$/.test(data.fecCommitteeId)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'FEC Committee ID must be "C" followed by 8 digits (e.g., C00123456)',
         path: ['fecCommitteeId'],
       })
     }
