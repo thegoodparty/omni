@@ -34,11 +34,15 @@ const SUGGESTED_CHARS = 100
 interface CampaignStoryCardProps {
   section: CampaignStorySection
   initialValue: string | null
+  // Reports this field's persisted answered-state (non-empty once saved) so the
+  // page can show its "generate" CTA only when the whole story is saved.
+  onAnsweredChange?: (answered: boolean) => void
 }
 
 const CampaignStoryCard = ({
   section,
   initialValue,
+  onAnsweredChange,
 }: CampaignStoryCardProps): React.JSX.Element => {
   const { id, title, description, placeholder } = section
   const [value, setValue] = useState(initialValue ?? '')
@@ -96,6 +100,7 @@ const CampaignStoryCard = ({
         savedRef.current = lastAttempted
       }
       setSaveFailed(false)
+      onAnsweredChange?.(savedRef.current.trim().length > 0)
     } catch (error) {
       reportErrorToSentry(error, {
         context: 'CampaignStoryCard.save',

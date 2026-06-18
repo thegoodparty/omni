@@ -1,7 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
+import type { CampaignStory } from '@goodparty_org/contracts'
 import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
+import AlertDialog from '@shared/utils/AlertDialog'
 import {
   isCampaignStoryComplete,
   useCampaignStory,
@@ -13,10 +16,17 @@ interface CampaignPlanStoryGateProps {
 
 const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
 
+const REVIEW_FIELDS: Array<{ key: keyof CampaignStory; label: string }> = [
+  { key: 'why', label: 'Your why' },
+  { key: 'background', label: 'Your background' },
+  { key: 'issues', label: 'Your issues' },
+]
+
 const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
   const story = useCampaignStory()
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   if (story === undefined) {
     return (
@@ -55,20 +65,46 @@ const CampaignPlanStoryGate = ({
           Ready to build your Campaign Plan
         </h2>
         <p className="text-muted-foreground">
-          We&apos;ll use your Campaign Story to generate a plan tailored to your
-          race.
+          We&apos;ll generate your plan from your Campaign Story below. Give it
+          a final look — edit anything before we start.
         </p>
       </div>
+
+      <div className="flex w-full flex-col gap-4">
+        {REVIEW_FIELDS.map(({ key, label }) => (
+          <div key={key} className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              {label}
+            </span>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+              {story[key]}
+            </p>
+          </div>
+        ))}
+      </div>
+
       <div className="flex w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
-        <Button onClick={onGenerate} icon={<SparklesIcon />}>
-          I&apos;m ready, Generate my Plan
+        <Button onClick={() => setConfirmOpen(true)} icon={<SparklesIcon />}>
+          Generate my Campaign Plan
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
-          <Link href="/dashboard/campaign-story">
-            Let&apos;s update my Story
-          </Link>
+          <Link href="/dashboard/campaign-story">Edit my Story</Link>
         </Button>
       </div>
+
+      <AlertDialog
+        open={confirmOpen}
+        handleClose={() => setConfirmOpen(false)}
+        handleProceed={() => {
+          setConfirmOpen(false)
+          onGenerate()
+        }}
+        redButton={false}
+        title="Are you sure you're ready?"
+        description="It's important that your story is fully complete before we generate your plan, for the best results."
+        proceedLabel="Yes, generate my plan"
+        cancelLabel="Not yet"
+      />
     </Card>
   )
 }

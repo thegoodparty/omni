@@ -28,6 +28,14 @@ campaign plan, stump speech, and voter messaging.
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real
   rewrite AI.
+- **Generate footer → plan tab.** Each card reports its *saved* answered-state
+  up (`onAnsweredChange`, fired after a successful save) so the page seeds
+  completion from the persisted story and shows a sticky "Generate my Campaign
+  Plan" footer once all three are saved. The footer just links to
+  `/dashboard/campaign-plan`; the actual review + confirm + generation lives on
+  the plan tab (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which
+  shows the three answers, an "Edit my Story" link back here, and a confirm
+  modal before generating.
 
 ## Related
 
