@@ -53,7 +53,7 @@
       },
       "list": {
         "type": "string",
-        "enum": ["top_community", "trending"]
+        "const": "trending"
       },
       "organization_slug": {
         "type": "string",
@@ -238,13 +238,7 @@
           },
           "source_type": {
             "type": "string",
-            "enum": [
-              "news",
-              "government_website",
-              "research",
-              "poll",
-              "social_media"
-            ]
+            "enum": ["news", "government_website", "research", "poll"]
           },
           "url": {
             "type": ["string", "null"],

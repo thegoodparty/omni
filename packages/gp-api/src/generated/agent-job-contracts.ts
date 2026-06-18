@@ -7419,7 +7419,7 @@ export interface TopCommunityIssuesOutput {
           title: string
         },
       ]
-  list: 'top_community' | 'trending'
+  list: 'top_community'
   notes?: string
   organization_slug: string
   schema_version: 1
@@ -7484,12 +7484,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7553,12 +7548,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7620,12 +7610,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7689,12 +7674,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7756,12 +7736,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7823,12 +7798,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7892,12 +7862,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -7959,12 +7924,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8026,12 +7986,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8093,12 +8048,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8162,12 +8112,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8229,12 +8174,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8296,12 +8236,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8363,12 +8298,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8430,12 +8360,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8499,12 +8424,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8566,12 +8486,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8633,12 +8548,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8700,12 +8610,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8767,12 +8672,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8834,12 +8734,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8903,12 +8798,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -8970,12 +8860,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9037,12 +8922,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9104,12 +8984,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9171,12 +9046,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9238,12 +9108,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9305,12 +9170,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9374,12 +9234,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9441,12 +9296,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9508,12 +9358,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9575,12 +9420,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9642,12 +9482,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9709,12 +9544,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9776,12 +9606,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9843,12 +9668,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9912,12 +9732,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -9979,12 +9794,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10046,12 +9856,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10113,12 +9918,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10180,12 +9980,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10247,12 +10042,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10314,12 +10104,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10381,12 +10166,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10448,12 +10228,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10517,12 +10292,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10584,12 +10354,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10651,12 +10416,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10718,12 +10478,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10785,12 +10540,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10852,12 +10602,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10919,12 +10664,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -10986,12 +10726,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -11053,12 +10788,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -11120,12 +10850,7 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type:
-                | 'news'
-                | 'government_website'
-                | 'research'
-                | 'poll'
-                | 'social_media'
+              source_type: 'news' | 'government_website' | 'research' | 'poll'
               url?: string | null
             }[]
           }
@@ -11139,7 +10864,7 @@ export interface TrendingIssuesOutput {
           title: string
         },
       ]
-  list: 'top_community' | 'trending'
+  list: 'trending'
   notes?: string
   organization_slug: string
   schema_version: 1

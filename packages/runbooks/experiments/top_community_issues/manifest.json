@@ -63,7 +63,7 @@
       },
       "list": {
         "type": "string",
-        "enum": ["top_community", "trending"]
+        "const": "top_community"
       },
       "organization_slug": {
         "type": "string",
