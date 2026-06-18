@@ -10,8 +10,18 @@ GoodParty toggles features with Amplitude flags. This skill does two things thro
 it. Anything fancier (variants, experiments, partial rollout, targeting) is out of scope —
 send the user to the Amplitude UI.
 
-The MCP must be authenticated. If the `mcp__Amplitude__*` tools aren't available, tell the
-user to connect Amplitude first (it's an OAuth login), then retry.
+## Precondition: Amplitude MCP must be authenticated
+
+Before anything else, confirm the Amplitude tools are usable. There's no separate auth-check
+tool — the signal is whether the real tools exist:
+
+- **If only `mcp__Amplitude__authenticate` is available** (the `create_flags` / `update_flag` /
+  `get_deployments` / `search` tools are absent), the user is **not** authenticated. Don't
+  conclude the skill is broken — tell them to run `/mcp` and complete the Amplitude OAuth
+  login, then retry. The real tools appear only after auth.
+- **If the real tools are present**, proceed. The first tool call below (`get_deployments` on
+  create, `search` on enable) doubles as the live auth check; if it returns an auth error,
+  send them to `/mcp` and retry.
 
 ## The two projects (these are fixed)
 
