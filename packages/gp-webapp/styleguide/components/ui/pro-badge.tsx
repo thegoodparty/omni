@@ -11,10 +11,7 @@ const sizeClasses = {
   large: 'w-[44px] h-[20px]',
 } as const
 
-export const ProBadge = ({
-  className,
-  size = 'default',
-}: ProBadgeProps) => (
+export const ProBadge = ({ className, size = 'default' }: ProBadgeProps) => (
   <svg
     data-slot="pro-badge"
     className={cn(sizeClasses[size], className)}
