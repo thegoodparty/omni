@@ -1,6 +1,7 @@
 import {
   addDays,
   addWeeks,
+  differenceInDays,
   format,
   startOfDay,
   subDays,
@@ -55,6 +56,12 @@ const PHASE_META: {
 ]
 
 const TIER_RANK: Record<PriorityTier, number> = { P1: 0, P2: 1, P3: 2, P4: 3 }
+
+// June 17 rules: Active Campaign + GOTV surface 3 tasks per week; completing
+// one reveals the next (progressive reveal). GOTV tasks only appear in the
+// final 30 days; before that the phase shows a blue informational banner.
+const WEEKLY_LIMIT = 3
+const GOTV_WINDOW_DAYS = 30
 
 interface BuildCampaignStrategyInput {
   electionDate: Date | null
@@ -271,6 +278,51 @@ export const buildCampaignStrategy = (
       .filter((t) => !t.completed)
       .sort(compareTasks)
     if (candidates[0]) candidates[0].isNext = true
+  }
+
+  // Pre-launch + Launch show every task. Active Campaign + GOTV are gated and
+  // capped (June 17 rules).
+  const setupComplete = phases
+    .filter((p) => p.key === 'preLaunch' || p.key === 'launch')
+    .every((p) => p.groups.flatMap((g) => g.tasks).every((t) => t.completed))
+  const daysToElection = input.electionDate
+    ? differenceInDays(input.electionDate, startOfDay(today))
+    : null
+
+  for (const phase of phases) {
+    if (phase.key === 'active' && !setupComplete) {
+      phase.gate = {
+        kind: 'locked',
+        message:
+          'Finish your Pre-launch and Launch tasks to unlock your Active Campaign plan.',
+      }
+      phase.groups = []
+    } else if (
+      phase.key === 'gotv' &&
+      (daysToElection == null || daysToElection > GOTV_WINDOW_DAYS)
+    ) {
+      const inDays =
+        daysToElection != null ? daysToElection - GOTV_WINDOW_DAYS : null
+      phase.gate = {
+        kind: 'window',
+        message:
+          inDays != null
+            ? `Your get-out-the-vote push begins about ${GOTV_WINDOW_DAYS} days before election day — roughly ${inDays} day${inDays === 1 ? '' : 's'} from now. Your GOTV tasks will appear here then.`
+            : `Your get-out-the-vote tasks appear here in the final ${GOTV_WINDOW_DAYS} days before election day.`,
+      }
+      phase.groups = []
+    } else if (phase.key === 'active' || phase.key === 'gotv') {
+      // Surface the weekly top N (completing one reveals the next).
+      const flat = phase.groups.flatMap((g) => g.tasks).sort(compareTasks)
+      const completedCount = flat.filter((t) => t.completed).length
+      phase.groups = [
+        {
+          key: 'thisWeek',
+          label: '',
+          tasks: flat.slice(0, WEEKLY_LIMIT + completedCount),
+        },
+      ]
+    }
   }
 
   return { phases }

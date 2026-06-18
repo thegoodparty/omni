@@ -118,12 +118,21 @@ export interface CampaignStrategyGroup {
   tasks: CampaignStrategyTask[]
 }
 
+// When set, the phase renders a gate instead of its tasks: 'locked' (Active
+// Campaign before Pre-launch/Launch are done) or 'window' (GOTV before the
+// last 30 days — a blue informational banner).
+export interface CampaignStrategyGate {
+  kind: 'locked' | 'window'
+  message: string
+}
+
 export interface CampaignStrategyPhase {
   key: CampaignStrategyPhaseKey
   title: string
   status: CampaignStrategyPhaseStatus
   summary: string
   groups: CampaignStrategyGroup[]
+  gate?: CampaignStrategyGate
 }
 
 export interface CampaignStrategyData {

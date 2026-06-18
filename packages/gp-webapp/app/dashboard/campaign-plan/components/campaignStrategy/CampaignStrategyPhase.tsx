@@ -5,6 +5,8 @@ import {
   AccordionItem,
   AccordionTrigger,
   Badge,
+  InfoIcon,
+  LockIcon,
   cn,
 } from '@styleguide'
 import type { CampaignStrategyPhase as CampaignStrategyPhaseModel } from './campaignStrategy.types'
@@ -62,24 +64,41 @@ const CampaignStrategyPhase = ({
       </span>
     </AccordionTrigger>
     <AccordionContent>
-      {phase.groups.map((group) => (
-        <div key={group.key}>
-          <div className="bg-muted border-border border-t px-6 py-3">
-            <p className="text-primary text-xs font-semibold tracking-wide uppercase">
-              {group.label}
-            </p>
-          </div>
-          <ul>
-            {group.tasks.map((task, index) => (
-              <CampaignStrategyTaskRow
-                key={task.id}
-                task={task}
-                index={index + 1}
-              />
-            ))}
-          </ul>
+      {phase.gate?.kind === 'locked' && (
+        <div className="border-border text-muted-foreground flex items-center gap-3 border-t px-6 py-5 text-sm">
+          <LockIcon className="size-4 shrink-0" />
+          {phase.gate.message}
         </div>
-      ))}
+      )}
+      {phase.gate?.kind === 'window' && (
+        <div className="border-border border-t px-6 py-4">
+          <div className="bg-primary/10 text-primary flex items-start gap-2 rounded-lg px-4 py-3 text-sm">
+            <InfoIcon className="mt-0.5 size-4 shrink-0" />
+            {phase.gate.message}
+          </div>
+        </div>
+      )}
+      {!phase.gate &&
+        phase.groups.map((group) => (
+          <div key={group.key}>
+            {group.label && (
+              <div className="bg-muted border-border border-t px-6 py-3">
+                <p className="text-primary text-xs font-semibold tracking-wide uppercase">
+                  {group.label}
+                </p>
+              </div>
+            )}
+            <ul className={cn(!group.label && 'border-border border-t')}>
+              {group.tasks.map((task, index) => (
+                <CampaignStrategyTaskRow
+                  key={task.id}
+                  task={task}
+                  index={index + 1}
+                />
+              ))}
+            </ul>
+          </div>
+        ))}
     </AccordionContent>
   </AccordionItem>
 )
