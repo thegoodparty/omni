@@ -89,7 +89,11 @@ const BarChart = ({
               stroke="var(--base-border)"
               strokeOpacity={0.5}
             />
-            <XAxis type="number" hide domain={percentage ? [0, 100] : ['auto', 'auto']} />
+            <XAxis
+              type="number"
+              hide
+              domain={percentage ? [0, 100] : ['auto', 'auto']}
+            />
             <YAxis type="category" dataKey="name" hide />
             <Bar
               dataKey="value"
