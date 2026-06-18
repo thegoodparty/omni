@@ -66,7 +66,7 @@ test.describe('Dashboard Regression with Elected Office', () => {
     await NavigationHelper.dismissOverlays(page)
 
     await expect(
-      page.getByRole('heading', { name: 'Constituents' }),
+      page.getByRole('heading', { name: 'Constituent Data' }),
     ).toBeVisible({ timeout: 10000 })
 
     const table = page.locator('table')

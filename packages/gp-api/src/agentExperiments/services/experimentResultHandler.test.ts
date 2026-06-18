@@ -247,8 +247,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
 
     expect(result).toBe(true)
     expect(logger.info).toHaveBeenCalledWith(
-      { runId: RUN_ID },
-      'Experiment run already completed, skipping',
+      { runId: RUN_ID, status: ExperimentRunStatus.COMPLETED },
+      'Experiment run already terminal, skipping',
     )
     expect(experimentRunsService.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
@@ -342,6 +342,75 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(patched.stage).toBe('pending_website_live')
     expect(patched.dataQuality).toBe('partial')
     expect(patched.resumeScheduledFor).toEqual(new Date(scheduledFor))
+  })
+
+  it('maps a partial meeting_briefing to COMPLETED, never AWAITING_RESUME', async () => {
+    experimentRunsService.findUnique.mockResolvedValue({
+      runId: RUN_ID,
+      status: ExperimentRunStatus.RUNNING,
+      organizationSlug: 'org-1',
+      experimentType: 'meeting_briefing',
+      updatedAt: new Date(),
+    })
+    s3Service.getFile.mockResolvedValue(
+      JSON.stringify({
+        stage: 'awaiting_agenda',
+        data_quality: { overall: 'partial' },
+        next_action: {
+          kind: 'wait_dns_propagation',
+          scheduled_for: '2026-06-10T12:00:00.000Z',
+        },
+      }),
+    )
+
+    await service.processMessage(
+      makeMessage({
+        status: 'success',
+        artifactKey: 'meeting_briefing/run-abc/result.json',
+        artifactBucket: 'gp-agent-artifacts-dev',
+      }),
+    )
+
+    const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
+      .calls[0] as [
+      unknown,
+      (run: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    ]
+    const patched = await callModifier(modifier)
+    expect(patched.status).toBe(ExperimentRunStatus.COMPLETED)
+    expect(patched.resumeScheduledFor).toBeNull()
+  })
+
+  it('still maps a partial compliance_setup to AWAITING_RESUME', async () => {
+    experimentRunsService.findUnique.mockResolvedValue({
+      runId: RUN_ID,
+      status: ExperimentRunStatus.RUNNING,
+      organizationSlug: 'org-1',
+      experimentType: 'compliance_setup',
+      updatedAt: new Date(),
+    })
+    s3Service.getFile.mockResolvedValue(
+      JSON.stringify({
+        stage: 'pending_website_live',
+        data_quality: { overall: 'partial' },
+      }),
+    )
+
+    await service.processMessage(
+      makeMessage({
+        status: 'success',
+        artifactKey: 'compliance_setup/run-abc/result.json',
+        artifactBucket: 'gp-agent-artifacts-dev',
+      }),
+    )
+
+    const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
+      .calls[0] as [
+      unknown,
+      (run: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    ]
+    const patched = await callModifier(modifier)
+    expect(patched.status).toBe(ExperimentRunStatus.AWAITING_RESUME)
   })
 
   it('maps success + ok data_quality to COMPLETED and persists stage', async () => {

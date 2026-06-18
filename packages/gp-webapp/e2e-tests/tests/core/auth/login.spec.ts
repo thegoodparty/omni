@@ -4,7 +4,10 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
-import { getClerkContinueButton } from '../../../src/helpers/clerk.helper'
+import {
+  ensureClerkPasswordFactor,
+  getClerkContinueButton,
+} from '../../../src/helpers/clerk.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { wait } from 'tests/utils/eventually'
 
@@ -48,6 +51,9 @@ test.describe('Login Functionality', () => {
     await page.getByLabel(/email/i).first().fill(user.email)
     await getClerkContinueButton(page).click()
 
+    // Password is now one of several first factors (email_code was added), so
+    // make sure it's the active method before filling it.
+    await ensureClerkPasswordFactor(page)
     await page
       .getByLabel(/password/i)
       .first()
