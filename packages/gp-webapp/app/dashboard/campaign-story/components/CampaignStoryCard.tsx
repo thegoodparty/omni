@@ -94,9 +94,16 @@ const CampaignStoryCard = ({
     try {
       while (valueRef.current !== savedRef.current) {
         lastAttempted = valueRef.current
-        await clientRequest('PUT /v1/campaigns/mine/story', {
-          [id]: lastAttempted,
-        })
+        // Build the single-field body per id so it satisfies the endpoint's
+        // "at least one field" union type (a computed-key literal would widen
+        // to an index signature and not match).
+        const body =
+          id === 'why'
+            ? { why: lastAttempted }
+            : id === 'background'
+              ? { background: lastAttempted }
+              : { issues: lastAttempted }
+        await clientRequest('PUT /v1/campaigns/mine/story', body)
         savedRef.current = lastAttempted
       }
       setSaveFailed(false)

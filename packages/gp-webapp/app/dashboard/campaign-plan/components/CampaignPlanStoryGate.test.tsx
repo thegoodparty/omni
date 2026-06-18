@@ -13,6 +13,19 @@ const completeStory = {
 const incompleteStory = { why: 'w', background: null, issues: null }
 
 describe('CampaignPlanStoryGate', () => {
+  it('falls through to the complete-your-story prompt (not an endless spinner) when the fetch fails', async () => {
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 500,
+      data: incompleteStory,
+    })
+
+    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('link', { name: 'Go to Campaign Story' }),
+    ).toBeInTheDocument()
+  })
+
   it('prompts to complete the story when it is incomplete', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,

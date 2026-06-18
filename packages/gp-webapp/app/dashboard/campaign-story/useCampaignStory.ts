@@ -12,17 +12,25 @@ export const isStoryFieldAnswered = (value?: string | null): boolean =>
   !!value?.trim()
 
 // The story is "complete" once all three prompts have non-whitespace text —
-// the gate for offering campaign-plan generation.
+// the gate for offering campaign-plan generation. Type guard so callers narrow
+// away `undefined` after the check.
 export const isCampaignStoryComplete = (
   story: CampaignStory | undefined,
-): boolean =>
+): story is CampaignStory =>
   isStoryFieldAnswered(story?.why) &&
   isStoryFieldAnswered(story?.background) &&
   isStoryFieldAnswered(story?.issues)
 
+interface UseCampaignStoryResult {
+  data: CampaignStory | undefined
+  // True once the fetch has failed (after retries) — lets callers distinguish a
+  // real error from "still loading" instead of spinning forever.
+  isError: boolean
+}
+
 export const useCampaignStory = (
   initialData?: CampaignStory,
-): CampaignStory | undefined => {
+): UseCampaignStoryResult => {
   const query = useQuery({
     queryKey: ['campaign-story', 'mine'],
     queryFn: () => clientRequest(STORY_ROUTE, {}).then((res) => res.data),
@@ -32,5 +40,5 @@ export const useCampaignStory = (
     // autosave writes don't touch this query's cache.
     refetchOnMount: 'always',
   })
-  return query.data
+  return { data: query.data, isError: query.isError }
 }

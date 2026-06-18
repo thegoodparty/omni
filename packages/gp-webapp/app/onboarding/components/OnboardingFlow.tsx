@@ -36,7 +36,10 @@ import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscap
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { ONBOARDING_STEPS, firstOnboardingStepId } from './onboardingConfig'
-import { getVisibleOnboardingSteps } from './onboardingHelpers'
+import {
+  getVisibleOnboardingSteps,
+  resolvePostPledgeRoute,
+} from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
@@ -984,11 +987,10 @@ export default function OnboardingFlow({
       // campaign-strategy on → /onboarding/success (LLM-backed plan);
       // off → /dashboard (legacy, no plan).
       router.push(
-        campaignStoryEnabled
-          ? '/dashboard/campaign-story'
-          : campaignStrategyEnabled
-            ? '/onboarding/success'
-            : '/dashboard',
+        resolvePostPledgeRoute({
+          campaignStoryEnabled,
+          campaignStrategyEnabled,
+        }),
       )
       return
     }

@@ -208,8 +208,13 @@ export type APIEndpoints = {
 
   // Partial upsert — each Campaign Story field autosaves on blur, so any
   // subset of why/background/issues may be sent.
+  // At least one field is required (the server's Zod schema rejects an empty
+  // body with 400) — encode that in the type so a call site can't send `{}`.
   'PUT /v1/campaigns/mine/story': {
-    Request: { why?: string; background?: string; issues?: string }
+    Request:
+      | { why: string; background?: string; issues?: string }
+      | { why?: string; background: string; issues?: string }
+      | { why?: string; background?: string; issues: string }
     Response: CampaignStory
   }
 

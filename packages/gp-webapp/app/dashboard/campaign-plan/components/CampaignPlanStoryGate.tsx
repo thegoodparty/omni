@@ -19,10 +19,13 @@ const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
 const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
-  const story = useCampaignStory()
+  const { data: story, isError } = useCampaignStory()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  if (story === undefined) {
+  // Only spin while genuinely loading — an errored fetch leaves data undefined
+  // forever, so fall through (fail closed) to the "complete your story" prompt
+  // rather than spinning indefinitely.
+  if (story === undefined && !isError) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
         <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />

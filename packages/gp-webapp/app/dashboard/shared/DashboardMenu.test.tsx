@@ -116,3 +116,25 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     }
   })
 })
+
+describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
+  it('renders Campaign Plan before Campaign Story when both are present', () => {
+    const items = getDashboardMenuItems(
+      proCampaign,
+      false, // serveAccessEnabled
+      false, // isElectedOffice
+      false, // isElectedOfficeLoading
+      false, // chiefOfStaffEnabled
+      true, // campaignStrategyExists
+      true, // winVoterDataReady
+      false, // winVoterDataEnabled
+      true, // campaignStoryEnabled
+    )
+    const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
+    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
+
+    expect(planIdx).toBeGreaterThanOrEqual(0)
+    expect(storyIdx).toBeGreaterThanOrEqual(0)
+    expect(planIdx).toBeLessThan(storyIdx)
+  })
+})
