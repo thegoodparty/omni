@@ -56,10 +56,10 @@ function RadioGroupItemLabel({
   ...props
 }: RadioGroupItemLabelProps) {
   return (
-    <div className={cn('flex items-start gap-2', className)}>
+    <div className="flex items-start gap-2">
       <RadioGroupItem
         id={id}
-        className="peer shrink-0"
+        className={cn('peer shrink-0', className)}
         disabled={disabled}
         {...props}
       />
