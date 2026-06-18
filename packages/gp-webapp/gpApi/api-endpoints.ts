@@ -811,8 +811,6 @@ export type ElectedOfficeInput = {
   electedDate?: string | null
   termStartDate?: string | null
   termEndDate?: string | null
-  termLengthDays?: number | null
-  isActive?: boolean
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null

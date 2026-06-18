@@ -15,19 +15,20 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
-import { differenceInCalendarDays } from 'date-fns'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
 import { ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY } from '../electedOffice.consts'
+import {
+  electedOfficeToApi,
+  type ApiElectedOffice,
+} from '../util/electedOffice.util'
 
 export type CreateElectedOfficeArgs = {
   swornInDate?: Date | null
   electedDate?: Date | null
   termStartDate?: Date | null
   termEndDate?: Date | null
-  termLengthDays?: number | null
-  isActive?: boolean
   party?: string | null
   pledgedAt?: Date | null
   onboardingCompletedAt?: Date | null
@@ -84,14 +85,6 @@ export class ElectedOfficeService extends createPrismaBase(
   async create(args: CreateElectedOfficeArgs) {
     const newStart = args.termStartDate ?? null
     const newEnd = args.termEndDate ?? null
-    // Term dates are to-the-day values supplied by onboarding input or the
-    // BallotReady office-holder prefill — never derived from election cadence
-    // (that only yields rough year-level specificity). Derive the term length
-    // precisely from the two dates when both are present; otherwise honor an
-    // explicitly provided value.
-    const termLengthDays =
-      args.termLengthDays ??
-      (newStart && newEnd ? differenceInCalendarDays(newEnd, newStart) : null)
 
     const office = await this.client.$transaction(async (tx) => {
       // Serialize office creation per user. Task 01 removed the
@@ -176,10 +169,8 @@ export class ElectedOfficeService extends createPrismaBase(
           data: {
             termStartDate: newStart,
             termEndDate: newEnd,
-            termLengthDays,
             swornInDate: args.swornInDate,
             electedDate: args.electedDate,
-            isActive: args.isActive,
             party: args.party,
             pledgedAt: args.pledgedAt,
             onboardingCompletedAt: args.onboardingCompletedAt,
@@ -240,8 +231,6 @@ export class ElectedOfficeService extends createPrismaBase(
           electedDate: args.electedDate,
           termStartDate: args.termStartDate,
           termEndDate: args.termEndDate,
-          termLengthDays,
-          isActive: args.isActive,
           party: args.party,
           pledgedAt: args.pledgedAt,
           onboardingCompletedAt: args.onboardingCompletedAt,
@@ -294,19 +283,23 @@ export class ElectedOfficeService extends createPrismaBase(
     sortOrder = DEFAULT_SORT_ORDER,
     userId,
   }: ListElectedOfficePaginationSchema): Promise<
-    PaginatedResults<ElectedOffice>
+    PaginatedResults<ApiElectedOffice>
   > {
     const where: Prisma.ElectedOfficeWhereInput = {
       ...(userId ? { userId } : {}),
     }
 
+    const records = await this.model.findMany({
+      skip,
+      take: limit,
+      orderBy: { [sortBy]: sortOrder },
+      where,
+    })
+
     return {
-      data: await this.model.findMany({
-        skip,
-        take: limit,
-        orderBy: { [sortBy]: sortOrder },
-        where,
-      }),
+      // Emit the public contract shape (with derived isActive/termLengthDays)
+      // so the M2M list endpoint matches the rest of the elected-office API.
+      data: records.map((record) => electedOfficeToApi(record)),
       meta: {
         total: await this.model.count({ where }),
         offset: skip,

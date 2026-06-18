@@ -8,13 +8,13 @@ export const ZDateOnlyNullOptional = ZDateOnly.nullable().optional()
 
 const ZDateTimeNullOptional = z.coerce.date().nullable().optional()
 
+// isActive and termLengthDays are derived from the term dates at read time
+// (the stored columns were dropped), so they are intentionally not writable.
 const electedOfficeWritableFields = {
   swornInDate: ZDateOnlyNullOptional,
   electedDate: ZDateOnlyNullOptional,
   termStartDate: ZDateOnlyNullOptional,
   termEndDate: ZDateOnlyNullOptional,
-  termLengthDays: z.number().int().nullable().optional(),
-  isActive: z.boolean().optional(),
   party: z.string().nullable().optional(),
   pledgedAt: ZDateTimeNullOptional,
   onboardingCompletedAt: ZDateTimeNullOptional,

@@ -16,8 +16,6 @@ const mockEO: ElectedOffice = {
   electedDate: null,
   termStartDate: null,
   termEndDate: null,
-  termLengthDays: null,
-  isActive: true,
   party: null,
   pledgedAt: null,
   onboardingCompletedAt: null,

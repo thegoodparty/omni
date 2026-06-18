@@ -22,13 +22,14 @@ export type ListElectedOfficesOptions = PaginationOptions & {
   userId?: number
 }
 
+// isActive and termLengthDays are derived server-side from the term dates and
+// are not writable, so they are intentionally absent from the write inputs
+// (they remain on the ElectedOffice response type above).
 export type UpdateElectedOfficeInput = {
   electedDate?: string | null
   swornInDate?: string | null
   termStartDate?: string | null
   termEndDate?: string | null
-  termLengthDays?: number | null
-  isActive?: boolean
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null

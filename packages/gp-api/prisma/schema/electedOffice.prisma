@@ -8,8 +8,6 @@ model ElectedOffice {
   electedDate           DateTime? @map("elected_date") @db.Date
   termStartDate         DateTime? @map("term_start_date") @db.Date
   termEndDate           DateTime? @map("term_end_date") @db.Date
-  termLengthDays        Int?      @map("term_length_days")
-  isActive              Boolean   @default(true) @map("is_active")
   party                 String?   @map("party")
   pledgedAt             DateTime? @map("pledged_at")
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")

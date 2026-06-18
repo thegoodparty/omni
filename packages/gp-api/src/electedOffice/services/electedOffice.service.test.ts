@@ -33,11 +33,8 @@ describe('ElectedOfficeService.create', () => {
       },
     })
 
-    expect(office.isActive).toBe(true)
     expect(office.termStartDate).toEqual(new Date('2025-01-01T00:00:00.000Z'))
     expect(office.termEndDate).toEqual(new Date('2029-01-01T00:00:00.000Z'))
-    // Derived precisely from the two dates (4 years incl. the 2028 leap day).
-    expect(office.termLengthDays).toBe(1461)
 
     const org = await service.prisma.organization.findUnique({
       where: { slug: office.organizationSlug },
@@ -50,24 +47,11 @@ describe('ElectedOfficeService.create', () => {
     })
   })
 
-  it('honors an explicitly supplied termLengthDays over the derived value', async () => {
-    const office = await electedOffices.create({
-      userId: service.user.id,
-      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
-      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
-      termLengthDays: 1000,
-    })
-
-    expect(office.termLengthDays).toBe(1000)
-  })
-
   it('leaves term fields null when no term dates are provided', async () => {
     const office = await electedOffices.create({ userId: service.user.id })
 
-    expect(office.isActive).toBe(true)
     expect(office.termStartDate).toBeNull()
     expect(office.termEndDate).toBeNull()
-    expect(office.termLengthDays).toBeNull()
   })
 
   it('allows a second office whose term does not overlap an existing one', async () => {
@@ -203,7 +187,6 @@ describe('ElectedOfficeService.create', () => {
     expect(filled.id).toBe(placeholder.id)
     expect(filled.termStartDate).toEqual(new Date('2025-01-01T00:00:00.000Z'))
     expect(filled.termEndDate).toEqual(new Date('2029-01-01T00:00:00.000Z'))
-    expect(filled.termLengthDays).toBe(1461)
     expect(await service.prisma.electedOffice.count()).toBe(1)
 
     const org = await service.prisma.organization.findUnique({

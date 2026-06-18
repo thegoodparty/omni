@@ -20,13 +20,11 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { differenceInCalendarDays } from 'date-fns'
 import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
-import { toDateOnlyString } from 'src/shared/util/date.util'
 import { ReqElectedOffice } from './decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from './decorators/UseElectedOffice.decorator'
 import { UserOrM2MGuard } from './guards/UserOrM2M.guard'
@@ -41,6 +39,7 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { electedOfficeToApi } from './util/electedOffice.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   SupportEstimate,
@@ -57,24 +56,7 @@ export class ElectedOfficeController {
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
-    return {
-      id: record.id,
-      organizationSlug: record.organizationSlug,
-      swornInDate: toDateOnlyString(record.swornInDate) ?? null,
-      electedDate: toDateOnlyString(record.electedDate) ?? null,
-      termStartDate: toDateOnlyString(record.termStartDate) ?? null,
-      termEndDate: toDateOnlyString(record.termEndDate) ?? null,
-      termLengthDays: record.termLengthDays,
-      isActive: record.isActive,
-      party: record.party,
-      pledgedAt: record.pledgedAt?.toISOString() ?? null,
-      onboardingCompletedAt:
-        record.onboardingCompletedAt?.toISOString() ?? null,
-      userId: record.userId,
-      campaignId: record.campaignId ?? null,
-      createdAt: record.createdAt.toISOString(),
-      updatedAt: record.updatedAt.toISOString(),
-    }
+    return electedOfficeToApi(record)
   }
 
   @UseGuards(M2MOnly)
@@ -126,7 +108,7 @@ export class ElectedOfficeController {
     if (!req.m2mToken && record.userId !== req.user?.id) {
       throw new ForbiddenException('Not allowed to access this elected office')
     }
-    return req.m2mToken ? record : this.toApi(record)
+    return this.toApi(record)
   }
 
   @Post('/')
@@ -280,29 +262,14 @@ export class ElectedOfficeController {
       )
     }
 
-    // Mirror create()'s term-length derivation: when this PUT changes a term
-    // bound and the client didn't send termLengthDays explicitly, recompute it
-    // from the effective dates (serve onboarding persists term dates on a
-    // placeholder via PUT, so without this the field stays null). Leave it
-    // untouched when the term dates aren't part of this update.
-    const termDatesTouched =
-      body.termStartDate !== undefined || body.termEndDate !== undefined
-    const termLengthDays =
-      body.termLengthDays !== undefined
-        ? body.termLengthDays
-        : termDatesTouched
-          ? effectiveTermStart && effectiveTermEnd
-            ? differenceInCalendarDays(effectiveTermEnd, effectiveTermStart)
-            : null
-          : undefined
-
+    // isActive and termLengthDays are no longer stored — they are derived from
+    // the term dates at read time (see electedOffice.util) — so they are not
+    // accepted or written here.
     const data: Prisma.ElectedOfficeUpdateInput = {
       swornInDate: body.swornInDate,
       electedDate: body.electedDate,
       termStartDate: body.termStartDate,
       termEndDate: body.termEndDate,
-      termLengthDays,
-      isActive: body.isActive,
       party: body.party,
       pledgedAt: body.pledgedAt,
       onboardingCompletedAt: body.onboardingCompletedAt,
@@ -311,7 +278,7 @@ export class ElectedOfficeController {
       where: { id },
       data,
     })
-    return req.m2mToken ? updated : this.toApi(updated)
+    return this.toApi(updated)
   }
 
   @UseGuards(M2MOnly)

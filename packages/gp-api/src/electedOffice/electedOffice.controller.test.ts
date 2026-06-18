@@ -660,9 +660,9 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
     })
 
-    it('derives termLengthDays from supplied term dates (parity with create)', async () => {
-      // A placeholder has no term length; persisting term dates via PUT (the
-      // serve-onboarding path) must derive termLengthDays like create() does.
+    it('derives termLengthDays in the response from supplied term dates', async () => {
+      // termLengthDays is derived from the term dates at read time, so a
+      // placeholder reports null until term dates are persisted (here via PUT).
       const placeholder = await createElectedOffice()
       expect(placeholder.status).toBe(200)
       expect(placeholder.data.termLengthDays).toBeNull()

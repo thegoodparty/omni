@@ -78,19 +78,13 @@ export const campaignDetailsSchema = z.object({
 
 export type CampaignDetailsFormData = z.infer<typeof campaignDetailsSchema>
 
-const numberOrNull = z.any().transform((val): number | null => {
-  if (val === null || val === undefined || val === '') return null
-  const num = Number(val)
-  return isNaN(num) ? null : num
-})
-
+// isActive and termLengthDays are derived server-side from the term dates (the
+// stored columns were dropped), so the admin form no longer edits them.
 export const electedOfficeSchema = z.object({
   electedDate: z.string().optional().nullable(),
   swornInDate: z.string().optional().nullable(),
   termStartDate: z.string().optional().nullable(),
-  termLengthDays: numberOrNull,
   termEndDate: z.string().optional().nullable(),
-  isActive: z.boolean(),
   party: z.string().optional().nullable(),
 })
 
