@@ -34,8 +34,10 @@ import {
   type DisabledRange,
 } from './termDates.shared'
 import {
+  buildBrSuggestionChangedPayload,
   trackServeOnboarding,
   SERVE_ONBOARDING_EVENTS,
+  type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
   getServeProgress,
@@ -87,6 +89,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   )
   const [termEndDate, setTermEndDate] = useState<Date | undefined>(undefined)
 
+  // Snapshot of the BallotReady-officeholder prefill the lead landed on, frozen
+  // at load before the user edits anything. Null = net-new (no officeholder
+  // record / personId), which makes the completion-time "BR Suggestion Changed"
+  // event report `hadBrPrefill: false`. Used to diff the BR suggestion against
+  // the user's final pick so we can measure how inaccurate BallotReady data is.
+  const [brPrefill, setBrPrefill] = useState<BrPrefillSnapshot | null>(null)
+
   useEffect(() => {
     void (async () => {
       try {
@@ -120,6 +129,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setCurrentEO(eo)
 
         let officePrefilled = false
+        let prefillPositionId: string | undefined = undefined
+        let prefillPositionName: string | undefined = undefined
 
         if (eo) {
           // Pin the EO org as the active context up front so every in-flow
@@ -140,10 +151,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             const org = orgRes.data as Organization
             if (org.positionName) {
               setOfficeLabel(org.positionName)
+              prefillPositionName = org.positionName
               officePrefilled = true
             }
             if (org.position?.brPositionId) {
               setOrgPositionId(org.position.brPositionId)
+              prefillPositionId = org.position.brPositionId
               officePrefilled = true
             }
             if (org.position?.state) setOrgState(org.position.state)
@@ -157,7 +170,27 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         })
 
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
-        setBranch(officePrefilled || termPrefilled ? 'prefill' : 'net-new')
+        const hasBrPrefill = officePrefilled || termPrefilled
+        // Freeze the BR suggestion now, before any edits, normalizing the term
+        // dates through the same yyyy-MM-dd round-trip the final pick uses so
+        // the from/to diff is apples-to-apples. The single suggested position
+        // is also the user's lone known BR-officeholder position here, so it
+        // doubles as the officeholder-position set for the match check.
+        setBrPrefill(
+          hasBrPrefill
+            ? {
+                positionId: prefillPositionId,
+                positionName: prefillPositionName,
+                termStartDate:
+                  toApiDate(toDate(eo?.termStartDate)) ?? undefined,
+                termEndDate: toApiDate(toDate(eo?.termEndDate)) ?? undefined,
+                officeholderPositionIds: prefillPositionId
+                  ? [prefillPositionId]
+                  : [],
+              }
+            : null,
+        )
+        setBranch(hasBrPrefill ? 'prefill' : 'net-new')
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
@@ -274,6 +307,27 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         electedOfficeId = (created.data as ElectedOffice).id
       }
 
+      // Diff the BallotReady suggestion against what the user actually saved.
+      // Only emit when there was a prefill the user diverged from — `office`,
+      // `termDates`, or `both` — so the event stays true to its name and the
+      // payload measures how accurate BallotReady's officeholder data was.
+      const brSuggestion = buildBrSuggestionChangedPayload({
+        electedOfficeId,
+        prefill: brPrefill,
+        selected: {
+          positionId: office?.positionId ?? orgPositionId,
+          positionName: officeDisplayLabel,
+          termStartDate: toApiDate(termStartDate) ?? undefined,
+          termEndDate: toApiDate(termEndDate) ?? undefined,
+        },
+      })
+      if (brSuggestion.hadBrPrefill && brSuggestion.changedField) {
+        trackServeOnboarding(
+          SERVE_ONBOARDING_EVENTS.SuggestionChanged,
+          brSuggestion,
+        )
+      }
+
       trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
       })
@@ -297,19 +351,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
   }
 
+  // Navigation only. The "BR Suggestion Changed" event is emitted at completion
+  // (see persist) where the user's FINAL office/dates are known and can be
+  // diffed against the BR prefill — clicking "Change" here is just intent, the
+  // pick isn't settled yet.
   const goToOfficeFromConfirm = () => {
-    trackServeOnboarding(SERVE_ONBOARDING_EVENTS.SuggestionChanged, {
-      electedOfficeId: currentEO?.id,
-    })
     setReturnToConfirm(true)
     setManualEntry(false)
     setStep('office')
   }
 
   const goToDatesFromConfirm = () => {
-    trackServeOnboarding(SERVE_ONBOARDING_EVENTS.SuggestionChanged, {
-      electedOfficeId: currentEO?.id,
-    })
     setReturnToConfirm(true)
     setStep('term-dates')
   }
