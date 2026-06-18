@@ -472,4 +472,58 @@ describe('DatabricksSqlProvider', () => {
 
     await expect(provider.query(SELECT_N)).rejects.toThrow(/no credential/)
   })
+
+  it('rejects queries after close with a clear "closed" error', async () => {
+    const { factory } = makeFactory(() =>
+      makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+    )
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+
+    await provider.query(SELECT_N)
+    await provider.close()
+
+    await expect(provider.query(SELECT_N)).rejects.toThrow(/provider is closed/)
+  })
+
+  it('tears down a connection that finishes connecting after close', async () => {
+    let releaseConnect = (): void => undefined
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve
+    })
+    let sessionClosed = 0
+    let connClosed = 0
+    const factory = (): DbsqlClientLike => ({
+      connect: async () => {
+        await connectGate
+        return {
+          openSession: async () => ({
+            executeStatement: async () =>
+              makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+            close: async () => {
+              sessionClosed++
+            },
+          }),
+          close: async () => {
+            connClosed++
+          },
+        }
+      },
+    })
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+
+    const queryPromise = provider.query(SELECT_N)
+    await provider.close()
+    releaseConnect()
+
+    await expect(queryPromise).rejects.toThrow(/provider is closed/)
+    // The late-arriving session + connection are torn down, not leaked.
+    expect(sessionClosed).toBe(1)
+    expect(connClosed).toBe(1)
+  })
 })

@@ -132,6 +132,7 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     const conn = this.clientConn
     this.session = undefined
     this.clientConn = undefined
+    this.connectPromise = undefined
     if (session) {
       await session.close().catch(noop)
     }
@@ -141,6 +142,9 @@ export class DatabricksSqlProvider implements DatabricksProvider {
   }
 
   private async ensureSession(): Promise<DbsqlSessionInstanceLike> {
+    if (this.closed) {
+      throw new Error('DatabricksSqlProvider: provider is closed')
+    }
     if (this.session) return this.session
     if (!this.connectPromise) {
       this.connectPromise = this.openSession().catch((err) => {
@@ -193,6 +197,14 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     } catch (err) {
       await conn.close().catch(noop)
       throw err
+    }
+    // A close() may have landed while we were connecting. close() already ran
+    // and zeroed its handles, so publishing these live ones would leak them —
+    // tear down here instead.
+    if (this.closed) {
+      await session.close().catch(noop)
+      await conn.close().catch(noop)
+      throw new Error('DatabricksSqlProvider: provider is closed')
     }
     this.clientConn = conn
     this.session = session
