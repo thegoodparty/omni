@@ -6,12 +6,13 @@ Secrets are referenced via environment variables — **no tokens are committed**
 
 ## Configured servers
 
-| Server       | Transport | What it's for                                                                                                                        |
-| ------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `grafana`    | stdio     | Logs (Loki), metrics (Prometheus), traces (Tempo). The priority server for debugging. See `docs/observability.md`.                   |
-| `sentry`     | http      | Frontend error investigation. Remote server at `mcp.sentry.dev`; authenticate via OAuth on first use (`/mcp`).                       |
-| `playwright` | stdio     | Drive a real browser for UI verification / e2e exploration.                                                                          |
-| `clickup`    | http      | ClickUp tasks and design docs. Hosted server at `mcp.clickup.com`; authorize your ClickUp workspace via OAuth on first use (`/mcp`). |
+| Server       | Transport | What it's for                                                                                                                                            |
+| ------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grafana`    | stdio     | Logs (Loki), metrics (Prometheus), traces (Tempo). The priority server for debugging. See `docs/observability.md`.                                       |
+| `sentry`     | http      | Frontend error investigation. Remote server at `mcp.sentry.dev`; authenticate via OAuth on first use (`/mcp`).                                           |
+| `playwright` | stdio     | Drive a real browser for UI verification / e2e exploration.                                                                                              |
+| `clickup`    | http      | ClickUp tasks and design docs. Hosted server at `mcp.clickup.com`; authorize your ClickUp workspace via OAuth on first use (`/mcp`).                     |
+| `amplitude`  | http      | Product analytics and feature flags. Hosted server at `mcp.amplitude.com`; authorize via OAuth on first use (`/mcp`). Drives the `amplitude-flag` skill. |
 
 ## Required environment variables
 
@@ -26,8 +27,8 @@ metrics, and traces.
 - `grafana` needs `uvx` (from `uv`) on your PATH; its URL is hardcoded to
   `https://goodparty.grafana.net` in `.mcp.json`.
 - `playwright` runs via `npx` and needs no env vars.
-- `sentry` and `clickup` are remote HTTP servers and use OAuth, so they need no
-  token in env — authorize them on first use via `/mcp`.
+- `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
+  need no token in env — authorize them on first use via `/mcp`.
 
 ## Design docs in ClickUp
 
