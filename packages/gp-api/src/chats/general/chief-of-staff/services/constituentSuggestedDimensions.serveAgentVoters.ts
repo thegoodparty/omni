@@ -392,8 +392,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_marijuana_legal_support', label: 'Marijuana Legal Support' },
   { name: 'hs_mass_deporations_oppose', label: 'Mass Deporations Oppose' },
   { name: 'hs_mass_deporations_support', label: 'Mass Deporations Support' },
-  { name: 'hs_mass_deportations_oppose', label: 'mass deportations oppose' },
-  { name: 'hs_mass_deportations_support', label: 'mass deportations support' },
   { name: 'hs_medicaid_expansion_oppose', label: 'Medicaid Expansion Oppose' },
   {
     name: 'hs_medicaid_expansion_support',
