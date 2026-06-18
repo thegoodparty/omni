@@ -1,3 +1,4 @@
+import type { ExperimentVariantsResponse } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
   SynthesizeSpeechRequest,
@@ -137,6 +138,15 @@ export type APIEndpoints = {
   'GET /v1/users/me': {
     Request: {}
     Response: User
+  }
+
+  // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
+  // current user and returns the full variant map, so the browser never has to
+  // reach Amplitude (which ad blockers / some networks block) to render gated
+  // surfaces. Consumed in PageWrapper to seed FeatureFlagsProvider.
+  'GET /v1/experiment/variants': {
+    Request: {}
+    Response: ExperimentVariantsResponse
   }
 
   'GET /v1/organizations': {

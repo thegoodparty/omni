@@ -22,6 +22,7 @@ import { useUser } from '@shared/hooks/useUser'
 import { reportErrorToSentry } from '@shared/sentry'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { NEXT_PUBLIC_AMPLITUDE_API_KEY } from 'appEnv'
+import type { ExperimentVariant } from '@goodparty_org/contracts'
 
 interface FeatureFlagsContextValue {
   ready: boolean
@@ -46,16 +47,26 @@ export const FeatureFlagsContext =
 
 interface FeatureFlagsProviderProps {
   children: ReactNode
+  // Variants resolved server-side by gp-api for the current user. When present,
+  // the client trusts them (correct on first paint, no Amplitude round-trip)
+  // and skips the initial client fetch.
+  initialVariants?: Record<string, ExperimentVariant> | null
 }
 
 export const FeatureFlagsProvider = ({
   children,
+  initialVariants,
 }: FeatureFlagsProviderProps): React.JSX.Element => {
   const clientRef = useRef<ExperimentClient | null>(null)
-  const [ready, setReady] = useState<boolean>(false)
+  const hasSeed = !!initialVariants && Object.keys(initialVariants).length > 0
+  const [ready, setReady] = useState<boolean>(hasSeed)
   const [rev, setRev] = useState<number>(0)
-  const [user] = useUser()
+  const [user, , isUserLoading] = useUser()
   const prevUserIdRef = useRef<string | undefined>(undefined)
+  // The server-seeded variants already cover the first resolved user, so the
+  // first identity resolution should adopt that user without refetching (a
+  // blocked client fetch could otherwise wipe the seed and bounce the user).
+  const seededRef = useRef<boolean>(hasSeed)
 
   const buildExperimentUser = useCallback((): ExperimentUser => {
     if (!user) return {}
@@ -86,6 +97,10 @@ export const FeatureFlagsProvider = ({
     }
   }, [buildExperimentUser, user])
 
+  // Initialize the client once. fetchOnStart is disabled so the SDK never
+  // evaluates against an empty (pre-hydration) user; we drive fetching from the
+  // effect below once the user is known. initialVariants seeds the store so
+  // gated surfaces render immediately when the server resolved them.
   useEffect(() => {
     const key = NEXT_PUBLIC_AMPLITUDE_API_KEY
     if (!key) {
@@ -93,30 +108,56 @@ export const FeatureFlagsProvider = ({
       setReady(true)
       return
     }
+    if (clientRef.current) return
 
-    if (!clientRef.current) {
-      clientRef.current = Experiment.initialize(key, {
-        automaticExposureTracking: true,
-        exposureTrackingProvider: {
-          track: async (exposure) => {
-            try {
-              const analytics = await getReadyAnalytics()
-              if (analytics && typeof analytics.track === 'function') {
-                analytics.track('$exposure', exposure)
-              }
-            } catch (error) {
-              reportErrorToSentry(
-                error instanceof Error ? error : new Error(String(error)),
-                { context: 'FeatureFlagsProvider.exposureTrack' },
-              )
+    clientRef.current = Experiment.initialize(key, {
+      automaticExposureTracking: true,
+      fetchOnStart: false,
+      initialVariants: hasSeed ? (initialVariants ?? undefined) : undefined,
+      exposureTrackingProvider: {
+        track: async (exposure) => {
+          try {
+            const analytics = await getReadyAnalytics()
+            if (analytics && typeof analytics.track === 'function') {
+              analytics.track('$exposure', exposure)
             }
-          },
+          } catch (error) {
+            reportErrorToSentry(
+              error instanceof Error ? error : new Error(String(error)),
+              { context: 'FeatureFlagsProvider.exposureTrack' },
+            )
+          }
         },
-      })
-    }
+      },
+    })
+  }, [hasSeed, initialVariants])
 
+  // Fetch only once the user identity is settled. Gating on isUserLoading
+  // prevents the userless evaluation that would resolve gated flags to their
+  // default (off) and redirect an enabled user mid-hydration.
+  useEffect(() => {
+    if (!clientRef.current) return
+    if (isUserLoading) return
+
+    const currentUserId = user ? String(user.id) : undefined
+    if (seededRef.current) {
+      seededRef.current = false
+      // The seed was resolved server-side for the authenticated SSR user. Trust
+      // it only if the client confirms an authenticated user; if the client
+      // resolved anonymous, the seed is for the wrong identity, so discard it
+      // and fetch as the actual (anonymous) user instead.
+      if (user) {
+        prevUserIdRef.current = currentUserId
+        setReady(true)
+        return
+      }
+      clientRef.current.clear()
+      refresh()
+      return
+    }
+    if (prevUserIdRef.current === currentUserId && ready) return
     refresh()
-  }, [refresh])
+  }, [isUserLoading, user, refresh, ready])
 
   const value = useMemo<FeatureFlagsContextValue>(() => {
     const client = clientRef.current
