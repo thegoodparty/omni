@@ -8,14 +8,23 @@ import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
 import { ElectedOfficeTermDatesModal } from './ElectedOfficeTermDatesModal'
 
+// Only "settled" offices are prompted: those that have completed serve
+// onboarding but are still missing a term bound (legacy/prefill EOs we already
+// lack dates for). An office that hasn't completed onboarding
+// (onboardingCompletedAt == null) — including a just-won candidate mid win→serve
+// flow — supplies both dates via the onboarding term-dates step (now enforced by
+// the completion guard), so prompting it here would block the dashboard with no
+// gap to fill.
 const isMissingTermDates = (office: ElectedOffice): boolean =>
-  !office.termStartDate || !office.termEndDate
+  office.onboardingCompletedAt != null &&
+  (!office.termStartDate || !office.termEndDate)
 
 /**
- * Globally prompts a signed-in elected official to supply term dates whenever
- * any office they own is missing a start or end date — regardless of which
- * dashboard page they're on. Non-EO users (no offices) and EOs with complete
- * dates see nothing. Mounted in the shared dashboard shell.
+ * Globally prompts a signed-in elected official to supply term dates whenever a
+ * settled office they own (onboarding complete) is missing a start or end date —
+ * regardless of which dashboard page they're on. Non-EO users (no offices), EOs
+ * still in onboarding, and EOs with complete dates see nothing. Mounted in the
+ * shared dashboard shell.
  */
 export function ElectedOfficeTermDatesModalController(): React.JSX.Element | null {
   const [user, , isUserLoading] = useUser()

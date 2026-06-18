@@ -55,17 +55,16 @@ beforeEach(() => {
 })
 
 describe('ElectedOfficeTermDatesModalController', () => {
-  it('prompts an elected official whose office is missing term dates', async () => {
-    mockMine([office({ id: 'eo-1', termStartDate: null, termEndDate: null })])
+  const COMPLETED = '2026-02-01T00:00:00.000Z'
 
-    render(<ElectedOfficeTermDatesModalController />)
-
-    expect(await screen.findByText(TITLE)).toBeInTheDocument()
-  })
-
-  it('prompts when only one term bound is missing', async () => {
+  it('prompts a settled (onboarding-complete) office missing term dates', async () => {
     mockMine([
-      office({ id: 'eo-1', termStartDate: '2025-01-01', termEndDate: null }),
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: null,
+        termEndDate: null,
+      }),
     ])
 
     render(<ElectedOfficeTermDatesModalController />)
@@ -73,10 +72,44 @@ describe('ElectedOfficeTermDatesModalController', () => {
     expect(await screen.findByText(TITLE)).toBeInTheDocument()
   })
 
-  it('does not prompt when the office already has both term dates', async () => {
+  it('prompts a settled office when only one term bound is missing', async () => {
     mockMine([
       office({
         id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: '2025-01-01',
+        termEndDate: null,
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
+  })
+
+  it('does not prompt an office that has not completed onboarding (e.g. just won)', async () => {
+    // A just-won EO has no term dates yet but supplies them via the onboarding
+    // term-dates step; prompting here would block the dashboard mid-flow.
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: null,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('does not prompt when a settled office already has both term dates', async () => {
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
         termStartDate: '2025-01-01',
         termEndDate: '2029-01-01',
       }),
