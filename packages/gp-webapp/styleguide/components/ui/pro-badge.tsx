@@ -12,9 +12,9 @@ interface ProBadgeProps {
 }
 
 const sizeClasses = {
-  small: 'w-[26px] h-3',
-  default: 'w-[35px] h-4',
-  large: 'w-11 h-5',
+  small: 'w-[26px] h-[12px]',
+  default: 'w-[35px] h-[16px]',
+  large: 'w-[44px] h-[20px]',
 } as const
 
 export const ProBadge = ({
