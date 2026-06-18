@@ -162,13 +162,17 @@ export class ElectedOfficeController {
     }
 
     // Mirror the PUT guard: completing serve onboarding is only meaningful once
-    // the office has a real term, so reject onboardingCompletedAt on a create
-    // that lacks a term start date (a null end is a valid indefinite term, but
-    // a startless term is not) — otherwise a client could POST a completed
-    // term-less placeholder and permanently bypass the serve-onboarding flow.
-    if (eoFields.onboardingCompletedAt != null && !eoFields.termStartDate) {
+    // the office has a real, fully-dated term. Require BOTH a start and an end —
+    // a completed office is no longer prompted for dates, so allowing completion
+    // on a term-less or start-only (indefinite) record would either bypass the
+    // serve-onboarding flow or strand the EO in a state the dashboard term-date
+    // modal perpetually re-prompts (it requires both bounds to save).
+    if (
+      eoFields.onboardingCompletedAt != null &&
+      (!eoFields.termStartDate || !eoFields.termEndDate)
+    ) {
       throw new BadRequestException(
-        'onboardingCompletedAt requires a term start date',
+        'onboardingCompletedAt requires both a term start and end date',
       )
     }
 
@@ -250,15 +254,21 @@ export class ElectedOfficeController {
       }
     }
 
-    // Completing serve onboarding is only meaningful once the office has a real
-    // term. Allowing onboardingCompletedAt on a term-less (or term-end-only)
-    // record would permanently bypass the serve-onboarding flow (post-auth
-    // routing treats a completed office as done). Anchor on the start date: a
-    // null termEndDate is a valid indefinite term, but a term with no start is
-    // not, so require an effective termStartDate.
-    if (body.onboardingCompletedAt != null && !effectiveTermStart) {
+    // Completing serve onboarding is only meaningful once the office has a real,
+    // fully-dated term. A completed office is treated as done by post-auth
+    // routing AND is no longer prompted for dates, so allowing completion on a
+    // start-only (indefinite) term would let an EO finish onboarding into a
+    // state the dashboard term-date modal perpetually re-prompts (the modal
+    // requires BOTH bounds to save) — an un-satisfiable loop. Require both an
+    // effective termStartDate and termEndDate, matching the term-validity
+    // invariant and the modal's Save gate. (This is independent of overlap
+    // handling, where a null end still counts as an indefinite +Infinity term.)
+    if (
+      body.onboardingCompletedAt != null &&
+      (!effectiveTermStart || !effectiveTermEnd)
+    ) {
       throw new BadRequestException(
-        'onboardingCompletedAt requires a term start date',
+        'onboardingCompletedAt requires both a term start and end date',
       )
     }
 

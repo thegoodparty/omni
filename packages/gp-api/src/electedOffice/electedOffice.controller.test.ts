@@ -272,6 +272,17 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(400)
     })
 
+    it('rejects creating a start-only office already marked onboarding-complete', async () => {
+      // Completion requires a full term: a start-only (indefinite) term would
+      // strand the EO in the dashboard term-date modal's un-satisfiable loop.
+      const result = await service.client.post('/v1/elected-office', {
+        termStartDate: '2025-01-01',
+        onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+      })
+
+      expect(result.status).toBe(400)
+    })
+
     it('fills a placeholder with the full POST payload, not just term dates', async () => {
       // A bare placeholder gets adopted by a later onboarding-completion POST
       // that carries term dates AND other fields; none of them should be lost.
@@ -644,9 +655,11 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(400)
     })
 
-    it('allows completing onboarding on an open-ended term (start, no end)', async () => {
-      // A null termEndDate is a valid indefinite term, so a start date alone is
-      // enough to complete onboarding.
+    it('rejects completing onboarding on a start-only term (no end)', async () => {
+      // A valid term needs BOTH bounds. Completing onboarding on a start-only
+      // (indefinite) term would land the EO in a state the dashboard term-date
+      // modal perpetually re-prompts (it requires both dates to save) with no
+      // way to satisfy it, so completion must require an end date too.
       const created = await createElectedOffice({ termStartDate: '2025-01-01' })
       expect(created.status).toBe(200)
       expect(created.data.termEndDate).toBeNull()
@@ -656,8 +669,24 @@ describe('ElectedOfficeController', () => {
         { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
       )
 
-      expect(result.status).toBe(200)
-      expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects completing onboarding when only a start is supplied alongside it', async () => {
+      // Same guard via a partial PUT that sets the start and completion together
+      // but leaves the end null.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${placeholder.data.id}`,
+        {
+          termStartDate: '2025-01-01',
+          onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+        },
+      )
+
+      expect(result.status).toBe(400)
     })
 
     it('derives termLengthDays in the response from supplied term dates', async () => {
