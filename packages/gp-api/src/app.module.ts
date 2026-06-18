@@ -46,6 +46,7 @@ import { BraintrustModule } from '@/vendors/braintrust/braintrust.module'
 import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
+import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
@@ -69,6 +70,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     BraintrustModule,
     GeminiModule,
     CampaignStrategyModule,
+    CampaignStoryModule,
     AnalyticsModule,
     UsersModule,
     FeaturesModule,

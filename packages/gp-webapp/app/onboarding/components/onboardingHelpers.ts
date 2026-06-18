@@ -5,6 +5,20 @@ import type {
   OnboardingStepId,
 } from './onboardingTypes'
 
+// Where the candidate lands after completing the pledge. Precedence:
+// campaign-story (write the story, generate later) > campaign-strategy
+// (LLM plan on the success page) > legacy dashboard. Pure so the precedence
+// is unit-testable without driving the whole flow to the pledge step.
+export const resolvePostPledgeRoute = (flags: {
+  campaignStoryEnabled: boolean
+  campaignStrategyEnabled: boolean
+}): string =>
+  flags.campaignStoryEnabled
+    ? '/dashboard/campaign-story'
+    : flags.campaignStrategyEnabled
+      ? '/onboarding/success'
+      : '/dashboard'
+
 export const getVisibleOnboardingSteps = (
   steps: NonEmptyArray<OnboardingStepConfig>,
   answers: OnboardingAnswers,

@@ -357,7 +357,8 @@ const OppositionResearch = ({
 const CommunityEventsSkeleton = (): React.JSX.Element => (
   <>
     <p className="text-sm text-muted-foreground italic">
-      Generating local community events&hellip; this can take up to a minute.
+      Generating local community events&hellip; This usually takes less than 3
+      minutes.
     </p>
     <div className="space-y-3">
       <Skeleton className="h-14 w-full rounded-md" />
@@ -373,8 +374,8 @@ const CommunityEventsSkeleton = (): React.JSX.Element => (
 const PressOutletsSkeleton = (): React.JSX.Element => (
   <>
     <p className="text-sm text-muted-foreground italic">
-      Identifying local press &amp; media outlets&hellip; this can take up to a
-      minute.
+      Identifying local press &amp; media outlets&hellip; This usually takes
+      less than 3 minutes.
     </p>
     <div className="space-y-3">
       <Skeleton className="h-14 w-full rounded-md" />
@@ -390,7 +391,8 @@ const PressOutletsSkeleton = (): React.JSX.Element => (
 const StrategicLandscapeSkeleton = (): React.JSX.Element => (
   <>
     <p className="text-sm text-muted-foreground italic">
-      Generating your strategic landscape&hellip; this can take up to a minute.
+      Generating your strategic landscape&hellip; This usually takes less than 3
+      minutes.
     </p>
     <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
       <div className="space-y-3">

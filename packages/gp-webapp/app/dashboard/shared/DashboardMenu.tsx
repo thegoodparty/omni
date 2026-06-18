@@ -328,8 +328,10 @@ export const getDashboardMenuItems = (
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
-  // computed field (see useCampaignStrategyExists).
-  if (campaignStrategyExists) {
+  // computed field (see useCampaignStrategyExists). Campaign-story users see
+  // the tab even before a plan exists: it hosts the "complete your story to
+  // generate a plan" gate.
+  if (campaignStrategyExists || campaignStoryEnabled) {
     menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
