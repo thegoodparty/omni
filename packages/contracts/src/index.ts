@@ -208,6 +208,11 @@ export {
 } from './campaigns/CampaignStory.schema'
 
 export {
+  CampaignStoryRewriteSchema,
+  type CampaignStoryRewrite,
+} from './campaigns/CampaignStoryRewrite.schema'
+
+export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
 } from './campaigns/CampaignWithPositionName.schema'

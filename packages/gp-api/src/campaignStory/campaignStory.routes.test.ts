@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const service = useTestService()
 
 const STORY_URL = '/v1/campaigns/mine/story'
+const REWRITE_URL = '/v1/campaigns/mine/story/rewrite'
 const SAMPLE_WHY = 'Because nobody else would'
 
 describe('CampaignStory routes', () => {
@@ -116,6 +117,41 @@ describe('CampaignStory routes', () => {
       )
 
       expect(result.data.why).toBe('')
+    })
+  })
+
+  // The rewrite happy path calls Gemini, so it's covered by the service unit
+  // test (campaignStoryRewrite.service.test.ts). Here we only assert that
+  // invalid input is rejected before any LLM call is made.
+  describe('POST /campaigns/mine/story/rewrite', () => {
+    it('rejects an unknown field', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'slogan', text: 'something' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects a missing field', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { text: 'something' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects whitespace-only text', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: '   ' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
     })
   })
 })

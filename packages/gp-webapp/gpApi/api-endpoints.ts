@@ -12,7 +12,10 @@ import {
   CampaignVersions,
   User,
 } from 'helpers/types'
-import type { CampaignStory } from '@goodparty_org/contracts'
+import type {
+  CampaignStory,
+  CampaignStoryRewrite,
+} from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
 import type {
@@ -216,6 +219,19 @@ export type APIEndpoints = {
       | { why?: string; background: string; issues?: string }
       | { why?: string; background?: string; issues: string }
     Response: CampaignStory
+  }
+
+  // AI-suggested rewrite of one Campaign Story field. The server pairs the
+  // submitted text with the candidate's name and a section-specific prompt;
+  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  'POST /v1/campaigns/mine/story/rewrite': {
+    // `field` is single-sourced from the contract so it can't drift from the
+    // stored story shape; the server's Zod enum is the runtime mirror.
+    Request: {
+      field: keyof CampaignStory
+      text: string
+    }
+    Response: CampaignStoryRewrite
   }
 
   // The pro-upgrade filing-instructions screen reads this fresh so it renders

@@ -6,8 +6,10 @@ import {
   Button,
   Card,
   Textarea,
+  CheckIcon,
   SparklesIcon,
   WandSparklesIcon,
+  XMarkIcon,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -52,6 +54,13 @@ const CampaignStoryCard = ({
   const savedRef = useRef(value)
   const savingRef = useRef(false)
   const [saveFailed, setSaveFailed] = useState(false)
+
+  // AI "Help me rewrite" suggestion. `rewrite` holds the latest draft; the
+  // card is shown whenever we're generating, have a draft, or hit an error.
+  const [rewrite, setRewrite] = useState<string | null>(null)
+  const [isRewriting, setIsRewriting] = useState(false)
+  const [rewriteError, setRewriteError] = useState(false)
+  const rewriteActive = isRewriting || rewrite !== null || rewriteError
 
   // Safety net for the navigate-away/refresh case: the only save trigger is
   // blur, so warn before unload if the latest text hasn't been persisted.
@@ -133,6 +142,57 @@ const CampaignStoryCard = ({
     }
   }
 
+  const requestRewrite = async (): Promise<void> => {
+    const text = valueRef.current.trim()
+    if (!text) return
+    setIsRewriting(true)
+    setRewriteError(false)
+    setRewrite(null)
+    try {
+      const { data } = await clientRequest(
+        'POST /v1/campaigns/mine/story/rewrite',
+        { field: id, text },
+      )
+      setRewrite(data.rewrite)
+    } catch (error) {
+      reportErrorToSentry(error, {
+        context: 'CampaignStoryCard.rewrite',
+        field: id,
+      })
+      setRewriteError(true)
+    } finally {
+      setIsRewriting(false)
+    }
+  }
+
+  const discardRewrite = (): void => {
+    setRewrite(null)
+    setRewriteError(false)
+  }
+
+  // "Use this" replaces the field with the suggestion and persists it now,
+  // rather than waiting for a blur — the user accepted via a button click, so
+  // there may be no blur to trigger the autosave.
+  const acceptRewrite = (text: string): void => {
+    valueRef.current = text
+    setValue(text)
+    onAnsweredChange?.(text.trim().length > 0)
+    discardRewrite()
+    void save()
+  }
+
+  const hintBox = (
+    <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
+      <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-primary">
+          Campaign Manager
+        </span>
+        <span className="text-sm text-foreground">{hint}</span>
+      </div>
+    </div>
+  )
+
   return (
     <Card className="p-6">
       <div className="flex flex-col gap-1">
@@ -168,21 +228,76 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-            <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-bold uppercase tracking-wide text-primary">
-                Campaign Manager
-              </span>
-              <span className="text-sm text-foreground">{hint}</span>
-            </div>
-          </div>
+        {rewriteActive ? (
+          <>
+            <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-primary">
+                  <WandSparklesIcon className="size-4" />
+                  Suggested rewrite
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  From your Campaign Manager
+                </span>
+              </div>
 
-          <Button icon={<WandSparklesIcon />} className="sm:shrink-0">
-            Help me rewrite
-          </Button>
-        </div>
+              {isRewriting ? (
+                <p className="text-sm text-muted-foreground">
+                  Your Campaign Manager is writing a draft&hellip;
+                </p>
+              ) : rewriteError ? (
+                <p className="text-sm text-destructive">
+                  Couldn&apos;t generate a rewrite. Please try again.
+                </p>
+              ) : (
+                <p className="whitespace-pre-wrap text-base text-foreground">
+                  {rewrite}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  variant="outline"
+                  icon={<XMarkIcon />}
+                  onClick={discardRewrite}
+                  disabled={isRewriting}
+                >
+                  Discard
+                </Button>
+                <Button
+                  variant="outline"
+                  icon={<WandSparklesIcon />}
+                  onClick={requestRewrite}
+                  disabled={isRewriting}
+                >
+                  Try again
+                </Button>
+                <Button
+                  icon={<CheckIcon />}
+                  onClick={() => rewrite && acceptRewrite(rewrite)}
+                  disabled={isRewriting || !rewrite}
+                >
+                  Use this
+                </Button>
+              </div>
+            </div>
+
+            {hintBox}
+          </>
+        ) : (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {hintBox}
+
+            <Button
+              icon={<WandSparklesIcon />}
+              className="sm:shrink-0"
+              onClick={requestRewrite}
+              disabled={trimmedLength === 0}
+            >
+              Help me rewrite
+            </Button>
+          </div>
+        )}
       </div>
     </Card>
   )
