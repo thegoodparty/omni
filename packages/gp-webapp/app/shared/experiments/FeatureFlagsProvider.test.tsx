@@ -240,6 +240,32 @@ describe('FeatureFlagsProvider', () => {
         user_properties: fullUserTraits,
       })
     })
+
+    it('re-fetches when traits change even if the user id is unchanged', async () => {
+      mockUser = fullUser
+      const { result, rerender } = renderHook(() => useFeatureFlags(), {
+        wrapper,
+      })
+
+      await waitFor(() => {
+        expect(result.current.ready).toBe(true)
+      })
+      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(1)
+
+      // Same id, new traits (e.g. the user updated their zip) — a segment input
+      // changed, so Amplitude must be re-evaluated.
+      const updatedTraits = { ...fullUserTraits, zip: '10001' }
+      vi.mocked(buildUserTraits).mockReturnValue(updatedTraits)
+      mockUser = { ...fullUser, zip: '10001' }
+      rerender()
+
+      await waitFor(() => {
+        expect(mockExperimentClient.fetch).toHaveBeenLastCalledWith({
+          user_id: '42',
+          user_properties: updatedTraits,
+        })
+      })
+    })
   })
 
   describe('error reporting', () => {

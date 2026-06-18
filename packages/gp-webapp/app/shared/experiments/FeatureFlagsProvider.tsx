@@ -63,6 +63,10 @@ export const FeatureFlagsProvider = ({
   const [rev, setRev] = useState<number>(0)
   const [user, , isUserLoading] = useUser()
   const prevUserIdRef = useRef<string | undefined>(undefined)
+  // The experiment user (id + traits) last sent to Amplitude. The fetch effect
+  // keys its skip-refetch decision on this, not just the id, so a trait change
+  // (email/name/phone/zip — all segment inputs) on the same user still refetches.
+  const lastFetchedKeyRef = useRef<string | undefined>(undefined)
   // The server-seeded variants already cover the first resolved user, so the
   // first identity resolution should adopt that user without refetching (a
   // blocked client fetch could otherwise wipe the seed and bounce the user).
@@ -85,7 +89,9 @@ export const FeatureFlagsProvider = ({
         client.clear()
         prevUserIdRef.current = currentUserId
       }
-      await client.fetch(buildExperimentUser())
+      const experimentUser = buildExperimentUser()
+      await client.fetch(experimentUser)
+      lastFetchedKeyRef.current = JSON.stringify(experimentUser)
       setReady(true)
       setRev((v) => v + 1)
     } catch (error) {
@@ -140,6 +146,7 @@ export const FeatureFlagsProvider = ({
     if (isUserLoading) return
 
     const currentUserId = user ? String(user.id) : undefined
+    const fetchKey = JSON.stringify(buildExperimentUser())
     if (seededRef.current) {
       seededRef.current = false
       // The seed was resolved server-side for the authenticated SSR user. Trust
@@ -148,6 +155,7 @@ export const FeatureFlagsProvider = ({
       // and fetch as the actual (anonymous) user instead.
       if (user) {
         prevUserIdRef.current = currentUserId
+        lastFetchedKeyRef.current = fetchKey
         setReady(true)
         return
       }
@@ -155,9 +163,9 @@ export const FeatureFlagsProvider = ({
       refresh()
       return
     }
-    if (prevUserIdRef.current === currentUserId && ready) return
+    if (lastFetchedKeyRef.current === fetchKey && ready) return
     refresh()
-  }, [isUserLoading, user, refresh, ready])
+  }, [isUserLoading, user, refresh, ready, buildExperimentUser])
 
   const value = useMemo<FeatureFlagsContextValue>(() => {
     const client = clientRef.current
