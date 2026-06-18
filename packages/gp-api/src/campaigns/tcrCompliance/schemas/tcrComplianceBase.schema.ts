@@ -25,7 +25,14 @@ export const tcrComplianceBaseShape = {
   email: WriteEmailSchema,
   phone: PhoneSchema,
   officeLevel: z.nativeEnum(OfficeLevel),
-  fecCommitteeId: z.string().optional(),
+  // Normalize '' -> undefined: the agent sends empty strings for fields it
+  // can't resolve, and a falsy-but-not-nullish '' would slip past the relaxed
+  // federal check AND short-circuit the service's `?? existing.fecCommitteeId`
+  // fallback, re-breaking the very stranding this is meant to fix.
+  fecCommitteeId: z
+    .string()
+    .optional()
+    .transform((value) => (value === '' ? undefined : value)),
   committeeType: z.nativeEnum(CommitteeType).optional(),
 }
 

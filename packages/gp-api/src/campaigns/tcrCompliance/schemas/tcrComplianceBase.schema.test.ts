@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import { CommitteeType, OfficeLevel } from '../../../generated/prisma'
-import { tcrComplianceSuperRefine } from './tcrComplianceBase.schema'
+import {
+  tcrComplianceBaseShape,
+  tcrComplianceSuperRefine,
+} from './tcrComplianceBase.schema'
 
 const schema = (options?: { requireFecCommitteeId?: boolean }) =>
   z
@@ -18,6 +21,18 @@ const federalBase = {
   committeeType: CommitteeType.HOUSE,
   filingUrl: 'https://www.fec.gov/data/committee/C00936328/',
 }
+
+describe('tcrComplianceBaseShape.fecCommitteeId', () => {
+  it('normalizes an empty string to undefined (so the service ?? fallback fires)', () => {
+    expect(tcrComplianceBaseShape.fecCommitteeId.parse('')).toBeUndefined()
+  })
+
+  it('preserves a provided committee id', () => {
+    expect(tcrComplianceBaseShape.fecCommitteeId.parse('C00123456')).toBe(
+      'C00123456',
+    )
+  })
+})
 
 describe('tcrComplianceSuperRefine — fecCommitteeId', () => {
   it('requires fecCommitteeId for federal by default', () => {
