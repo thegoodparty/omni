@@ -13,6 +13,8 @@ import {
 import { Card } from '@styleguide'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useQuery } from '@tanstack/react-query'
+import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 
 interface StatCard {
   key: string
@@ -31,6 +33,8 @@ export default function ContactsStatsSection({
   onlyTotalVisibleContacts,
 }: ContactsStatsSectionProps) {
   const query = useQuery(districtStatsQueryOptions)
+  const { isWinContext } = useContactsTable()
+  const labels = getContactsLabels(isWinContext)
 
   const renderCard = (card: StatCard) => {
     return (
@@ -66,7 +70,7 @@ export default function ContactsStatsSection({
     <section className="mt-4 mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 ">
       {renderCard({
         key: 'totalConstituents',
-        label: 'Total Constituents',
+        label: labels.totalLabel,
         getValue: (stats) => stats.totalConstituents,
         icon: <LuUserRound />,
       })}
@@ -74,7 +78,7 @@ export default function ContactsStatsSection({
         <div className="hidden md:block">
           {renderCard({
             key: 'visibleContactsPercent',
-            label: '% of Constituents',
+            label: labels.percentLabel,
             getValue: (stats) => stats.visibleContactsPercent,
             icon: <LuPercent />,
           })}

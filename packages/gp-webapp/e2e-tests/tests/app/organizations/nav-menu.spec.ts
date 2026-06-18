@@ -40,7 +40,7 @@ test.describe('Navigation Menu by Org Type', () => {
     await expect(sidebar.getByText('AI Assistant')).toBeVisible()
     await expect(sidebar.getByText('Content Builder')).toBeVisible()
 
-    await expect(sidebar.getByText('Constituents')).not.toBeVisible()
+    await expect(sidebar.getByText('Constituent Data')).not.toBeVisible()
     await expect(sidebar.getByText('Polls')).not.toBeVisible()
   })
 
@@ -51,7 +51,7 @@ test.describe('Navigation Menu by Org Type', () => {
 
     const sidebar = page.locator('[data-sidebar="content"]')
 
-    await expect(sidebar.getByText('Constituents')).toBeVisible({
+    await expect(sidebar.getByText('Constituent Data')).toBeVisible({
       timeout: 10000,
     })
     await expect(sidebar.getByText('Polls')).toBeVisible()

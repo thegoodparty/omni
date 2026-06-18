@@ -12,6 +12,8 @@ import { randomUUID } from 'crypto'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import { SlackChannel } from '@/vendors/slack/slackService.types'
 
 const sqs = new SQS({})
 
@@ -46,6 +48,10 @@ type ResumeRunInput = {
 export class ExperimentRunsService extends createPrismaBase(
   MODELS.ExperimentRun,
 ) {
+  constructor(private readonly slack: SlackService) {
+    super()
+  }
+
   private cachedQueueUrl: string | undefined
 
   // The queue name is static per environment, so resolve the URL once and cache
@@ -319,7 +325,7 @@ export class ExperimentRunsService extends createPrismaBase(
 
     for (const run of due) {
       if (run.resumeAttempts >= MAX_RESUME_ATTEMPTS) {
-        await this.model.updateMany({
+        const { count } = await this.model.updateMany({
           where: {
             runId: run.runId,
             status: ExperimentRunStatus.AWAITING_RESUME,
@@ -331,6 +337,13 @@ export class ExperimentRunsService extends createPrismaBase(
               `at stage: ${run.stage ?? 'unknown'}`,
           },
         })
+        // The cron fires on every replica; only the one whose update actually
+        // terminalized the row (count > 0) alerts, so the failure isn't
+        // re-announced each tick. Without this the run dies silently after
+        // ~24h of retries — no log, no Slack, no human in the loop.
+        if (count > 0) {
+          await this.alertMaxResumeExhausted(run)
+        }
       } else {
         // Isolate each run: a throw from one resume must not abort the rest of
         // the batch (the remaining due runs would be skipped until next tick).
@@ -343,6 +356,29 @@ export class ExperimentRunsService extends createPrismaBase(
           )
         }
       }
+    }
+  }
+
+  // Resume-driven runs are compliance_setup today, so a run that burns through
+  // every attempt needs a human on the 10DLC compliance channel. Best-effort:
+  // a Slack failure must not abort the sweep mid-batch.
+  private async alertMaxResumeExhausted(run: ExperimentRun) {
+    try {
+      await this.slack.errorMessage(
+        {
+          message:
+            `${run.experimentType} run exhausted ${MAX_RESUME_ATTEMPTS} ` +
+            `resume attempts at stage "${run.stage ?? 'unknown'}" and was ` +
+            `marked FAILED — needs manual investigation. ` +
+            `org=${run.organizationSlug} runId=${run.runId}`,
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, runId: run.runId },
+        'failed to post max-resume-exhausted Slack alert',
+      )
     }
   }
 

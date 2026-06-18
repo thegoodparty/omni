@@ -3,6 +3,7 @@ import { createVoterFileFilter } from 'helpers/createVoterFileFilter'
 import { createP2pPhoneList, PhoneListInput } from 'helpers/createP2pPhoneList'
 import { noop, noopAsync } from '@shared/utils/noop'
 import { getEffectiveOutreachType } from 'app/dashboard/outreach/util/getEffectiveOutreachType'
+import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { VoterFileFilters } from 'helpers/types'
 import { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachType } from 'gpApi/types/outreach.types'
@@ -49,6 +50,9 @@ interface CreateOutreachParams {
   type: OutreachType
   state: FlowState
   campaignId: number
+  campaignPlanDueDate?: string
+  textCount?: number
+  hasFreeTextsOffer?: boolean
   outreaches?: Outreach[]
   setOutreaches?: (outreaches: Outreach[]) => void
   errorSnackbar?: (message: string) => void
@@ -92,6 +96,9 @@ export const handleCreateOutreach =
     type,
     state: { script, schedule, image, voterFileFilter, audience, phoneListId },
     campaignId,
+    campaignPlanDueDate,
+    textCount,
+    hasFreeTextsOffer = false,
     outreaches = [],
     setOutreaches = noop,
     errorSnackbar = noop,
@@ -104,6 +111,14 @@ export const handleCreateOutreach =
     const date = schedule?.date
     const voterFileFilterId = voterFileFilter?.id
     const outreachType = getEffectiveOutreachType(type, p2pUxEnabled)
+
+    const discount = hasFreeTextsOffer
+      ? Math.min(textCount ?? 0, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    const textCounts =
+      textCount === undefined
+        ? {}
+        : { textCount, billableTextCount: textCount - discount }
 
     const outreach = await createOutreach(
       {
@@ -124,6 +139,8 @@ export const handleCreateOutreach =
         ...(p2pUxEnabled && phoneListId && phoneListId > 0
           ? { phoneListId }
           : {}),
+        ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+        ...textCounts,
       },
       image || null,
     )
