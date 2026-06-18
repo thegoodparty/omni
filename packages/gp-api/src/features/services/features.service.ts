@@ -3,7 +3,17 @@ import { UsersService } from '../../users/services/users.service'
 import { Experiment } from '@amplitude/experiment-node-server'
 import { User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import type { ExperimentVariant } from '@goodparty_org/contracts'
+import type { ExperimentVariants } from '@goodparty_org/contracts'
+
+// User attributes sent to Amplitude for segment targeting. Mirrors the fields
+// gp-webapp's buildUserTraits sends so server and client evaluations match.
+// A type (not interface) so it stays assignable to fetchV2's index signature.
+type ExperimentUserProperties = {
+  email: string
+  name?: string
+  phone?: string
+  zip?: string
+}
 
 const AMPLITUDE_PROJECT_API_KEY = process.env.AMPLITUDE_PROJECT_API_KEY
 if (!AMPLITUDE_PROJECT_API_KEY) {
@@ -63,7 +73,7 @@ export class FeaturesService {
    * properties mirror gp-webapp's buildUserTraits so server and client
    * evaluations target the same segments.
    */
-  async getAllVariants(user: User): Promise<Record<string, ExperimentVariant>> {
+  async getAllVariants(user: User): Promise<ExperimentVariants> {
     const variants = await amplitude.fetchV2({
       user_id: user.id.toString(),
       user_properties: this.buildUserProperties(user),
@@ -77,8 +87,8 @@ export class FeaturesService {
     )
   }
 
-  private buildUserProperties(user: User): Record<string, string> {
-    const properties: Record<string, string> = { email: user.email }
+  private buildUserProperties(user: User): ExperimentUserProperties {
+    const properties: ExperimentUserProperties = { email: user.email }
     const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
     if (name) properties.name = name
     if (user.phone) properties.phone = user.phone

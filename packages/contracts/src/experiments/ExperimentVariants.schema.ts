@@ -11,11 +11,20 @@ export const ExperimentVariantSchema = z.object({
 
 export type ExperimentVariant = z.infer<typeof ExperimentVariantSchema>
 
-// The full variant map for the current user — every flag the deployment exposes,
-// returned in a single server-side evaluation so the browser never has to reach
+// The full variant map for the current user, keyed by flag key. The key space
+// is the open set of flags the Amplitude deployment exposes, so consumers treat
+// it as a sparse lookup (a given flag may be absent) rather than a fixed shape.
+export const ExperimentVariantsSchema = z.record(
+  z.string(),
+  ExperimentVariantSchema,
+)
+
+export type ExperimentVariants = z.infer<typeof ExperimentVariantsSchema>
+
+// Resolved in a single server-side evaluation so the browser never has to reach
 // Amplitude to know which gated surfaces to render.
 export const ExperimentVariantsResponseSchema = z.object({
-  variants: z.record(z.string(), ExperimentVariantSchema),
+  variants: ExperimentVariantsSchema,
 })
 
 export type ExperimentVariantsResponse = z.infer<

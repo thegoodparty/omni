@@ -22,7 +22,7 @@ import { useUser } from '@shared/hooks/useUser'
 import { reportErrorToSentry } from '@shared/sentry'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { NEXT_PUBLIC_AMPLITUDE_API_KEY } from 'appEnv'
-import type { ExperimentVariant } from '@goodparty_org/contracts'
+import type { ExperimentVariants } from '@goodparty_org/contracts'
 
 interface FeatureFlagsContextValue {
   ready: boolean
@@ -50,7 +50,7 @@ interface FeatureFlagsProviderProps {
   // Variants resolved server-side by gp-api for the current user. When present,
   // the client trusts them (correct on first paint, no Amplitude round-trip)
   // and skips the initial client fetch.
-  initialVariants?: Record<string, ExperimentVariant> | null
+  initialVariants?: ExperimentVariants | null
 }
 
 export const FeatureFlagsProvider = ({
