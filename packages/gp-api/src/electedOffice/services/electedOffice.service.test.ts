@@ -2,7 +2,10 @@ import { useTestService } from '@/test-service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElectedOfficeService } from './electedOffice.service'
+import {
+  dateRangesOverlap,
+  ElectedOfficeService,
+} from './electedOffice.service'
 
 const service = useTestService()
 
@@ -198,6 +201,34 @@ describe('ElectedOfficeService.create', () => {
     })
   })
 
+  it('does not 409 a later dated term against a partial prefill with only an end date', async () => {
+    // A BallotReady prefill can return a holder with startAt: null but a real
+    // endAt, producing a (termStartDate: null, termEndDate: <date>) row that the
+    // term-less placeholder finder does NOT adopt. A magic-link retry that later
+    // brings a fully-dated term whose start falls before that end must not be
+    // treated as overlapping (the existing row's start is unknown, not -Infinity).
+    await service.prisma.organization.create({
+      data: { slug: 'eo-partial-prefill', ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: 'eo-partial-prefill',
+        termStartDate: null,
+        termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      },
+    })
+
+    const dated = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2028-01-01T00:00:00.000Z'),
+    })
+
+    expect(dated.termStartDate).toEqual(new Date('2025-01-01T00:00:00.000Z'))
+    expect(await service.prisma.electedOffice.count()).toBe(2)
+  })
+
   it('serializes concurrent creates into a single office', async () => {
     // Two simultaneous first-office submits for the same user. The advisory
     // lock + in-transaction recheck must collapse them to one office and one
@@ -248,5 +279,69 @@ describe('ElectedOfficeService.update', () => {
     })
 
     expect(updated.swornInDate).toEqual(swornInDate)
+  })
+})
+
+describe('dateRangesOverlap', () => {
+  const d = (s: string) => new Date(s)
+
+  it('detects overlapping dated terms', () => {
+    expect(
+      dateRangesOverlap(
+        d('2025-01-01'),
+        d('2029-01-01'),
+        d('2028-01-01'),
+        d('2030-01-01'),
+      ),
+    ).toBe(true)
+  })
+
+  it('treats half-open consecutive terms (A.end === B.start) as non-overlapping', () => {
+    expect(
+      dateRangesOverlap(
+        d('2021-01-01'),
+        d('2025-01-01'),
+        d('2025-01-01'),
+        d('2029-01-01'),
+      ),
+    ).toBe(false)
+  })
+
+  it('treats an all-null range as non-comparable (no overlap)', () => {
+    expect(
+      dateRangesOverlap(null, null, d('2025-01-01'), d('2029-01-01')),
+    ).toBe(false)
+  })
+
+  it('treats a null START with a real end as non-comparable (no spurious 409 on partial prefill)', () => {
+    // The (null, end) partial-prefill row must not 409 a later dated term whose
+    // start precedes that end — its start is unknown, not -Infinity.
+    expect(
+      dateRangesOverlap(
+        null,
+        d('2029-01-01'),
+        d('2025-01-01'),
+        d('2028-01-01'),
+      ),
+    ).toBe(false)
+    expect(
+      dateRangesOverlap(
+        d('2025-01-01'),
+        d('2028-01-01'),
+        null,
+        d('2029-01-01'),
+      ),
+    ).toBe(false)
+  })
+
+  it('still treats a null END with a real start as an indefinite (+Infinity) term that overlaps', () => {
+    expect(
+      dateRangesOverlap(
+        d('2020-01-01'),
+        null,
+        d('2025-01-01'),
+        d('2029-01-01'),
+      ),
+    ).toBe(true)
   })
 })

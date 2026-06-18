@@ -42,9 +42,19 @@ export type CreateElectedOfficeArgs = {
 }
 
 /**
- * Whether two term date ranges overlap. Open-ended bounds (null) are treated as
- * -Infinity (start) / +Infinity (end). A range with no bounds at all cannot be
- * compared, so it is treated as non-overlapping.
+ * Whether two term date ranges overlap. A null END (with a non-null start) is an
+ * indefinite open-ended term → treated as +Infinity, so it genuinely overlaps
+ * any later term. A range with no bounds at all, OR a null START with a non-null
+ * end, cannot be meaningfully compared, so it is treated as non-overlapping.
+ *
+ * The null-start/non-null-end case is the partial BallotReady prefill: a holder
+ * can arrive with `startAt: null, endAt: <date>`, producing a stored
+ * `(termStartDate: null, termEndDate: <date>)` row. Mapping its null start to
+ * -Infinity would make it spuriously overlap (and 409) any later dated term for
+ * the same user (e.g. a magic-link retry that finally carries real term dates).
+ * Since the start is unknown we can't assert overlap; the P3 dashboard prompt
+ * collects the missing start, after which it becomes a fully-dated, comparable
+ * term again.
  *
  * Terms are half-open [start, end): termEndDate is the exclusive boundary at
  * which the next holder takes over (BallotReady reports a 4-year term as
@@ -59,6 +69,8 @@ export const dateRangesOverlap = (
 ): boolean => {
   if (aStart === null && aEnd === null) return false
   if (bStart === null && bEnd === null) return false
+  if (aStart === null && aEnd !== null) return false
+  if (bStart === null && bEnd !== null) return false
   const aS = aStart ? aStart.getTime() : -Infinity
   const aE = aEnd ? aEnd.getTime() : Infinity
   const bS = bStart ? bStart.getTime() : -Infinity
