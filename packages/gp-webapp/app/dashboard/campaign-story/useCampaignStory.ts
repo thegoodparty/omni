@@ -6,12 +6,19 @@ import type { CampaignStory } from '@goodparty_org/contracts'
 
 const STORY_ROUTE = 'GET /v1/campaigns/mine/story' as const
 
+// One source of truth for "has content" — same trim semantics as the gp-api
+// ingress trim, so the client gate and the server agree on what counts.
+export const isStoryFieldAnswered = (value?: string | null): boolean =>
+  !!value?.trim()
+
 // The story is "complete" once all three prompts have non-whitespace text —
 // the gate for offering campaign-plan generation.
 export const isCampaignStoryComplete = (
   story: CampaignStory | undefined,
 ): boolean =>
-  !!story?.why?.trim() && !!story?.background?.trim() && !!story?.issues?.trim()
+  isStoryFieldAnswered(story?.why) &&
+  isStoryFieldAnswered(story?.background) &&
+  isStoryFieldAnswered(story?.issues)
 
 export const useCampaignStory = (
   initialData?: CampaignStory,

@@ -2,9 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import type { CampaignStory } from '@goodparty_org/contracts'
 import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
+import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
 import {
   isCampaignStoryComplete,
   useCampaignStory,
@@ -15,12 +15,6 @@ interface CampaignPlanStoryGateProps {
 }
 
 const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
-
-const REVIEW_FIELDS: Array<{ key: keyof CampaignStory; label: string }> = [
-  { key: 'why', label: 'Your why' },
-  { key: 'background', label: 'Your background' },
-  { key: 'issues', label: 'Your issues' },
-]
 
 const CampaignPlanStoryGate = ({
   onGenerate,
@@ -71,13 +65,13 @@ const CampaignPlanStoryGate = ({
       </div>
 
       <div className="flex w-full flex-col gap-4">
-        {REVIEW_FIELDS.map(({ key, label }) => (
-          <div key={key} className="flex flex-col gap-1">
+        {CAMPAIGN_STORY_SECTIONS.map(({ id, title }) => (
+          <div key={id} className="flex flex-col gap-1">
             <span className="text-sm font-semibold text-foreground">
-              {label}
+              {title}
             </span>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {story[key]}
+              {story[id]}
             </p>
           </div>
         ))}

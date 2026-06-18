@@ -9,47 +9,22 @@ import H2 from '@shared/typography/H2'
 import { BookOpenIcon, Button } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
-import CampaignStoryCard, {
-  type CampaignStoryField,
-  type CampaignStorySection,
-} from './CampaignStoryCard'
+import { CAMPAIGN_STORY_SECTIONS } from '../sections'
+import { isStoryFieldAnswered } from '../useCampaignStory'
+import type { CampaignStoryField } from './CampaignStoryCard'
+import CampaignStoryCard from './CampaignStoryCard'
 
 interface CampaignStoryPageProps {
   pathname?: string
   initialStory: CampaignStory
 }
 
-const SECTIONS: CampaignStorySection[] = [
-  {
-    id: 'why',
-    title: 'Your why',
-    description:
-      'The moment, the people, the breaking point: your stump-speech opener.',
-    placeholder:
-      'Tap to write: what pushed you to put your name on the ballot?',
-  },
-  {
-    id: 'background',
-    title: 'Your background',
-    description:
-      'Childhood, career, community ties. The human story behind the candidate.',
-    placeholder: 'Tap to write: your background, career, and what shaped you.',
-  },
-  {
-    id: 'issues',
-    title: 'Your issues',
-    description: 'Two to four concrete fights for your first term.',
-    placeholder:
-      "Tap to write: the 2-4 issues you'd spend political capital on.",
-  },
-]
-
 const answeredFromStory = (
   story: CampaignStory,
 ): Record<CampaignStoryField, boolean> => ({
-  why: (story.why ?? '').trim().length > 0,
-  background: (story.background ?? '').trim().length > 0,
-  issues: (story.issues ?? '').trim().length > 0,
+  why: isStoryFieldAnswered(story.why),
+  background: isStoryFieldAnswered(story.background),
+  issues: isStoryFieldAnswered(story.issues),
 })
 
 const CampaignStoryPage = ({
@@ -90,7 +65,7 @@ const CampaignStoryPage = ({
           </section>
 
           <div className="flex flex-col gap-6">
-            {SECTIONS.map((section) => (
+            {CAMPAIGN_STORY_SECTIONS.map((section) => (
               <CampaignStoryCard
                 key={section.id}
                 section={section}
