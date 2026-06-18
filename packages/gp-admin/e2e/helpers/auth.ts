@@ -94,6 +94,42 @@ export function getTestUserCredentials(userType: TestUserType): {
 }
 
 /**
+ * Ensures Clerk is showing the PASSWORD first factor before it is filled.
+ * The Clerk instance now offers `email_code` as an additional first factor, so
+ * depending on factor ordering the password field may not be on the initial
+ * screen. Handles both the single-screen form (email + password together) and a
+ * stepped flow, switching to the password method via "Use another method" when
+ * Clerk defaults to a different factor.
+ */
+async function ensurePasswordField(page: Page): Promise<void> {
+  const passwordInput = page.getByRole('textbox', { name: /password/i })
+  if (await passwordInput.isVisible().catch(() => false)) return
+
+  // Stepped (identifier-first) flow: advance past the email step first.
+  const continueBtn = page.getByRole('button', {
+    name: 'Continue',
+    exact: true,
+  })
+  if (await continueBtn.isVisible().catch(() => false)) {
+    await continueBtn.click()
+  }
+  if (await passwordInput.isVisible().catch(() => false)) return
+
+  // Clerk defaulted to another first factor (e.g. email_code) — pick password.
+  const useAnotherMethod = page.getByRole('button', {
+    name: /use another method/i,
+  })
+  if (await useAnotherMethod.isVisible().catch(() => false)) {
+    await useAnotherMethod.click()
+    await page
+      .getByRole('button', { name: /password/i })
+      .first()
+      .click()
+  }
+  await passwordInput.waitFor({ state: 'visible', timeout: 5000 })
+}
+
+/**
  * Signs in a user using Clerk's email/password authentication.
  * @param page - Playwright page object
  * @param userType - The type of test user to sign in as (defaults to 'dev-admin')
@@ -110,6 +146,7 @@ export async function signIn(
   await emailInput.waitFor({ state: 'visible' })
 
   await emailInput.fill(email)
+  await ensurePasswordField(page)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
 
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
