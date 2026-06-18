@@ -134,6 +134,17 @@ async function ensurePasswordField(page: Page): Promise<void> {
       .then(() => true)
       .catch(() => false)
 
+  // Matches a clickable Clerk control by accessible name whether Clerk renders
+  // it as a `<button>` or an `<a>`. The "Use another method" affordance and the
+  // factor-selection options are links when `email_code` is the default first
+  // factor (e.g. OTP enabled) and buttons otherwise, so a button-only locator
+  // misses them and the password method is never selected.
+  const clerkControl = (name: RegExp): Locator =>
+    page
+      .getByRole('button', { name })
+      .or(page.getByRole('link', { name }))
+      .first()
+
   // Single-screen flow: password is already on the identifier screen.
   if (await becomesEditable(passwordInput, 5000)) return
 
@@ -148,16 +159,13 @@ async function ensurePasswordField(page: Page): Promise<void> {
   }
 
   // Clerk defaulted to another first factor (e.g. email_code), or rendered the
-  // password input disabled — pick the password method explicitly.
-  const useAnotherMethod = page.getByRole('button', {
-    name: /use another method/i,
-  })
+  // password input disabled — pick the password method explicitly. Match the
+  // controls as link OR button, since Clerk renders them as links in the
+  // email-code-default flow.
+  const useAnotherMethod = clerkControl(/use another method/i)
   if (await becomesVisible(useAnotherMethod, 3000)) {
     await useAnotherMethod.click()
-    await page
-      .getByRole('button', { name: /password/i })
-      .first()
-      .click()
+    await clerkControl(/password/i).click()
   }
   // The field must be genuinely editable before the caller fills it; otherwise
   // fill() times out on a visible-but-disabled input.

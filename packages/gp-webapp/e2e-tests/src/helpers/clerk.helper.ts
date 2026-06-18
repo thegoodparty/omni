@@ -22,6 +22,18 @@ const becomesEditable = (locator: Locator, timeout: number): Promise<boolean> =>
     .catch(() => false)
 
 /**
+ * Resolves true if `locator` becomes visible within `timeout`, false otherwise.
+ * Uses a bounded `waitFor` rather than a point-in-time `isVisible()` snapshot, so
+ * a control that Clerk renders a moment later (slow screen transition) is still
+ * caught instead of being missed by a single check.
+ */
+const becomesVisible = (locator: Locator, timeout: number): Promise<boolean> =>
+  locator
+    .waitFor({ state: 'visible', timeout })
+    .then(() => true)
+    .catch(() => false)
+
+/**
  * Matches a clickable Clerk control by accessible name regardless of whether
  * Clerk renders it as a `<button>` or an `<a>`. Clerk's "Use another method"
  * affordance and the strategy options on the factor-selection screen are links
@@ -56,7 +68,7 @@ export const ensureClerkPasswordFactor = async (page: Page): Promise<void> => {
   // email_code, or rendered the password input disabled). Open the method
   // picker and select password explicitly.
   const useAnotherMethod = clerkControl(page, /use another method/i)
-  if (await useAnotherMethod.isVisible().catch(() => false)) {
+  if (await becomesVisible(useAnotherMethod, 5000)) {
     await useAnotherMethod.click()
     await clerkControl(page, /password/i).click()
   }
