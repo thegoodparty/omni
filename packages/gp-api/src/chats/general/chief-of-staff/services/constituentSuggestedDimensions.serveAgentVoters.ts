@@ -2,17 +2,62 @@ import type { AdvertisedDimension } from '@/llm/tools/queryConstituentData.tool'
 
 // GENERATED — do not edit by hand.
 //
-// The curated set of breakdown dimensions advertised to the model: the hs_*
+// The curated set of breakdown dimensions advertised to the model: a
+// high-value slice of demographics (household makeup, education, tenure,
+// veteran status, turnout, age, gender, urbanicity) followed by the hs_*
 // modeled issue-support scores (0-100; higher = more aligned with the named
-// position) plus age and urbanicity. District/geography and raw demographic
-// columns are intentionally omitted — the mandatory district filter already
-// scopes every query, and suggesting district breakdowns produced confusing
-// single-row results. The full serve_agent_voters table stays queryable via
-// the validator allowlist; this only shapes what the agent is guided toward.
-// Regenerate from the live schema when the table changes.
+// position). Sensitive attributes (ethnicity, religion, party, language) and
+// district/geography columns are intentionally omitted, as are the granular
+// per-cohort household columns. The full serve_agent_voters table stays
+// queryable via the validator allowlist; this only shapes what the agent is
+// guided toward. Regenerate from the live schema when the table changes.
 export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
-  { name: 'Voters_Age', label: 'Age' },
-  { name: 'ConsumerData_RUS_Code', label: 'Rural-Urban-Suburban' },
+  { name: 'Voters_Age', label: 'Age in years' },
+  { name: 'Voters_Gender', label: 'Gender (M/F)' },
+  { name: 'ConsumerData_RUS_Code', label: 'Rural / urban / suburban' },
+  {
+    name: 'ConsumerData_Education_of_Person',
+    label: 'Education level (modeled)',
+  },
+  { name: 'ConsumerData_Marital_Status', label: 'Marital status (inferred)' },
+  {
+    name: 'ConsumerData_Number_Of_Persons_in_HH',
+    label: 'Household size (people)',
+  },
+  { name: 'ConsumerData_Number_Of_Adults_in_HH', label: 'Adults in household' },
+  {
+    name: 'ConsumerData_Number_Of_Children_in_HH',
+    label: 'Children in household (count)',
+  },
+  {
+    name: 'ConsumerData_Presence_Of_Children_in_HH',
+    label: 'Has children under 18 at home',
+  },
+  {
+    name: 'ConsumerData_Single_Parent_in_Household',
+    label: 'Single-parent household',
+  },
+  {
+    name: 'ConsumerData_Length_Of_Residence_Code',
+    label: 'Years at current address',
+  },
+  { name: 'ConsumerData_Generations_In_HH', label: 'Generations in household' },
+  { name: 'ConsumerDataLL_Veteran', label: 'Veteran' },
+  { name: 'ConsumerData_Veteran_In_HH', label: 'Veteran in household' },
+  {
+    name: 'ConsumerData_Senior_Adult_In_HH',
+    label: 'Senior adult in household',
+  },
+  { name: 'ConsumerData_Young_Adult_In_HH', label: 'Young adult in household' },
+  { name: 'Voters_Active', label: 'Registration status (active/inactive)' },
+  {
+    name: 'Voters_VotingPerformanceEvenYearGeneral',
+    label: 'General-election turnout (%)',
+  },
+  {
+    name: 'Voters_VotingPerformanceEvenYearPrimary',
+    label: 'Primary-election turnout (%)',
+  },
   { name: 'hs_abortion_pro_choice', label: 'Abortion Pro Choice' },
   { name: 'hs_abortion_pro_life', label: 'Abortion Pro Life' },
   { name: 'hs_activism', label: 'Activism' },

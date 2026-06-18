@@ -96,6 +96,6 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain('CONSTITUENT DATA RULES')
     // Pushes segmentation over flat district-wide averages.
-    expect(prompt).toContain('segment by the dimensions you have')
+    expect(prompt).toContain('segment by the demographics you have')
   })
 })
