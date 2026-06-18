@@ -530,7 +530,7 @@ export default function AiChatBody({
 
       {/* Composer */}
       <div className="border-t border-border px-3 py-3">
-        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
+        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-brand-red-500 to-brand-blue-600 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             {onSelectConversation && (
               <AiChatHistoryPopover
