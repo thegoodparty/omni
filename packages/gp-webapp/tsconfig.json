@@ -15,7 +15,7 @@
       "@styleguide": ["styleguide"],
       "@styleguide/*": ["styleguide/*"]
     },
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
