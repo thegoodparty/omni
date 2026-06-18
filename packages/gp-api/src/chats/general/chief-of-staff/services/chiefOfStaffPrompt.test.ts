@@ -86,5 +86,16 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain('PRIORITIES RULES')
     expect(prompt).not.toContain('WEB SEARCH RULES')
+    expect(prompt).not.toContain('CONSTITUENT DATA RULES')
+  })
+
+  it('includes constituent-data rules when the constituent tool is available', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('CONSTITUENT DATA RULES')
+    // Pushes segmentation over flat district-wide averages.
+    expect(prompt).toContain('segment by the demographics you have')
   })
 })
