@@ -46,12 +46,22 @@ const BRIEFING_RULES = `BRIEFING RULES (apply whenever you call \`list_briefings
 - Cite the meeting date when you reference a briefing.
 - The briefing data you receive is already filtered to what you may share; do not speculate about internal scoring, sources, or data not present in it.`
 
+const CONSTITUENT_DATA_RULES = `CONSTITUENT DATA RULES (apply whenever you call \`query_constituent_data\` or \`describe_constituent_data\`):
+- Lead with the insight, not the method. Open with the single most decision-relevant finding, then back it up. Don't narrate which columns you chose.
+- District-wide averages are usually muddy — most modeled scores sit near the middle. The real story is WHERE opinion splits: segment by the dimensions you have (age, urban/suburban) to find the subgroups that diverge from the district, and surface those contrasts. Run those breakdowns yourself in the same turn; don't end by offering to.
+- Turn the 0-100 modeled scores into vivid, confident language — "a clear majority lean toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
+- Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
     "manage the user's durable priorities (list/create/update/archive)",
   web_search: 'search the public web for current news and factual lookups',
   list_briefings: 'list the user’s upcoming and recent meeting briefings',
   get_briefing: 'read the full briefing for one of the user’s meetings by date',
+  query_constituent_data:
+    'query aggregate, district-scoped constituent opinion (modeled issue-support scores) and demographics',
+  describe_constituent_data:
+    'list the recommended constituent breakdown dimensions before querying',
 }
 
 const optional = (value: string | null | undefined): string => {
@@ -128,6 +138,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('list_briefings') ||
     toolNames.includes('get_briefing')
       ? [BRIEFING_RULES]
+      : []),
+    ...(toolNames.includes('query_constituent_data')
+      ? [CONSTITUENT_DATA_RULES]
       : []),
     INSTRUCTIONS_BLOCK,
   ]
