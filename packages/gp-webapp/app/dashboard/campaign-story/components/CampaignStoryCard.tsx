@@ -60,6 +60,10 @@ const CampaignStoryCard = ({
   const [rewrite, setRewrite] = useState<string | null>(null)
   const [isRewriting, setIsRewriting] = useState(false)
   const [rewriteError, setRewriteError] = useState(false)
+  // Guards against overlapping rewrite calls (e.g. a double-click landing
+  // before the disabled state re-renders), so an older response can't resolve
+  // after a newer one and show a stale suggestion.
+  const rewritingRef = useRef(false)
   const rewriteActive = isRewriting || rewrite !== null || rewriteError
 
   // Safety net for the navigate-away/refresh case: the only save trigger is
@@ -144,7 +148,8 @@ const CampaignStoryCard = ({
 
   const requestRewrite = async (): Promise<void> => {
     const text = valueRef.current.trim()
-    if (!text) return
+    if (!text || rewritingRef.current) return
+    rewritingRef.current = true
     setIsRewriting(true)
     setRewriteError(false)
     setRewrite(null)
@@ -161,6 +166,7 @@ const CampaignStoryCard = ({
       })
       setRewriteError(true)
     } finally {
+      rewritingRef.current = false
       setIsRewriting(false)
     }
   }
