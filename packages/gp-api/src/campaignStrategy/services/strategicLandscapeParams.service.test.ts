@@ -44,10 +44,12 @@ describe('StrategicLandscapeParamsService', () => {
     }
     races = { getPrimaryRaceId: vi.fn() }
     campaignStory = { getForCampaign: vi.fn(async () => story) }
+    const logger = { setContext: vi.fn(), warn: vi.fn() }
     service = new StrategicLandscapeParamsService(
       electionApi as never,
       races as never,
       campaignStory as never,
+      logger as never,
     )
   })
 
@@ -106,5 +108,15 @@ describe('StrategicLandscapeParamsService', () => {
 
     expect(campaignStory.getForCampaign).toHaveBeenCalledWith(42)
     expect(out.campaign_story).toEqual(story)
+  })
+
+  it('omits the story (without failing the build) when its read errors', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    campaignStory.getForCampaign.mockRejectedValue(new Error('db down'))
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story).toBeUndefined()
+    expect(out.campaign_strategy_context).toBe(generalCtx)
   })
 })
