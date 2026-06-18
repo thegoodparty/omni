@@ -759,11 +759,15 @@ export const selectPreferredOfficeHolder = (
   holders: PersonOfficeHolder[],
   now: Date = new Date(),
 ): PersonOfficeHolder | null => {
-  if (!holders.length) return null
+  // BallotReady can return isVacant records that still reference the prior
+  // holder (e.g. a seat vacated mid-term). Those must never seed an EO pre-fill
+  // for a seat the person no longer holds, so drop them before any selection.
+  const active = holders.filter((holder) => !holder.isVacant)
+  if (!active.length) return null
 
   const windowEnd = addMonths(now, FUTURE_OFFICEHOLDER_WINDOW_MONTHS)
 
-  const upcoming = holders
+  const upcoming = active
     .filter((holder): holder is PersonOfficeHolder & { startAt: string } => {
       if (!holder.startAt) return false
       const start = new Date(holder.startAt)
@@ -775,8 +779,8 @@ export const selectPreferredOfficeHolder = (
   if (upcoming.length) return upcoming[0]
 
   const current =
-    holders.find((holder) => holder.isCurrent) ??
-    holders.find((holder) => {
+    active.find((holder) => holder.isCurrent) ??
+    active.find((holder) => {
       const start = holder.startAt ? new Date(holder.startAt) : null
       const end = holder.endAt ? new Date(holder.endAt) : null
       // endAt is the exclusive term boundary (the successor's start day), so a

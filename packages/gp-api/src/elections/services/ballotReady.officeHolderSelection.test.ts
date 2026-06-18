@@ -58,4 +58,27 @@ describe('selectPreferredOfficeHolder', () => {
     const result = selectPreferredOfficeHolder([past, ongoing], now)
     expect(result?.id).toBe('ongoing')
   })
+
+  it('ignores a vacant holder even when its date range covers now', () => {
+    const vacant = holder({
+      id: 'vacant',
+      isVacant: true,
+      startAt: '2020-01-01',
+      endAt: '2029-01-01',
+    })
+    expect(selectPreferredOfficeHolder([vacant], now)).toBeNull()
+  })
+
+  it('skips vacant holders and returns the active one', () => {
+    const vacant = holder({
+      id: 'vacant',
+      isVacant: true,
+      startAt: '2020-01-01',
+      endAt: '2029-01-01',
+    })
+    const active = holder({ id: 'active', isCurrent: true })
+    expect(selectPreferredOfficeHolder([vacant, active], now)?.id).toBe(
+      'active',
+    )
+  })
 })
