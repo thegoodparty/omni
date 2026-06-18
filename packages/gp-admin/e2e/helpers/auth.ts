@@ -123,10 +123,16 @@ async function ensurePasswordField(page: Page): Promise<void> {
   if (await passwordInput.isVisible().catch(() => false)) return
 
   // Clerk defaulted to another first factor (e.g. email_code) — pick password.
+  // Confirm the control is present (or absent) with a short waitFor rather than
+  // a point-in-time snapshot, which can race Clerk's screen transition.
   const useAnotherMethod = page.getByRole('button', {
     name: /use another method/i,
   })
-  if (await useAnotherMethod.isVisible().catch(() => false)) {
+  const anotherMethodVisible = await useAnotherMethod
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  if (anotherMethodVisible) {
     await useAnotherMethod.click()
     await page
       .getByRole('button', { name: /password/i })
