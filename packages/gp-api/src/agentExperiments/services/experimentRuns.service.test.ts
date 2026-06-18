@@ -22,6 +22,7 @@ describe('ExperimentRunsService', () => {
     updateMany: ReturnType<typeof vi.fn>
     findMany: ReturnType<typeof vi.fn>
   }
+  let mockSlack: { errorMessage: ReturnType<typeof vi.fn> }
   const logger = createMockLogger()
 
   beforeEach(() => {
@@ -37,7 +38,12 @@ describe('ExperimentRunsService', () => {
       findMany: vi.fn().mockResolvedValue([]),
     }
 
-    service = new ExperimentRunsService()
+    mockSlack = { errorMessage: vi.fn().mockResolvedValue(undefined) }
+    service = new ExperimentRunsService(
+      mockSlack as unknown as ConstructorParameters<
+        typeof ExperimentRunsService
+      >[0],
+    )
     Object.defineProperty(service, 'model', {
       get: () => mockModel,
       configurable: true,
@@ -757,6 +763,29 @@ describe('ExperimentRunsService', () => {
         expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
       },
     )
+
+    it('alerts Slack when it terminalizes a run at the attempt cap', async () => {
+      const capRun = makeRun({ resumeAttempts: 48 })
+      mockModel.findMany.mockResolvedValue([capRun])
+      mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+      await service.sweepResumableRuns()
+
+      expect(mockSlack.errorMessage).toHaveBeenCalledTimes(1)
+      const [{ message }, channel] = mockSlack.errorMessage.mock.calls[0]
+      expect(message).toContain(capRun.runId)
+      expect(channel).toBe('bot-10dlc-compliance')
+    })
+
+    it('does not alert when another replica already terminalized the run (count 0)', async () => {
+      const capRun = makeRun({ resumeAttempts: 48 })
+      mockModel.findMany.mockResolvedValue([capRun])
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.sweepResumableRuns()
+
+      expect(mockSlack.errorMessage).not.toHaveBeenCalled()
+    })
 
     it('isolates a throwing resumeRun so the rest of the batch still runs', async () => {
       const run1 = makeRun({ runId: 'run-sweep-throw', resumeAttempts: 1 })

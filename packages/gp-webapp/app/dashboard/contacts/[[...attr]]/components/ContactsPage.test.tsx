@@ -141,6 +141,46 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
   })
 })
 
+describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
+  it('reads "Voter Data" for a Win campaign and never says constituent', () => {
+    setContext({ isWinContext: true })
+
+    render(<ContactsPage />)
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Voter Data' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Manage and filter on your voter list'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+
+  it('reads "Constituent Data" for the Serve/elected-office path', () => {
+    setContext({ isWinContext: false })
+
+    render(<ContactsPage />)
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Constituent Data' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Manage and filter on your constituent list'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders no Win/Serve label until the context is ready (Win never flashes "constituent")', () => {
+    // Before readiness isWinContext reads false, which would otherwise pick the
+    // Serve copy and leak "constituent" to a Win user mid-load. Suppress it.
+    setContext({ isWinContext: false, isWinContextReady: false })
+
+    render(<ContactsPage />)
+
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('ContactsPage — ineligible (voter data unavailable) state', () => {
   it('renders the ineligible message and hides the table when voter data is unavailable', () => {
     setContext({ isVoterDataUnavailable: true })

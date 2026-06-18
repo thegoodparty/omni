@@ -20,7 +20,7 @@ test.describe('Contacts Page', () => {
     await NavigationHelper.dismissOverlays(page)
     await expect(page).toHaveURL(/\/dashboard\/contacts/)
     await expect(
-      page.getByRole('heading', { name: 'Constituents' }),
+      page.getByRole('heading', { name: 'Constituent Data' }),
     ).toBeVisible()
     // URL and Contacts heading verified
 
