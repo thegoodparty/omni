@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test'
+import { Locator, Page } from '@playwright/test'
 
 /**
  * Test user type constants for different organizations and roles.
@@ -97,28 +97,45 @@ export function getTestUserCredentials(userType: TestUserType): {
  * Ensures Clerk is showing the PASSWORD first factor before it is filled.
  * The Clerk instance now offers `email_code` as an additional first factor, so
  * depending on factor ordering the password field may not be on the initial
- * screen. Handles both the single-screen form and a stepped flow, switching to
- * the password method via "Use another method" when needed.
+ * screen. Handles both the single-screen form (email + password together) and a
+ * stepped flow, switching to the password method via "Use another method" when
+ * Clerk defaults to a different factor.
  */
 async function ensurePasswordField(page: Page): Promise<void> {
-  const passwordInput = page.getByRole('textbox', { name: /password/i })
-  if (await passwordInput.isVisible().catch(() => false)) return
+  // Match by label, not role: an `<input type="password">` has no `textbox`
+  // role, so getByRole('textbox') would never match Clerk's password field.
+  const passwordInput = page.getByLabel(/password/i).first()
 
-  // Stepped flow: advance past the identifier (email) step first.
+  // Every branch resolves a locator's visibility via waitFor rather than a
+  // point-in-time isVisible() snapshot, so slow CI hydration / Clerk screen
+  // transitions can't send us down the wrong branch.
+  const becomesVisible = (
+    locator: Locator,
+    timeout: number
+  ): Promise<boolean> =>
+    locator
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false)
+
+  // Single-screen flow: password is already on the identifier screen.
+  if (await becomesVisible(passwordInput, 5000)) return
+
+  // Stepped (identifier-first) flow: advance past the email step, then re-check.
   const continueBtn = page.getByRole('button', {
     name: 'Continue',
     exact: true,
   })
-  if (await continueBtn.isVisible().catch(() => false)) {
+  if (await becomesVisible(continueBtn, 3000)) {
     await continueBtn.click()
+    if (await becomesVisible(passwordInput, 3000)) return
   }
-  if (await passwordInput.isVisible().catch(() => false)) return
 
   // Clerk defaulted to another first factor (e.g. email_code) — pick password.
   const useAnotherMethod = page.getByRole('button', {
     name: /use another method/i,
   })
-  if (await useAnotherMethod.isVisible().catch(() => false)) {
+  if (await becomesVisible(useAnotherMethod, 3000)) {
     await useAnotherMethod.click()
     await page
       .getByRole('button', { name: /password/i })
@@ -146,7 +163,10 @@ export async function signIn(
 
   await emailInput.fill(email)
   await ensurePasswordField(page)
-  await page.getByRole('textbox', { name: /password/i }).fill(password)
+  await page
+    .getByLabel(/password/i)
+    .first()
+    .fill(password)
 
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
