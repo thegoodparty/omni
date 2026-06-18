@@ -165,12 +165,24 @@ export class ElectedOfficeService extends createPrismaBase(
         if (!hasNewTerm) {
           return placeholder
         }
+        // Adopt the placeholder with the FULL payload this call carries, not
+        // just the term dates. A single onboarding-completion POST sends term
+        // dates alongside fields like party/pledgedAt/onboardingCompletedAt;
+        // writing only the dates would silently drop the rest and leave the
+        // record half-finished. Undefined fields are ignored by Prisma, so
+        // partial prefills still only touch what they provide.
         return tx.electedOffice.update({
           where: { id: placeholder.id },
           data: {
             termStartDate: newStart,
             termEndDate: newEnd,
             termLengthDays,
+            swornInDate: args.swornInDate,
+            electedDate: args.electedDate,
+            isActive: args.isActive,
+            party: args.party,
+            pledgedAt: args.pledgedAt,
+            onboardingCompletedAt: args.onboardingCompletedAt,
           },
         })
       }

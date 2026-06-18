@@ -180,16 +180,13 @@ export class ElectedOfficeController {
     }
 
     // Mirror the PUT guard: completing serve onboarding is only meaningful once
-    // the office has term dates, so reject onboardingCompletedAt on a term-less
-    // create — otherwise a client could POST a completed term-less placeholder
-    // and permanently bypass the serve-onboarding redirect for the user.
-    if (
-      eoFields.onboardingCompletedAt != null &&
-      !eoFields.termStartDate &&
-      !eoFields.termEndDate
-    ) {
+    // the office has a real term, so reject onboardingCompletedAt on a create
+    // that lacks a term start date (a null end is a valid indefinite term, but
+    // a startless term is not) — otherwise a client could POST a completed
+    // term-less placeholder and permanently bypass the serve-onboarding flow.
+    if (eoFields.onboardingCompletedAt != null && !eoFields.termStartDate) {
       throw new BadRequestException(
-        'onboardingCompletedAt cannot be set without term dates',
+        'onboardingCompletedAt requires a term start date',
       )
     }
 
@@ -271,18 +268,15 @@ export class ElectedOfficeController {
       }
     }
 
-    // Completing serve onboarding is only meaningful once the office has term
-    // dates. Allowing onboardingCompletedAt on a term-less placeholder would
-    // permanently bypass the serve-onboarding flow (post-auth routing treats a
-    // completed office as done), so refuse it when neither the body nor the
-    // existing record supplies a term bound.
-    if (
-      body.onboardingCompletedAt != null &&
-      !effectiveTermStart &&
-      !effectiveTermEnd
-    ) {
+    // Completing serve onboarding is only meaningful once the office has a real
+    // term. Allowing onboardingCompletedAt on a term-less (or term-end-only)
+    // record would permanently bypass the serve-onboarding flow (post-auth
+    // routing treats a completed office as done). Anchor on the start date: a
+    // null termEndDate is a valid indefinite term, but a term with no start is
+    // not, so require an effective termStartDate.
+    if (body.onboardingCompletedAt != null && !effectiveTermStart) {
       throw new BadRequestException(
-        'onboardingCompletedAt cannot be set without term dates',
+        'onboardingCompletedAt requires a term start date',
       )
     }
 

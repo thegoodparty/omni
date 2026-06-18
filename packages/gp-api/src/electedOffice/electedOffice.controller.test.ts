@@ -272,6 +272,27 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(400)
     })
 
+    it('fills a placeholder with the full POST payload, not just term dates', async () => {
+      // A bare placeholder gets adopted by a later onboarding-completion POST
+      // that carries term dates AND other fields; none of them should be lost.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+      expect(placeholder.data.termStartDate).toBeNull()
+
+      const filled = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+        party: 'Independent',
+        onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+      })
+
+      expect(filled.status).toBe(200)
+      expect(filled.data.id).toBe(placeholder.data.id)
+      expect(filled.data.party).toBe('Independent')
+      expect(filled.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+      expect(filled.data.termLengthDays).toBe(1461)
+    })
+
     it('creates elected office when user has a campaign', async () => {
       const result = await createElectedOffice({
         swornInDate: '2024-01-15',
@@ -596,6 +617,39 @@ describe('ElectedOfficeController', () => {
         termEndDate: '2029-01-01',
       })
       expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
+
+    it('rejects completing onboarding with only a term end date (no start)', async () => {
+      // A term with an end but no start isn't a real term; onboarding must not
+      // complete against it.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${placeholder.data.id}`,
+        {
+          termEndDate: '2029-01-01',
+          onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+        },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('allows completing onboarding on an open-ended term (start, no end)', async () => {
+      // A null termEndDate is a valid indefinite term, so a start date alone is
+      // enough to complete onboarding.
+      const created = await createElectedOffice({ termStartDate: '2025-01-01' })
+      expect(created.status).toBe(200)
+      expect(created.data.termEndDate).toBeNull()
 
       const result = await service.client.put(
         `/v1/elected-office/${created.data.id}`,
