@@ -1,12 +1,6 @@
-import {
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-} from '@nestjs/common'
+import { ForbiddenException, Injectable } from '@nestjs/common'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
-import { UserRequestBudget } from '@/speech/util/userRequestBudget'
 import {
   CampaignStoryRewrite,
   CampaignStoryRewriteSchema,
@@ -17,13 +11,6 @@ import { CampaignStoryService } from './campaignStory.service'
 // Pinned to stable Flash 3.5 (not the GeminiService default 3-flash-preview)
 // so the rewrite voice doesn't drift with the preview channel.
 const REWRITE_MODEL = GEMINI_MODEL.FLASH_3_5
-
-// Per-user budget against the Gemini-billed rewrite endpoint, mirroring the
-// speech endpoints' UserRequestBudget. Bounds cost/quota abuse from an
-// authenticated user hammering the button. In-memory/per-pod — fine for v1
-// (same rationale as the TTS limiter).
-const REWRITE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000
-const REWRITE_RATE_LIMIT_PER_USER = 20
 
 const FIELD_GUIDANCE: Record<RewriteCampaignStoryInput['field'], string> = {
   why: 'why they are running — the moment, people, or breaking point that pushed them to put their name on the ballot. This is their stump-speech opener.',
@@ -51,11 +38,6 @@ const SYSTEM_INSTRUCTION = [
 
 @Injectable()
 export class CampaignStoryRewriteService {
-  private readonly budget = new UserRequestBudget({
-    windowMs: REWRITE_RATE_LIMIT_WINDOW_MS,
-    limit: REWRITE_RATE_LIMIT_PER_USER,
-  })
-
   constructor(
     private readonly gemini: GeminiService,
     private readonly campaignStory: CampaignStoryService,
@@ -64,15 +46,8 @@ export class CampaignStoryRewriteService {
   async rewrite(
     input: RewriteCampaignStoryInput,
     candidateName: string,
-    userId: number,
     campaignId: number,
   ): Promise<CampaignStoryRewrite> {
-    if (!this.budget.tryAdmit(userId)) {
-      throw new HttpException(
-        'Rewrite rate limit exceeded; please try again later.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      )
-    }
     if (!(await this.campaignStory.admitRewriteAttempt(campaignId))) {
       throw new ForbiddenException(
         'You have reached your AI rewrite limit for this campaign.',

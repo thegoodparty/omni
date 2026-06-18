@@ -29,7 +29,6 @@ describe('CampaignStoryRewriteService', () => {
     const result = await subject.rewrite(
       { field: 'why', text: 'i care about schools' },
       'Jane Doe',
-      1,
       5,
     )
 
@@ -43,7 +42,7 @@ describe('CampaignStoryRewriteService', () => {
   it('uses the field-specific guidance in the prompt', async () => {
     const { subject, generateStructured } = buildSubject()
 
-    await subject.rewrite({ field: 'issues', text: 'roads' }, 'Sam Lee', 1, 5)
+    await subject.rewrite({ field: 'issues', text: 'roads' }, 'Sam Lee', 5)
 
     const [prompt] = generateStructured.mock.calls[0]
     expect(prompt).toContain('issues they will fight for')
@@ -52,26 +51,10 @@ describe('CampaignStoryRewriteService', () => {
   it('falls back to a generic name when the candidate has none', async () => {
     const { subject, generateStructured } = buildSubject()
 
-    await subject.rewrite(
-      { field: 'background', text: 'grew up here' },
-      '',
-      1,
-      5,
-    )
+    await subject.rewrite({ field: 'background', text: 'grew up here' }, '', 5)
 
     const [prompt] = generateStructured.mock.calls[0]
     expect(prompt).toContain('The candidate')
-  })
-
-  it('rate-limits a user after the per-window cap', async () => {
-    const { subject, generateStructured } = buildSubject()
-    const call = () =>
-      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 7, 5)
-
-    for (let i = 0; i < 20; i++) await call()
-    await expect(call()).rejects.toThrow(/rate limit/i)
-    // The blocked request never reaches Gemini.
-    expect(generateStructured).toHaveBeenCalledTimes(20)
   })
 
   it('rejects with the AI-limit error when the lifetime cap is reached', async () => {
@@ -79,7 +62,7 @@ describe('CampaignStoryRewriteService', () => {
     admitRewriteAttempt.mockResolvedValue(false)
 
     await expect(
-      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 1, 5),
+      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 5),
     ).rejects.toThrow(/AI rewrite limit/i)
     expect(generateStructured).not.toHaveBeenCalled()
   })
@@ -90,7 +73,7 @@ describe('CampaignStoryRewriteService', () => {
     generateStructured.mockRejectedValue(new Error('gemini down'))
 
     await expect(
-      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 1, 5),
+      subject.rewrite({ field: 'why', text: 'again' }, 'Jane Doe', 5),
     ).rejects.toThrow('gemini down')
     expect(rollbackRewriteAttempt).toHaveBeenCalledWith(5)
   })

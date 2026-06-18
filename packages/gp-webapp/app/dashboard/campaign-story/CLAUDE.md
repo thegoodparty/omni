@@ -28,20 +28,16 @@ campaign plan, stump speech, and voter messaging.
   suggestion renders in a card with Discard / Try again / Use this. "Use this"
   replaces the field and persists immediately (no wait for blur). The button is
   disabled when the field is empty (nothing to rewrite).
-- **Rewrite limits.** Two server-side caps protect the Gemini-billed endpoint:
-  a per-user 20/hour burst limit (429) and a per-campaign lifetime cap of 200
-  attempts tracked in `campaign_story.rewrite_count` (403). A lifetime attempt
-  is refunded if the Gemini call itself fails, so infra errors don't burn the
-  cap. On a **403** the card shows an "AI rewrite limit reached" notice and
-  disables rewriting for the session (manual edits still allowed). On a **429**
-  the suggestion panel stays up with a "wait a bit" notice and "Try again"
-  disabled; Discard clears it and restores the button (so the warning can't be
-  clicked past instantly).
+- **Rewrite limit.** A per-campaign lifetime cap of 200 rewrite attempts,
+  tracked in `campaign_story.rewrite_count` and enforced server-side (403). A
+  lifetime attempt is refunded if the Gemini call itself fails, so infra errors
+  don't burn the cap. On a **403** the card shows an "AI rewrite limit reached"
+  notice and disables rewriting for the session (manual edits still allowed).
 - **Rewrite analytics.** `CampaignStoryCard` fires Segment events via
   `trackEvent(EVENTS.CampaignStory.*)`: `RewriteRequested` ({ field, source:
-  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`,
-  `RewriteLimitReached` (403), `RewriteRateLimited` (429) — all carry `field`.
-  Names live in `helpers/analyticsHelper.ts`.
+  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`, and
+  `RewriteLimitReached` (403) — all carry `field`. Names live in
+  `helpers/analyticsHelper.ts`.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real

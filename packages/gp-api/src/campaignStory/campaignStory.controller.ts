@@ -69,7 +69,6 @@ export class CampaignStoryController {
     return this.campaignStoryRewrite.rewrite(
       input,
       candidateName(user),
-      user.id,
       campaign.id,
     )
   }

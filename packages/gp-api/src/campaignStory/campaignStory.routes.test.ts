@@ -144,7 +144,6 @@ describe('CampaignStory routes', () => {
       expect(spy).toHaveBeenCalledWith(
         { field: 'why', text: REWRITE_TEXT },
         'Johnny Goodparty',
-        service.user.id,
         campaign.id,
       )
       spy.mockRestore()

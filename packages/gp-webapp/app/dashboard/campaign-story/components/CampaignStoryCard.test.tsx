@@ -341,33 +341,5 @@ describe('CampaignStoryCard', () => {
         { field: 'why' },
       )
     })
-
-    it('shows a wait notice on a 429 and gates retry behind Discard', async () => {
-      const user = userEvent.setup()
-      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
-        status: 429,
-        data: { rewrite: '' },
-      }))
-
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
-
-      expect(await screen.findByText(/too quickly/i)).toBeInTheDocument()
-      // The warning persists with retry gated: "Try again" is disabled, so the
-      // notice can't be flashed past by re-clicking.
-      expect(screen.getByRole('button', { name: /Try again/ })).toBeDisabled()
-
-      // Discard clears the notice and restores the rewrite button.
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.CampaignStory.RewriteRateLimited,
-        { field: 'why' },
-      )
-
-      await user.click(screen.getByRole('button', { name: /Discard/ }))
-      expect(screen.queryByText(/too quickly/i)).not.toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: /Help me rewrite/ }),
-      ).toBeEnabled()
-    })
   })
 })

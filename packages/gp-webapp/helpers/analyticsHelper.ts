@@ -29,7 +29,6 @@ export const EVENTS = {
     RewriteAccepted: 'Campaign Story - Rewrite Accepted',
     RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
     RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
-    RewriteRateLimited: 'Campaign Story - Rewrite Rate Limited',
   },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
