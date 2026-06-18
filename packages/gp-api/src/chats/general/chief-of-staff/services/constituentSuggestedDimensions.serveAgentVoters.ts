@@ -6,12 +6,13 @@ import type { AdvertisedDimension } from '@/llm/tools/queryConstituentData.tool'
 // high-value slice of demographics (household makeup, education, tenure,
 // veteran status, turnout, age, gender, urbanicity) followed by the hs_*
 // modeled issue-support scores (0-100; higher = more aligned with the named
-// position). Identity/behavior proxies — religion salience, church
-// attendance, minority-candidate preference, ethnicity, language — and party
-// and district/geography columns are intentionally omitted; only genuine
-// policy attitudes are surfaced. The full serve_agent_voters table stays
-// queryable via the validator allowlist; this only shapes what the agent is
-// guided toward. Regenerate from the live schema when the table changes.
+// position). Identity/behavior proxies — religion salience and behavior,
+// church attendance, religious giving, candidate preference by gender or
+// ethnicity, and ethnicity/language — plus party and district/geography columns
+// are intentionally omitted; only genuine policy attitudes are surfaced. The
+// full serve_agent_voters table stays queryable via the validator allowlist;
+// this only shapes what the agent is guided toward. Regenerate from the live
+// schema when the table changes.
 export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'Voters_Age', label: 'Age in years' },
   { name: 'Voters_Gender', label: 'Gender (M/F)' },
@@ -112,11 +113,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'campaign finance reform less important',
   },
   {
-    name: 'hs_candidate_female_do_not_prefer',
-    label: 'Candidate Female Do Not Prefer',
-  },
-  { name: 'hs_candidate_female_prefer', label: 'Candidate Female Prefer' },
-  {
     name: 'hs_candidate_mail_do_not_read',
     label: 'Candidate Mail Do Not Read',
   },
@@ -148,10 +144,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_charity_giving_performing_arts',
     label: 'Charity Giving Performing Arts',
   },
-  {
-    name: 'hs_charity_giving_relig_cause',
-    label: 'Charity Giving Relig Cause',
-  },
   { name: 'hs_charity_giving_vet_cause', label: 'Charity Giving Vet Cause' },
   { name: 'hs_charter_schools_oppose', label: 'Charter Schools Oppose' },
   { name: 'hs_charter_schools_support', label: 'Charter Schools Support' },
@@ -163,11 +155,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_china_foreign_policy_work_with',
     label: 'China Foreign Policy Work With',
   },
-  {
-    name: 'hs_christian_values_not_positive',
-    label: 'christian values not positive',
-  },
-  { name: 'hs_christian_values_positive', label: 'christian values positive' },
   { name: 'hs_civil_liberties_oppose', label: 'Civil Liberties Oppose' },
   { name: 'hs_civil_liberties_support', label: 'Civil Liberties Support' },
   { name: 'hs_climate_change_believer', label: 'Climate Change Believer' },

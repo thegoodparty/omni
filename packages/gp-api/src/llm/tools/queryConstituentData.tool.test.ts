@@ -499,6 +499,9 @@ describe('buildDescribeConstituentDataTool', () => {
       name: 'age_band',
       label: 'Age band',
     })
+    // turnout_band is in allowedDimensions (validator) but NOT advertised, so
+    // describe must not leak it — guards against returning the full allowlist.
+    expect(meta.dimensions.map((d) => d.name)).not.toContain('turnout_band')
     expect(meta.aggregateFunctions).toContain('APPROX_COUNT_DISTINCT')
     expect(meta.districtScope).toEqual(scope.mandatoryFilters)
   })
