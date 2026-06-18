@@ -2,12 +2,6 @@ import { cn } from '@styleguide/lib/utils'
 
 interface ProBadgeProps {
   className?: string
-  /**
-   * Visual size of the badge. Native artwork is 48 × 22.
-   * – small  : 26 × 12
-   * – default: 35 × 16
-   * – large  : 44 × 20
-   */
   size?: 'small' | 'default' | 'large'
 }
 
@@ -18,7 +12,7 @@ const sizeClasses = {
 } as const
 
 export const ProBadge = ({
-  className = '',
+  className,
   size = 'default',
 }: ProBadgeProps) => (
   <svg
