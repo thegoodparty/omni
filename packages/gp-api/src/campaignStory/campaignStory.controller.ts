@@ -62,6 +62,7 @@ export class CampaignStoryController {
   @ResponseSchema(CampaignStoryRewriteSchema)
   rewrite(
     @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
     @Body(new ZodValidationPipe(RewriteCampaignStorySchema))
     input: RewriteCampaignStoryInput,
   ): Promise<CampaignStoryRewrite> {
@@ -69,6 +70,7 @@ export class CampaignStoryController {
       input,
       candidateName(user),
       user.id,
+      campaign.id,
     )
   }
 }

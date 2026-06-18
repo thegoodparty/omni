@@ -10,5 +10,9 @@ model CampaignStory {
   background String?
   issues     String?
 
+  // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped
+  // server-side to bound Gemini cost/abuse. Counts attempts, not successes.
+  rewriteCount Int @default(0) @map("rewrite_count")
+
   @@map("campaign_story")
 }

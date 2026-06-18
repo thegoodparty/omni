@@ -11,6 +11,7 @@ import {
   WandSparklesIcon,
   XMarkIcon,
 } from '@styleguide'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 
@@ -60,6 +61,9 @@ const CampaignStoryCard = ({
   const [rewrite, setRewrite] = useState<string | null>(null)
   const [isRewriting, setIsRewriting] = useState(false)
   const [rewriteError, setRewriteError] = useState(false)
+  // Set when the server returns 403 — the campaign has hit its lifetime AI
+  // rewrite cap. Permanent for the session: no point retrying.
+  const [limitReached, setLimitReached] = useState(false)
   // Guards against overlapping rewrite calls (e.g. a double-click landing
   // before the disabled state re-renders), so an older response can't resolve
   // after a newer one and show a stale suggestion.
@@ -148,7 +152,7 @@ const CampaignStoryCard = ({
 
   const requestRewrite = async (): Promise<void> => {
     const text = valueRef.current.trim()
-    if (!text || rewritingRef.current) return
+    if (!text || rewritingRef.current || limitReached) return
     rewritingRef.current = true
     setIsRewriting(true)
     setRewriteError(false)
@@ -160,11 +164,17 @@ const CampaignStoryCard = ({
       )
       setRewrite(data.rewrite)
     } catch (error) {
-      reportErrorToSentry(error, {
-        context: 'CampaignStoryCard.rewrite',
-        field: id,
-      })
-      setRewriteError(true)
+      // 403 means the campaign hit its lifetime rewrite cap — an expected
+      // limit, not an error to report. Show the limit notice instead.
+      if (error instanceof FetchError && error.status === 403) {
+        setLimitReached(true)
+      } else {
+        reportErrorToSentry(error, {
+          context: 'CampaignStoryCard.rewrite',
+          field: id,
+        })
+        setRewriteError(true)
+      }
     } finally {
       rewritingRef.current = false
       setIsRewriting(false)
@@ -234,6 +244,13 @@ const CampaignStoryCard = ({
           </p>
         )}
 
+        {limitReached && (
+          <p className="text-sm text-muted-foreground">
+            You&apos;ve reached your AI rewrite limit for this campaign. You can
+            still edit your answers yourself.
+          </p>
+        )}
+
         {rewriteActive ? (
           <>
             <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
@@ -274,7 +291,7 @@ const CampaignStoryCard = ({
                   variant="outline"
                   icon={<WandSparklesIcon />}
                   onClick={requestRewrite}
-                  disabled={isRewriting}
+                  disabled={isRewriting || limitReached}
                 >
                   Try again
                 </Button>
@@ -298,7 +315,7 @@ const CampaignStoryCard = ({
               icon={<WandSparklesIcon />}
               className="sm:shrink-0"
               onClick={requestRewrite}
-              disabled={trimmedLength === 0}
+              disabled={trimmedLength === 0 || limitReached}
             >
               Help me rewrite
             </Button>

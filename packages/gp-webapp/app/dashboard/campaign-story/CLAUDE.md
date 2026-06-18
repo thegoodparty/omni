@@ -28,6 +28,11 @@ campaign plan, stump speech, and voter messaging.
   suggestion renders in a card with Discard / Try again / Use this. "Use this"
   replaces the field and persists immediately (no wait for blur). The button is
   disabled when the field is empty (nothing to rewrite).
+- **Rewrite limits.** Two server-side caps protect the Gemini-billed endpoint:
+  a per-user 20/hour burst limit (429) and a per-campaign lifetime cap of 200
+  attempts tracked in `campaign_story.rewrite_count` (403). On a 403 the card
+  shows an "AI rewrite limit reached" notice and disables further rewrites for
+  the session; the candidate can still edit answers manually.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real

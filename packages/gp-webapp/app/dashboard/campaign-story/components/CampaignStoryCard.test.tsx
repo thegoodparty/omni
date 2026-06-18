@@ -218,11 +218,15 @@ describe('CampaignStoryCard', () => {
 
       expect(await screen.findByText('A sharper why.')).toBeInTheDocument()
       expect(rewriteBody).toEqual({ field: 'why', text: 'rough why' })
-      expect(screen.getByRole('button', { name: /Discard/ })).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Discard/ }),
+      ).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: /Try again/ }),
       ).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Use this/ })).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Use this/ }),
+      ).toBeInTheDocument()
     })
 
     it('"Use this" replaces the text and saves immediately', async () => {
@@ -245,8 +249,9 @@ describe('CampaignStoryCard', () => {
       await waitFor(() => {
         expect(putBody).toEqual({ why: 'A sharper why.' })
       })
-      const textarea =
-        screen.getByPlaceholderText<HTMLTextAreaElement>('Tap to write your why')
+      const textarea = screen.getByPlaceholderText<HTMLTextAreaElement>(
+        'Tap to write your why',
+      )
       expect(textarea.value).toBe('A sharper why.')
       // The suggestion card is dismissed once accepted.
       expect(screen.queryByText('Suggested rewrite')).not.toBeInTheDocument()
@@ -286,6 +291,24 @@ describe('CampaignStoryCard', () => {
       expect(
         await screen.findByText(/Couldn't generate a rewrite/),
       ).toBeInTheDocument()
+    })
+
+    it('shows the AI-limit notice and disables rewriting on a 403', async () => {
+      const user = userEvent.setup()
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 403,
+        data: { rewrite: '' },
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+
+      expect(
+        await screen.findByText(/reached your AI rewrite limit/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Help me rewrite/ }),
+      ).toBeDisabled()
     })
   })
 })

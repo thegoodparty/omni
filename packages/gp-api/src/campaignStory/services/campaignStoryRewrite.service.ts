@@ -1,4 +1,9 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
+import {
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
 import { UserRequestBudget } from '@/speech/util/userRequestBudget'
@@ -7,6 +12,7 @@ import {
   CampaignStoryRewriteSchema,
 } from '@goodparty_org/contracts'
 import { RewriteCampaignStoryInput } from '../schemas/rewriteCampaignStory.schema'
+import { CampaignStoryService } from './campaignStory.service'
 
 // Pinned to stable Flash 3.5 (not the GeminiService default 3-flash-preview)
 // so the rewrite voice doesn't drift with the preview channel.
@@ -51,17 +57,26 @@ export class CampaignStoryRewriteService {
     limit: REWRITE_RATE_LIMIT_PER_USER,
   })
 
-  constructor(private readonly gemini: GeminiService) {}
+  constructor(
+    private readonly gemini: GeminiService,
+    private readonly campaignStory: CampaignStoryService,
+  ) {}
 
   async rewrite(
     input: RewriteCampaignStoryInput,
     candidateName: string,
     userId: number,
+    campaignId: number,
   ): Promise<CampaignStoryRewrite> {
     if (!this.budget.tryAdmit(userId)) {
       throw new HttpException(
         'Rewrite rate limit exceeded; please try again later.',
         HttpStatus.TOO_MANY_REQUESTS,
+      )
+    }
+    if (!(await this.campaignStory.admitRewriteAttempt(campaignId))) {
+      throw new ForbiddenException(
+        'You have reached your AI rewrite limit for this campaign.',
       )
     }
     return this.gemini.generateStructured(
