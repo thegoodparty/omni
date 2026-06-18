@@ -37,12 +37,13 @@ export type ServeStepId =
 
 export type ServeBranch = 'prefill' | 'net-new'
 
-/** The user's answer on the `inOffice` step. Only `campaigning` leaves serve. */
-export type InOfficeStatus =
-  | 'in-office'
-  | 'won-not-sworn'
-  | 'campaigning'
-  | 'testing'
+/**
+ * The user's answer on the `inOffice` step. Only `campaigning` leaves serve.
+ * This is UX-only — it selects the onboarding branch (e.g. hands `campaigning`
+ * off to the Win flow) and is intentionally never persisted to the elected
+ * office record.
+ */
+export type InOfficeStatus = 'in-office' | 'campaigning' | 'testing'
 
 /**
  * Steps shown in the segmented progress bar for each branch, in order. The
