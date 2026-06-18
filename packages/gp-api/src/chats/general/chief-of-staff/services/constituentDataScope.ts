@@ -1,6 +1,7 @@
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { ConstituentDataScope } from '@/llm/tools/queryConstituentData.tool'
 import { SERVE_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.serveAgentVoters'
+import { SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS } from './constituentSuggestedDimensions.serveAgentVoters'
 
 // Suppression floor for aggregate cells. Counts below this are dropped before
 // any result reaches the model (anti-differencing backstop).
@@ -52,6 +53,7 @@ export const buildConstituentDataScope = (
 ): ConstituentDataScope => ({
   allowedTables: new Set(tables.map((t) => t.table)),
   allowedDimensions: new Set(tables.flatMap((t) => t.dimensions)),
+  advertisedDimensions: SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS,
   forbiddenColumns: FORBIDDEN_COLUMNS,
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,

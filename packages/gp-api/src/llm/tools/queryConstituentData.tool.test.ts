@@ -18,6 +18,10 @@ const DISTRICT = 'HENDERSONVILLE'
 const scope: ConstituentDataScope = {
   allowedTables: new Set([TABLE]),
   allowedDimensions: new Set(['age_band', 'gender', 'turnout_band']),
+  advertisedDimensions: [
+    { name: 'age_band', label: 'Age band' },
+    { name: 'gender', label: 'Gender' },
+  ],
   forbiddenColumns: new Set(['party', 'hs_partisan_lean', 'partisan_score']),
   mandatoryFilters: [
     { column: 'state_postal_code', value: STATE },
@@ -490,7 +494,11 @@ describe('buildDescribeConstituentDataTool', () => {
     const tool = buildDescribeConstituentDataTool({ scope })
     const meta = await tool.execute({})
     expect(meta.table).toBe(TABLE)
-    expect(meta.dimensions).toContain('age_band')
+    expect(meta.dimensions.map((d) => d.name)).toContain('age_band')
+    expect(meta.dimensions).toContainEqual({
+      name: 'age_band',
+      label: 'Age band',
+    })
     expect(meta.aggregateFunctions).toContain('APPROX_COUNT_DISTINCT')
     expect(meta.districtScope).toEqual(scope.mandatoryFilters)
   })
