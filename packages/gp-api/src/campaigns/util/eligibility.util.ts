@@ -2,6 +2,7 @@ import { isAfter, isValid } from 'date-fns'
 import { OrganizationStatus } from '@goodparty_org/contracts'
 import { getMidnightForDate, parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { Campaign, ElectedOffice } from '../../generated/prisma'
+import { deriveIsActive } from '@/electedOffice/util/electedOffice.util'
 
 // The single active-campaign / held-office predicate. EligibilityService and
 // the org-list status decoration both import these so the two paths can never
@@ -25,9 +26,15 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
   return campaign.didWin === null && !isAfter(getMidnightForDate(now), parsed)
 }
 
+// A held office is exactly an "active" office, and isActive is now derived
+// purely from the term end date (the stored column was dropped). Terms are
+// half-open [start, end): termEndDate is the exclusive boundary at which the
+// successor takes over (BallotReady reports a 4-year term as e.g. 2020-01-01 →
+// 2024-01-01), so the office is held while now < termEndDate. A null
+// termEndDate means we lack term data, so it is not "held" until the holder
+// supplies dates (the dashboard term-date modal prompts for them).
 export const isHeldOffice = (office: ElectedOffice, now: Date): boolean =>
-  office.isActive &&
-  (office.termEndAt === null || isAfter(office.termEndAt, now))
+  deriveIsActive(office.termEndDate, now)
 
 export const organizationStatus = (
   org: { campaign: Campaign | null; electedOffice: ElectedOffice | null },

@@ -77,6 +77,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -98,6 +99,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -118,6 +120,10 @@ describe('PostAuthRedirectPage', () => {
       data: { message: 'down' },
     })
     api.mock('GET /v1/elected-office/current', {
+      status: 500,
+      data: { message: 'down' },
+    })
+    api.mock('GET /v1/elected-office/mine', {
       status: 500,
       data: { message: 'down' },
     })
@@ -167,6 +173,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -203,6 +210,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -225,6 +233,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -257,6 +266,10 @@ describe('PostAuthRedirectPage', () => {
       status: 200,
       data: { id: 'eo-123', swornInDate: '2026-01-01' } as any,
     })
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [{ id: 'eo-123', onboardingCompletedAt: '2026-02-01' }] as any,
+    })
 
     render(<PostAuthRedirectPage />)
 
@@ -284,6 +297,72 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+  })
+
+  it('routes an incomplete EO to serve onboarding even when a campaign org is listed first', async () => {
+    const electedOfficeOrg = {
+      ...orgFixture,
+      slug: 'serve-org',
+      name: 'Serve Org',
+      electedOfficeId: 'eo-9',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      // Campaign org first; resolveSlug picks it so /current 404s for the EO.
+      data: { organizations: [orgFixture, electedOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    // No active campaign — the EO branch should take over.
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [{ id: 'eo-9', onboardingCompletedAt: null }] as any,
+    })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith('/serve/onboarding'),
+    )
+  })
+
+  it('routes to /dashboard (not serve onboarding) when an EO org exists but no EO record resolves', async () => {
+    // Legacy win→serve user: an elected-office org is present, but /current
+    // 404s (campaign org sorts first) and /mine returns empty. With no
+    // resolvable EO record we must default to "complete" and land on
+    // /dashboard rather than looping back into /serve/onboarding every login.
+    const electedOfficeOrg = {
+      ...orgFixture,
+      slug: 'serve-org',
+      name: 'Serve Org',
+      electedOfficeId: 'eo-legacy',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture, electedOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 
@@ -312,6 +391,7 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
 
     render(<PostAuthRedirectPage />)
 

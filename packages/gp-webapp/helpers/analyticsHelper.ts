@@ -118,6 +118,10 @@ export const EVENTS = {
     SmsPollSent: 'Serve Onboarding - SMS Poll Sent',
     SuccessPageViewed: 'Serve Onboarding - Success Page Viewed',
     NotEnoughConstituents: 'Serve Onboarding - SMS Poll Creation Failed',
+    // Net-new (sales-sent magic link) elected-official onboarding funnel.
+    LinkActivated: 'Serve Onboarding - Magic Link Activated',
+    NetNewCompleted: 'Serve Onboarding - Net New Completed',
+    BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
   },
   Navigation: {
     Top: {

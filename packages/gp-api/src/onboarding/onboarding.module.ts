@@ -8,6 +8,7 @@ import { OnboardingContactsController } from './onboardingContacts.controller'
 import { OnboardingLocalNewsController } from './onboardingLocalNews.controller'
 import { OnboardingVoterIssuesController } from './onboardingVoterIssues.controller'
 import { OnboardingLocalNewsService } from './services/localNews.service'
+import { LocalNewsCacheService } from './services/localNewsCache.service'
 
 @Module({
   imports: [
@@ -22,6 +23,6 @@ import { OnboardingLocalNewsService } from './services/localNews.service'
     OnboardingLocalNewsController,
     OnboardingVoterIssuesController,
   ],
-  providers: [OnboardingLocalNewsService],
+  providers: [OnboardingLocalNewsService, LocalNewsCacheService],
 })
 export class OnboardingModule {}

@@ -63,8 +63,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-source',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
         campaignId: prevCampaign.id,
       },
     })
@@ -102,8 +101,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-term',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -148,8 +146,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-next',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -184,8 +181,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-definitive',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -221,8 +217,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-injected',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 
@@ -255,8 +250,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-noelection',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 
@@ -285,8 +279,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-repeat',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -335,8 +328,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-source-2',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -477,8 +469,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-created',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
         campaignId: prevCampaign.id,
       },
     })
@@ -517,8 +508,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-grouped',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -573,8 +563,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-blocked',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 

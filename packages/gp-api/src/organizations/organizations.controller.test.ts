@@ -416,8 +416,7 @@ describe('GET /v1/organizations', () => {
       data: {
         organizationSlug: 'eo-ended-1',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2000-01-01'),
+        termEndDate: new Date('2000-01-01'),
       },
     })
 
@@ -442,8 +441,9 @@ describe('GET /v1/organizations', () => {
       data: {
         organizationSlug: 'eo-held-1',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        // Active is derived from a future (exclusive) term end; a null end now
+        // reads as not held, so use a far-future end to represent a held office.
+        termEndDate: new Date('2999-01-01'),
       },
     })
 

@@ -185,6 +185,41 @@ interface Candidacy {
   }
 }
 
+// -----------------------------
+// Person Office Holders (by personId) Types
+// -----------------------------
+
+export interface PersonOfficeHolderPosition {
+  id: string
+  databaseId: string
+  name: string
+  level: string | null
+  state: string | null
+  subAreaName: string | null
+  subAreaValue: string | null
+  electionFrequencies: { frequency: number[] }[]
+}
+
+export interface PersonOfficeHolder {
+  id: string
+  databaseId: string
+  startAt: string | null
+  endAt: string | null
+  isCurrent: boolean
+  isVacant: boolean
+  officeTitle: string | null
+  position: PersonOfficeHolderPosition | null
+}
+
+export interface PersonWithOfficeHolders {
+  node: {
+    id: string
+    databaseId: string
+    fullName: string
+    officeHolders: { nodes: PersonOfficeHolder[] }
+  } | null
+}
+
 // Subset of BR's MilestoneCategory enum we care about. BR also returns
 // VOTING (just the election day) — we ignore it because `electionDate`
 // is already on the Race row. Three categories drive Section 6 of the
