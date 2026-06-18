@@ -64,14 +64,16 @@ const CampaignStoryCard = ({
   // Set when the server returns 403 — the campaign has hit its lifetime AI
   // rewrite cap. Permanent for the session: no point retrying.
   const [limitReached, setLimitReached] = useState(false)
-  // Set on a 429 — the per-user hourly burst limit. Temporary, so we show a
-  // "wait a bit" notice but don't disable retrying.
+  // Set on a 429 — the per-user hourly burst limit. Temporary: the panel keeps
+  // the notice up with "Try again" disabled, and Discard is the way to clear it
+  // (so the warning can't be flashed past with an immediate re-click).
   const [rateLimited, setRateLimited] = useState(false)
   // Guards against overlapping rewrite calls (e.g. a double-click landing
   // before the disabled state re-renders), so an older response can't resolve
   // after a newer one and show a stale suggestion.
   const rewritingRef = useRef(false)
-  const rewriteActive = isRewriting || rewrite !== null || rewriteError
+  const rewriteActive =
+    isRewriting || rewrite !== null || rewriteError || rateLimited
 
   // Safety net for the navigate-away/refresh case: the only save trigger is
   // blur, so warn before unload if the latest text hasn't been persisted.
@@ -192,6 +194,7 @@ const CampaignStoryCard = ({
   const discardRewrite = (): void => {
     setRewrite(null)
     setRewriteError(false)
+    setRateLimited(false)
   }
 
   // "Use this" replaces the field with the suggestion and persists it now,
@@ -259,13 +262,6 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        {rateLimited && (
-          <p className="text-sm text-muted-foreground">
-            You&apos;re requesting rewrites too quickly. Please wait a little
-            while and try again.
-          </p>
-        )}
-
         {rewriteActive ? (
           <>
             <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
@@ -282,6 +278,11 @@ const CampaignStoryCard = ({
               {isRewriting ? (
                 <p className="text-sm text-muted-foreground">
                   Your Campaign Manager is writing a draft&hellip;
+                </p>
+              ) : rateLimited ? (
+                <p className="text-sm text-muted-foreground">
+                  You&apos;re requesting rewrites too quickly. Please wait a
+                  little while, then discard this and try again.
                 </p>
               ) : rewriteError ? (
                 <p className="text-sm text-destructive">
@@ -306,7 +307,7 @@ const CampaignStoryCard = ({
                   variant="outline"
                   icon={<WandSparklesIcon />}
                   onClick={requestRewrite}
-                  disabled={isRewriting || limitReached}
+                  disabled={isRewriting || limitReached || rateLimited}
                 >
                   Try again
                 </Button>
