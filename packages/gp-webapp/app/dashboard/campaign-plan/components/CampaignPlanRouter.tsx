@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@styleguide'
 import type { User } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import DashboardLayout from '../../shared/DashboardLayout'
@@ -11,9 +10,9 @@ import CampaignPlanStoryGate from './CampaignPlanStoryGate'
 
 interface CampaignPlanRouterProps {
   initialUser: User | null
-  // null = existence check failed (unknown). Distinct from false (confirmed no
-  // plan) so we never offer regeneration when a plan might already exist.
-  planExists: boolean | null
+  // Fail closed: the existence check returns false on error, so an API blip is
+  // treated as "no plan" (the same as the legacy server-redirect behavior).
+  planExists: boolean
 }
 
 // Survives same-session navigation: a user can click generate, leave, and
@@ -69,7 +68,7 @@ const CampaignPlanRouter = ({
   // Once a plan exists the request is satisfied — clear the flag so a later
   // visit doesn't skip the gate for someone who has since lost their plan.
   useEffect(() => {
-    if (planExists === true) sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
+    if (planExists) sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
   }, [planExists])
 
   const requestGenerate = (): void => {
@@ -77,34 +76,16 @@ const CampaignPlanRouter = ({
     setGenerateRequested(true)
   }
 
-  // Only redirect on a CONFIRMED absent plan — never on an unknown (null).
-  const redirectToDashboard = planExists === false && ready && !storyEnabled
+  const redirectToDashboard = !planExists && ready && !storyEnabled
   useEffect(() => {
     if (redirectToDashboard) router.replace('/dashboard')
   }, [redirectToDashboard, router])
 
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
-  // the same view as an existing plan, no blocking spinner. A persisted
-  // generate request only bypasses the gate once existence is KNOWN — never
-  // while it's null, or it would defeat the unknown-state guard below.
-  if (planExists === true || (planExists !== null && generateRequested)) {
+  // the same view as an existing plan, no blocking spinner.
+  if (planExists || generateRequested) {
     return <CampaignPlanPage initialUser={initialUser} />
-  }
-
-  // Existence unknown (API error): show a retry, never the regenerate gate —
-  // a plan-holder must not be able to overwrite their plan off a transient blip.
-  if (planExists === null) {
-    return (
-      <DashboardLayout>
-        <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-center">
-          <p className="text-muted-foreground">
-            We couldn&apos;t load your campaign plan. Please try again.
-          </p>
-          <Button onClick={() => router.refresh()}>Try again</Button>
-        </div>
-      </DashboardLayout>
-    )
   }
 
   if (!ready || redirectToDashboard) return <Spinner />

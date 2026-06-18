@@ -5,16 +5,16 @@ import { serverRequest } from 'gpApi/server-request'
 import CampaignPlanRouter from './components/CampaignPlanRouter'
 
 // Same source of truth as the sidebar tab (useCampaignStrategyExists): the
-// dedicated existence endpoint, not a field on the campaign payload. Returns
-// null (not false) on error so the router can tell "confirmed no plan" apart
-// from "unknown" — treating an error as "no plan" would offer a plan-holder
-// the regenerate gate and let them overwrite an existing plan.
-const strategyExists = async (): Promise<boolean | null> => {
+// dedicated existence endpoint, not a field on the campaign payload. Fails
+// closed — an error reads as "no plan", matching the legacy server-redirect
+// behavior (legacy users redirect to /dashboard; campaign-story users see the
+// gate).
+const strategyExists = async (): Promise<boolean> => {
   try {
     const res = await serverRequest('GET /v1/campaignStrategy/mine/exists', {})
     return res.data.exists === true
   } catch {
-    return null
+    return false
   }
 }
 

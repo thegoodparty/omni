@@ -45,30 +45,6 @@ describe('CampaignPlanRouter', () => {
     expect(planPage()).toBeInTheDocument()
   })
 
-  it('shows a retry (never the regenerate gate) when existence is unknown', () => {
-    setFlag(true, true)
-    render(<CampaignPlanRouter initialUser={null} planExists={null} />)
-    expect(
-      screen.getByRole('button', { name: 'Try again' }),
-    ).toBeInTheDocument()
-    expect(generateButton()).not.toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-    expect(router.replace).not.toHaveBeenCalled()
-  })
-
-  it('shows retry, not the plan, when existence is unknown even after a generate request', () => {
-    setFlag(true, true)
-    sessionStorage.setItem(
-      'campaignPlanGenerateRequestedAt',
-      String(Date.now()),
-    )
-    render(<CampaignPlanRouter initialUser={null} planExists={null} />)
-    expect(
-      screen.getByRole('button', { name: 'Try again' }),
-    ).toBeInTheDocument()
-    expect(planPage()).not.toBeInTheDocument()
-  })
-
   it('shows a spinner while the flag is still loading', () => {
     setFlag(false, false)
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)

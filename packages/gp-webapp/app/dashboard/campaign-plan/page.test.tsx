@@ -60,12 +60,12 @@ describe('dashboard/campaign-plan page', () => {
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('renders the router with planExists=null when the existence check fails', async () => {
+  it('fails closed to planExists=false when the existence check fails', async () => {
     mockServerRequest.mockRejectedValue(new Error('api down'))
 
     const result = await Page()
 
-    expect(result.props.planExists).toBeNull()
+    expect(result.props.planExists).toBe(false)
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
