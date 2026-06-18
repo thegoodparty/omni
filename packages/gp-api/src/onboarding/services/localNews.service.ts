@@ -253,10 +253,12 @@ export class OnboardingLocalNewsService {
   // statement closes the TOCTOU window a read-then-upsert leaves open: two
   // concurrent callers (React Strict-Mode double-mounts, multiple tabs) can no
   // longer both observe "no fresh pending marker" and both kick off a costly
-  // Gemini run. The UPDATE arm only fires when the existing row is stale
-  // (never started, or past the TTL), so a live pending marker is never
-  // clobbered. Returns true iff this caller won the claim and should run the
-  // fetch; false when another caller already owns a fresh pending marker.
+  // Gemini run. The UPDATE arm only fires on a STALE PENDING row (never started,
+  // or past the TTL) — crucially it must NOT touch a 'ready' row. writeReady
+  // sets started_at = NULL on ready rows, so a status-agnostic "started_at IS
+  // NULL" reclaim would clobber a finished result back to pending and re-trigger
+  // a fetch; the status = 'pending' guard prevents that. Returns true iff this
+  // caller won the claim and should run the fetch.
   private async markPending(key: LocalNewsJurisdiction): Promise<boolean> {
     const now = BigInt(Date.now())
     const ttlMs = BigInt(PENDING_TTL_MS)
@@ -268,8 +270,9 @@ export class OnboardingLocalNewsService {
             started_at = ${now},
             outlets = NULL,
             updated_at = now()
-        WHERE local_news_cache.started_at IS NULL
-           OR ${now} - local_news_cache.started_at >= ${ttlMs}
+        WHERE local_news_cache.status = 'pending'
+          AND (local_news_cache.started_at IS NULL
+               OR ${now} - local_news_cache.started_at >= ${ttlMs})
       RETURNING id
     `
     return claimed.length > 0

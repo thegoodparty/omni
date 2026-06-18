@@ -142,6 +142,26 @@ describe('OnboardingLocalNewsService', () => {
       expect(claimValues).toContain(STATE)
     })
 
+    it('scopes the pending claim to pending rows so a ready result is never clobbered', async () => {
+      // writeReady sets started_at = NULL on 'ready' rows, so the ON CONFLICT
+      // reclaim must be guarded by status = 'pending' — otherwise a claim racing
+      // a freshly-written ready row would reset it to pending and null outlets.
+      const { service, cache, gemini, client } = makeService()
+      cache.findByJurisdiction.mockResolvedValue(null)
+      gemini.generateStructured.mockResolvedValue({ outlets: readyOutlets() })
+
+      await service.getLocalNews({
+        state: STATE,
+        office: OFFICE,
+        userId: USER_ID,
+      })
+
+      const sqlFragments = client.$queryRaw.mock.calls[0]?.[0] as
+        | string[]
+        | undefined
+      expect(sqlFragments?.join('?')).toContain("status = 'pending'")
+    })
+
     it('returns pending without claiming when a fresh pending row exists', async () => {
       const { service, cache, gemini, model } = makeService()
       cache.findByJurisdiction.mockResolvedValue({
