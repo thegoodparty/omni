@@ -1280,6 +1280,60 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     })
   })
 
+  it('falls back to the persisted FEC committee id when a federal submit omits it', async () => {
+    mockTcrModel.findUnique.mockResolvedValueOnce({
+      ...existingRecord,
+      officeLevel: OfficeLevel.federal,
+      committeeType: CommitteeType.HOUSE,
+      fecCommitteeId: 'C00936328',
+    })
+
+    const result = await service.submitToPeerlyForAgent(user, campaign, {
+      ...input,
+      officeLevel: OfficeLevel.federal,
+      committeeType: CommitteeType.HOUSE,
+      filingUrl: 'https://www.fec.gov/data/committee/C00936328/',
+      fecCommitteeId: undefined,
+    })
+
+    // The 10DLC brand is submitted with the stored committee id, and the
+    // persisted record keeps it rather than being cleared to null.
+    expect(mockPeerly.submit10DlcBrand).toHaveBeenCalledWith(
+      'peerly-id-1',
+      expect.objectContaining({ fecCommitteeId: 'C00936328' }),
+      campaign,
+      'janedoe.com',
+    )
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: expect.objectContaining({ fecCommitteeId: 'C00936328' }),
+    })
+    expect(result.stage).toBe('awaiting_pin')
+  })
+
+  it('throws when a federal submit has no FEC committee id in the request or the record', async () => {
+    mockTcrModel.findUnique.mockResolvedValueOnce({
+      ...existingRecord,
+      officeLevel: OfficeLevel.federal,
+      committeeType: CommitteeType.HOUSE,
+      fecCommitteeId: null,
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, {
+        ...input,
+        officeLevel: OfficeLevel.federal,
+        committeeType: CommitteeType.HOUSE,
+        filingUrl: 'https://www.fec.gov/data/committee/',
+        fecCommitteeId: undefined,
+      }),
+    ).rejects.toThrow('FEC Committee ID is required for federal office level')
+
+    // Fails before claiming the slot or calling Peerly.
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
+  })
+
   it('throws ConflictException when claim is taken and the in-flight call has not yet persisted peerlyIdentityId', async () => {
     mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
     mockTcrModel.findUnique
