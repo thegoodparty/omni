@@ -1,11 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CampaignStoryCard, {
   type CampaignStorySection,
 } from './CampaignStoryCard'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
+beforeEach(() => {
+  vi.mocked(trackEvent).mockClear()
+})
 
 const section: CampaignStorySection = {
   id: 'why',
@@ -218,6 +229,10 @@ describe('CampaignStoryCard', () => {
 
       expect(await screen.findByText('A sharper why.')).toBeInTheDocument()
       expect(rewriteBody).toEqual({ field: 'why', text: 'rough why' })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteRequested,
+        { field: 'why', source: 'initial' },
+      )
       expect(
         screen.getByRole('button', { name: /Discard/ }),
       ).toBeInTheDocument()
@@ -255,6 +270,10 @@ describe('CampaignStoryCard', () => {
       expect(textarea.value).toBe('A sharper why.')
       // The suggestion card is dismissed once accepted.
       expect(screen.queryByText('Suggested rewrite')).not.toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteAccepted,
+        { field: 'why' },
+      )
     })
 
     it('"Discard" dismisses the suggestion without saving', async () => {
@@ -276,6 +295,14 @@ describe('CampaignStoryCard', () => {
 
       expect(screen.queryByText('A sharper why.')).not.toBeInTheDocument()
       expect(putCalled).toBe(false)
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteDiscarded,
+        { field: 'why' },
+      )
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteAccepted,
+        expect.anything(),
+      )
     })
 
     it('shows an error when the rewrite call fails', async () => {
@@ -309,6 +336,10 @@ describe('CampaignStoryCard', () => {
       expect(
         screen.getByRole('button', { name: /Help me rewrite/ }),
       ).toBeDisabled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteLimitReached,
+        { field: 'why' },
+      )
     })
 
     it('shows a wait notice on a 429 and gates retry behind Discard', async () => {
@@ -327,6 +358,11 @@ describe('CampaignStoryCard', () => {
       expect(screen.getByRole('button', { name: /Try again/ })).toBeDisabled()
 
       // Discard clears the notice and restores the rewrite button.
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteRateLimited,
+        { field: 'why' },
+      )
+
       await user.click(screen.getByRole('button', { name: /Discard/ }))
       expect(screen.queryByText(/too quickly/i)).not.toBeInTheDocument()
       expect(

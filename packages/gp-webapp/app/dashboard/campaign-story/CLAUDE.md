@@ -37,6 +37,11 @@ campaign plan, stump speech, and voter messaging.
   the suggestion panel stays up with a "wait a bit" notice and "Try again"
   disabled; Discard clears it and restores the button (so the warning can't be
   clicked past instantly).
+- **Rewrite analytics.** `CampaignStoryCard` fires Segment events via
+  `trackEvent(EVENTS.CampaignStory.*)`: `RewriteRequested` ({ field, source:
+  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`,
+  `RewriteLimitReached` (403), `RewriteRateLimited` (429) — all carry `field`.
+  Names live in `helpers/analyticsHelper.ts`.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real

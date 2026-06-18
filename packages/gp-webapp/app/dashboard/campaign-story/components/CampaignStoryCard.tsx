@@ -14,6 +14,7 @@ import {
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export type CampaignStoryField = keyof CampaignStory
 
@@ -155,7 +156,7 @@ const CampaignStoryCard = ({
     }
   }
 
-  const requestRewrite = async (): Promise<void> => {
+  const requestRewrite = async (source: 'initial' | 'retry'): Promise<void> => {
     const text = valueRef.current.trim()
     if (!text || rewritingRef.current || limitReached) return
     rewritingRef.current = true
@@ -163,6 +164,7 @@ const CampaignStoryCard = ({
     setRewriteError(false)
     setRateLimited(false)
     setRewrite(null)
+    trackEvent(EVENTS.CampaignStory.RewriteRequested, { field: id, source })
     try {
       const { data } = await clientRequest(
         'POST /v1/campaigns/mine/story/rewrite',
@@ -176,8 +178,10 @@ const CampaignStoryCard = ({
       // message.
       if (error instanceof FetchError && error.status === 403) {
         setLimitReached(true)
+        trackEvent(EVENTS.CampaignStory.RewriteLimitReached, { field: id })
       } else if (error instanceof FetchError && error.status === 429) {
         setRateLimited(true)
+        trackEvent(EVENTS.CampaignStory.RewriteRateLimited, { field: id })
       } else {
         reportErrorToSentry(error, {
           context: 'CampaignStoryCard.rewrite',
@@ -204,6 +208,7 @@ const CampaignStoryCard = ({
     valueRef.current = text
     setValue(text)
     onAnsweredChange?.(text.trim().length > 0)
+    trackEvent(EVENTS.CampaignStory.RewriteAccepted, { field: id })
     discardRewrite()
     void save()
   }
@@ -298,7 +303,14 @@ const CampaignStoryCard = ({
                 <Button
                   variant="outline"
                   icon={<XMarkIcon />}
-                  onClick={discardRewrite}
+                  onClick={() => {
+                    if (rewrite) {
+                      trackEvent(EVENTS.CampaignStory.RewriteDiscarded, {
+                        field: id,
+                      })
+                    }
+                    discardRewrite()
+                  }}
                   disabled={isRewriting}
                 >
                   Discard
@@ -306,7 +318,7 @@ const CampaignStoryCard = ({
                 <Button
                   variant="outline"
                   icon={<WandSparklesIcon />}
-                  onClick={requestRewrite}
+                  onClick={() => requestRewrite('retry')}
                   disabled={isRewriting || limitReached || rateLimited}
                 >
                   Try again
@@ -330,7 +342,7 @@ const CampaignStoryCard = ({
             <Button
               icon={<WandSparklesIcon />}
               className="sm:shrink-0"
-              onClick={requestRewrite}
+              onClick={() => requestRewrite('initial')}
               disabled={trimmedLength === 0 || limitReached}
             >
               Help me rewrite
