@@ -78,6 +78,10 @@ describe('DashboardLayout election-result redirect', () => {
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
     )
+    // The dismissal check must not be consulted for non-impersonating users;
+    // the `isImpersonating &&` short-circuit guarantees a stale flag can never
+    // suppress the redirect for a real candidate.
+    expect(mockIsDismissed).not.toHaveBeenCalled()
   })
 
   it('does not redirect an impersonating admin who dismissed the gate', async () => {
