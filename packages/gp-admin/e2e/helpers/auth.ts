@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test'
+import { Locator, Page } from '@playwright/test'
 
 /**
  * Test user type constants for different organizations and roles.
@@ -105,34 +105,37 @@ async function ensurePasswordField(page: Page): Promise<void> {
   // Match by label, not role: an `<input type="password">` has no `textbox`
   // role, so getByRole('textbox') would never match Clerk's password field.
   const passwordInput = page.getByLabel(/password/i).first()
-  if (await passwordInput.isVisible().catch(() => false)) return
 
-  // Stepped (identifier-first) flow: advance past the email step first, then
-  // give Clerk's UI time to transition before snapshotting the next screen
-  // (click() resolves on dispatch, not after the resulting render).
+  // Every branch resolves a locator's visibility via waitFor rather than a
+  // point-in-time isVisible() snapshot, so slow CI hydration / Clerk screen
+  // transitions can't send us down the wrong branch.
+  const becomesVisible = (
+    locator: Locator,
+    timeout: number
+  ): Promise<boolean> =>
+    locator
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false)
+
+  // Single-screen flow: password is already on the identifier screen.
+  if (await becomesVisible(passwordInput, 5000)) return
+
+  // Stepped (identifier-first) flow: advance past the email step, then re-check.
   const continueBtn = page.getByRole('button', {
     name: 'Continue',
     exact: true,
   })
-  if (await continueBtn.isVisible().catch(() => false)) {
+  if (await becomesVisible(continueBtn, 3000)) {
     await continueBtn.click()
-    await passwordInput
-      .waitFor({ state: 'visible', timeout: 3000 })
-      .catch(() => undefined)
+    if (await becomesVisible(passwordInput, 3000)) return
   }
-  if (await passwordInput.isVisible().catch(() => false)) return
 
   // Clerk defaulted to another first factor (e.g. email_code) — pick password.
-  // Confirm the control is present (or absent) with a short waitFor rather than
-  // a point-in-time snapshot, which can race Clerk's screen transition.
   const useAnotherMethod = page.getByRole('button', {
     name: /use another method/i,
   })
-  const anotherMethodVisible = await useAnotherMethod
-    .waitFor({ state: 'visible', timeout: 3000 })
-    .then(() => true)
-    .catch(() => false)
-  if (anotherMethodVisible) {
+  if (await becomesVisible(useAnotherMethod, 3000)) {
     await useAnotherMethod.click()
     await page
       .getByRole('button', { name: /password/i })
