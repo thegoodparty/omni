@@ -57,7 +57,11 @@ const toClerkTestEmail = (email: string): string =>
 export const completeClerkEmailCodeVerification = async (
   page: Page,
 ): Promise<void> => {
-  const codeInput = page.getByRole('textbox', { name: /verification code/i })
+  // Clerk renders the email code as six per-digit inputs that all share the
+  // `aria-label` "Enter verification code. Digit N", so a name-based locator
+  // matches all six and trips strict mode. Target the first digit by Clerk's
+  // stable class and type the full code — Clerk auto-advances focus.
+  const codeInput = page.locator('.cl-otpCodeFieldInput').first()
   try {
     await codeInput.waitFor({ state: 'visible', timeout: 5000 })
   } catch {
