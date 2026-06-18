@@ -6,9 +6,10 @@ import type { AdvertisedDimension } from '@/llm/tools/queryConstituentData.tool'
 // high-value slice of demographics (household makeup, education, tenure,
 // veteran status, turnout, age, gender, urbanicity) followed by the hs_*
 // modeled issue-support scores (0-100; higher = more aligned with the named
-// position). Sensitive attributes (ethnicity, religion, party, language) and
-// district/geography columns are intentionally omitted, as are the granular
-// per-cohort household columns. The full serve_agent_voters table stays
+// position). Identity/behavior proxies — religion salience, church
+// attendance, minority-candidate preference, ethnicity, language — and party
+// and district/geography columns are intentionally omitted; only genuine
+// policy attitudes are surfaced. The full serve_agent_voters table stays
 // queryable via the validator allowlist; this only shapes what the agent is
 // guided toward. Regenerate from the live schema when the table changes.
 export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
@@ -97,8 +98,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_artificial_intelligence_excited',
     label: 'Artificial Intelligence Excited',
   },
-  { name: 'hs_attends_church_frequently', label: 'Attends Church Frequently' },
-  { name: 'hs_attends_church_never', label: 'Attends Church Never' },
   { name: 'hs_autonomous_vehicles_allow', label: 'Autonomous Vehicles Allow' },
   {
     name: 'hs_autonomous_vehicles_do_not_allow',
@@ -133,11 +132,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_candidate_mail_readership_read_carefully',
     label: 'candidate mail readership read carefully',
   },
-  {
-    name: 'hs_candidate_minority_do_not_prefer',
-    label: 'Candidate Minority Do Not Prefer',
-  },
-  { name: 'hs_candidate_minority_prefer', label: 'Candidate Minority Prefer' },
   { name: 'hs_capitalism_believe_flawed', label: 'Capitalism Believe Flawed' },
   { name: 'hs_capitalism_believe_sound', label: 'Capitalism Believe Sound' },
   { name: 'hs_casino_oppose', label: 'Casino Oppose' },
@@ -439,10 +433,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Most Important Policy Item Help People',
   },
   {
-    name: 'hs_most_important_policy_item_religious_values',
-    label: 'Most Important Policy Item Religious Values',
-  },
-  {
     name: 'hs_most_important_policy_keep_safe',
     label: 'Most Important Policy Keep Safe',
   },
@@ -492,8 +482,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_redistricting_state_leg', label: 'Redistricting State Leg' },
   { name: 'hs_regulations_good', label: 'Regulations Good' },
   { name: 'hs_regulations_too_harsh', label: 'Regulations Too Harsh' },
-  { name: 'hs_religion_important', label: 'Religion Important' },
-  { name: 'hs_religion_not_important', label: 'Religion Not Important' },
   { name: 'hs_responsiveness_email', label: 'Responsiveness Email' },
   { name: 'hs_responsiveness_live', label: 'Responsiveness Live' },
   { name: 'hs_responsiveness_sms', label: 'Responsiveness Sms' },
