@@ -70,11 +70,15 @@ export const completeClerkEmailCodeVerification = async (
 
   await codeInput.pressSequentially(CLERK_TEST_OTP_CODE)
 
-  // Most configs auto-submit once all digits are entered; click the verify
-  // button only when it's still on screen (i.e. submission isn't automatic).
+  // Most configs auto-submit once all digits are entered; for manual-submit
+  // configs the verify button may take a render cycle to appear, so wait for it
+  // rather than snapshotting and treat a timeout as "auto-submitted".
   const verifyButton = page.getByRole('button', { name: /^verify/i })
-  if (await verifyButton.isVisible().catch(() => false)) {
+  try {
+    await verifyButton.waitFor({ state: 'visible', timeout: 3000 })
     await verifyButton.click()
+  } catch {
+    // Button never appeared — Clerk auto-submitted when the last digit was entered.
   }
 }
 
