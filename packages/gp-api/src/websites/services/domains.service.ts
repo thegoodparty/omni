@@ -1072,11 +1072,6 @@ export class DomainsService
     if (this.shouldEnableDomainPurchase()) {
       try {
         existingDomain = await this.vercel.getDomainDetails(domain.name)
-        if (existingDomain) {
-          this.logger.debug(
-            `Domain ${domain.name} already exists in Vercel, skipping registration`,
-          )
-        }
       } catch (e) {
         if (!this.vercel.isVercelNotFoundError(e)) {
           this.logger.error(`Error getting domain details from Vercel: ${e}`)
@@ -1086,9 +1081,24 @@ export class DomainsService
         }
       }
 
+      // getDomainDetails returns a record for a domain that is merely *attached*
+      // to the project (boughtAt: null) as well as one we actually own. Only a
+      // non-null boughtAt proves the registrar purchase completed — treating a
+      // merely-attached domain as registered skips the buy, charging the
+      // candidate while leaving the domain unregistered (and the compliance
+      // stage then falsely advances once registrantVerifiedAt is stamped below).
+      const ownedDomain = existingDomain?.domain.boughtAt
+        ? existingDomain
+        : null
+      if (ownedDomain) {
+        this.logger.debug(
+          `Domain ${domain.name} already purchased through Vercel, skipping purchase`,
+        )
+      }
+
       try {
         vercelResult =
-          existingDomain ||
+          ownedDomain ||
           (await this.vercel.purchaseDomain(
             domain.name,
             {
