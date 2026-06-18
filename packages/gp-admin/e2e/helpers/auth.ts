@@ -1,4 +1,4 @@
-import { Locator, Page } from '@playwright/test'
+import { expect, Locator, Page } from '@playwright/test'
 
 /**
  * Test user type constants for different organizations and roles.
@@ -94,21 +94,25 @@ export function getTestUserCredentials(userType: TestUserType): {
 }
 
 /**
- * Ensures Clerk is showing the PASSWORD first factor before it is filled.
- * The Clerk instance now offers `email_code` as an additional first factor, so
- * depending on factor ordering the password field may not be on the initial
- * screen. Handles both the single-screen form (email + password together) and a
- * stepped flow, switching to the password method via "Use another method" when
- * Clerk defaults to a different factor.
+ * Ensures Clerk is showing an EDITABLE PASSWORD first factor before it is
+ * filled. The Clerk instance can offer `email_code` as an additional first
+ * factor (with password optional), so depending on factor ordering the password
+ * field may not be on the initial screen — and when it is, Clerk often renders
+ * it `disabled` until the password method is explicitly chosen. A visibility
+ * check passes for that disabled field while the subsequent fill() times out, so
+ * every password check here requires editability, not mere visibility. Handles
+ * both the single-screen form (email + password together) and a stepped flow,
+ * switching to the password method via "Use another method" when Clerk defaults
+ * to a different factor.
  */
 async function ensurePasswordField(page: Page): Promise<void> {
   // Match by label, not role: an `<input type="password">` has no `textbox`
   // role, so getByRole('textbox') would never match Clerk's password field.
   const passwordInput = page.getByLabel(/password/i).first()
 
-  // Every branch resolves a locator's visibility via waitFor rather than a
-  // point-in-time isVisible() snapshot, so slow CI hydration / Clerk screen
-  // transitions can't send us down the wrong branch.
+  // Resolve a locator's visibility via waitFor rather than a point-in-time
+  // isVisible() snapshot, so slow CI hydration / Clerk screen transitions can't
+  // send us down the wrong branch. Used for buttons (clicked, not filled).
   const becomesVisible = (
     locator: Locator,
     timeout: number
@@ -118,8 +122,20 @@ async function ensurePasswordField(page: Page): Promise<void> {
       .then(() => true)
       .catch(() => false)
 
+  // Editability — not mere visibility — is what fill() requires: Clerk can
+  // render the password input visible but `disabled`, which passes a visibility
+  // check yet rejects fill().
+  const becomesEditable = (
+    locator: Locator,
+    timeout: number
+  ): Promise<boolean> =>
+    expect(locator)
+      .toBeEditable({ timeout })
+      .then(() => true)
+      .catch(() => false)
+
   // Single-screen flow: password is already on the identifier screen.
-  if (await becomesVisible(passwordInput, 5000)) return
+  if (await becomesEditable(passwordInput, 5000)) return
 
   // Stepped (identifier-first) flow: advance past the email step, then re-check.
   const continueBtn = page.getByRole('button', {
@@ -128,10 +144,11 @@ async function ensurePasswordField(page: Page): Promise<void> {
   })
   if (await becomesVisible(continueBtn, 3000)) {
     await continueBtn.click()
-    if (await becomesVisible(passwordInput, 3000)) return
+    if (await becomesEditable(passwordInput, 3000)) return
   }
 
-  // Clerk defaulted to another first factor (e.g. email_code) — pick password.
+  // Clerk defaulted to another first factor (e.g. email_code), or rendered the
+  // password input disabled — pick the password method explicitly.
   const useAnotherMethod = page.getByRole('button', {
     name: /use another method/i,
   })
@@ -142,7 +159,9 @@ async function ensurePasswordField(page: Page): Promise<void> {
       .first()
       .click()
   }
-  await passwordInput.waitFor({ state: 'visible', timeout: 5000 })
+  // The field must be genuinely editable before the caller fills it; otherwise
+  // fill() times out on a visible-but-disabled input.
+  await expect(passwordInput).toBeEditable({ timeout: 5000 })
 }
 
 /**
