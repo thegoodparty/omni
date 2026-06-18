@@ -9,11 +9,15 @@ import {
 } from '../../generated/prisma'
 import { Cron } from '@nestjs/schedule'
 import { randomUUID } from 'crypto'
-import { subMinutes } from 'date-fns'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
+import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import { SlackChannel } from '@/vendors/slack/slackService.types'
 
 const sqs = new SQS({})
+
+export type DispatchPriority = 'HIGH' | 'DEFAULT'
 
 export type ExperimentRunDispatchInput<
   ExperimentType extends keyof AgentJobContracts,
@@ -22,9 +26,9 @@ export type ExperimentRunDispatchInput<
   organizationSlug: string
   clerkUserId: string
   params: AgentJobContracts[ExperimentType]['Input']
+  priority?: DispatchPriority
 }
 
-const STALE_THRESHOLD_MINUTES = 45
 export const MAX_RESUME_ATTEMPTS = 48
 // Drain the resumable backlog incrementally across ticks so a post-pause
 // surge can't load an unbounded result set or overrun the 5-minute interval.
@@ -37,12 +41,17 @@ type ResumeRunInput = {
   params: unknown
   stage?: string | null
   resumeAttempts: number
+  priority: string
 }
 
 @Injectable()
 export class ExperimentRunsService extends createPrismaBase(
   MODELS.ExperimentRun,
 ) {
+  constructor(private readonly slack: SlackService) {
+    super()
+  }
+
   private cachedQueueUrl: string | undefined
 
   // The queue name is static per environment, so resolve the URL once and cache
@@ -72,6 +81,7 @@ export class ExperimentRunsService extends createPrismaBase(
       experimentType: string
       clerkUserId: string
       params: unknown
+      priority: DispatchPriority
     },
   ) {
     const messageBody = {
@@ -80,6 +90,7 @@ export class ExperimentRunsService extends createPrismaBase(
       organization_slug: input.organizationSlug,
       experiment_type: input.experimentType,
       clerk_user_id: input.clerkUserId,
+      priority: input.priority,
     }
 
     await sqs.sendMessage({
@@ -95,6 +106,7 @@ export class ExperimentRunsService extends createPrismaBase(
     organizationSlug: string
     clerkUserId: string
     params: Prisma.InputJsonValue
+    priority?: DispatchPriority
     resumeAttempts?: number
     stage?: string | null
   }): Promise<ExperimentRun | undefined> {
@@ -111,7 +123,8 @@ export class ExperimentRunsService extends createPrismaBase(
         runId,
         experimentType: input.experimentType,
         organizationSlug: input.organizationSlug,
-        status: ExperimentRunStatus.RUNNING,
+        status: ExperimentRunStatus.QUEUED,
+        priority: input.priority ?? 'DEFAULT',
         params: input.params,
         resumeAttempts: input.resumeAttempts ?? 0,
         stage: input.stage ?? null,
@@ -124,6 +137,7 @@ export class ExperimentRunsService extends createPrismaBase(
         experimentType: input.experimentType,
         clerkUserId: input.clerkUserId,
         params: input.params,
+        priority: input.priority ?? 'DEFAULT',
       })
     } catch (error) {
       this.logger.error(
@@ -135,13 +149,20 @@ export class ExperimentRunsService extends createPrismaBase(
         },
         'Failed to send dispatch message to SQS',
       )
-      await this.model.update({
-        where: { runId },
-        data: {
-          status: ExperimentRunStatus.FAILED,
-          error: 'SQS dispatch failed',
-        },
-      })
+      try {
+        await this.model.update({
+          where: { runId },
+          data: {
+            status: ExperimentRunStatus.FAILED,
+            error: 'SQS dispatch failed',
+          },
+        })
+      } catch (updateError) {
+        this.logger.error(
+          { updateError, runId },
+          'Failed to mark run FAILED after SQS dispatch error — row stuck QUEUED with no automatic reclaim',
+        )
+      }
       throw new BadGatewayException(
         'Failed to dispatch experiment. Please try again.',
       )
@@ -164,6 +185,7 @@ export class ExperimentRunsService extends createPrismaBase(
       experimentType: input.type,
       organizationSlug: input.organizationSlug,
       clerkUserId: input.clerkUserId,
+      priority: input.priority ?? 'DEFAULT',
       // AgentJobContracts inputs are JSON-serializable objects validated by Zod;
       // the assertion bridges the structural index-signature gap that InputJsonObject
       // requires but the generated contract types don't declare.
@@ -221,6 +243,9 @@ export class ExperimentRunsService extends createPrismaBase(
         experimentType: run.experimentType,
         organizationSlug: run.organizationSlug,
         clerkUserId,
+        // Coerce the stored string back to the union; anything other than the
+        // exact 'HIGH' marker is treated as DEFAULT.
+        priority: run.priority === 'HIGH' ? 'HIGH' : 'DEFAULT',
         params: resumeParams,
         resumeAttempts: run.resumeAttempts + 1,
         stage: run.stage,
@@ -290,6 +315,9 @@ export class ExperimentRunsService extends createPrismaBase(
       where: {
         status: ExperimentRunStatus.AWAITING_RESUME,
         resumeScheduledFor: { lte: now },
+        // Defense-in-depth: even a pre-existing parked briefing/schedule row
+        // (there are none today) must never be resumed.
+        experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
       },
       orderBy: { resumeScheduledFor: Prisma.SortOrder.asc },
       take: RESUME_SWEEP_BATCH_SIZE,
@@ -297,7 +325,7 @@ export class ExperimentRunsService extends createPrismaBase(
 
     for (const run of due) {
       if (run.resumeAttempts >= MAX_RESUME_ATTEMPTS) {
-        await this.model.updateMany({
+        const { count } = await this.model.updateMany({
           where: {
             runId: run.runId,
             status: ExperimentRunStatus.AWAITING_RESUME,
@@ -309,6 +337,13 @@ export class ExperimentRunsService extends createPrismaBase(
               `at stage: ${run.stage ?? 'unknown'}`,
           },
         })
+        // The cron fires on every replica; only the one whose update actually
+        // terminalized the row (count > 0) alerts, so the failure isn't
+        // re-announced each tick. Without this the run dies silently after
+        // ~24h of retries — no log, no Slack, no human in the loop.
+        if (count > 0) {
+          await this.alertMaxResumeExhausted(run)
+        }
       } else {
         // Isolate each run: a throw from one resume must not abort the rest of
         // the batch (the remaining due runs would be skipped until next tick).
@@ -324,6 +359,39 @@ export class ExperimentRunsService extends createPrismaBase(
     }
   }
 
+  // Resume-driven runs are compliance_setup today, so a run that burns through
+  // every attempt needs a human on the 10DLC compliance channel. Best-effort:
+  // a Slack failure must not abort the sweep mid-batch.
+  private async alertMaxResumeExhausted(run: ExperimentRun) {
+    try {
+      await this.slack.errorMessage(
+        {
+          message:
+            `${run.experimentType} run exhausted ${MAX_RESUME_ATTEMPTS} ` +
+            `resume attempts at stage "${run.stage ?? 'unknown'}" and was ` +
+            `marked FAILED — needs manual investigation. ` +
+            `org=${run.organizationSlug} runId=${run.runId}`,
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, runId: run.runId },
+        'failed to post max-resume-exhausted Slack alert',
+      )
+    }
+  }
+
+  // The scheduler emits `started` when it actually launches the Fargate task.
+  // Guarded on QUEUED so it is idempotent: a RUNNING/AWAITING_RESUME row is left
+  // untouched, and only a still-queued run advances to RUNNING.
+  markStarted(runId: string) {
+    return this.model.updateMany({
+      where: { runId, status: ExperimentRunStatus.QUEUED },
+      data: { status: ExperimentRunStatus.RUNNING },
+    })
+  }
+
   // Flip a run to FAILED after the fact, e.g. when a result arrived but the
   // caller couldn't load/persist its artifact. Truncate the error to match the
   // queue-consumer's column bound.
@@ -332,27 +400,5 @@ export class ExperimentRunsService extends createPrismaBase(
       where: { runId },
       data: { status: ExperimentRunStatus.FAILED, error: error.slice(0, 1000) },
     })
-  }
-
-  @Cron('*/15 * * * *')
-  async sweepStaleRuns() {
-    const cutoff = subMinutes(new Date(), STALE_THRESHOLD_MINUTES)
-    const result = await this.model.updateMany({
-      where: {
-        status: { in: [ExperimentRunStatus.RUNNING] },
-        updatedAt: { lt: cutoff },
-      },
-      data: {
-        status: ExperimentRunStatus.FAILED,
-        error: `Timed out waiting for callback after ${STALE_THRESHOLD_MINUTES} minutes`,
-      },
-    })
-
-    if (result.count > 0) {
-      this.logger.warn(
-        { count: result.count, cutoff: cutoff.toISOString() },
-        'Marked stale experiment runs as FAILED',
-      )
-    }
   }
 }

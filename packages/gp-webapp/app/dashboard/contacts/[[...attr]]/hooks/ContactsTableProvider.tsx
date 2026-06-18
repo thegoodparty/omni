@@ -38,7 +38,7 @@ import defaultSegments from '../components/configs/defaultSegments.config'
 import { isCustomSegment } from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 
 const extractPersonIdFromParams = (
   params: ReturnType<typeof useParams> | null,
@@ -161,12 +161,11 @@ export const ContactsTableProvider = ({
   const router = useRouter()
 
   const [campaign] = useCampaign()
-  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
-    useElectedOffice()
-  // Data-wiring read only (picks the engagement :id); the overlay's
-  // PersonContent is the treatment surface that tracks exposure.
-  const { enabled: isWinVoterDataOn, ready: isWinVoterDataFlagReady } =
-    useWinVoterDataFlag(false)
+  const { data: electedOffice } = useElectedOffice()
+  // Single source of the Win-vs-Serve decision (shared with the menu, mobile
+  // title, and page copy). Picks the engagement :id below and the page labels.
+  const { isWin: isWinContext, isReady: isWinContextReady } =
+    useWinVoterContext()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const params = useParams()
@@ -249,22 +248,13 @@ export const ContactsTableProvider = ({
     enabled: Boolean(currentlySelectedPersonId),
   })
 
-  // The campaign engagement endpoint keys activities on the durable
-  // lalVoterId for Win, but on person.id for the Serve/elected-office path
-  // (task 12 contract). Win context = win-voter-data flag on and not an
-  // elected official. lalVoterId comes from the person fetch, so the query
-  // waits on it before firing. Gate on the elected-office load: until it
-  // settles `electedOffice` is undefined, which would briefly mistake a
-  // Serve user for Win and fire against the wrong endpoint. This is the one
-  // Win-vs-Serve decision; PersonOverlay's activity feed reads it from context
-  // rather than recomputing, so both surfaces share the load guard.
-  const isWinContext =
-    isWinVoterDataOn && !isElectedOfficeLoading && !electedOffice
-  // isWinContext is only meaningful once both inputs that can flip it have
-  // settled: the elected-office query and the win-voter-data flag. Until then it
-  // reads false regardless of the real value, so consumers that branch on it
-  // once (analytics) must wait for this before acting.
-  const isWinContextReady = !isElectedOfficeLoading && isWinVoterDataFlagReady
+  // The campaign engagement endpoint keys activities on the durable lalVoterId
+  // for Win, but on person.id for the Serve/elected-office path (task 12
+  // contract). lalVoterId comes from the person fetch, so the query waits on it
+  // before firing. isWinContext (from useWinVoterContext) reads false until the
+  // elected-office load settles, so it can't briefly mistake a Serve user for
+  // Win and fire against the wrong endpoint. PersonOverlay's activity feed reads
+  // this from context rather than recomputing.
   const activitiesEngagementId = isWinContext
     ? (personQuery.data?.lalVoterId ?? null)
     : currentlySelectedPersonId

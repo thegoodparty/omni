@@ -184,7 +184,7 @@ export type PollClusterAnalysisJson = z.infer<
 
 export const AgentExperimentResultSchema = z.object({
   runId: z.string(),
-  status: z.enum(['success', 'failed', 'contract_violation']),
+  status: z.enum(['started', 'success', 'failed', 'contract_violation']),
   artifactKey: z.string().optional(),
   artifactBucket: z.string().optional(),
   durationSeconds: z.number().optional(),

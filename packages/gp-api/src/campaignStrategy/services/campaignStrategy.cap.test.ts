@@ -422,6 +422,55 @@ describe('CampaignStrategyService', () => {
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
+  it('stays generating without re-dispatching while a run is still QUEUED', async () => {
+    prisma.campaignStrategy.upsert.mockResolvedValue(
+      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+    )
+    const runsById: Record<string, unknown> = {
+      'opp-run': run({
+        runId: 'opp-run',
+        status: ExperimentRunStatus.COMPLETED,
+      }),
+      'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.QUEUED }),
+    }
+    experimentRuns.findUnique.mockImplementation(
+      (args: { where: { runId: string } }) =>
+        Promise.resolve(runsById[args.where.runId] ?? null),
+    )
+
+    const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(res).toEqual({ status: 'generating' })
+    expect(params.build).not.toHaveBeenCalled()
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('stays generating without re-dispatching while a run is AWAITING_RESUME', async () => {
+    prisma.campaignStrategy.upsert.mockResolvedValue(
+      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+    )
+    const runsById: Record<string, unknown> = {
+      'opp-run': run({
+        runId: 'opp-run',
+        status: ExperimentRunStatus.COMPLETED,
+      }),
+      'oc-run': run({
+        runId: 'oc-run',
+        status: ExperimentRunStatus.AWAITING_RESUME,
+      }),
+    }
+    experimentRuns.findUnique.mockImplementation(
+      (args: { where: { runId: string } }) =>
+        Promise.resolve(runsById[args.where.runId] ?? null),
+    )
+
+    const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(res).toEqual({ status: 'generating' })
+    expect(params.build).not.toHaveBeenCalled()
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
   it('re-dispatches a section whose previous run FAILED', async () => {
     prisma.campaignStrategy.upsert.mockResolvedValue(
       planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),

@@ -10,11 +10,15 @@ const links = (
   {
     serveAccessEnabled = false,
     isElectedOffice = false,
+    isElectedOfficeLoading = false,
+    winVoterDataReady = true,
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
+    isElectedOfficeLoading?: boolean
+    winVoterDataReady?: boolean
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
   } = {},
@@ -23,7 +27,10 @@ const links = (
     campaign,
     serveAccessEnabled,
     isElectedOffice,
+    isElectedOfficeLoading,
     false,
+    false,
+    winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
   )
@@ -38,6 +45,9 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     // Win orgs render under the 'campaign' category, so the item must be
     // categorized there to survive the sidebar's category filter.
     expect(contacts?.v2Category).toBe('campaign')
+    // Win reads "Voter Data" (v2Name is the displayed label), never
+    // "Constituents" (ENG-10448).
+    expect(contacts?.v2Name).toBe('Voter Data')
     expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
   })
 
@@ -46,6 +56,34 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 
     expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(true)
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+  })
+
+  it('does not commit to the Win "Voter Data" item while the elected-office query is loading', () => {
+    // A Serve elected-official reads as not-elected-office until the query
+    // settles; selecting WIN_CONTACTS during that window would flash "Voter
+    // Data" at them. Hold the generic placeholder instead (ENG-10448).
+    const items = links(proCampaign, {
+      winVoterDataEnabled: true,
+      isElectedOfficeLoading: true,
+    })
+
+    expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
+    expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
+  })
+
+  it('holds the placeholder (no legacy item, no Contacts) while the win-voter-data flag is still loading', () => {
+    // Until the flag's `ready` settles it reads off, so committing now would
+    // show the legacy Voter Data item and then swap it to Contacts once the
+    // flag resolves. Hold the generic placeholder until ready (ENG-10448).
+    const items = links(proCampaign, {
+      winVoterDataReady: false,
+      winVoterDataEnabled: false,
+    })
+
+    expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
+    expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
   })
 
   it('does not show Contacts for a non-pro Win campaign even with the flag on', () => {
@@ -71,6 +109,8 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
       const contacts = items.find((i) => i.id === 'contacts-dashboard')
       expect(contacts).toBeDefined()
       expect(contacts?.v2Category).toBe('elected-office')
+      // Serve reads "Constituent Data" in the sidebar (ENG-10448).
+      expect(contacts?.v2Name).toBe('Constituent Data')
       // The Win-specific item must never appear on the Serve path.
       expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
     }
