@@ -110,7 +110,11 @@ describe('DomainsService', () => {
       createMXRecords: vi.fn().mockResolvedValue(undefined),
       createTXTVerificationRecord: vi.fn().mockResolvedValue(undefined),
       getDomainDetails: vi.fn().mockResolvedValue({
-        domain: { verified: true, name: 'test-domain.com' },
+        domain: {
+          verified: true,
+          name: 'test-domain.com',
+          boughtAt: 1700000000000,
+        },
       }),
     }
     mockForwardEmail = {
@@ -1297,6 +1301,76 @@ describe('DomainsService', () => {
           }),
         }),
       )
+    })
+
+    it('still purchases when the Vercel record exists but was never bought (boughtAt null)', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const purchaseDomainMock = vi.fn().mockResolvedValue({})
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockResolvedValue({
+          domain: { verified: true, name: mockDomain.name, boughtAt: null },
+        }),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: purchaseDomainMock,
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        price: new Decimal(12),
+      })
+
+      await service.completeDomainRegistration(10, contact, {
+        skipPaymentVerification: true,
+      })
+
+      expect(purchaseDomainMock).toHaveBeenCalledWith(
+        mockDomain.name,
+        expect.any(Object),
+        12,
+      )
+    })
+
+    it('skips purchase when the domain was already bought through Vercel (boughtAt set)', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const purchaseDomainMock = vi.fn().mockResolvedValue({})
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockResolvedValue({
+          domain: {
+            verified: true,
+            name: mockDomain.name,
+            boughtAt: 1700000000000,
+          },
+        }),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: purchaseDomainMock,
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        price: new Decimal(12),
+      })
+
+      await service.completeDomainRegistration(10, contact, {
+        skipPaymentVerification: true,
+      })
+
+      expect(purchaseDomainMock).not.toHaveBeenCalled()
     })
   })
 
