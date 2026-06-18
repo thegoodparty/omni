@@ -14,9 +14,9 @@ const meta: Meta<typeof PieChart> = {
 export default meta
 
 const THREE_SEGMENTS = [
-  { name: 'Yes', value: 42 },
-  { name: 'No', value: 21 },
-  { name: 'Unknown', value: 19 },
+  { name: 'Yes', value: 62 },
+  { name: 'No', value: 25 },
+  { name: 'Unknown', value: 13 },
 ]
 
 export const Playground: StoryObj<typeof PieChart> = {

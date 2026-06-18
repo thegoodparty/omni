@@ -329,8 +329,8 @@
   --data-chart-3: var(--color-halo-green-200);
   --data-chart-4: var(--color-bright-yellow-400);
   --data-chart-5: var(--color-waxflower-200);
-  --data-chart-6: var(--tw-slate-400);
-  --data-chart-7: #a5b4fc;
+  --data-chart-6: var(--color-slate-400);
+  --data-chart-7: var(--tw-indigo-300);
 
   /*
    * ==========================================================================

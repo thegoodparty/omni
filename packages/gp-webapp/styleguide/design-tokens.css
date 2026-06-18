@@ -1020,8 +1020,8 @@
   --data-chart-3: var(--color-halo-green-400);
   --data-chart-4: var(--color-bright-yellow-600);
   --data-chart-5: var(--color-waxflower-400);
-  --data-chart-6: var(--tw-slate-600);
-  --data-chart-7: #818cf8;
+  --data-chart-6: var(--color-slate-600);
+  --data-chart-7: var(--tw-indigo-400);
 
   /* ==========================================================================
    * ALPHA TRANSPARENCY SCALE
