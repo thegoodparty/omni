@@ -581,6 +581,41 @@ describe('UsersService', () => {
       expect(signIn).not.toHaveBeenCalled()
     })
 
+    it('refuses an existing account secured with a TOTP authenticator', async () => {
+      // A TOTP/2FA user can have passwordEnabled: false but still controls the
+      // account via their authenticator, so the magic link must not reuse it.
+      const suffix = uniqueSuffix()
+      const email = `eo-totp-${suffix}@example.com`
+      const clerkId = `clerk_totp_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Totp',
+          lastName: 'User',
+          name: 'Totp User',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+        totpEnabled: true,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Totp',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
     it('refuses an existing account that owns a campaign', async () => {
       const suffix = uniqueSuffix()
       const email = `eo-camp-${suffix}@example.com`

@@ -543,16 +543,20 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const email = data.email.trim()
 
     // Reject the magic link for any account the person actually controls. A
-    // password-enabled Clerk account is a real login, and so is an OAuth/SSO
-    // (e.g. Google) identity — both mean the person can already authenticate, so
-    // reusing the account would hand an admin-initiated sign-in token to someone
-    // else. Only a bare passwordless, externally-unlinked account is reusable.
+    // password, an OAuth/SSO identity (e.g. Google), a TOTP/2FA authenticator,
+    // backup codes, or a linked web3 wallet all mean the person can already
+    // authenticate, so reusing the account would hand an admin-initiated sign-in
+    // token to someone else. Only a bare passwordless email identity with none
+    // of these is reusable.
     const assertReusablePasswordless = async (id: string): Promise<void> => {
       const clerkUser = await this.clerkClient.users.getUser(id)
-      if (
+      const controlsAccount =
         clerkUser.passwordEnabled ||
-        (clerkUser.externalAccounts?.length ?? 0) > 0
-      ) {
+        clerkUser.totpEnabled ||
+        clerkUser.backupCodeEnabled ||
+        (clerkUser.externalAccounts?.length ?? 0) > 0 ||
+        (clerkUser.web3Wallets?.length ?? 0) > 0
+      if (controlsAccount) {
         throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       }
     }
