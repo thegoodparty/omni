@@ -23,12 +23,37 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
 | dev  | GoodParty Dev | `703396`    |
 | prod | GoodParty.org | `694490`    |
 
+## Deployments — attach one or the flag stays dead
+
+A flag serves through **deployments** (the per-project SDK keys). **A flag attached to no
+deployment is inactive no matter what `enabled` says** — this is the single most common way
+to create a flag that silently does nothing. So every flag this skill creates must be
+attached to its project's deployments.
+
+**Resolve deployments at runtime** with `get_deployments` and filter by `projectId` — don't
+hardcode ids, they can change. **Attach ALL non-deleted deployments for the project** (the
+safe superset: the flag is then wired wherever it's read, client or server).
+
+Current layout, for reference (verify with `get_deployments`, don't trust this blindly):
+
+| Env  | `projectId` | Deployments to attach (id — label) |
+| ---- | ----------- | ---------------------------------- |
+| dev  | `703396`    | `13486` — client                   |
+| prod | `694490`    | `13485` — client, `53792` — server |
+
+Note the asymmetry: **prod has a server deployment, dev does not.** If a flag is meant to be
+read server-side (gp-api), it will serve in prod but not in dev until someone adds a server
+deployment to the dev project in the Amplitude UI. Surface this to the user rather than
+silently shipping a dev flag that can't serve server-side.
+
 ## Opinions (do not skip these)
 
 **On create:**
 
 - **Always create in BOTH dev and prod**, with the **same `key` and same `name`**. One
   `create_flags` call with two entries.
+- **Always attach the project's deployments** (see above). A flag with no deployment is the
+  bug this skill exists to prevent.
 - **Prod always starts off.** `enabled: false` in `694490`. No exceptions — prod ships dark.
 - **Always ask the user what dev should start as**, and **recommend "off"**. Don't assume.
 - **Set `percentage: 100` on both** at create time, regardless of enabled state. This is the
@@ -40,7 +65,7 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
 - **99% of enable requests mean "turn it on in prod."** Default to **prod (`694490`)** unless
   the user explicitly says dev. Dev is usually already on from creation.
 - Enabling is a one-field flip of `enabled: true`. It only serves users because `percentage`
-  was already set to 100 at create time.
+  was set to 100 and a deployment was attached, both at create time.
 - **Never enable both envs in one action implicitly.** Prod is a deliberate, separate step.
   Confirm the env you're flipping in your reply.
 
@@ -48,7 +73,9 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
 
 1. Get the `key` (e.g. `new-donation-flow`) and a human `name` from the user.
 2. **Ask what dev should start as**, recommending off. Prod is always off — don't ask.
-3. One `create_flags` call, two entries (same `key`, same `name`):
+3. **Resolve deployments**: call `get_deployments`, then collect the non-deleted `id`s for
+   each project — dev (`703396`) and prod (`694490`) — into `deploymentIds`.
+4. One `create_flags` call, two entries (same `key`, same `name`):
 
 ```jsonc
 {
@@ -59,6 +86,7 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
       "name": "New donation flow",
       "enabled": true, // or false, per the user's answer
       "percentage": 100,
+      "deploymentIds": ["13486"], // ALL of dev's deployments
     },
     {
       "projectId": "694490", // prod
@@ -66,12 +94,14 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
       "name": "New donation flow",
       "enabled": false, // prod always starts off
       "percentage": 100,
+      "deploymentIds": ["13485", "53792"], // ALL of prod's deployments
     },
   ],
 }
 ```
 
-4. Confirm back: created in dev (on/off per their choice) and prod (off), same key.
+5. Confirm back: created in dev (on/off per their choice) and prod (off), same key, with
+   deployments attached. Call out the dev-has-no-server-deployment gap if relevant.
 
 ## Enable a flag
 
@@ -99,14 +129,26 @@ both — it's a separate flag, with its own id, in each project. Same `key` in b
 
 4. Confirm back which env you enabled. To turn off, same call with `enabled: false`.
 
+## Repair a flag that has no deployment
+
+If a flag already exists but isn't serving (created before deployments were attached), fix it
+without recreating: resolve its per-project id, then attach the project's deployments.
+
+```jsonc
+{ "flagId": "<resolved id>", "deployments": { "add": ["13485", "53792"] } }
+```
+
 ## Common mistakes
 
-- **Enabled but nobody sees it.** `enabled: true` with rollout at 0% serves no one (the MCP
-  warns about this). That's why this skill sets `percentage: 100` at create time — so the
-  later enable actually does something.
+- **No deployment → dead flag.** An `enabled` flag with no deployment attached serves no one
+  and shows as inactive. Always attach the project's deployments at create time.
+- **Enabled but nobody sees it.** `enabled: true` with rollout at 0% also serves no one (the
+  MCP warns about this). That's why this skill sets `percentage: 100` at create time.
 - **Using the key as `flagId`.** `update_flag` takes the per-project flag **id**. Resolve it
   via `search`/`get_flags` first.
 - **Creating in only one project.** A flag that exists in dev but not prod can't be enabled in
   prod later. Always create both up front.
+- **Hardcoding deployment ids.** Resolve them with `get_deployments` each run; the reference
+  table above can go stale.
 - **Enabling prod when asked to "enable" without an env named** is correct (it's the 99%
   case) — but say "enabled in prod" in your reply so it's never a silent surprise.
