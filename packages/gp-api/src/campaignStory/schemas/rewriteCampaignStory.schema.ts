@@ -1,12 +1,13 @@
 import { z } from 'zod'
+import { CampaignStorySchema } from '@goodparty_org/contracts'
 
 // Matches the stored-field ceiling in updateCampaignStory.schema.ts — the
 // text we rewrite is the same free-text the user typed into a story field.
 const MAX_LENGTH = 10000
 
-// The three Campaign Story fields, mirrored from the webapp's
-// CAMPAIGN_STORY_SECTIONS. Drives which section guidance the prompt uses.
-export const CAMPAIGN_STORY_FIELDS = ['why', 'background', 'issues'] as const
+// Derived from CampaignStorySchema so the rewritable fields can't drift from
+// the stored story shape — a new story field becomes rewritable automatically.
+export const CAMPAIGN_STORY_FIELDS = CampaignStorySchema.keyof().options
 
 export const RewriteCampaignStorySchema = z.object({
   field: z.enum(CAMPAIGN_STORY_FIELDS),
