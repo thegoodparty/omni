@@ -1394,4 +1394,26 @@ describe('TasksList - locked-item routing', () => {
       { type: TASK_TYPES.robocall },
     )
   })
+
+  it('normalizes a non-Pro p2pDisabledText action to text and routes it into the wizard', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TasksList
+        campaign={makeCampaign({ isPro: false })}
+        tasks={[makeTask({ flowType: TASK_TYPES.p2pDisabledText })]}
+        tcrCompliance={null}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /Test Task/i }))
+
+    // p2pDisabledText normalizes to text before the upgrade guard, so a non-Pro
+    // candidate is intercepted and routed into the wizard (not the task flow).
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.LockedItemClicked,
+      { type: TASK_TYPES.text },
+    )
+  })
 })
