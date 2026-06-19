@@ -140,6 +140,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           // candidate org — not just at persist().
           setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
           setParty(eo.party ?? null)
+          // A persisted party answer means the user already cleared the
+          // `inOffice` step as an in-office official (only `campaigning` leaves
+          // serve; `party` is collected after `inOffice`). Seed it so a resume
+          // that lands past `inOffice` doesn't strand a backward navigation on
+          // a step with `canContinue === false` — or let a mis-click on
+          // "still campaigning" eject a resumed official into the Win flow.
+          if (eo.party) setInOffice('in-office')
           setTermStartDate(toDate(eo.termStartDate))
           setTermEndDate(toDate(eo.termEndDate))
 
