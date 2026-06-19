@@ -22,7 +22,11 @@ import type {
   ChatMessageDto,
   ChatStreamEvent,
 } from '../../data/contracts'
-import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
+import {
+  COS_INTRO_MESSAGES,
+  toolDisplayName,
+  toolStatusLabel,
+} from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 
@@ -84,6 +88,17 @@ function newClientMessageId(): string {
     return crypto.randomUUID()
   }
   return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
+}
+
+// A tool_call event carries the tool's input as `args` (unknown). Pull the
+// `action` field when present so the status label can reflect what the tool is
+// doing (e.g. reading vs saving priorities).
+function toolAction(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null || !('action' in args)) {
+    return undefined
+  }
+  const action = args.action
+  return typeof action === 'string' ? action : undefined
 }
 
 function messageToItem(msg: ChatMessageDto): ChatItem | null {
@@ -393,19 +408,22 @@ export default function ChiefOfStaffChatBody({
             if (!turnTools.includes(ev.toolName)) {
               turnTools.push(ev.toolName)
             }
-            // Segment view: group consecutive tool calls into one running block.
+            // Segment view: store the resolved (action-aware) label and group
+            // consecutive tool calls into one running block. turnTools keeps the
+            // raw names for the committed message (reload has no args).
+            const label = toolStatusLabel(ev.toolName, toolAction(ev.args))
             const last = segs[segs.length - 1]
             if (last && last.kind === 'tools' && last.running) {
-              if (!last.tools.includes(ev.toolName)) {
+              if (!last.tools.includes(label)) {
                 commitSegs([
                   ...segs.slice(0, -1),
-                  { ...last, tools: [...last.tools, ev.toolName] },
+                  { ...last, tools: [...last.tools, label] },
                 ])
               }
             } else {
               commitSegs([
                 ...segs,
-                { kind: 'tools', tools: [ev.toolName], running: true },
+                { kind: 'tools', tools: [label], running: true },
               ])
             }
           } else if (ev.type === 'done') {
@@ -629,11 +647,9 @@ export default function ChiefOfStaffChatBody({
                       >
                         <SearchIcon className="size-3" aria-hidden />
                         {seg.running ? (
-                          <span className="text-shimmer">
-                            {toolDisplayName(t)}
-                          </span>
+                          <span className="text-shimmer">{t}</span>
                         ) : (
-                          toolDisplayName(t)
+                          t
                         )}
                       </span>
                     ))}
