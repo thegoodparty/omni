@@ -286,7 +286,8 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/support-estimate': {
     Request: {}
-    Response: SupportEstimate
+    // Null until the data team's ETL populates the office's support row.
+    Response: SupportEstimate | null
   }
 
   'GET /v1/dashboard/cards': {

@@ -11,7 +11,6 @@ const ESTIMATE: SupportEstimate = {
   likelySupport: 1200,
   districtSize: 5000,
   percentOfDistrict: 24,
-  trendVsLastMonth: 1.5,
 }
 
 const CARD: DashboardCard = {
@@ -38,6 +37,15 @@ describe('dashboardApi', () => {
       })
 
       expect(await dashboardApi.getSupportEstimate()).toEqual(ESTIMATE)
+    })
+
+    it('returns null when no estimate exists yet', async () => {
+      api.mock('GET /v1/elected-office/support-estimate', {
+        status: 200,
+        data: null,
+      })
+
+      expect(await dashboardApi.getSupportEstimate()).toBeNull()
     })
 
     it('throws on a non-2xx response', async () => {

@@ -70,10 +70,10 @@ export class ElectedOfficeController {
 
   @UseElectedOffice()
   @Get('support-estimate')
-  @ResponseSchema(SupportEstimateSchema)
+  @ResponseSchema(SupportEstimateSchema.nullable())
   getSupportEstimate(
     @ReqElectedOffice() electedOffice: ElectedOffice,
-  ): SupportEstimate {
+  ): Promise<SupportEstimate | null> {
     return this.supportEstimateService.getSupportEstimate(electedOffice.id)
   }
 
