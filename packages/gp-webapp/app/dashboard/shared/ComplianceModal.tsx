@@ -14,6 +14,7 @@ import {
 } from '@shared/experiments/proUpgrade3Flag'
 
 const PROFILE_COMPLIANCE_PATH = '/dashboard/profile#texting-compliance'
+const SUBMIT_PIN_PATH = '/dashboard/profile/texting-compliance/submit-pin'
 
 interface ComplianceModalProps {
   open: boolean
@@ -32,9 +33,8 @@ export function ComplianceModal({
   // Only the default "Start Registration" branch links into the
   // compliance/upgrade flow. The pending/submitted/rejected/error statuses are
   // not registration prompts: pending/rejected/error use a mailto or no href,
-  // and submitted (no dedicated case) falls through to the default branch, so
-  // it must be excluded here to avoid mislabeling an already-submitted user as
-  // needing to register.
+  // and submitted links to the PIN-entry page. They must be excluded here so an
+  // already-registered user is never sent back through the registration flow.
   const isRegistrationCase =
     tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.PENDING &&
     tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.SUBMITTED &&
@@ -82,6 +82,20 @@ export function ComplianceModal({
     ctaHref: string | undefined
 
   switch (tcrComplianceStatus) {
+    case TCR_COMPLIANCE_STATUS.SUBMITTED:
+      title = 'Submit your PIN to finish texting registration'
+      description = (
+        <>
+          Your registration is in. To verify your identity, CampaignVerify will
+          send a PIN within 2-3 business days to the email, phone, or address
+          that matches your election filing. Enter it here to finish and start
+          texting.
+          {helpTrailer}
+        </>
+      )
+      cta = 'Enter PIN'
+      ctaHref = SUBMIT_PIN_PATH
+      break
     case TCR_COMPLIANCE_STATUS.PENDING:
       title = 'Texting registration under review'
       description =
