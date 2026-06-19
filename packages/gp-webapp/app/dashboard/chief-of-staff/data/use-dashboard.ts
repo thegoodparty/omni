@@ -18,7 +18,7 @@ const SUPPORT_ESTIMATE_KEY = ['chief-of-staff', 'support-estimate'] as const
 const cardsKey = (bucket: DashboardCardBucket) =>
   ['chief-of-staff', 'cards', bucket] as const
 
-export const useSupportEstimate = (): UseQueryResult<SupportEstimate> =>
+export const useSupportEstimate = (): UseQueryResult<SupportEstimate | null> =>
   useQuery({
     queryKey: SUPPORT_ESTIMATE_KEY,
     queryFn: () => dashboardApi.getSupportEstimate(),

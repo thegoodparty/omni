@@ -329,6 +329,11 @@ export {
 export { ZipCodesArraySchema } from './elections/zipCodes'
 
 export {
+  ElectedOfficeSupportSchema,
+  type ElectedOfficeSupport,
+} from './elections/ElectedOfficeSupport.schema'
+
+export {
   SPEECH_SYNTHESIS_ENGINE_VALUES,
   type SpeechSynthesisEngine,
   SpeechSynthesisEngineSchema,
