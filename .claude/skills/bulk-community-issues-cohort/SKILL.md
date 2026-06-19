@@ -9,7 +9,9 @@ description: Use when manually dispatching a cohort of community-issue agent job
 >
 > 1. **PR #246** (the Community Issue Feed feature, `community-issues-pr2` branch) is **merged and deployed to prod**.
 > 2. The `top_community_issues` and `trending_issues` **runbooks are published to S3** in the PMF engine's runbook bucket.
-> 3. The relevant **feature flag is enabled** in prod (check Amplitude or the env var `MEETINGS_AUTOMATION_ENABLED`).
+> 3. The `POST /v1/community-issue-feed/dispatch` endpoint is **live in prod with the serve-ICP gate present** — confirmed by the Prerequisites checks below (bad-token probe returns 401/403 not 404, and the gate commit is in master and deployed).
+>
+> Note: this dispatch path is **not** gated by a feature flag or by `MEETINGS_AUTOMATION_ENABLED` — it is an `AdminOrM2MGuard` (M2M) endpoint. `MEETINGS_AUTOMATION_ENABLED` gates only the daily crons / signup hook, and `serve-community-issues-v1` gates only the webapp nav item — so there is no flag to "enable" for a manual cohort.
 >
 > If any of these are false, abort and tell the human which precondition is not yet met. Do not attempt to dispatch.
 
@@ -33,7 +35,10 @@ an explicit go before the real dispatch.
 ## Prerequisites
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
-- PR #246 merged and deployed to prod (the `POST /v1/community-issue-feed/dispatch` endpoint must exist). Verify: `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issue-feed/dispatch -H "authorization: Bearer __bad__"` should return 401/403, not 404. A 404 means the endpoint is not deployed.
+- PR #246 merged and deployed to prod, **with the serve-ICP gate enforced**. Verify all three:
+  1. **Route deployed** (no creds needed): `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issue-feed/dispatch -H "authorization: Bearer __bad__"` returns 401/403 (route exists), not 404 (not deployed).
+  2. **ICP gate is in master**: `cd packages/gp-api && git log master --oneline -S isServeIcp -- src/communityIssueFeed/services/communityIssueFeedDispatch.service.ts` must show a commit. Abort if empty — a build before the gate would dispatch (and charge for) non-ICP orgs.
+  3. **Prod is deployed at or past that commit** — confirm the deployed image SHA (ECS task definition tag / deploy log) is at or after the gate commit. Abort if behind.
 - This repo's `packages/gp-api` on `develop` or `master` (the analysis tsx scripts will run here).
 - The daily cron dispatches (`dispatchWeeklyTrendingIssues`, `dispatchMonthlyTopIssues`) are guarded by `MEETINGS_AUTOMATION_ENABLED=true`. Confirm no concurrent cron is running; a time window cleanly identifies your cohort.
 
@@ -52,10 +57,12 @@ an explicit go before the real dispatch.
 
 ## Step 1: assemble env + non-destructive pre-flight probe ($0)
 
-The probe mints the token and POSTs an empty slug list with `dryRun: true`. New
-prod code returns `200 {dispatched:0, skipped:0}`; old code (endpoint not yet
-deployed) returns 404; bad auth returns 401/403. This proves auth AND that the
-endpoint is live, with zero spend.
+The probe mints the real M2M token and POSTs an **empty** slug list. `orgSlugs`
+is validated server-side as 1–200 entries, so an empty list is **rejected at
+validation with zero dispatch** — expect **HTTP 400**. A 400 confirms both that
+the route is deployed and that the minted token authenticates (it reached body
+validation past `AdminOrM2MGuard`). 404 = endpoint not deployed; 401/403 = the
+minted token is bad (re-check the secrets). No run is ever dispatched.
 
 ```bash
 cd packages/gp-api   # from the repo root
@@ -73,7 +80,11 @@ TOKEN=$(npx tsx -e 'import{createClerkClient}from"@clerk/backend";(async()=>{con
 curl -s -w "\nHTTP %{http_code}\n" -X POST "$PROD_API_URL/v1/community-issue-feed/dispatch" \
   -H "content-type: application/json" -H "authorization: Bearer $TOKEN" \
   -d '{"orgSlugs":[]}'
-# EXPECT: HTTP 200 and body {"dispatched":0,"skipped":0}. Abort if 404 (endpoint not deployed) or 401/403 (bad auth).
+# EXPECT: HTTP 400 — an empty orgSlugs list is rejected by the 1–200 validation,
+# which confirms the route is deployed AND the token authenticates, with zero
+# dispatch. Abort if 404 (endpoint not deployed) or 401/403 (bad token —
+# re-check secrets). A 200 is unexpected (the endpoint should reject an empty
+# list); investigate the deployed contract before proceeding.
 ```
 
 ## Step 2: assemble the cohort org list
@@ -159,6 +170,10 @@ window.
 # In the SAME shell
 DISPATCH_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "Dispatch start: $DISPATCH_START"
+
+# Re-mint the token: the Step 1 token has a 10-min TTL and the Step 3 human
+# review may have consumed it. A stale token would 401 the dispatch below.
+TOKEN=$(npx tsx -e 'import{createClerkClient}from"@clerk/backend";(async()=>{const c=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY,publishableKey:process.env.CLERK_PUBLISHABLE_KEY});const m=await c.m2m.createToken({machineSecretKey:process.env.GP_PROD_MACHINE_SECRET,secondsUntilExpiration:600});process.stdout.write(m.token||"")})().catch(e=>{console.error(e);process.exit(2)})')
 
 curl -s -w "\nHTTP %{http_code}\n" -X POST "$PROD_API_URL/v1/community-issue-feed/dispatch" \
   -H "content-type: application/json" -H "authorization: Bearer $TOKEN" \
