@@ -34,6 +34,7 @@ const makeFeedDetail = (
   summary: 'Rising rents are a top concern.',
   rank: 1,
   prioritized: false,
+  archived: false,
   detail: makeDetail(),
   relatedBriefings: [],
   priorityId: null,
@@ -121,6 +122,30 @@ describe('IssueDetail', () => {
     render(<IssueDetail issue={makeFeedDetail({ detail: null })} />)
     expect(
       screen.getByText('No detail available for this issue.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows archived badge and hides prioritize button when archived', () => {
+    render(
+      <IssueDetail
+        issue={makeFeedDetail({ archived: true, prioritized: false })}
+      />,
+    )
+    expect(screen.getByText('Archived')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /add to my priorities/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides archived badge and shows prioritize button when not archived', () => {
+    render(
+      <IssueDetail
+        issue={makeFeedDetail({ archived: false, prioritized: false })}
+      />,
+    )
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /add to my priorities/i }),
     ).toBeInTheDocument()
   })
 })

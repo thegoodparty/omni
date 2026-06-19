@@ -178,6 +178,7 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
       title: issue.title,
       summary: issue.summary,
       rank: issue.rank,
+      archived: issue.archivedAt !== null,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       detail: issue.detail as Record<string, unknown> | null, // JSONB column; opaque blob passed through to client unchanged
       relatedBriefings,

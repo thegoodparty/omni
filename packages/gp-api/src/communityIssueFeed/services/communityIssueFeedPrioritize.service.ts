@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 
@@ -15,6 +19,8 @@ export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
       where: { id: issueId, organizationSlug },
     })
     if (!issue) throw new NotFoundException('Community issue not found')
+    if (issue.archivedAt !== null)
+      throw new BadRequestException('Cannot prioritize an archived issue')
 
     try {
       return await this.client.priority.create({

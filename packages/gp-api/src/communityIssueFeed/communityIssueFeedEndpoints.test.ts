@@ -182,6 +182,34 @@ describe('GET /v1/community-issue-feed — archived priority', () => {
   })
 })
 
+describe('GET /v1/community-issue-feed/:id — archived', () => {
+  it('returns 200 with archived:true for an archived issue', async () => {
+    const issue = await seedIssue({
+      archivedAt: new Date('2025-01-01'),
+    })
+
+    const res = await service.client.get<{ archived: boolean }>(
+      `${BASE}/${issue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.archived).toBe(true)
+  })
+
+  it('returns archived:false for an active issue', async () => {
+    const issue = await seedIssue()
+
+    const res = await service.client.get<{ archived: boolean }>(
+      `${BASE}/${issue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.archived).toBe(false)
+  })
+})
+
 describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
   it('returns 404 when the issue belongs to a different org', async () => {
     const otherSlug = `other-org-${uuidv7()}`
@@ -365,6 +393,42 @@ describe('GET /v1/community-issue-feed/:id', () => {
       expect(itemIds).not.toContain('stale-item')
     },
   )
+})
+
+describe('POST /v1/community-issue-feed/:id/prioritize — archived', () => {
+  it('returns 400 when prioritizing an archived issue', async () => {
+    const issue = await seedIssue({
+      archivedAt: new Date('2025-01-01'),
+    })
+
+    const res = await service.client.post(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('still creates a Priority for an active issue after archived check', async () => {
+    const issue = await seedIssue()
+
+    const res = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const second = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.id).toBe(res.data.id)
+  })
 })
 
 describe('POST /v1/community-issue-feed/:id/prioritize — cross-org security', () => {

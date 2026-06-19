@@ -729,6 +729,7 @@ export type CommunityIssueDetail = {
 }
 
 export type CommunityIssueFeedDetail = CommunityIssueFeedCard & {
+  archived: boolean
   detail: CommunityIssueDetail | null
   relatedBriefings: Array<{
     meetingBriefingId: string

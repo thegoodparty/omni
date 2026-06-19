@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { Badge, Button } from '@styleguide'
+import { ArchiveIcon } from 'styleguide/components/ui/icons'
 import type {
   CommunityIssueFeedDetail,
   CommunityIssueSource,
@@ -76,14 +77,25 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
             {issue.category}
           </Badge>
           <Badge className={severity.className}>{severity.label}</Badge>
+          {issue.archived ? (
+            <Badge
+              variant="outline"
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+            >
+              <ArchiveIcon className="h-3 w-3" />
+              Archived
+            </Badge>
+          ) : null}
         </div>
         <h1 className="text-2xl font-bold text-foreground">{issue.title}</h1>
         <p className="text-sm text-muted-foreground">{issue.summary}</p>
         <div className="flex flex-wrap gap-2">
-          <PrioritizeButton
-            issueId={issue.id}
-            initialPrioritized={issue.prioritized}
-          />
+          {!issue.archived ? (
+            <PrioritizeButton
+              issueId={issue.id}
+              initialPrioritized={issue.prioritized}
+            />
+          ) : null}
           <AskAiButton
             issue={{
               id: issue.id,
