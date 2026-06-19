@@ -43,6 +43,7 @@ const makeFeedDetail = (
   summary: 'Rising rents are a top concern.',
   rank: 1,
   prioritized: false,
+  archived: false,
   detail: makeDetail(),
   relatedBriefings: [],
   priorityId: null,
