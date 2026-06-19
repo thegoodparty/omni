@@ -245,6 +245,46 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('advances from the prefill confirm hub to constituents without re-patching the org', async () => {
+    // Prefill EO with party + office + term dates all saved resumes at
+    // constituents (the confirm review was already passed). Navigate back to
+    // the confirm hub, then Continue, to exercise confirm → goToConstituents:
+    // the office was never re-picked, so persistOfficeProgress is a no-op and
+    // no PATCH should fire.
+    const patchRequests: unknown[] = []
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', (req) => {
+      patchRequests.push(req)
+      return { status: 200, data: buildOrg() }
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('Does this look right?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      ),
+    ).toBeInTheDocument()
+    // Office was already on the org and never re-picked — no PATCH fires.
+    expect(patchRequests).toHaveLength(0)
+  })
+
   it('advances even when the incremental save fails (best-effort, non-blocking)', async () => {
     mockLoad(buildEO(), buildOrg())
     api.mock('PUT /v1/elected-office/:id', {
