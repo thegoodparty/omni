@@ -1,5 +1,9 @@
 import * as React from 'react'
-import { useArgs } from 'storybook/preview-api'
+import {
+  useArgs,
+  useState,
+  useEffect,
+} from 'storybook/preview-api'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { FilterPill, FilterPillGroup } from '../components/ui/filter-pill'
 
@@ -58,16 +62,17 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
   render: function Render({ type, value, disabled, showRemove }) {
     const [, updateArgs] = useArgs()
-    const [multiValue, setMultiValue] = React.useState<string[]>([])
-    const [pills, setPills] = React.useState(OFFICES)
+    const [multiValue, setMultiValue] = useState<string[]>([])
+    const [pills, setPills] = useState(OFFICES)
     const isMultiple = type === 'multiple'
 
-    React.useEffect(() => {
+    useEffect(() => {
       setPills(OFFICES)
     }, [showRemove])
 
     return (
       <FilterPillGroup
+        key={type}
         type={isMultiple ? 'multiple' : 'single'}
         disabled={disabled}
         value={isMultiple ? multiValue : (value ?? '')}
