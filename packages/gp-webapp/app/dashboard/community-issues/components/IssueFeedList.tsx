@@ -47,13 +47,13 @@ const priorityVariant = (
   }
 }
 
-function IssueCard({
+const IssueCard = ({
   issue,
   showRank,
 }: {
   issue: CommunityIssueFeedCard
   showRank: boolean
-}) {
+}) => {
   const severity = priorityVariant(issue.priority)
   return (
     <div className="flex gap-3 rounded-lg border border-border bg-card p-4">
@@ -80,7 +80,7 @@ function IssueCard({
   )
 }
 
-function FeedSection({
+const FeedSection = ({
   title,
   feed,
   showRank,
@@ -88,7 +88,7 @@ function FeedSection({
   title: string
   feed: CommunityIssueFeedListResponse
   showRank: boolean
-}) {
+}) => {
   const issues = showRank
     ? [...feed.issues]
         .filter((i) => i.rank !== null)

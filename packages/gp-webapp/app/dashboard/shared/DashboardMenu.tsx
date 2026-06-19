@@ -23,7 +23,6 @@ import {
   FileText,
   Globe,
   LayoutDashboard,
-  ListChecks,
   LogOut,
   Send,
   Settings,
@@ -64,7 +63,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { ScrollTextIcon } from '@styleguide/components/ui/icons'
+import { ListChecksIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -251,7 +250,7 @@ const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
   label: 'Community Issues',
   link: '/dashboard/community-issues',
   icon: <MdFactCheck />,
-  v2Icon: ListChecks,
+  v2Icon: ListChecksIcon,
   v2Category: 'elected-office',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
 }

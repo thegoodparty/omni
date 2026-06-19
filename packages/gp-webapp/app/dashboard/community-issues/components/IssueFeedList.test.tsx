@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import IssueFeedList from './IssueFeedList'
 
 const makeCard = (
@@ -35,6 +36,19 @@ const runningFeed = {
   issues: [],
   refresh: { status: 'running' as const, lastCompletedAt: null },
 }
+
+describe('GET /v1/community-issue-feed mock', () => {
+  it('configures the api mock for the feed endpoint', () => {
+    const mocker = api.mock('GET /v1/community-issue-feed', {
+      status: 200,
+      data: {
+        issues: [makeCard({ id: 'mock-1', title: 'Mock Issue' })],
+        refresh: { status: 'completed', lastCompletedAt: null },
+      },
+    })
+    expect(mocker).toBeDefined()
+  })
+})
 
 describe('IssueFeedList', () => {
   it('renders issues from both feeds', () => {

@@ -705,7 +705,6 @@ export type CommunityIssueFeedDetail = CommunityIssueFeedCard & {
     briefingItemId: string
     meetingDate: string
   }>
-  prioritized: boolean
   priorityId: string | null
 }
 
