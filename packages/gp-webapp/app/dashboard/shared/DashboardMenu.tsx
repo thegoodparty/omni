@@ -10,7 +10,6 @@ import {
   MdPeople,
   MdPoll,
   MdSensorDoor,
-  MdWeb,
 } from 'react-icons/md'
 import {
   BookOpen,
@@ -21,7 +20,6 @@ import {
   DoorClosed,
   ExternalLink,
   FileText,
-  Globe,
   LayoutDashboard,
   LogOut,
   Send,
@@ -70,7 +68,6 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
 import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
@@ -97,18 +94,8 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
   icon: <MdFolderShared />,
   v2Icon: UsersRound,
   v2Category: 'campaign',
-  link: '/dashboard/upgrade-to-pro',
+  link: '/dashboard/pro-upgrade',
   id: 'upgrade-pro-dashboard',
-}
-
-const WEBSITE_MENU_ITEM: MenuItem = {
-  label: 'Website',
-  icon: <MdWeb />,
-  v2Icon: Globe,
-  v2Category: 'campaign',
-  link: '/dashboard/website',
-  id: 'website-dashboard',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickWebsite),
 }
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
@@ -131,7 +118,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterOutreach),
   },
   VOTER_DATA_UPGRADE_ITEM,
-  WEBSITE_MENU_ITEM,
   {
     label: 'My Profile',
     icon: <MdAccountCircle />,
@@ -348,8 +334,6 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
-    useProUpgradeFlag()
   const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
   // Master gate for the Win voter-data rollout. When on, a pro Win campaign
   // sees the Contacts item (reusing the Serve route) in place of the legacy
@@ -380,17 +364,13 @@ export default function DashboardMenu({
       items.push(ECANVASSER_MENU_ITEM)
     }
 
-    return proUpgradeReady && proUpgradeEnabled
-      ? items.filter((item) => item !== WEBSITE_MENU_ITEM)
-      : items
+    return items
   }, [
     campaign,
     serveAccessEnabled,
     ecanvasser,
     electedOffice,
     isElectedOfficeLoading,
-    proUpgradeReady,
-    proUpgradeEnabled,
     chiefOfStaffEnabled,
     campaignStrategyExists,
     winVoterDataReady,

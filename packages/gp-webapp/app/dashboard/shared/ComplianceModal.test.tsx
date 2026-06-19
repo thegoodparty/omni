@@ -1,27 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
-import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
-import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
 import { ComplianceModal } from './ComplianceModal'
-
-vi.mock('@shared/experiments/proUpgradeFlag', () => ({
-  useProUpgradeFlag: vi.fn(),
-}))
-
-vi.mock('@shared/experiments/proUpgrade3Flag', () => ({
-  useProUpgrade3Flag: vi.fn(),
-  PRO_UPGRADE_ENTRY_PATH: '/dashboard/pro-upgrade',
-}))
-
-const mockUseProUpgradeFlag = vi.mocked(useProUpgradeFlag)
-const mockUseProUpgrade3Flag = vi.mocked(useProUpgrade3Flag)
 
 describe('ComplianceModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseProUpgradeFlag.mockReturnValue({ ready: true, enabled: true })
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
   })
 
   it('shows the PIN-entry prompt for a submitted registration', () => {
@@ -77,7 +61,7 @@ describe('ComplianceModal', () => {
     expect(screen.getByText('Registration error')).toBeInTheDocument()
   })
 
-  it('shows the registration prompt when no compliance record exists', () => {
+  it('routes the registration prompt into the Pro upgrade wizard', () => {
     render(
       <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
     )
@@ -86,34 +70,12 @@ describe('ComplianceModal', () => {
       screen.getByText('Action required: register for texting compliance'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Start Registration' }),
-    ).toHaveAttribute('href', '/dashboard/pro-upgrade')
-  })
-
-  it('links to the profile compliance section when proUpgrade3 is off-cohort', () => {
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
-    render(
-      <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
-    )
-
-    expect(
-      screen.getByRole('link', { name: 'Start Registration' }),
-    ).toHaveAttribute('href', '/dashboard/profile#texting-compliance')
-  })
-
-  it('shows the website-required description when proUpgrade phase1 is off-cohort', () => {
-    mockUseProUpgradeFlag.mockReturnValue({ ready: true, enabled: false })
-    render(
-      <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
-    )
-
-    expect(
-      screen.getByText(/an active website purchased through GoodParty\.org/),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText(
+      screen.getByText(
         /You'll need your Campaign EIN and your official filing link\. Ready/,
       ),
-    ).not.toBeInTheDocument()
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Start Registration' }),
+    ).toHaveAttribute('href', '/dashboard/pro-upgrade')
   })
 })

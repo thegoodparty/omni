@@ -15,7 +15,7 @@ import TextingComplianceApproved from './TextingComplianceApproved'
 import TextingComplianceDenied from './TextingComplianceDenied'
 import TextingComplianceInReview from './TextingComplianceInReview'
 
-// Post-payment compliance surface for the pro-upgrade3 cohort. The agent
+// Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
 // card only reflects the TCR record's status, it does not drive the agent.
 export default function ProUpgrade3Compliance(): React.JSX.Element {
