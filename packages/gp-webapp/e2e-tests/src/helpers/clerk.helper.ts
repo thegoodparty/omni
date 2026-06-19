@@ -87,18 +87,35 @@ const toClerkTestEmail = (email: string): string =>
   email.includes('+clerk_test') ? email : email.replace('@', '+clerk_test@')
 
 /**
- * Completes the custom sign-up form's email-code verification step. The form
- * (app/sign-up/SignUpForm.tsx) renders the code as a single `input-otp` field
- * tagged `data-testid="signup-otp-input"` and a manual "Verify" submit button.
- * `+clerk_test` emails verify with the fixed OTP, so this is deterministic.
+ * Completes the custom sign-up form's email-code verification step IF the
+ * instance requires it. The form (app/sign-up/SignUpForm.tsx) only renders the
+ * `data-testid="signup-otp-input"` field when create() leaves the attempt in a
+ * `missing_requirements` state; instances without required email verification
+ * complete on create() and redirect straight to onboarding instead. This races
+ * the two outcomes so it works in both configurations. `+clerk_test` emails
+ * verify with the fixed OTP, so the verification path stays deterministic.
  */
 export const completeClerkEmailCodeVerification = async (
   page: Page,
 ): Promise<void> => {
   const codeInput = page.getByTestId('signup-otp-input')
-  await codeInput.waitFor({ state: 'visible', timeout: 15000 })
-  await codeInput.fill(CLERK_TEST_OTP_CODE)
 
+  // Resolve as soon as either the code step appears or we navigate off /sign-up.
+  await Promise.race([
+    codeInput.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
+    page
+      .waitForURL((url) => !url.pathname.startsWith('/sign-up'), {
+        timeout: 15000,
+      })
+      .catch(() => {}),
+  ])
+
+  if (!(await codeInput.isVisible().catch(() => false))) {
+    // Sign-up completed on create(); no code step to fill.
+    return
+  }
+
+  await codeInput.fill(CLERK_TEST_OTP_CODE)
   // The custom flow does not auto-submit; click Verify once all digits are in.
   await page.getByTestId('signup-verify-submit').click()
 }

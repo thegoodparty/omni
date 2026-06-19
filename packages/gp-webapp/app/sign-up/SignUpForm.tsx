@@ -71,13 +71,22 @@ export default function SignUpForm() {
     try {
       // `create()` starts a fresh attempt every time, so returning to this form
       // after bailing out of verification cleanly supersedes the prior attempt.
-      await clerk.signUp.create({
+      const attempt = await clerk.signUp.create({
         emailAddress: email,
         password,
         firstName,
         lastName,
         legalAccepted: agreed,
       })
+
+      // Instances without required email verification complete the sign-up on
+      // create(); activate the session and move on instead of asking for a code.
+      if (attempt.status === 'complete') {
+        await clerk.setActive({ session: attempt.createdSessionId })
+        router.push(SIGN_UP_REDIRECT)
+        return
+      }
+
       await clerk.signUp.prepareEmailAddressVerification({
         strategy: 'email_code',
       })
