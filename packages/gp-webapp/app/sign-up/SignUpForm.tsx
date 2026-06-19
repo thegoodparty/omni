@@ -99,7 +99,7 @@ export default function SignUpForm() {
       }
 
       if (signUp.status === 'complete') {
-        await signUp.finalize({
+        const { error: finalizeError } = await signUp.finalize({
           navigate: async ({ decorateUrl }) => {
             const url = decorateUrl(SIGN_UP_REDIRECT)
             if (url.startsWith('http')) {
@@ -109,10 +109,13 @@ export default function SignUpForm() {
             }
           },
         })
+        if (finalizeError) {
+          setError(messageFrom(finalizeError))
+        }
         return
       }
 
-      setError('We could not verify that code. Please try again.')
+      setError('We could not finish creating your account. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -186,10 +189,13 @@ export default function SignUpForm() {
           </Button>
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               setVerifying(false)
               setCode('')
               setError(null)
+              // Discard the in-progress Clerk attempt (local-only) so the next
+              // submit starts a fresh sign-up instead of reusing a stale one.
+              await signUp.reset()
             }}
             className="text-center text-sm text-muted-foreground underline"
           >
