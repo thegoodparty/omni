@@ -23,7 +23,6 @@ type PlaygroundArgs = {
   side: 'top' | 'right' | 'bottom' | 'left'
   delayDuration: number
   content: string
-  variant: 'default' | 'card'
   openOnClick: boolean
 }
 
@@ -33,7 +32,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     side: 'top',
     delayDuration: 200,
     content: 'Add to library',
-    variant: 'default',
     openOnClick: false,
   },
   argTypes: {
@@ -52,20 +50,14 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     content: {
       control: 'text',
-      description: 'Tooltip text content (default variant only).',
-      if: { arg: 'variant', eq: 'default' },
-    },
-    variant: {
-      control: 'radio',
-      options: ['default', 'card'],
-      description: 'Switch between simple text and card-style rich content.',
+      description: 'Tooltip text content.',
     },
     openOnClick: {
       control: 'boolean',
       description: 'Also open on click/tap — useful for touch devices.',
     },
   },
-  render: ({ open, side, delayDuration, content, variant, openOnClick }) => {
+  render: ({ open, side, delayDuration, content, openOnClick }) => {
     const [, updateArgs] = useArgs()
     return (
       <div className="flex items-center justify-center py-16">
@@ -79,36 +71,16 @@ export const Playground: StoryObj<PlaygroundArgs> = {
           <TooltipTrigger asChild>
             <Button variant="outline">Hover me</Button>
           </TooltipTrigger>
-          {variant === 'card' ? (
-            <TooltipContent
-              side={side}
-              sideOffset={8}
-              showArrow={false}
-              className="flex w-80 items-start gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-lg"
-            >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-bright-yellow-200 text-base-foreground">
-                <StarIcon className="h-5 w-5" />
-              </span>
-              <span className="flex flex-col gap-1">
-                <span className="text-sm font-semibold">Campaign plan</span>
-                <span className="text-sm font-normal text-muted-foreground">
-                  A step-by-step guide to help you run a winning campaign — from
-                  filing to election day.
-                </span>
-              </span>
-            </TooltipContent>
-          ) : (
-            <TooltipContent side={side}>
-              <p>{content}</p>
-            </TooltipContent>
-          )}
+          <TooltipContent side={side}>
+            <p>{content}</p>
+          </TooltipContent>
         </Tooltip>
       </div>
     )
   },
 }
 
-export const Variants: Story = {
+export const TriggerTypes: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex gap-4">
@@ -202,48 +174,30 @@ export const OpenOnClick: Story = {
 export const RichContent: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="grid grid-cols-2 gap-8 py-48 px-16">
-      <div className="flex justify-center">
-        <Tooltip open>
-          <TooltipTrigger className="cursor-pointer text-foreground underline decoration-dotted">
-            Campaign plan
-          </TooltipTrigger>
-          <TooltipContent
-            side="top"
-            align="center"
-            sideOffset={8}
-            showArrow={false}
-            className="flex w-80 items-start gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-lg"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-bright-yellow-200 text-base-foreground">
-              <StarIcon className="h-5 w-5" />
+    <div className="flex items-center justify-center py-48">
+      <Tooltip open>
+        <TooltipTrigger className="cursor-pointer text-foreground underline decoration-dotted">
+          Campaign plan
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="center"
+          sideOffset={8}
+          showArrow={false}
+          className="flex w-80 items-start gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-lg"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <StarIcon className="h-5 w-5" />
+          </span>
+          <span className="flex flex-col gap-1">
+            <span className="text-sm font-semibold">Campaign plan</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              A step-by-step guide to help you run a winning campaign — from
+              filing to election day.
             </span>
-            <span className="flex flex-col gap-1">
-              <span className="text-sm font-semibold">Campaign plan</span>
-              <span className="text-sm font-normal text-muted-foreground">
-                A step-by-step guide to help you run a winning campaign — from
-                filing to election day.
-              </span>
-            </span>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div className="flex justify-center">
-        <Tooltip open>
-          <TooltipTrigger asChild>
-            <Button variant="outline">Custom content</Button>
-          </TooltipTrigger>
-          <TooltipContent showArrow={false} className="w-80 p-3">
-            <div className="space-y-1">
-              <h4 className="text-xs font-semibold">Custom tooltip</h4>
-              <p className="text-xs text-components-tooltip-foreground/70">
-                This tooltip has custom content with a title and description.
-              </p>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </div>
+          </span>
+        </TooltipContent>
+      </Tooltip>
     </div>
   ),
 }

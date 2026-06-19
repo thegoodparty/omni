@@ -114,7 +114,7 @@ function TooltipTrigger({
 
 function TooltipContent({
   className,
-  sideOffset = 0,
+  sideOffset = 4,
   showArrow = true,
   children,
   ...props
