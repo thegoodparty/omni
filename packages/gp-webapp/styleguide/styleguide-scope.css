@@ -332,6 +332,8 @@
   );
   --component-tooltip-base: var(--tw-neutral-100);
   --component-tooltip-foreground: var(--tw-neutral-950);
+  --color-components-tooltip-base: var(--tw-neutral-100);
+  --color-components-tooltip-foreground: var(--tw-neutral-950);
 
   /*
    * ==========================================================================
