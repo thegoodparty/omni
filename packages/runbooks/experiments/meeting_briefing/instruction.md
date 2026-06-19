@@ -192,6 +192,33 @@ Success: the cursor returns a one-row result with `ping = 1`. Continue with the 
 
 Failure: the call raises (connection error, scope violation, or `UpstreamError`). Do not fail the run — proceed without Haystaq. Set `haystaq_status: "no_match"` on every item that would have used it, omit haystaq sources from `sources[]`, and record the decision in `run_metadata.run_decisions[]` with reason `"databricks_credentials_unavailable: <ExceptionClassName>"` (include only the exception class name — never the raw error message, which may carry hostnames, schema paths, or driver stack hints that should not appear in the published artifact).
 
+### Step 1b — Read official's priorities and community issues (via MCP)
+
+**This step is iterate-separately guidance.** The backend now writes link rows from stamped `executive_summary.items[]` ids. Stamp each `executive_summary` item with the correct ids to activate those links.
+
+Before classifying agenda items, fetch the official's priorities and community-issue-feed entries over MCP. These shape both tier selection (Step 5) and the stamping rule (Step 17):
+
+```
+GET /v1/priorities          → org's durable priority list (may be empty)
+GET /v1/community-issue-feed → latest community issues for the org (may be empty)
+```
+
+Both are `@McpTool` endpoints; call them with the org's auth context. Store the results in memory:
+- `PRIORITIES` — array of `{ id, title, description }` objects (non-archived, active)
+- `COMMUNITY_ISSUES` — array of `{ id, title, summary, list, category }` objects (non-archived)
+
+If either call fails or returns empty, treat that pool as empty and proceed without it. Do not abort the run — Haystaq district data is the fallback.
+
+### Step 1c — Determine the triage hierarchy for this org
+
+**Triage hierarchy (evaluated once, applied throughout classification and stamping):**
+
+1. **PRIORITIES (highest)** — the org has at least one active priority from `PRIORITIES`. Agenda items that map to a priority are featured/queued first.
+2. **COMMUNITY ISSUES (mid)** — use when `PRIORITIES` is empty. Agenda items that map to a `COMMUNITY_ISSUES` entry drive tier selection.
+3. **Haystaq district data (fallback)** — use only when both `PRIORITIES` and `COMMUNITY_ISSUES` are empty. The inline Haystaq catalog (Steps 6–8) is the sole source of constituent resonance signals.
+
+Record which tier of the hierarchy applies in `run_metadata.run_decisions[]` (e.g. `decision: "triage_source", reason: "priorities (N active)"`).
+
 ### Step 2 — Resolve agenda packet source
 
 **Target: the agenda packet, not the summary.** Re-read "WHAT COUNTS AS THE AGENDA PACKET" above before proceeding. You are looking for the substantive briefing PDFs (staff reports, ordinances, exhibits, etc.) — either one compiled file or the per-item attachments collection. If you end this step with only a summary, you have not resolved the packet and must route to `awaiting_agenda` in Step 3.
@@ -430,6 +457,8 @@ An item qualifies as featured or queued if it meets one or more of:
 Constituent resonance is a selection signal, not a mechanical threshold. For each priority-eligible item, scan the inline catalog in Step 6 for a topic whose substance maps to the item, then pick a polarized column. The chosen column feeds both tier ranking here and the sentiment section's output downstream. The actual mean score is computed once at the end via the batched AVG query in Step 8.
 
 Initial tier assignment uses qualitative signals (vote_required, public position, budget impact, topic alignment with the inline Haystaq catalog). Tier may be revised after Step 8 if district-vs-city divergence (≥10-point gap) elevates an item's importance.
+
+**Apply the triage hierarchy from Step 1c when selecting featured/queued items.** If PRIORITIES are active, items that map to a priority get first pick for featured/queued slots — they count as resonant regardless of Haystaq score. If only COMMUNITY_ISSUES are active, items that map to a community issue get first pick. Haystaq resonance still elevates items when neither pool provides a match.
 
 Full information is always extracted for all featured and queued items.
 
@@ -974,6 +1003,12 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `meeting_time`: start time of the meeting in 24-hour `HH:MM` format, in the local timezone given by `meeting_timezone` (e.g. `"19:00"`). Capture from the same source you used for `meeting_date` (streaming platform meeting detail, city meeting schedule, or agenda packet header). Briefings own this independently of `meeting_schedule` so the row is self-sufficient. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_timezone`: IANA timezone name for `meeting_time` (e.g. `"America/Chicago"`). Use the timezone the governing body publishes the meeting in, not UTC. If only an abbreviation like `"CST"` or `"Eastern Time"` is visible on the source, resolve to the matching IANA zone for the city's location. For `no_meeting_found` or `error` status, emit an empty string.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
+**Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
+  - `priority_id` — the `id` of the matching Priority from `PRIORITIES` (Step 1b), if this item was surfaced via a priority match. Otherwise omit or set `null`.
+  - `community_issue_feed_id` — the `id` of the matching CommunityIssueFeed entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
+  
+  At most one of these fields should be non-null per item. If both match (rare), prefer `priority_id`. If neither matches (item elevated via Haystaq or vote-requirement alone), leave both omitted. These ids are used by the backend to write `MeetingBriefingItemLink` rows connecting the briefing item to its source priority or issue — they must be the exact database ids returned by the MCP calls, not inferred values.
+
 - `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each entry reflects what the deep dive actually says. A structured object with `lead_in` (a single framing sentence) and `items` (an array, one entry per **featured** item — not queued, not standard, in the same order they appear in top-level `items[]`). Each `executive_summary.items[]` entry carries: `item_id` (must match an entry in top-level `items[]` with `tier: "featured"` — the UI uses this to link the entry to its deep-dive panel), `title` (must **verbatim equal** `items[item_id].title`; do not paraphrase or shorten), and `overview` (a one-sentence distillation of `items[item_id].display.summary` — same facts, tighter framing, so the lead-of-briefing matches the deep dive). Default `lead_in` when items follow: _"The following items on your agenda require action and/or have a vote:"_ (with trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, set `items: []` and use a standalone `lead_in` covering the case (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Per-field caps enforced by the schema: `lead_in` 300 chars, `title` 100 chars (must match `items[].title`), `overview` 300 chars; max 5 entries. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
   ```json
   {
