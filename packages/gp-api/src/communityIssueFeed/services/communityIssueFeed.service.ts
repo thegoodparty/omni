@@ -10,6 +10,12 @@ const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'trending_issues',
 ])
 
+// JSON.parse returns any; the result is passed straight into Zod safeParse
+// which accepts unknown — no narrower type is available at this boundary.
+const parseJson = (raw: string): Record<string, unknown> =>
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  JSON.parse(raw) as Record<string, unknown>
+
 @Injectable()
 export class CommunityIssueFeedService extends createPrismaBase(
   MODELS.CommunityIssueFeed,
@@ -38,9 +44,9 @@ export class CommunityIssueFeedService extends createPrismaBase(
       )
       return
     }
-    let parsed: unknown
+    let parsed: Record<string, unknown>
     try {
-      parsed = JSON.parse(raw)
+      parsed = parseJson(raw)
     } catch (err) {
       this.logger.error(
         { runId: run.runId, err },
