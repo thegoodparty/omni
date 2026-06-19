@@ -100,4 +100,20 @@ describe('ComplianceModal', () => {
       screen.getByRole('link', { name: 'Start Registration' }),
     ).toHaveAttribute('href', '/dashboard/profile#texting-compliance')
   })
+
+  it('shows the website-required description when proUpgrade phase1 is off-cohort', () => {
+    mockUseProUpgradeFlag.mockReturnValue({ ready: true, enabled: false })
+    render(
+      <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
+    )
+
+    expect(
+      screen.getByText(/an active website purchased through GoodParty\.org/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        /You'll need your Campaign EIN and your official filing link\. Ready/,
+      ),
+    ).not.toBeInTheDocument()
+  })
 })
