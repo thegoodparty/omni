@@ -8,6 +8,20 @@ Adding or editing an experiment requires zero code deploys. See
 `books/convert-runbook-to-experiment.md` for the runbook → experiment
 translation procedure.
 
+## Eval artifacts live in the sibling `experiment-evals/` tree (NOT here)
+
+Keep `experiments/<id>/` purely operational — the publisher walks it and ships
+`manifest.json` + `instruction.md` + `attachments/` to S3, and the runtime agent
+reads only that. An experiment's **output-quality rubric** and its evidence do
+NOT belong here; they live in the sibling top-level **`experiment-evals/<id>/`**
+tree, which the publisher never touches and the runtime agent never sees:
+`quality_rubric.md` (the eval contract), `validation_log.md`, and an example
+`rubric_scores.tsv`. They're applied by cold-judge subagents per
+`books/build-output-quality-rubric.md`, tallied by
+`scripts/python/rubric_verdict.py`. Per-run eval evidence stays in gitignored
+`outputs/rubric-runs/`; an *adopted* rubric graduates into `experiment-evals/<id>/`
+in its own PR (eval artifacts are reviewed separately from the system that builds them).
+
 ## Lifecycle: every experiment starts as a runbook
 
 The path from "I have an idea" to "candidates can run this from their
