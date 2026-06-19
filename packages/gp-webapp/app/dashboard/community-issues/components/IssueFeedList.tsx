@@ -1,17 +1,7 @@
 'use client'
 
 import { Badge, Skeleton } from '@styleguide'
-
-type CommunityIssueFeedCard = {
-  id: string
-  list: string
-  category: string
-  priority: string
-  title: string
-  summary: string
-  rank: number | null
-  prioritized: boolean
-}
+import type { CommunityIssueFeedCard } from 'gpApi/api-endpoints'
 
 type CommunityIssueFeedListResponse = {
   issues: CommunityIssueFeedCard[]
@@ -67,11 +57,7 @@ const IssueCard = ({
           <Badge variant="outline" className="text-xs font-medium">
             {issue.category}
           </Badge>
-          <span
-            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${severity.className}`}
-          >
-            {severity.label}
-          </span>
+          <Badge className={severity.className}>{severity.label}</Badge>
         </div>
         <p className="text-sm font-semibold text-foreground">{issue.title}</p>
         <p className="text-sm text-muted-foreground">{issue.summary}</p>
