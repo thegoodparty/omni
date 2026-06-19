@@ -190,12 +190,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // reclassified into the prefill branch on resume — that would route
         // them through the confirm hub ("We pulled this from public records")
         // for data they entered themselves, and resume them at `confirm`
-        // instead of `term-dates`. A genuine sales/BR prefill always lands with
-        // term dates, so `office-present + party-answered + dates-missing` is
-        // unique to net-new mid-flow; keep it net-new (and emit no BR-prefill
+        // instead of `term-dates`. The net-new term-dates step always writes
+        // BOTH bounds together (or neither), so a record carrying ANY term date
+        // (`termPrefilled`) is a genuine sales/BR prefill — even a partial one
+        // with only a start date — and must stay in the prefill branch. Only an
+        // office-present + party-answered + no-term-date-at-all record is unique
+        // to net-new mid-flow; keep that net-new (and emit no BR-prefill
         // snapshot, so the suggestion-accuracy metric isn't polluted with the
         // user's own pick).
-        const looksNetNewInProgress = hasParty && officePrefilled && !hasDates
+        const looksNetNewInProgress =
+          hasParty && officePrefilled && !hasDates && !termPrefilled
         const isPrefill =
           (officePrefilled || termPrefilled) && !looksNetNewInProgress
         const resolvedBranch: ServeBranch = isPrefill ? 'prefill' : 'net-new'
