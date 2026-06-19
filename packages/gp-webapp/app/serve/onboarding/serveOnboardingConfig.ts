@@ -74,6 +74,49 @@ export const getServeBranchSteps = (branch: ServeBranch): ServeStepId[] =>
   branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
 
 /**
+ * Which of the data-collecting answers are already persisted on the EO/org
+ * record when the flow loads. The source of truth for resuming is the saved
+ * data itself, not a separate step pointer.
+ *
+ * `hasParty` is the user's own first answer — `welcome` and `inOffice` collect
+ * nothing persisted, and the office / term dates can be pre-filled by sales or
+ * BallotReady rather than the user. So `party` is the signal that the user has
+ * actually started the flow.
+ */
+export interface ServeResumeState {
+  hasParty: boolean
+  hasOffice: boolean
+  hasDates: boolean
+}
+
+/**
+ * Resume target for a returning user so we don't re-ask answered questions.
+ *
+ *  - Until the user has answered `party`, restart at `welcome` and run the full
+ *    intro — a pre-filled office/dates pair is sales/BallotReady context, not
+ *    user progress, so it must not skip the introduction.
+ *  - Once `party` is answered, resume at the first step after it whose data is
+ *    still missing. In the prefill branch the office and term dates are
+ *    reviewed/edited on the `confirm` hub, so an incomplete pair resumes there;
+ *    in the net-new branch they are their own steps.
+ *
+ * Never returns `pledge`: a completed office is redirected away before the flow
+ * renders, and the pledge is the completion action the user must always take.
+ */
+export const computeServeResumeStep = (
+  branch: ServeBranch,
+  { hasParty, hasOffice, hasDates }: ServeResumeState,
+): ServeStepId => {
+  if (!hasParty) return 'welcome'
+  if (branch === 'prefill') {
+    return hasOffice && hasDates ? 'constituents' : 'confirm'
+  }
+  if (!hasOffice) return 'office'
+  if (!hasDates) return 'term-dates'
+  return 'constituents'
+}
+
+/**
  * Resolve the active step's 1-based position and the branch's total count for
  * the "Step X of N" label + segmented bar. Detour steps (`office`/`term-dates`
  * in the prefill branch) map back onto `confirm` so the bar doesn't jump.

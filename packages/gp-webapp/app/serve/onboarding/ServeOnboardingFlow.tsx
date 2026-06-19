@@ -40,6 +40,7 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  computeServeResumeStep,
   getServeProgress,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
@@ -171,6 +172,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
 
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
         const hasBrPrefill = officePrefilled || termPrefilled
+        const resolvedBranch: ServeBranch = hasBrPrefill ? 'prefill' : 'net-new'
         // Freeze the BR suggestion now, before any edits, normalizing the term
         // dates through the same yyyy-MM-dd round-trip the final pick uses so
         // the from/to diff is apples-to-apples. The single suggested position
@@ -190,7 +192,23 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               }
             : null,
         )
-        setBranch(hasBrPrefill ? 'prefill' : 'net-new')
+        setBranch(resolvedBranch)
+
+        // Resume from the persisted record: skip any step whose answer the user
+        // has already saved and land on the first unanswered one. `party` is
+        // the user's first real answer (office/term dates may be sales/BR
+        // prefill), so an un-started lead still runs the full intro from
+        // `welcome`. Term dates count as answered only when BOTH bounds are
+        // present, mirroring the flow's both-bounds requirement.
+        const hasParty = !!eo?.party
+        const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
+        setStep(
+          computeServeResumeStep(resolvedBranch, {
+            hasParty,
+            hasOffice: officePrefilled,
+            hasDates,
+          }),
+        )
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
@@ -238,31 +256,81 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // back-and-forth through the constituents step doesn't re-PATCH needlessly.
   const patchedOfficeRef = useRef<string | undefined>(undefined)
 
-  // Point the EO org at the selected position BEFORE the constituents step so
-  // the org-derived voter-issues / contacts-stats endpoints have a district to
-  // resolve. persist() re-writes the same pointer at the end; this just brings
-  // it forward and is idempotent.
-  const ensureOrgOfficeForConstituents = async (): Promise<void> => {
+  // Persist the chosen office onto the EO org as the user advances, so a
+  // drop-off resumes with it set. Also points the EO org at the position
+  // BEFORE the constituents step so the org-derived voter-issues /
+  // contacts-stats endpoints have a district to resolve. persist() re-writes
+  // the same pointer at the end; this just brings it forward. Idempotent via
+  // patchedOfficeRef so repeated advances don't re-PATCH the same value, and a
+  // no-op when the office is already on the org (prefill, never re-picked).
+  const persistOfficeProgress = async (): Promise<void> => {
+    if (!currentEO) return
     const positionId = office?.positionId
-    if (!currentEO || !positionId) return
-    if (patchedOfficeRef.current === positionId) return
+    const custom = customOfficeName.trim()
+    if (!positionId && !custom) return
+    const patchKey = positionId ?? `custom:${custom}`
+    if (patchedOfficeRef.current === patchKey) return
     await clientRequest('PATCH /v1/organizations/:slug', {
       slug: `eo-${currentEO.id}`,
-      ballotReadyPositionId: positionId,
-      customPositionName: null,
+      ballotReadyPositionId: positionId ?? null,
+      customPositionName: custom || null,
     })
-    patchedOfficeRef.current = positionId
+    patchedOfficeRef.current = patchKey
+  }
+
+  // Persist the party answer as soon as the user leaves the party step. A
+  // partial PUT only touches `party` (every other field stays as-is and
+  // onboardingCompletedAt is never sent), so progress is saved without
+  // completing onboarding.
+  const persistPartyProgress = async (): Promise<void> => {
+    if (!currentEO || !party) return
+    await clientRequest('PUT /v1/elected-office/:id', {
+      id: currentEO.id,
+      party,
+    })
+  }
+
+  // Persist the term dates once both bounds are valid (the term-dates / confirm
+  // steps gate Continue on datesValid, so we never PUT a half-range). The
+  // backend re-checks end > start and the no-overlap invariant.
+  const persistTermDatesProgress = async (): Promise<void> => {
+    if (!currentEO || !termStartDate || !termEndDate) return
+    await clientRequest('PUT /v1/elected-office/:id', {
+      id: currentEO.id,
+      termStartDate: toApiDate(termStartDate),
+      termEndDate: toApiDate(termEndDate),
+    })
+  }
+
+  // Run a best-effort incremental save, then advance. A failed save logs to
+  // Sentry but never blocks navigation — the session keeps the answer in state
+  // and the final persist() rewrites everything at completion, so resume just
+  // misses that one answer rather than trapping the user.
+  const saveThenAdvance = async (
+    save: () => Promise<void>,
+    next: () => void,
+    context: string,
+  ): Promise<void> => {
+    setSaving(true)
+    try {
+      await save()
+    } catch (err) {
+      reportErrorToSentry(err, { context })
+    } finally {
+      setSaving(false)
+    }
+    next()
   }
 
   const goToConstituents = async (): Promise<void> => {
     setSaving(true)
     try {
-      await ensureOrgOfficeForConstituents()
+      await persistOfficeProgress()
     } catch (err) {
       // Degrade gracefully: the constituents step still renders, the
       // org-derived sections just stay empty if the pointer didn't land.
       reportErrorToSentry(err, {
-        context: 'serveOnboarding.ensureOrgOfficeForConstituents',
+        context: 'serveOnboarding.persistOfficeProgress',
       })
     } finally {
       setSaving(false)
@@ -379,19 +447,37 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setStep('party')
         return
       case 'party':
-        setStep(branch === 'prefill' ? 'confirm' : 'office')
+        void saveThenAdvance(
+          persistPartyProgress,
+          () => setStep(branch === 'prefill' ? 'confirm' : 'office'),
+          'serveOnboarding.persistPartyProgress',
+        )
         return
       case 'office':
-        setStep(returnToConfirm ? 'confirm' : 'term-dates')
-        setReturnToConfirm(false)
+        void saveThenAdvance(
+          persistOfficeProgress,
+          () => {
+            const target = returnToConfirm ? 'confirm' : 'term-dates'
+            setReturnToConfirm(false)
+            setStep(target)
+          },
+          'serveOnboarding.persistOfficeProgress',
+        )
         return
       case 'term-dates':
-        if (returnToConfirm) {
-          setStep('confirm')
-        } else {
-          void goToConstituents()
-        }
-        setReturnToConfirm(false)
+        void saveThenAdvance(
+          persistTermDatesProgress,
+          () => {
+            if (returnToConfirm) {
+              setReturnToConfirm(false)
+              setStep('confirm')
+            } else {
+              setReturnToConfirm(false)
+              void goToConstituents()
+            }
+          },
+          'serveOnboarding.persistTermDatesProgress',
+        )
         return
       case 'confirm':
         void goToConstituents()
