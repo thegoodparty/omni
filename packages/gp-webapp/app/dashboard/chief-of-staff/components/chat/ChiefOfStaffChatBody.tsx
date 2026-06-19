@@ -662,7 +662,7 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       {history.length === 0 && streaming === null && !error && (
-        <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2">
+        <div className="mx-auto flex w-full max-w-2xl flex-wrap gap-2 px-3 pb-1 pt-2">
           {CHAT_SUGGESTIONS.map((s) => (
             <Badge
               key={s}
