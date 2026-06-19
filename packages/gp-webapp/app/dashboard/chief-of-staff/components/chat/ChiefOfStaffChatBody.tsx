@@ -667,7 +667,7 @@ export default function ChiefOfStaffChatBody({
             <Badge
               key={s}
               asChild
-              variant="secondary"
+              variant="soft"
               shape="pill"
               className="h-auto px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
             >
