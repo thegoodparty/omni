@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS } from 'helpers/analyticsHelper'
 import AskAiButton from './AskAiButton'
 
 const createConversationMock = vi.fn()
@@ -54,6 +55,11 @@ describe('<AskAiButton>', () => {
         expect.objectContaining({
           resourceType: 'community_issue_feed',
           resourceId: 'issue-1',
+          url: expect.any(String),
+          snapshot: expect.objectContaining({
+            title: 'Housing Crisis',
+            summary: 'Rising rents are a top concern.',
+          }),
         }),
       ),
     )
@@ -88,8 +94,9 @@ describe('<AskAiButton>', () => {
 
     await user.click(screen.getByRole('button', { name: /ask ai/i }))
 
-    expect(trackEvent).toHaveBeenCalledWith(expect.stringContaining('Ask AI'), {
-      issueId: 'issue-1',
-    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CommunityIssues.AskAIStarted,
+      { issueId: 'issue-1' },
+    )
   })
 })

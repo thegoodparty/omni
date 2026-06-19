@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
 import type { Priority } from '@goodparty_org/contracts'
 import PrioritizeButton from './PrioritizeButton'
 
@@ -74,7 +75,7 @@ describe('<PrioritizeButton>', () => {
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      expect.stringContaining('Prioritize'),
+      EVENTS.CommunityIssues.PrioritizeClicked,
       { issueId: 'issue-1' },
     )
   })
