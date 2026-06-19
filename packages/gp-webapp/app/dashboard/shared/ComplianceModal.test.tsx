@@ -89,4 +89,15 @@ describe('ComplianceModal', () => {
       screen.getByRole('link', { name: 'Start Registration' }),
     ).toHaveAttribute('href', '/dashboard/pro-upgrade')
   })
+
+  it('links to the profile compliance section when proUpgrade3 is off-cohort', () => {
+    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
+    render(
+      <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: 'Start Registration' }),
+    ).toHaveAttribute('href', '/dashboard/profile#texting-compliance')
+  })
 })
