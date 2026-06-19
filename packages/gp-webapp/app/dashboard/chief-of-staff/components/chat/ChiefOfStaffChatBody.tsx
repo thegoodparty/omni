@@ -553,9 +553,12 @@ export default function ChiefOfStaffChatBody({
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {streaming}
                 </ReactMarkdown>
-              ) : activeTools.length === 0 ? (
+              ) : (
+                // No text yet — whether we're waiting on a tool or the first
+                // token, keep the usual "Thinking..." so the turn never looks
+                // stalled while a tool runs.
                 <span className="text-muted-foreground">Thinking...</span>
-              ) : null}
+              )}
             </div>
           </div>
         )}
