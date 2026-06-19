@@ -310,6 +310,43 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
     expect(unchanged?.rank).toBe(1)
   })
 
+  it('rejects the whole run when existing_issue_id belongs to the wrong list', async () => {
+    const topIssue = await service.prisma.communityIssueFeed.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueFeedList.top_community,
+        category: CommunityIssueFeedCategory.public_safety,
+        priority: CommunityIssueFeedPriority.high,
+        title: 'Top Issue',
+        summary: 'in top_community list.',
+        rank: 1,
+      },
+    })
+
+    const key = `cross-list-${Date.now()}.json`
+    const run = await seedRun(ORG, 'trending_issues', key)
+    mockS3({
+      [key]: JSON.stringify(
+        makeArtifact(
+          ORG,
+          run.runId,
+          [makeIssue(1, { existing_issue_id: topIssue.id })],
+          'trending',
+        ),
+      ),
+    })
+
+    await service.app
+      .get(CommunityIssueFeedService)
+      .onExperimentRunCompleted(run)
+
+    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+      where: { id: topIssue.id },
+    })
+    expect(unchanged?.lastRefreshedRunId).toBeNull()
+    expect(unchanged?.archivedAt).toBeNull()
+  })
+
   it('rejects an artifact with more than 10 issues — nothing changes', async () => {
     const prior = await service.prisma.communityIssueFeed.create({
       data: {
