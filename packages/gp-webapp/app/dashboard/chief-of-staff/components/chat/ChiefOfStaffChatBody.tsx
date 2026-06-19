@@ -669,7 +669,7 @@ export default function ChiefOfStaffChatBody({
               asChild
               variant="soft"
               shape="pill"
-              className="h-auto border-border bg-grayscale-100 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+              className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
             >
               <button
                 type="button"
