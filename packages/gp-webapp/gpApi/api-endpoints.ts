@@ -701,12 +701,7 @@ export type CommunityIssueFeedCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type:
-    | 'news'
-    | 'government_website'
-    | 'research'
-    | 'poll'
-    | 'social_media'
+  source_type: 'news' | 'government_website' | 'research' | 'poll'
   url?: string | null
   publisher?: string | null
   article_type?: string | null
