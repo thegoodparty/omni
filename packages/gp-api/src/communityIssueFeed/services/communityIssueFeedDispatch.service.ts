@@ -37,9 +37,11 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
 
   /**
    * Called when a new elected office is created. Dispatches one run of each
-   * community-issue experiment type for the org, idempotent via an existence
-   * check: if any run of that type already exists for the org (regardless of
-   * status), no new run is dispatched.
+   * community-issue experiment type for the org. A FAILED-only prior run is
+   * not blocking: the first attempt did not succeed and nothing else
+   * re-dispatches it (crons are flagged off at launch; sweepStaleRuns only
+   * marks stale runs FAILED). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
+   * COMPLETED to avoid spawning a duplicate live run.
    */
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) {
@@ -58,6 +60,14 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
         where: {
           organizationSlug: electedOffice.organizationSlug,
           experimentType,
+          status: {
+            in: [
+              ExperimentRunStatus.QUEUED,
+              ExperimentRunStatus.RUNNING,
+              ExperimentRunStatus.AWAITING_RESUME,
+              ExperimentRunStatus.COMPLETED,
+            ],
+          },
         },
         select: { runId: true },
       })

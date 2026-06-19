@@ -112,6 +112,45 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
+  it('re-dispatches when only a FAILED prior run exists', async () => {
+    const suffix = Date.now()
+    const orgSlug = `cif-failed-${suffix}`
+    await seedOrg(orgSlug)
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: orgSlug,
+      },
+    })
+
+    // A failed prior attempt must not permanently block the signup hook
+    for (const experimentType of [
+      'top_community_issues',
+      'trending_issues',
+    ] as const) {
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType,
+          status: ExperimentRunStatus.FAILED,
+        },
+      })
+    }
+
+    await service.app
+      .get(CommunityIssueFeedDispatchService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('skips dispatch when automation is disabled', async () => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', '')
     const suffix = Date.now()
