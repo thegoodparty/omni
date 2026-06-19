@@ -100,6 +100,9 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
   /**
    * Admin/ops path: dispatch both experiment types for a list of org slugs,
    * applying the serve-ICP gate and an in-flight-run check per type.
+   * Blocks QUEUED + RUNNING + AWAITING_RESUME (in-flight) to prevent
+   * duplicate concurrent runs. Terminal runs (COMPLETED/FAILED) are
+   * intentionally re-dispatchable — manual refresh is the endpoint's purpose.
    */
   async dispatchForCohort(orgSlugs: string[]): Promise<DispatchSummary> {
     let dispatched = 0
@@ -128,6 +131,7 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
             experimentType,
             status: {
               in: [
+                ExperimentRunStatus.QUEUED,
                 ExperimentRunStatus.RUNNING,
                 ExperimentRunStatus.AWAITING_RESUME,
               ],

@@ -246,6 +246,86 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     expect(types).toContain('trending_issues')
   })
 
+  it('skips orgs with a QUEUED run of that type', async () => {
+    const suffix = Date.now()
+    const orgSlug = `cif-cohort-queued-${suffix}`
+    await service.prisma.organization.upsert({
+      where: { slug: orgSlug },
+      create: { slug: orgSlug, ownerId: service.user.id },
+      update: {},
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: orgSlug,
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'top_community_issues',
+        status: ExperimentRunStatus.QUEUED,
+      },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(CommunityIssueFeedDispatchService)
+      .dispatchForCohort([orgSlug])
+
+    const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+    expect(types).not.toContain('top_community_issues')
+    expect(types).toContain('trending_issues')
+  })
+
+  it('re-dispatches when the only prior run of that type is COMPLETED', async () => {
+    const suffix = Date.now()
+    const orgSlug = `cif-cohort-completed-${suffix}`
+    await service.prisma.organization.upsert({
+      where: { slug: orgSlug },
+      create: { slug: orgSlug, ownerId: service.user.id },
+      update: {},
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: orgSlug,
+      },
+    })
+    for (const experimentType of [
+      'top_community_issues',
+      'trending_issues',
+    ] as const) {
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType,
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+    }
+    mockResolveServeContext({
+      state: 'TX',
+      positionName: 'Mayor',
+      isServeIcp: true,
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(CommunityIssueFeedDispatchService)
+      .dispatchForCohort([orgSlug])
+
+    const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+    expect(types).toContain('top_community_issues')
+    expect(types).toContain('trending_issues')
+    expect(dispatchSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('dispatches both types for an eligible org with no in-flight runs', async () => {
     const suffix = Date.now()
     const orgSlug = `cif-cohort-ok-${suffix}`
