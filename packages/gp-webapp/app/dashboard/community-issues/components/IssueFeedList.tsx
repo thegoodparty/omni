@@ -115,10 +115,10 @@ const FeedSection = ({
   )
 }
 
-export default function IssueFeedList({
+const IssueFeedList = ({
   topCommunity,
   trending,
-}: Props): React.JSX.Element {
+}: Props): React.JSX.Element => {
   return (
     <div className="flex flex-col gap-8 p-6">
       <h1 className="text-2xl font-bold text-foreground">Community Issues</h1>
@@ -127,3 +127,5 @@ export default function IssueFeedList({
     </div>
   )
 }
+
+export default IssueFeedList
