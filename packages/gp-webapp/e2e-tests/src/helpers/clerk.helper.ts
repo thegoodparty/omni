@@ -102,12 +102,14 @@ export const completeClerkEmailCodeVerification = async (
 
   // Resolve as soon as either the code step appears or we navigate off /sign-up.
   await Promise.race([
-    codeInput.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
+    codeInput
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .catch(() => undefined),
     page
       .waitForURL((url) => !url.pathname.startsWith('/sign-up'), {
         timeout: 15000,
       })
-      .catch(() => {}),
+      .catch(() => undefined),
   ])
 
   if (!(await codeInput.isVisible().catch(() => false))) {
