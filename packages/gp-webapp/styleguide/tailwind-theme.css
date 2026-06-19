@@ -84,6 +84,7 @@
   --color-tertiary-foreground: var(--theme-tertiary-foreground);
   --color-tertiary-light: var(--theme-tertiary-light);
   --color-tertiary-dark: var(--theme-tertiary-dark);
+  --color-tertiary-focus: var(--theme-tertiary-focus);
   --color-link: var(--component-link);
 
   /* ==========================================================================

@@ -8,8 +8,8 @@ import { XMarkIcon } from './icons'
 const pillClass = cn(
   'inline-flex items-center justify-center rounded-full border border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground transition-colors',
   'hover:bg-muted',
-  'data-[state=on]:border-brand-midnight-900 data-[state=on]:bg-brand-midnight-900 data-[state=on]:text-white data-[state=on]:hover:bg-brand-midnight-800 dark:data-[state=on]:border-white dark:data-[state=on]:bg-white dark:data-[state=on]:text-brand-midnight-950 dark:data-[state=on]:hover:bg-white/90',
-  'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+  'data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90',
+  'outline-none focus-visible:ring-[3px] focus-visible:ring-tertiary-focus',
   'disabled:pointer-events-none disabled:opacity-50',
 )
 
@@ -118,7 +118,7 @@ function FilterPill({
               onRemove()
             }
           }}
-          className="ml-1.5 inline-flex items-center justify-center rounded-full outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-components-input-active"
+          className="ml-1.5 inline-flex items-center justify-center rounded-full outline-none hover:opacity-70 focus-visible:ring-[3px] focus-visible:ring-tertiary-focus"
           aria-label="Remove"
         >
           <XMarkIcon className="size-3" />

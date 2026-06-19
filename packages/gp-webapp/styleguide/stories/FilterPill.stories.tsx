@@ -25,7 +25,14 @@ const meta: Meta<typeof FilterPillGroup> = {
 export default meta
 type Story = StoryObj<typeof FilterPillGroup>
 
-export const Playground: Story = {
+type PlaygroundArgs = {
+  type: 'single' | 'multiple'
+  value: string
+  disabled: boolean
+  showRemove: boolean
+}
+
+export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
     value: '',
     disabled: false,
@@ -49,8 +56,8 @@ export const Playground: Story = {
       control: 'boolean',
     },
   },
-  render: function Render() {
-    const [{ value, type, disabled, showRemove }, updateArgs] = useArgs()
+  render: function Render({ type, value, disabled, showRemove }) {
+    const [, updateArgs] = useArgs()
     const [multiValue, setMultiValue] = React.useState<string[]>([])
     const [pills, setPills] = React.useState(OFFICES)
     const isMultiple = type === 'multiple'
@@ -85,6 +92,86 @@ export const Playground: Story = {
           </FilterPill>
         ))}
       </FilterPillGroup>
+    )
+  },
+}
+
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
+  render: function Render() {
+    const [multiValue, setMultiValue] = React.useState<string[]>([])
+    const [pills, setPills] = React.useState(OFFICES)
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <SectionLabel>Single selection</SectionLabel>
+          <FilterPillGroup value="mayor">
+            {OFFICES.map((o) => (
+              <FilterPill key={o.value} value={o.value}>
+                {o.label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+        </div>
+        <div>
+          <SectionLabel>Multiple selection</SectionLabel>
+          <FilterPillGroup
+            type="multiple"
+            value={multiValue}
+            onValueChange={setMultiValue}
+          >
+            {OFFICES.map((o) => (
+              <FilterPill key={o.value} value={o.value}>
+                {o.label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+        </div>
+        <div>
+          <SectionLabel>Removable</SectionLabel>
+          <FilterPillGroup>
+            {pills.map((o) => (
+              <FilterPill
+                key={o.value}
+                value={o.value}
+                onRemove={() =>
+                  setPills((prev) => prev.filter((p) => p.value !== o.value))
+                }
+              >
+                {o.label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+        </div>
+        <div>
+          <SectionLabel>Wrapping</SectionLabel>
+          <div className="max-w-sm">
+            <FilterPillGroup>
+              {[
+                'City Council',
+                'Mayor',
+                'School Board',
+                'Sheriff',
+                'State Senate',
+                'State House',
+                'County Commissioner',
+                'District Attorney',
+                'Treasurer',
+                'Auditor',
+                'Clerk',
+                'Judge',
+              ].map((label) => (
+                <FilterPill
+                  key={label}
+                  value={label.toLowerCase().replaceAll(' ', '-')}
+                >
+                  {label}
+                </FilterPill>
+              ))}
+            </FilterPillGroup>
+          </div>
+        </div>
+      </div>
     )
   },
 }
@@ -143,85 +230,6 @@ export const States: Story = {
           {OFFICES.map((o) => (
             <FilterPill key={o.value} value={o.value}>
               {o.label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-      </div>
-    </div>
-  ),
-}
-
-export const Removable: Story = {
-  parameters: { controls: { disable: true } },
-  render: function Render() {
-    const [pills, setPills] = React.useState(OFFICES)
-    const [selected, setSelected] = React.useState('mayor')
-    return (
-      <div>
-        <SectionLabel>Removable</SectionLabel>
-        <FilterPillGroup value={selected} onValueChange={setSelected}>
-          {pills.map((o) => (
-            <FilterPill
-              key={o.value}
-              value={o.value}
-              onRemove={() =>
-                setPills((prev) => prev.filter((p) => p.value !== o.value))
-              }
-            >
-              {o.label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-      </div>
-    )
-  },
-}
-
-export const Multiple: Story = {
-  parameters: { controls: { disable: true } },
-  render: function Render() {
-    const [value, setValue] = React.useState<string[]>([])
-    return (
-      <div>
-        <SectionLabel>Multiple selection</SectionLabel>
-        <FilterPillGroup type="multiple" value={value} onValueChange={setValue}>
-          {OFFICES.map((o) => (
-            <FilterPill key={o.value} value={o.value}>
-              {o.label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-      </div>
-    )
-  },
-}
-
-export const Wrapping: Story = {
-  parameters: { controls: { disable: true } },
-  render: () => (
-    <div>
-      <SectionLabel>Wrapping</SectionLabel>
-      <div className="max-w-sm">
-        <FilterPillGroup>
-          {[
-            'City Council',
-            'Mayor',
-            'School Board',
-            'Sheriff',
-            'State Senate',
-            'State House',
-            'County Commissioner',
-            'District Attorney',
-            'Treasurer',
-            'Auditor',
-            'Clerk',
-            'Judge',
-          ].map((label) => (
-            <FilterPill
-              key={label}
-              value={label.toLowerCase().replaceAll(' ', '-')}
-            >
-              {label}
             </FilterPill>
           ))}
         </FilterPillGroup>
