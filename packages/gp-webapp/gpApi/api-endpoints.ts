@@ -1,4 +1,8 @@
-import type { ExperimentVariantsResponse } from '@goodparty_org/contracts'
+import type {
+  ExperimentVariantsResponse,
+  Priority,
+  ChatAnchor,
+} from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
   SynthesizeSpeechRequest,
@@ -354,7 +358,7 @@ export type APIEndpoints = {
   }
 
   'POST /v1/chats': {
-    Request: { scope: ChatScope }
+    Request: { scope: ChatScope; anchor?: ChatAnchor }
     Response: { conversationId: string; created: boolean }
   }
 
@@ -660,6 +664,49 @@ export type APIEndpoints = {
       redirectUrl?: string
     }
   }
+
+  'GET /v1/community-issue-feed': {
+    Request: { list: 'top_community' | 'trending' }
+    Response: {
+      issues: CommunityIssueFeedCard[]
+      refresh: {
+        status: 'running' | 'completed' | 'failed'
+        lastCompletedAt: string | null
+      }
+    }
+  }
+
+  'GET /v1/community-issue-feed/:id': {
+    Request: { id: string }
+    Response: CommunityIssueFeedDetail
+  }
+
+  'POST /v1/community-issue-feed/:id/prioritize': {
+    Request: { id: string }
+    Response: Priority
+  }
+}
+
+export type CommunityIssueFeedCard = {
+  id: string
+  list: string
+  category: string
+  priority: string
+  title: string
+  summary: string
+  rank: number | null
+  prioritized: boolean
+}
+
+export type CommunityIssueFeedDetail = CommunityIssueFeedCard & {
+  detail: Record<string, unknown> | null
+  relatedBriefings: Array<{
+    meetingBriefingId: string
+    briefingItemId: string
+    meetingDate: string
+  }>
+  prioritized: boolean
+  priorityId: string | null
 }
 
 // Backend (snake_case) annotation types. Mirrors @goodparty_org/contracts

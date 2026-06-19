@@ -23,6 +23,7 @@ import {
   FileText,
   Globe,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Send,
   Settings,
@@ -245,6 +246,16 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
+  id: 'community-issues-dashboard',
+  label: 'Community Issues',
+  link: '/dashboard/community-issues',
+  icon: <MdFactCheck />,
+  v2Icon: ListChecks,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
+}
+
 const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
   id: 'chief-of-staff-dashboard',
   label: 'Chief of Staff',
@@ -303,6 +314,7 @@ export const getDashboardMenuItems = (
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
+    menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
@@ -315,12 +327,13 @@ export const getDashboardMenuItems = (
   }
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
-  // unshifted above it: BRIEFINGS for an elected office, then Chief of Staff
-  // when shown. Insert campaign items right after Campaign Manager (and Story
-  // before Plan, so the Plan splice lands first) to render the campaign-category
-  // nav as [Campaign Manager, Campaign Plan, Campaign Story, …].
+  // unshifted above it: BRIEFINGS + COMMUNITY_ISSUES for an elected office,
+  // then Chief of Staff when shown. Insert campaign items right after Campaign
+  // Manager (and Story before Plan, so the Plan splice lands first) to render
+  // the campaign-category nav as [Campaign Manager, Campaign Plan, Campaign
+  // Story, …].
   const afterCampaignManager =
-    1 + (isElectedOffice ? 1 : 0) + (chiefOfStaffShown ? 1 : 0)
+    1 + (isElectedOffice ? 2 : 0) + (chiefOfStaffShown ? 1 : 0)
 
   if (campaignStoryEnabled) {
     menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
