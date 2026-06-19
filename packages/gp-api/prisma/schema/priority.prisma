@@ -8,12 +8,16 @@ model Priority {
 
   source                   PrioritySource
   sourceCampaignPositionId Int?           @map("source_campaign_position_id")
+  sourceCommunityIssueFeedId String?      @unique @map("source_community_issue_feed_id")
+  sourceCommunityIssueFeed   CommunityIssueFeed? @relation(fields: [sourceCommunityIssueFeedId], references: [id])
 
   targetDate DateTime? @map("target_date") @db.Date
   archivedAt DateTime? @map("archived_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  briefingItemLinks MeetingBriefingItemLink[]
 
   @@index([electedOfficeId, archivedAt])
   @@map("priority")
@@ -22,4 +26,5 @@ model Priority {
 enum PrioritySource {
   win_import
   user_stated
+  community_issue_feed
 }

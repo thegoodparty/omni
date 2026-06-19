@@ -5,6 +5,23 @@ import { ChatMessageRoleSchema, ChatScopeSchema } from '../generated/enums'
 // gp-api and gp-webapp. The SSE event shapes are lifted from the briefing
 // chat's ChatStreamChunk so a single client renderer handles both kinds.
 
+// --- Anchor ------------------------------------------------------------------
+
+export const ChatAnchorSnapshotSchema = z.object({
+  title: z.string().max(500),
+  summary: z.string().max(5_000),
+  highlightedText: z.string().max(2_000).optional(),
+})
+export type ChatAnchorSnapshot = z.infer<typeof ChatAnchorSnapshotSchema>
+
+export const ChatAnchorSchema = z.object({
+  resourceType: z.literal('community_issue_feed'),
+  resourceId: z.string(),
+  url: z.string(),
+  snapshot: ChatAnchorSnapshotSchema,
+})
+export type ChatAnchor = z.infer<typeof ChatAnchorSchema>
+
 // --- Create / find-or-create -------------------------------------------------
 
 // Params used to resolve (find-or-create) a conversation for a scope. v1 only
@@ -12,6 +29,7 @@ import { ChatMessageRoleSchema, ChatScopeSchema } from '../generated/enums'
 // (the slug comes from the X-Organization-Slug header, not the body).
 export const CreateChatRequestSchema = z.object({
   scope: ChatScopeSchema,
+  anchor: ChatAnchorSchema.optional(),
 })
 export type CreateChatRequest = z.infer<typeof CreateChatRequestSchema>
 

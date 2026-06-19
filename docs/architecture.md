@@ -128,3 +128,6 @@ Some systems live outside this monorepo. Consult them when:
   matching runbook; results come back on the agent-results queue. Consult it when
   changing experiment dispatch, the run lifecycle, or the dispatch contracts in
   `packages/gp-api/src/agentExperiments/CLAUDE.md`. May be folded into omni later.
+  The `communityIssueFeed` module is a key consumer of this pipeline: it hooks into
+  the agent-results queue to upsert top-issues / trending-issues feeds for elected
+  officials. See `packages/gp-api/src/communityIssueFeed/CLAUDE.md`.
