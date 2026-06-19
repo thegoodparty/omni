@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  Badge,
   Button,
   IconButton,
   Input,
@@ -31,6 +32,11 @@ interface Props {
    * prior messages. Omit for a fresh chat (deferred create on first send).
    */
   conversationIdOverride?: string
+  /**
+   * Display-only assistant messages played on open (e.g. an onboarding card's
+   * agent greeting). Always shown; bypasses the first-chat-only intro gate.
+   */
+  opener?: string[]
   /** When the parent surface closes, set false to abort the in-flight stream. */
   active?: boolean
   /** Fires once the deferred create resolves with the real conversation id. */
@@ -95,7 +101,7 @@ const INTRO_SEEN_KEY = 'cos-intro-streamed'
 // Starter prompts shown on a fresh chat; tapping one sends it.
 const CHAT_SUGGESTIONS = [
   "What's most urgent this week?",
-  'Where do I stand on housing?',
+  'How many of my constituents are homeowners?',
   'What are constituents saying?',
 ]
 
@@ -131,6 +137,7 @@ const ASSISTANT_BUBBLE =
  */
 export default function ChiefOfStaffChatBody({
   conversationIdOverride,
+  opener,
   active = true,
   onConversationCreated,
   onSelectConversation,
@@ -171,33 +178,43 @@ export default function ChiefOfStaffChatBody({
     priorConversations !== undefined &&
     priorConversations.length === 0
 
+  // An onboarding-card opener always plays; otherwise the default intro plays
+  // only on the user's first chat. Either way it's the same typed animation.
+  const introMessages = opener ?? COS_INTRO_MESSAGES
   const introTotal = useMemo(
-    () => COS_INTRO_MESSAGES.reduce((sum, m) => sum + m.length, 0),
-    [],
+    () => introMessages.reduce((sum, m) => sum + m.length, 0),
+    [introMessages],
   )
 
   // Type the intro in with a single counter + interval. A counter is
   // StrictMode-safe (the discarded first mount only advances it; no duplicate
   // bubbles or interleaved chains like a recursive setTimeout closure).
   useEffect(() => {
-    if (!isFirstChat) return
-    let seen = false
-    try {
-      seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
-    } catch {
-      seen = false
+    const isOpener = opener !== undefined
+    // Default intro is gated to the first chat, once ever (localStorage). An
+    // opener bypasses both gates so it replays on every card click.
+    if (!isOpener && !isFirstChat) return
+    if (!isOpener) {
+      let seen = false
+      try {
+        seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
+      } catch {
+        seen = false
+      }
+      if (seen) return
     }
-    if (seen) return
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
       // Mark seen once typing actually begins — set here, not at effect entry,
       // so StrictMode's discarded first mount (whose interval is cleared
       // before it ticks) doesn't suppress the real run.
-      try {
-        window.localStorage.setItem(INTRO_SEEN_KEY, '1')
-      } catch {
-        // private mode / storage disabled — still stream this session
+      if (!isOpener) {
+        try {
+          window.localStorage.setItem(INTRO_SEEN_KEY, '1')
+        } catch {
+          // private mode / storage disabled — still stream this session
+        }
       }
       setIntroProgress((p) => {
         const next = Math.min(p + step, introTotal)
@@ -206,19 +223,19 @@ export default function ChiefOfStaffChatBody({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [isFirstChat, introTotal])
+  }, [opener, isFirstChat, introTotal])
 
   // Per-message visible slices derived from the single progress counter.
   const introParts = useMemo(() => {
     let remaining = introProgress
     const parts: string[] = []
-    for (const message of COS_INTRO_MESSAGES) {
+    for (const message of introMessages) {
       if (remaining <= 0) break
       parts.push(message.slice(0, remaining))
       remaining -= message.length
     }
     return parts
-  }, [introProgress])
+  }, [introProgress, introMessages])
 
   // Override path — replay an existing conversation's messages once on mount.
   const loadExisting = useCallback(async () => {
@@ -510,7 +527,11 @@ export default function ChiefOfStaffChatBody({
   }, [error, executeUserTurn, loadExisting])
 
   const busy = sending || creating
-  const showIntro = isFirstChat && history.length === 0 && !streaming && !error
+  const showIntro =
+    (opener !== undefined || isFirstChat) &&
+    history.length === 0 &&
+    !streaming &&
+    !error
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -643,15 +664,21 @@ export default function ChiefOfStaffChatBody({
       {history.length === 0 && streaming === null && !error && (
         <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2">
           {CHAT_SUGGESTIONS.map((s) => (
-            <button
+            <Badge
               key={s}
-              type="button"
-              disabled={busy}
-              onClick={() => void sendContent(s)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
+              asChild
+              variant="secondary"
+              shape="pill"
+              className="h-auto px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
             >
-              {s}
-            </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void sendContent(s)}
+              >
+                {s}
+              </button>
+            </Badge>
           ))}
         </div>
       )}

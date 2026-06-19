@@ -13,7 +13,8 @@ export interface TaskCardProps {
   /** Optional date / location lines under the title. */
   meta?: string[]
   summary?: string
-  ctaLabel: string
+  /** Omit to render an informational card with no CTA (e.g. an archived item). */
+  ctaLabel?: string
   /** When set, the CTA navigates here. */
   ctaHref?: string
   /** When set (and no href), the CTA fires this instead. */
@@ -94,15 +95,16 @@ export default function TaskCard({
       )}
 
       <div className="flex flex-col gap-3 pt-2">
-        {ctaHref ? (
-          <Button asChild className="w-full">
-            <Link href={ctaHref}>{ctaLabel}</Link>
-          </Button>
-        ) : (
-          <Button type="button" className="w-full" onClick={onCta}>
-            {ctaLabel}
-          </Button>
-        )}
+        {ctaLabel &&
+          (ctaHref ? (
+            <Button asChild className="w-full">
+              <Link href={ctaHref}>{ctaLabel}</Link>
+            </Button>
+          ) : (
+            <Button type="button" className="w-full" onClick={onCta}>
+              {ctaLabel}
+            </Button>
+          ))}
         {onSkip && (
           <button
             type="button"

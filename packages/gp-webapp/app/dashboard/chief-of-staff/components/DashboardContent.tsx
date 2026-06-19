@@ -7,14 +7,16 @@ import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffArchiveHref } from '../routes'
 import SupportHero from './SupportHero'
 import OnboardingCards from './OnboardingCards'
+import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import type { OnboardingCardKey } from '../data/contracts'
 
 /**
  * Chief of Staff dashboard (Serve home). Renders inside `DashboardLayout`.
  * Owns the chat-surface open state so both the footer bar and the onboarding
- * CTAs can open it.
+ * CTAs can open it — the CTAs additionally seed an agent opener.
  */
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
@@ -22,15 +24,23 @@ export default function DashboardContent(): React.JSX.Element {
   const [initialConversationId, setInitialConversationId] = useState<
     string | null
   >(null)
+  const [openerKey, setOpenerKey] = useState<OnboardingCardKey | null>(null)
 
   const firstName = user?.firstName || undefined
 
   const openNewChat = () => {
+    setOpenerKey(null)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const openConversation = (id: string) => {
+    setOpenerKey(null)
     setInitialConversationId(id)
+    setChatOpen(true)
+  }
+  const openCard = (key: OnboardingCardKey) => {
+    setOpenerKey(key)
+    setInitialConversationId(null)
     setChatOpen(true)
   }
 
@@ -52,7 +62,7 @@ export default function DashboardContent(): React.JSX.Element {
               <span className="hidden sm:inline">Archive</span>
             </Link>
           </div>
-          <OnboardingCards onOpenChat={openNewChat} />
+          <OnboardingCards onOpenCard={openCard} />
           <TaskList />
         </section>
       </div>
@@ -66,6 +76,8 @@ export default function DashboardContent(): React.JSX.Element {
         open={chatOpen}
         onOpenChange={setChatOpen}
         initialConversationId={initialConversationId}
+        opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
+        openerKey={openerKey}
       />
     </div>
   )
