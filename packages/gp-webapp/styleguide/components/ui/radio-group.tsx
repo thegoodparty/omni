@@ -29,7 +29,8 @@ function RadioGroupItem({
       className={cn(
         'aspect-square size-5 shrink-0 rounded-full border border-border bg-background outline-none',
         'transition-[border-color,border-width,box-shadow]',
-        'focus-visible:ring-[3px] focus-visible:ring-components-input-focus',
+        'focus-visible:ring-[3px] focus-visible:ring-primary-focus',
+        'aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'data-[state=checked]:border-[6px] data-[state=checked]:border-primary',
         className,
@@ -103,7 +104,11 @@ function RadioCardItem({
         className,
       )}
     >
-      <RadioGroupItem value={value} id={id} className="shrink-0" />
+      <RadioGroupItem
+        value={value}
+        id={id}
+        className="shrink-0 disabled:opacity-100"
+      />
       <div className="flex flex-col gap-px">
         <span className="text-sm font-normal leading-5 text-foreground">
           {title}
