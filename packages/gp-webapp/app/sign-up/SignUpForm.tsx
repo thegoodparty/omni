@@ -144,7 +144,7 @@ export default function SignUpForm() {
         <div className="flex flex-col items-center gap-6">
           <GoodPartyOrgLogo className="h-9 w-12" />
           <div className="flex w-full flex-col gap-3">
-            <h1 className="text-center text-[32px] leading-[44px] font-bold text-[#0a0a0a] font-[family-name:var(--outfit-font)]">
+            <h1 className="text-center text-[32px] leading-[44px] font-bold text-[#0a0a0a] font-outfit">
               Verify your email
             </h1>
             <p className="text-sm leading-5 text-muted-foreground">
@@ -215,7 +215,7 @@ export default function SignUpForm() {
       <div className="flex flex-col items-center gap-6">
         <GoodPartyOrgLogo className="h-9 w-12" />
         <div className="flex w-full flex-col gap-3">
-          <h1 className="text-center text-[32px] leading-[44px] font-bold text-[#0a0a0a] font-[family-name:var(--outfit-font)]">
+          <h1 className="text-center text-[32px] leading-[44px] font-bold text-[#0a0a0a] font-outfit">
             Create an account
           </h1>
           <p className="text-sm leading-5 text-muted-foreground">
@@ -229,6 +229,7 @@ export default function SignUpForm() {
         type="button"
         variant="outline"
         onClick={handleGoogle}
+        disabled={!clerk.isLoaded}
         icon={<GoogleIcon className="size-4" />}
         className="w-full border-[#0a0a0a] font-semibold text-[#0a0a0a] hover:bg-[#0a0a0a]/5"
         data-testid="signup-google"

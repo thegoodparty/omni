@@ -31,7 +31,7 @@ export default function MarketingPanel({ className }: { className?: string }) {
     >
       <div className="mx-auto flex max-w-[600px] flex-col gap-10 lg:mx-0">
         <header className="flex flex-col gap-3">
-          <h2 className="text-[32px] leading-[40px] font-bold text-[#0a0a0a] font-[family-name:var(--outfit-font)]">
+          <h2 className="text-[32px] leading-[40px] font-bold text-[#0a0a0a] font-outfit">
             Your Path to Victory. 100% Free.
           </h2>
           <p className="text-sm leading-5 text-muted-foreground">
