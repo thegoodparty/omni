@@ -178,15 +178,34 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         })
 
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
-        const hasBrPrefill = officePrefilled || termPrefilled
-        const resolvedBranch: ServeBranch = hasBrPrefill ? 'prefill' : 'net-new'
+        // Resume markers from the persisted record. `party` is the user's first
+        // real answer (welcome/inOffice persist nothing), so it signals the
+        // user has started; term dates count as set only when BOTH bounds are
+        // present, mirroring the flow's both-bounds requirement.
+        const hasParty = !!eo?.party
+        const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
+
+        // A net-new user who saved their office mid-flow (party answered, office
+        // now on the org, but term dates not yet entered) must NOT be
+        // reclassified into the prefill branch on resume — that would route
+        // them through the confirm hub ("We pulled this from public records")
+        // for data they entered themselves, and resume them at `confirm`
+        // instead of `term-dates`. A genuine sales/BR prefill always lands with
+        // term dates, so `office-present + party-answered + dates-missing` is
+        // unique to net-new mid-flow; keep it net-new (and emit no BR-prefill
+        // snapshot, so the suggestion-accuracy metric isn't polluted with the
+        // user's own pick).
+        const looksNetNewInProgress = hasParty && officePrefilled && !hasDates
+        const isPrefill =
+          (officePrefilled || termPrefilled) && !looksNetNewInProgress
+        const resolvedBranch: ServeBranch = isPrefill ? 'prefill' : 'net-new'
         // Freeze the BR suggestion now, before any edits, normalizing the term
         // dates through the same yyyy-MM-dd round-trip the final pick uses so
         // the from/to diff is apples-to-apples. The single suggested position
         // is also the user's lone known BR-officeholder position here, so it
         // doubles as the officeholder-position set for the match check.
         setBrPrefill(
-          hasBrPrefill
+          isPrefill
             ? {
                 positionId: prefillPositionId,
                 positionName: prefillPositionName,
@@ -201,14 +220,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         )
         setBranch(resolvedBranch)
 
-        // Resume from the persisted record: skip any step whose answer the user
-        // has already saved and land on the first unanswered one. `party` is
-        // the user's first real answer (office/term dates may be sales/BR
-        // prefill), so an un-started lead still runs the full intro from
-        // `welcome`. Term dates count as answered only when BOTH bounds are
-        // present, mirroring the flow's both-bounds requirement.
-        const hasParty = !!eo?.party
-        const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
+        // Resume at the first step whose answer isn't yet saved; an un-started
+        // lead (no party) still runs the full intro from `welcome`.
         setStep(
           computeServeResumeStep(resolvedBranch, {
             hasParty,

@@ -75,14 +75,15 @@ describe('ServeOnboardingFlow', () => {
   })
 
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
-    // Party answered + office prefilled, term dates still missing → prefill
-    // branch resumes on the confirm hub, NOT welcome.
+    // Genuine prefill (BR term dates present) + party answered, office still to
+    // be confirmed → resumes on the confirm hub, NOT welcome.
     mockLoad(
-      buildEO({ party: 'independent' }),
-      buildOrg({
-        positionName: 'Mayor',
-        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
       }),
+      buildOrg(),
     )
     renderFlow()
 
@@ -94,11 +95,12 @@ describe('ServeOnboardingFlow', () => {
 
   it('seeds inOffice on resume so backing up to the inOffice step is not a dead end', async () => {
     mockLoad(
-      buildEO({ party: 'independent' }),
-      buildOrg({
-        positionName: 'Mayor',
-        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
       }),
+      buildOrg(),
     )
     const user = userEvent.setup()
     renderFlow()
@@ -243,6 +245,26 @@ describe('ServeOnboardingFlow', () => {
         "Here's everything to know about your constituents",
       ),
     ).toBeInTheDocument()
+  })
+
+  it('keeps a net-new user who saved their office in the net-new branch on resume', async () => {
+    // party answered + office on the org + NO term dates is the net-new
+    // mid-flow signature. It must resume on the net-new term-dates step, not
+    // get reclassified into the prefill confirm hub (whose "pulled from public
+    // records" copy would be wrong for the office the user entered themselves).
+    mockLoad(
+      buildEO({ party: 'independent' }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
   })
 
   it('advances from the prefill confirm hub to constituents without re-patching the org', async () => {
