@@ -17,13 +17,12 @@ const meta: Meta<typeof ProBadge> = {
 }
 
 export default meta
-type Story = StoryObj<typeof ProBadge>
 
-export const Playground: Story = {
+export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
     size: 'default',
     showContext: false,
-  } as PlaygroundArgs,
+  },
   argTypes: {
     size: {
       control: 'inline-radio',
@@ -49,7 +48,7 @@ export const Playground: Story = {
   },
 }
 
-export const Sizes: Story = {
+export const Sizes: StoryObj<typeof ProBadge> = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-4">
@@ -65,7 +64,7 @@ export const Sizes: Story = {
   ),
 }
 
-export const InlineWithText: Story = {
+export const InlineWithText: StoryObj<typeof ProBadge> = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-4">
