@@ -25,7 +25,7 @@ export async function fetchCampaignStatus(): Promise<CampaignStatus> {
   }
 }
 
-const fetchHasElectedOffice = async (): Promise<boolean> => {
+const fetchHasCurrentElectedOffice = async (): Promise<boolean> => {
   try {
     const resp = await serverFetch(apiRoutes.electedOffice.current)
     return resp.ok
@@ -34,14 +34,58 @@ const fetchHasElectedOffice = async (): Promise<boolean> => {
   }
 }
 
-export async function getPostAuthRedirectPath(): Promise<string> {
-  const [user, campaignStatus, hasElectedOffice] = await Promise.all([
-    getServerUser(),
-    fetchCampaignStatus(),
-    fetchHasElectedOffice(),
-  ])
+const fetchMyElectedOffices = async (): Promise<
+  { onboardingCompletedAt: string | null }[]
+> => {
+  try {
+    const resp = await serverFetch(apiRoutes.electedOffice.mine)
+    return resp.ok && Array.isArray(resp.data) ? resp.data : []
+  } catch {
+    return []
+  }
+}
 
-  return resolvePostAuthRedirectPath(user, campaignStatus, hasElectedOffice)
+const fetchHasElectedOfficeOrg = async (): Promise<boolean> => {
+  try {
+    const organizations = await getCurrentUserOrganizations()
+    return organizations.some((o) => o.electedOfficeId)
+  } catch {
+    return false
+  }
+}
+
+export async function getPostAuthRedirectPath(): Promise<string> {
+  const [user, campaignStatus, hasCurrentEO, myElectedOffices, hasEoOrg] =
+    await Promise.all([
+      getServerUser(),
+      fetchCampaignStatus(),
+      fetchHasCurrentElectedOffice(),
+      fetchMyElectedOffices(),
+      fetchHasElectedOfficeOrg(),
+    ])
+
+  // Mirror the OTP /post-auth-redirect path: `/current` only resolves the
+  // active-slug org's office (404s behind a campaign org), so scan every office
+  // the user holds. An incomplete office routes the user into serve onboarding
+  // from every entry point (/, /login, /sign-up), not just the OTP flow.
+  const incompleteEO = myElectedOffices.find((eo) => !eo.onboardingCompletedAt)
+  const relevantEO = incompleteEO ?? myElectedOffices[0] ?? null
+  // Also honor an org that owns an elected office even when both EO endpoints
+  // miss (e.g. a provisioning race), matching the OTP page's `!!electedOrg`.
+  const hasElectedOffice =
+    hasCurrentEO || myElectedOffices.length > 0 || hasEoOrg
+  // Default to "complete" when no concrete EO record resolves so a legacy
+  // win→serve user isn't looped back into /serve/onboarding on every login.
+  const electedOfficeOnboardingComplete = relevantEO
+    ? !!relevantEO.onboardingCompletedAt
+    : true
+
+  return resolvePostAuthRedirectPath(
+    user,
+    campaignStatus,
+    hasElectedOffice,
+    electedOfficeOnboardingComplete,
+  )
 }
 
 export default async function candidateAccess(): Promise<void> {

@@ -5,44 +5,95 @@ const meta: Meta<typeof DonutChart> = {
   title: 'Charts/DonutChart',
   component: DonutChart,
   tags: ['autodocs'],
+  argTypes: {
+    data: { table: { disable: true } },
+    height: { table: { disable: true } },
+  },
 }
 
 export default meta
-type Story = StoryObj<typeof DonutChart>
 
-const yesNoData = [
-  { name: 'Yes', value: 38 },
-  { name: 'No', value: 62 },
+const THREE_SEGMENTS = [
+  { name: 'Yes', value: 62 },
+  { name: 'No', value: 25 },
+  { name: 'Unknown', value: 13 },
 ]
 
-const homeownerData = [
-  { name: 'Owner', value: 54 },
-  { name: 'Renter', value: 31 },
-  { name: 'Unknown', value: 15 },
-]
-
-export const TwoSegments: Story = {
-  render: () => (
-    <div className="w-[420px]">
-      <DonutChart data={yesNoData} percentage />
+export const Playground: StoryObj<typeof DonutChart> = {
+  args: {
+    percentage: true,
+  },
+  argTypes: {
+    percentage: {
+      control: 'boolean',
+      description: 'Format legend values as percentages.',
+    },
+  },
+  render: ({ percentage }) => (
+    <div className="w-[360px]">
+      <DonutChart data={THREE_SEGMENTS} percentage={percentage} />
     </div>
   ),
 }
 
-export const ThreeSegments: Story = {
+export const Variants: StoryObj<typeof DonutChart> = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="w-[420px]">
-      <DonutChart data={homeownerData} percentage />
+    <div className="flex flex-wrap gap-8">
+      <div className="w-[300px]">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Two segments
+        </p>
+        <DonutChart
+          data={[
+            { name: 'Yes', value: 62 },
+            { name: 'No', value: 38 },
+          ]}
+          percentage
+        />
+      </div>
+      <div className="w-[300px]">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Three segments
+        </p>
+        <DonutChart data={THREE_SEGMENTS} percentage />
+      </div>
+      <div className="w-[300px]">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Four segments
+        </p>
+        <DonutChart
+          data={[
+            { name: 'Yes', value: 42 },
+            { name: 'Likely', value: 18 },
+            { name: 'No', value: 21 },
+            { name: 'Unknown', value: 19 },
+          ]}
+          percentage
+        />
+      </div>
     </div>
   ),
 }
 
-export const Counts: Story = {
+export const Values: StoryObj<typeof DonutChart> = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="w-[420px]">
-      <DonutChart
-        data={homeownerData.map((d) => ({ ...d, value: d.value * 1000 }))}
-      />
+    <div className="flex flex-wrap gap-8">
+      <div className="w-[300px]">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Percentage
+        </p>
+        <DonutChart data={THREE_SEGMENTS} percentage />
+      </div>
+      <div className="w-[300px]">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Count
+        </p>
+        <DonutChart
+          data={THREE_SEGMENTS.map((d) => ({ ...d, value: d.value * 1000 }))}
+        />
+      </div>
     </div>
   ),
 }

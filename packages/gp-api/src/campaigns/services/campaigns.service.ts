@@ -459,7 +459,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         electionDate:
           nextElection !== null
             ? nextElection.electionDate
-            : (toDateOnlyString(sourceOrg.electedOffice.termEndAt) ?? null),
+            : (toDateOnlyString(sourceOrg.electedOffice.termEndDate) ?? null),
       }
     }
 
