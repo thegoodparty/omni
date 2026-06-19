@@ -5,6 +5,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
+import { CommunityIssueFeedService } from '@/communityIssueFeed/services/communityIssueFeed.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -1215,6 +1216,10 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
+          provide: CommunityIssueFeedService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
           provide: CampaignStrategyService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
@@ -1495,6 +1500,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CommunityIssueFeedService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {

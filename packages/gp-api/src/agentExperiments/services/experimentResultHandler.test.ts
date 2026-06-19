@@ -118,7 +118,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {
         onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
       } as never,
-      {} as never,
+      {
+        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+      } as never,
       {} as never,
       logger,
     )

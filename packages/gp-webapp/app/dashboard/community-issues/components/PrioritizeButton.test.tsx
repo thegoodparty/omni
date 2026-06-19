@@ -18,7 +18,7 @@ const mockPriority: Priority = {
   electedOfficeId: 'office-1',
   title: 'Housing Crisis',
   description: 'Rising rents',
-  source: 'community_issue',
+  source: 'community_issue_feed',
   sourceCampaignPositionId: null,
   targetDate: null,
   createdAt: new Date().toISOString(),
