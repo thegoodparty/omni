@@ -85,6 +85,7 @@ interface RadioCardItemProps {
   title: string
   description?: string
   className?: string
+  disabled?: boolean
 }
 
 function RadioCardItem({
@@ -93,6 +94,7 @@ function RadioCardItem({
   title,
   description,
   className,
+  disabled,
 }: RadioCardItemProps) {
   return (
     <Label
@@ -107,6 +109,7 @@ function RadioCardItem({
       <RadioGroupItem
         value={value}
         id={id}
+        disabled={disabled}
         className="shrink-0 disabled:opacity-100"
       />
       <div className="flex flex-col gap-px">
