@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useSignUp } from '@clerk/nextjs'
+import { useSignUp } from '@clerk/nextjs/legacy'
 import {
   Button,
   Checkbox,
@@ -20,16 +20,23 @@ const SIGN_UP_REDIRECT = '/post-auth-redirect?source=signup'
 const SSO_CALLBACK_URL = '/sign-up/sso-callback'
 
 /**
- * The Clerk Signal API returns a `ClerkError` (with `longMessage`/`message`)
- * from each step method rather than throwing; surface the friendliest text.
+ * The classic Clerk hook throws a `ClerkAPIResponseError` (whose `errors[]`
+ * carry `longMessage`/`message`); surface the friendliest available text.
  */
-const messageFrom = (error: {
-  longMessage?: string
-  message?: string
-}): string =>
-  error?.longMessage ||
-  error?.message ||
-  'Something went wrong. Please try again.'
+const messageFrom = (error: unknown): string => {
+  const e = error as {
+    errors?: { longMessage?: string; message?: string }[]
+    longMessage?: string
+    message?: string
+  }
+  return (
+    e?.errors?.[0]?.longMessage ||
+    e?.errors?.[0]?.message ||
+    e?.longMessage ||
+    e?.message ||
+    'Something went wrong. Please try again.'
+  )
+}
 
 const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -40,7 +47,9 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
 
 export default function SignUpForm() {
   const router = useRouter()
-  const { signUp } = useSignUp()
+  // The classic hook is accessed without destructuring so TS can narrow the
+  // `signUp`/`setActive` members on the `isLoaded` discriminant.
+  const clerk = useSignUp()
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -56,32 +65,25 @@ export default function SignUpForm() {
 
   const handleDetailsSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (submitting) return
+    if (!clerk.isLoaded || submitting) return
     setError(null)
     setSubmitting(true)
     try {
-      // `create()` establishes the sign-up attempt with all collected fields.
-      // The factor-specific `password()` helper assumes an existing attempt and
-      // fails with "No sign up attempt was found" when called first.
-      const { error: createError } = await signUp.create({
+      // `create()` starts a fresh attempt every time, so returning to this form
+      // after bailing out of verification cleanly supersedes the prior attempt.
+      await clerk.signUp.create({
         emailAddress: email,
         password,
         firstName,
         lastName,
         legalAccepted: agreed,
       })
-      if (createError) {
-        setError(messageFrom(createError))
-        return
-      }
-
-      const { error: sendError } = await signUp.verifications.sendEmailCode()
-      if (sendError) {
-        setError(messageFrom(sendError))
-        return
-      }
-
+      await clerk.signUp.prepareEmailAddressVerification({
+        strategy: 'email_code',
+      })
       setVerifying(true)
+    } catch (err) {
+      setError(messageFrom(err))
     } finally {
       setSubmitting(false)
     }
@@ -89,51 +91,38 @@ export default function SignUpForm() {
 
   const handleVerify = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (submitting) return
+    if (!clerk.isLoaded || submitting) return
     setError(null)
     setSubmitting(true)
     try {
-      const { error: verifyError } = await signUp.verifications.verifyEmailCode(
-        { code },
-      )
-      if (verifyError) {
-        setError(messageFrom(verifyError))
-        return
-      }
-
-      if (signUp.status === 'complete') {
-        const { error: finalizeError } = await signUp.finalize({
-          navigate: async ({ decorateUrl }) => {
-            const url = decorateUrl(SIGN_UP_REDIRECT)
-            if (url.startsWith('http')) {
-              window.location.href = url
-            } else {
-              router.push(url)
-            }
-          },
-        })
-        if (finalizeError) {
-          setError(messageFrom(finalizeError))
-        }
+      const attempt = await clerk.signUp.attemptEmailAddressVerification({
+        code,
+      })
+      if (attempt.status === 'complete') {
+        await clerk.setActive({ session: attempt.createdSessionId })
+        router.push(SIGN_UP_REDIRECT)
         return
       }
 
       setError('We could not finish creating your account. Please try again.')
+    } catch (err) {
+      setError(messageFrom(err))
     } finally {
       setSubmitting(false)
     }
   }
 
   const handleGoogle = async () => {
-    if (submitting) return
+    if (!clerk.isLoaded || submitting) return
     setError(null)
-    const { error: ssoError } = await signUp.sso({
-      strategy: 'oauth_google',
-      redirectUrl: SIGN_UP_REDIRECT,
-      redirectCallbackUrl: SSO_CALLBACK_URL,
-    })
-    if (ssoError) {
-      setError(messageFrom(ssoError))
+    try {
+      await clerk.signUp.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: SSO_CALLBACK_URL,
+        redirectUrlComplete: SIGN_UP_REDIRECT,
+      })
+    } catch (err) {
+      setError(messageFrom(err))
     }
   }
 
@@ -192,13 +181,12 @@ export default function SignUpForm() {
           </Button>
           <button
             type="button"
-            onClick={async () => {
+            onClick={() => {
+              // Returning here resets the UI; the next submit calls create()
+              // again, which supersedes this attempt with a fresh one.
               setVerifying(false)
               setCode('')
               setError(null)
-              // Discard the in-progress Clerk attempt (local-only) so the next
-              // submit starts a fresh sign-up instead of reusing a stale one.
-              await signUp.reset()
             }}
             className="text-center text-sm text-muted-foreground underline"
           >
@@ -331,7 +319,7 @@ export default function SignUpForm() {
           type="submit"
           className="w-full"
           loading={submitting}
-          disabled={!agreed}
+          disabled={!agreed || !clerk.isLoaded}
           data-testid="signup-submit"
         >
           Sign up
