@@ -1,31 +1,41 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { PrioritySource } from '../../generated/prisma'
+import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 
 @Injectable()
 export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
   MODELS.CommunityIssueFeed,
 ) {
-  async prioritize(issueId: string, electedOfficeId: string) {
-    const issue = await this.model.findUnique({ where: { id: issueId } })
+  async prioritize(
+    issueId: string,
+    organizationSlug: string,
+    electedOfficeId: string,
+  ) {
+    const issue = await this.model.findFirst({
+      where: { id: issueId, organizationSlug },
+    })
     if (!issue) throw new NotFoundException('Community issue not found')
 
-    const existing = await this.client.priority.findFirst({
-      where: {
-        sourceCommunityIssueFeedId: issueId,
-        electedOfficeId,
-      },
-    })
-    if (existing) return existing
-
-    return this.client.priority.create({
-      data: {
-        electedOfficeId,
-        title: issue.title,
-        description: issue.summary,
-        source: PrioritySource.community_issue_feed,
-        sourceCommunityIssueFeedId: issueId,
-      },
-    })
+    try {
+      return await this.client.priority.create({
+        data: {
+          electedOfficeId,
+          title: issue.title,
+          description: issue.summary,
+          source: PrioritySource.community_issue_feed,
+          sourceCommunityIssueFeedId: issueId,
+        },
+      })
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        return this.client.priority.findFirstOrThrow({
+          where: { sourceCommunityIssueFeedId: issueId, electedOfficeId },
+        })
+      }
+      throw e
+    }
   }
 }

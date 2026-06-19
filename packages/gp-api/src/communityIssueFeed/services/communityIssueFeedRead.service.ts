@@ -5,9 +5,9 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { format } from 'date-fns'
+import { toDateOnlyString } from 'src/shared/util/date.util'
 
-const EXPERIMENT_TYPE_FOR_LIST: Record<string, string> = {
+const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
   top_community: 'top_community_issues',
   trending: 'trending_issues',
 }
@@ -86,6 +86,7 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
             where: {
               electedOfficeId,
               sourceCommunityIssueFeedId: { in: issueIds },
+              archivedAt: null,
             },
             select: { sourceCommunityIssueFeedId: true },
           })
@@ -115,8 +116,14 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
     }
   }
 
-  async getDetail(id: string, electedOfficeId: string) {
-    const issue = await this.model.findUnique({ where: { id } })
+  async getDetailForOrg(
+    id: string,
+    organizationSlug: string,
+    electedOfficeId: string,
+  ) {
+    const issue = await this.model.findFirst({
+      where: { id, organizationSlug },
+    })
     if (!issue) throw new NotFoundException('Community issue not found')
 
     const [directLinks, indirectPriority] = await Promise.all([
@@ -128,6 +135,7 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
         where: {
           sourceCommunityIssueFeedId: id,
           electedOfficeId,
+          archivedAt: null,
         },
         include: {
           briefingItemLinks: {
@@ -159,7 +167,7 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
     const relatedBriefings = validLinks.map((link) => ({
       meetingBriefingId: link.meetingBriefingId,
       briefingItemId: link.briefingItemId,
-      meetingDate: format(link.meetingBriefing.meetingDate, 'yyyy-MM-dd'),
+      meetingDate: toDateOnlyString(link.meetingBriefing.meetingDate) ?? '',
     }))
 
     return {

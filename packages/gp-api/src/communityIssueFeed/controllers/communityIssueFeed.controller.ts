@@ -92,7 +92,11 @@ export class CommunityIssueFeedController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param() { id }: IssueIdParamDto,
   ) {
-    return this.read.getDetail(id, electedOffice.id)
+    return this.read.getDetailForOrg(
+      id,
+      electedOffice.organizationSlug,
+      electedOffice.id,
+    )
   }
 
   @Post(':id/prioritize')
@@ -103,7 +107,11 @@ export class CommunityIssueFeedController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param() { id }: IssueIdParamDto,
   ) {
-    const priority = await this.prioritize.prioritize(id, electedOffice.id)
+    const priority = await this.prioritize.prioritize(
+      id,
+      electedOffice.organizationSlug,
+      electedOffice.id,
+    )
     return toApi(priority)
   }
 }

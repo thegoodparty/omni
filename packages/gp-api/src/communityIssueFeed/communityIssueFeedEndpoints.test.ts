@@ -154,6 +154,78 @@ describe('GET /v1/community-issue-feed', () => {
   )
 })
 
+describe('GET /v1/community-issue-feed — archived priority', () => {
+  it('returns prioritized:false when the matching Priority has archivedAt set', async () => {
+    const issue = await seedIssue()
+    await service.prisma.priority.create({
+      data: {
+        electedOfficeId: eoId,
+        title: 'archived-prio',
+        description: 'desc',
+        source: 'community_issue_feed',
+        sourceCommunityIssueFeedId: issue.id,
+        archivedAt: new Date(),
+      },
+    })
+    await seedExperimentRun(
+      'top_community_issues',
+      ExperimentRunStatus.COMPLETED,
+    )
+
+    const res = await service.client.get<{
+      issues: { id: string; prioritized: boolean }[]
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const found = res.data.issues.find((i) => i.id === issue.id)
+    expect(found?.prioritized).toBe(false)
+  })
+})
+
+describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
+  it('returns 404 when the issue belongs to a different org', async () => {
+    const otherSlug = `other-org-${uuidv7()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const otherIssue = await seedIssue({ organizationSlug: otherSlug })
+
+    const res = await service.client.get(
+      `${BASE}/${otherIssue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it(
+    'returns prioritized:false and priorityId:null when the matching' +
+      ' Priority has archivedAt set',
+    async () => {
+      const issue = await seedIssue()
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: eoId,
+          title: 'archived-prio',
+          description: 'desc',
+          source: 'community_issue_feed',
+          sourceCommunityIssueFeedId: issue.id,
+          archivedAt: new Date(),
+        },
+      })
+
+      const res = await service.client.get<{
+        prioritized: boolean
+        priorityId: string | null
+      }>(`${BASE}/${issue.id}`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.prioritized).toBe(false)
+      expect(res.data.priorityId).toBeNull()
+    },
+  )
+})
+
 describe('GET /v1/community-issue-feed/:id', () => {
   it(
     'resolves relatedBriefings via BOTH direct path (communityIssueFeedId)' +
@@ -293,6 +365,24 @@ describe('GET /v1/community-issue-feed/:id', () => {
       expect(itemIds).not.toContain('stale-item')
     },
   )
+})
+
+describe('POST /v1/community-issue-feed/:id/prioritize — cross-org security', () => {
+  it('returns 404 when the issue belongs to a different org', async () => {
+    const otherSlug = `other-org-${uuidv7()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const otherIssue = await seedIssue({ organizationSlug: otherSlug })
+
+    const res = await service.client.post(
+      `${BASE}/${otherIssue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
 })
 
 describe('POST /v1/community-issue-feed/:id/prioritize', () => {
