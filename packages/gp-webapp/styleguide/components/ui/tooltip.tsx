@@ -44,7 +44,11 @@ function Tooltip({
   if (!openOnClick) {
     return (
       <TooltipProvider>
-        <TooltipPrimitive.Root data-slot="tooltip" {...props}>
+        <TooltipPrimitive.Root
+          data-slot="tooltip"
+          defaultOpen={defaultOpen}
+          {...props}
+        >
           {children}
         </TooltipPrimitive.Root>
       </TooltipProvider>

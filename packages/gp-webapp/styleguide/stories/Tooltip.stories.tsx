@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { userEvent, within } from 'storybook/test'
+import { expect, userEvent, within } from 'storybook/test'
 import { useArgs } from 'storybook/preview-api'
 import {
   Tooltip,
@@ -148,6 +148,9 @@ export const Disabled: Story = {
     const canvas = within(canvasElement)
     const span = canvas.getByText('Disabled action').closest('span')!
     await userEvent.hover(span)
+    await expect(
+      within(document.body).findByText("You don't have permission to do this"),
+    ).resolves.toBeVisible()
   },
 }
 
