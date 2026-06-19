@@ -27,6 +27,10 @@ import { CommunityIssueFeedUpsertService } from './services/communityIssueFeedUp
     CommunityIssueFeedReadService,
     CommunityIssueFeedUpsertService,
   ],
-  exports: [CommunityIssueFeedService, CommunityIssueFeedDispatchService],
+  exports: [
+    CommunityIssueFeedService,
+    CommunityIssueFeedDispatchService,
+    CommunityIssueFeedReadService,
+  ],
 })
 export class CommunityIssueFeedModule {}
