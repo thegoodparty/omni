@@ -1,3 +1,4 @@
+import { CommunityIssueFeedModule } from '@/communityIssueFeed/communityIssueFeed.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
@@ -11,6 +12,7 @@ import { SupportEstimateService } from './services/supportEstimate.service'
 
 @Module({
   imports: [
+    CommunityIssueFeedModule,
     OrganizationsModule,
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),
