@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from eval_trajectory import score, _load
-from perf_gate import list_run_ids
+from perf_gate import DEFAULT_THRESHOLDS, list_run_ids
 
 FAIL_WORDS = ("error", "failed", "failure")
 ABSENT_MARKERS = ("(404)", "NoSuchKey", "does not exist")
@@ -54,6 +54,23 @@ def pct(vals, p):
         return None
     k = max(0, min(len(vals) - 1, int(round(p / 100 * (len(vals) - 1)))))
     return vals[k]
+
+
+def compute_thresholds(costs, turns, errs) -> dict:
+    """FLAG ceilings from the run distribution, p95 per metric.
+
+    A p95 of 0 or None (no result records, or a degenerate all-zero distribution)
+    must NOT become a literal 0 ceiling — `0 > 0` is false but `anything > 0` is
+    true, so a 0 ceiling would FLAG every future run forever. Fall back to the
+    conservative DEFAULT_THRESHOLDS instead; genuinely incomplete runs are still
+    caught by the turns-None path in perf_gate.evaluate, and a no-artifact run by
+    the universal hard FAIL — the loose ceiling hides neither."""
+    cp, tp, ep = pct(costs, 95), pct(turns, 95), pct(errs, 95)
+    return {
+        "cost_max": round(cp, 2) if (cp is not None and cp > 0) else DEFAULT_THRESHOLDS["cost_max"],
+        "turns_max": tp if (tp is not None and tp > 0) else DEFAULT_THRESHOLDS["turns_max"],
+        "tool_errors_max": max(2, ep or 0),
+    }
 
 
 def discover_status_field(artifacts):
@@ -190,11 +207,12 @@ def main():
     costs = [m["cost"] for m in present]
     turns = [m["turns"] for m in present if m["turns"] is not None]
     errs = [m["tool_errors"] for m in present]
-    thresholds = {
-        "cost_max": round(pct(costs, 95) or 0, 2),
-        "turns_max": pct(turns, 95) or 0,
-        "tool_errors_max": max(2, pct(errs, 95) or 0),
-    }
+    thresholds = compute_thresholds(costs, turns, errs)
+    cost_p95, turns_p95 = pct(costs, 95), pct(turns, 95)
+    if not cost_p95 or not turns_p95:
+        print(f"!! WARNING: degenerate distribution (cost p95={cost_p95}, turns p95={turns_p95}) — "
+              f"a 0/None ceiling would FLAG every run, so falling back to DEFAULT_THRESHOLDS for "
+              f"those metrics. Investigate whether result records are landing.", file=sys.stderr)
     cfg = {
         "experiment": a.exp, "env": a.env, "n": len(rows),
         "derived_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -203,8 +221,8 @@ def main():
         "no_artifact_rate": round(noart / len(rows), 3),
         "status_counts": dict(statuses),
         "distribution": {
-            "cost": {"median": round(st.median(costs), 2) if costs else None, "p95": thresholds["cost_max"], "max": round(max(costs), 2) if costs else None},
-            "turns": {"median": st.median(turns) if turns else None, "p95": thresholds["turns_max"], "max": max(turns) if turns else None},
+            "cost": {"median": round(st.median(costs), 2) if costs else None, "p95": round(cost_p95, 2) if cost_p95 is not None else None, "max": round(max(costs), 2) if costs else None},
+            "turns": {"median": st.median(turns) if turns else None, "p95": turns_p95, "max": max(turns) if turns else None},
         },
     }
     cfgpath = f"outputs/perf-eval/{a.exp}/{a.exp}.{a.env}.perf.json"

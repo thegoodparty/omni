@@ -273,3 +273,23 @@ def test_status_field_is_discovered_from_the_capped_sample_not_the_oversample(mo
     assert cfg["n"] == 2
     # capped sample is r1,r2 (both "status"); the 2x oversample majority is briefing_status
     assert cfg["status_field"] == "status"
+
+
+def test_compute_thresholds_zero_or_missing_p95_falls_back_to_default_not_zero():
+    # A 0/None p95 (no result records, or a degenerate all-zero cost distribution)
+    # must NOT become a literal 0 ceiling — that would FLAG every future run forever.
+    # Fall back to the conservative DEFAULT_THRESHOLDS instead.
+    from derive_perf_thresholds import compute_thresholds
+    from perf_gate import DEFAULT_THRESHOLDS
+
+    th = compute_thresholds(costs=[0.0, 0.0, 0.0], turns=[], errs=[0, 0, 0])
+    assert th["cost_max"] == DEFAULT_THRESHOLDS["cost_max"]
+    assert th["turns_max"] == DEFAULT_THRESHOLDS["turns_max"]
+    assert th["tool_errors_max"] == 2  # clamped floor preserved
+
+
+def test_compute_thresholds_uses_real_positive_p95_verbatim():
+    from derive_perf_thresholds import compute_thresholds
+    th = compute_thresholds(costs=[1.0, 2.0, 3.0], turns=[10, 20, 30], errs=[0, 1, 0])
+    assert th["cost_max"] == 3.0
+    assert th["turns_max"] == 30

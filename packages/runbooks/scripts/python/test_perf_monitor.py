@@ -184,3 +184,19 @@ def test_traceless_run_with_artifact_flags_incomplete_instead_of_passing():
     r = gate_run(None, "found", {"thresholds": {"cost_max": 1, "turns_max": 10, "tool_errors_max": 2}})
     assert r["verdict"] == "FLAG"
     assert any("incomplete" in x or "no result" in x for x in r["reasons"])
+
+
+def test_latest_run_ids_excludes_v4_and_preserves_v7_time_order(monkeypatch):
+    # _latest_run_ids assumes UUIDv7 lexicographic time-ordering, but list_run_ids
+    # matches ANY UUID version. A v4 (random) id would sort into an arbitrary
+    # position and silently pollute the "latest N" window — restrict to v7.
+    import perf_monitor as pm
+
+    v7_old = "01970000-0000-7000-8000-000000000001"
+    v7_new = "01990000-0000-7000-8000-000000000002"
+    v4 = "ffffffff-ffff-4fff-8fff-ffffffffffff"  # lex-largest; would wrongly sort last
+    monkeypatch.setattr(pm, "list_run_ids", lambda b, e: [v7_old, v4, v7_new])
+
+    out = pm._latest_run_ids("bucket", "exp", 2)
+    assert v4 not in out
+    assert out == [v7_old, v7_new]

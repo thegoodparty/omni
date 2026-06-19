@@ -261,3 +261,23 @@ def test_ab_parity_line_says_not_checked_without_status_regex(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "OK (all inputs match)" not in out
     assert "not checked" in out.lower()
+
+
+def test_parity_line_broken_on_outcome_mismatch():
+    from eval_trajectory import parity_line
+    assert "BROKEN" in parity_line(mismatch_seen=True, n_complete=3)
+
+
+def test_parity_line_not_validated_when_no_complete_pairs():
+    # No complete, outcome-matched pair was ever checked (all excluded as incomplete).
+    # Claiming "OK (all inputs match)" would be a false all-clear.
+    from eval_trajectory import parity_line
+    line = parity_line(mismatch_seen=False, n_complete=0)
+    assert "OK" not in line
+    assert "NOT VALIDATED" in line
+
+
+def test_parity_line_ok_only_with_complete_matched_pairs():
+    from eval_trajectory import parity_line
+    line = parity_line(mismatch_seen=False, n_complete=2)
+    assert "OK" in line and "2" in line

@@ -48,7 +48,12 @@ def env_mismatch(cfg_env, cli_env) -> bool:
 def _latest_run_ids(bucket, exp, n):
     # Listing delegated to perf_gate.list_run_ids, which RAISES on listing failure —
     # a swallowed aws error here once read as n=0 -> "OK" -> the monitor failed open.
-    return sorted(list_run_ids(bucket, exp))[-n:]  # UUIDv7 is time-ordered: the tail is the newest
+    # list_run_ids matches ANY UUID version, but the "tail is newest" trick only holds
+    # for UUIDv7 (time-ordered). A v4 (random) id — from an older harness or a manual
+    # dispatch — would sort to an arbitrary position and silently pollute the window, so
+    # restrict to v7 (version nibble at string index 14) before sorting.
+    v7 = [i for i in list_run_ids(bucket, exp) if len(i) > 14 and i[14] == "7"]
+    return sorted(v7)[-n:]
 
 
 def gate_run(trace_text: str | None, status, cfg: dict) -> dict:

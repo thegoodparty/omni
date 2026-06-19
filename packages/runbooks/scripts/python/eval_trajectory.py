@@ -155,6 +155,19 @@ def ab_pair_includable(c: dict, t: dict):
     return True, None
 
 
+def parity_line(mismatch_seen: bool, n_complete: int) -> str:
+    """The outcome-parity verdict for the A/B footer.
+
+    "OK" is only honest when at least one complete, outcome-matched pair was actually
+    validated. A run where every pair was excluded as incomplete (turns unknown) checked
+    nothing, so it must read NOT VALIDATED, never "OK (all inputs match)"."""
+    if mismatch_seen:
+        return "outcome parity: BROKEN — fix before trusting the delta"
+    if n_complete == 0:
+        return "outcome parity: NOT VALIDATED (no complete, outcome-matched pairs)"
+    return f"outcome parity: OK ({n_complete} matched pair(s))"
+
+
 def run_dir(d: str, rules, status_regex):
     rows = {}
     for f in sorted(glob.glob(os.path.join(d, "*.jsonl"))):
@@ -201,7 +214,7 @@ def main():
         print("-" * 70)
         ct = tt = 0
         cc = tc = 0.0
-        parity = True
+        mismatch_seen = False
         n_complete = 0
         for k in keys:
             c, t = cmap[k], tmap[k]
@@ -216,7 +229,7 @@ def main():
                 n_complete += 1
             else:
                 if "mismatch" in why:
-                    parity = False
+                    mismatch_seen = True
                 print(f"  !! {why} — excluded from totals")
             print()
         print("=" * 70)
@@ -226,7 +239,7 @@ def main():
         if ct:
             print(f"delta     turns={100*(ct-tt)/ct:+.0f}% (negative = treatment worse)   cost={100*(cc-tc)/max(1e-9,cc):+.0f}%")
         if a.status_regex:
-            print(f"outcome parity: {'OK (all inputs match)' if parity else 'BROKEN — fix before trusting the delta'}")
+            print(parity_line(mismatch_seen, n_complete))
         else:
             print("outcome parity: NOT CHECKED (no --status-regex; use ab_savings.py for true-status parity)")
     else:
