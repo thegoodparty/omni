@@ -29,7 +29,7 @@ const BarList = ({
   return (
     <div
       className={cn(
-        'grid w-full grid-cols-[auto_minmax(80px,1fr)_auto] items-center gap-x-3 gap-y-2 pt-4',
+        'grid w-full grid-cols-[auto_minmax(80px,1fr)_auto] items-center gap-x-3 gap-y-4 pt-4',
         className,
       )}
     >
