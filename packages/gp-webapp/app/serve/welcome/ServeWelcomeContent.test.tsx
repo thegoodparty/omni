@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import ServeWelcomeContent from './ServeWelcomeContent'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
@@ -7,9 +7,9 @@ const mockSignOut = vi.fn()
 const mockSetActive = vi.fn()
 const mockSignInCreate = vi.fn()
 
-// `user` mirrors Clerk's active-session signal: truthy when a session is
-// already active in the browser, null on a fresh visit.
-let mockUser: unknown = null
+// `user` mirrors Clerk's active-session signal: truthy (with an `id`) when a
+// session is already active in the browser, null on a fresh visit.
+let mockUser: { id: string } | null = null
 
 vi.mock('@clerk/nextjs', () => ({
   useClerk: () => ({
@@ -21,7 +21,7 @@ vi.mock('@clerk/nextjs', () => ({
   }),
 }))
 
-let mockSearchParams = new URLSearchParams({ __clerk_ticket: 'ticket-abc' })
+let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
@@ -30,11 +30,25 @@ const POST_AUTH = `/post-auth-redirect?next=${encodeURIComponent(
   SERVE_ONBOARDING_PATH,
 )}`
 
+// Build a minimal JWT (header.payload.signature) whose payload carries the
+// given claims, matching the shape `decodeTicketUserId` parses.
+function makeTicket(claims: Record<string, unknown>): string {
+  const b64 = (obj: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(obj)).toString('base64url')
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}.signature`
+}
+
+const ticketFor = (sub: string) =>
+  new URLSearchParams({ __clerk_ticket: makeTicket({ sub }) })
+
+const continueButton = () =>
+  screen.getByRole('button', { name: /continue to goodparty/i })
+
 describe('ServeWelcomeContent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUser = null
-    mockSearchParams = new URLSearchParams({ __clerk_ticket: 'ticket-abc' })
+    mockSearchParams = ticketFor('user_ticket')
     mockSignOut.mockResolvedValue(undefined)
     mockSetActive.mockResolvedValue(undefined)
     mockSignInCreate.mockResolvedValue({
@@ -49,76 +63,81 @@ describe('ServeWelcomeContent', () => {
     })
   })
 
-  it('redeems the ticket and routes to post-auth without signing out on a fresh visit', async () => {
+  it('renders the landing page and does NOT redeem on load (prefetch / Safe-Links safe)', async () => {
     render(<ServeWelcomeContent />)
+
+    // The CTA is shown, but nothing is redeemed until the human clicks — this
+    // is what protects the one-time ticket from email scanners and unfurlers.
+    await waitFor(() => expect(continueButton()).toBeEnabled())
+    expect(mockSignInCreate).not.toHaveBeenCalled()
+    expect(mockSignOut).not.toHaveBeenCalled()
+    expect(mockSetActive).not.toHaveBeenCalled()
+  })
+
+  it('redeems on click with no active session and routes to post-auth', async () => {
+    render(<ServeWelcomeContent />)
+
+    fireEvent.click(continueButton())
 
     await waitFor(() =>
       expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
     )
-    // No active session means the happy path is unchanged — we must NOT sign
-    // out (and therefore never risk Clerk's post-sign-out navigation).
     expect(mockSignOut).not.toHaveBeenCalled()
     expect(mockSignInCreate).toHaveBeenCalledWith({
       strategy: 'ticket',
-      ticket: 'ticket-abc',
+      ticket: mockSearchParams.get('__clerk_ticket'),
     })
     expect(window.location.href).toBe(POST_AUTH)
   })
 
-  it('signs out an existing session (without navigating) before redeeming, then routes to post-auth', async () => {
+  it('signs out a different active session (without navigating) before redeeming on click', async () => {
     mockUser = { id: 'user_existing' }
+    mockSearchParams = ticketFor('user_other')
     // Assert ordering from within the mock: sign-out must run before redemption.
     mockSignOut.mockImplementation(async () => {
       expect(mockSignInCreate).not.toHaveBeenCalled()
     })
 
     render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
 
     await waitFor(() =>
       expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
     )
-    // An active session is cleared first, and the no-op callback form is used
-    // so Clerk runs the callback instead of its default redirect.
     expect(mockSignOut).toHaveBeenCalledTimes(1)
+    // The no-op callback form is used so Clerk runs the callback instead of its
+    // default post-sign-out redirect.
     expect(mockSignOut).toHaveBeenCalledWith(expect.any(Function))
     expect(window.location.href).toBe(POST_AUTH)
-    expect(screen.queryByText(/couldn’t sign you in/i)).not.toBeInTheDocument()
   })
 
-  it('proceeds without error when the active session is already the ticket user', async () => {
-    // Same user already signed in: the flow re-establishes the session via the
-    // ticket and routes through normally — it must not surface an error.
+  it('skips redemption when already signed in as the ticket user', async () => {
     mockUser = { id: 'user_same' }
+    mockSearchParams = ticketFor('user_same')
 
     render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
 
     await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
-    expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' })
+    // Same user: we must NOT burn the one-time ticket, and must not error.
+    expect(mockSignInCreate).not.toHaveBeenCalled()
+    expect(mockSignOut).not.toHaveBeenCalled()
     expect(screen.queryByText(/couldn’t sign you in/i)).not.toBeInTheDocument()
   })
 
-  it('continues redeeming when the pre-redemption sign-out hiccups', async () => {
-    mockUser = { id: 'user_existing' }
-    mockSignOut.mockRejectedValue(new Error('network blip'))
-
-    render(<ServeWelcomeContent />)
-
-    // A transient sign-out failure must not strand the recipient.
-    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
-    expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' })
-    expect(screen.queryByText(/couldn’t sign you in/i)).not.toBeInTheDocument()
-  })
-
-  it('falls back to /login on an unrecoverable redemption error', async () => {
+  it('shows an error with a /login link when redemption fails on click', async () => {
     mockSignInCreate.mockResolvedValue({
       status: 'needs_first_factor',
       createdSessionId: null,
     })
 
     render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
 
     await waitFor(() =>
-      expect(screen.getByText(/couldn’t sign you in/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/already been used or has expired/i),
+      ).toBeInTheDocument(),
     )
     const loginLink = screen.getByRole('link', { name: /go to login/i })
     expect(loginLink).toHaveAttribute('href', '/login')
@@ -126,15 +145,17 @@ describe('ServeWelcomeContent', () => {
     expect(window.location.href).toBe('')
   })
 
-  it('shows an error when the link is missing its ticket', async () => {
+  it('shows an error with a /login link on load when the ticket is missing', async () => {
     mockSearchParams = new URLSearchParams()
 
     render(<ServeWelcomeContent />)
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/missing its sign-in token/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/missing its token/i)).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('link', { name: /go to login/i })).toHaveAttribute(
+      'href',
+      '/login',
     )
     expect(mockSignInCreate).not.toHaveBeenCalled()
   })
