@@ -1,15 +1,121 @@
 import { Injectable } from '@nestjs/common'
-import { ExperimentRun } from '../../generated/prisma'
+import {
+  CommunityIssueFeedCategory,
+  CommunityIssueFeedList,
+  CommunityIssueFeedPriority,
+  ExperimentRun,
+} from '../../generated/prisma'
+import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CommunityIssuesArtifact,
+  CommunityIssuesArtifactIssue,
 } from '../communityIssueFeedArtifact.validation'
 
 @Injectable()
-export class CommunityIssueFeedUpsertService {
+export class CommunityIssueFeedUpsertService extends createPrismaBase(
+  MODELS.CommunityIssueFeed,
+) {
   async upsertFromArtifact(
-    _run: ExperimentRun,
-    _artifact: CommunityIssuesArtifact,
+    run: ExperimentRun,
+    artifact: CommunityIssuesArtifact,
   ): Promise<void> {
-    throw new Error('not implemented')
+    const list =
+      artifact.list === 'top_community'
+        ? CommunityIssueFeedList.top_community
+        : CommunityIssueFeedList.trending
+
+    const idCarrying = artifact.issues.filter(
+      (
+        i,
+      ): i is CommunityIssuesArtifactIssue & {
+        existing_issue_id: string
+      } => typeof i.existing_issue_id === 'string',
+    )
+    const idLess = artifact.issues.filter(
+      (i) => typeof i.existing_issue_id !== 'string',
+    )
+
+    await this.client.$transaction(async (tx) => {
+      if (idCarrying.length > 0) {
+        const rows = await tx.communityIssueFeed.findMany({
+          where: {
+            id: { in: idCarrying.map((i) => i.existing_issue_id) },
+          },
+          select: { id: true, organizationSlug: true, list: true },
+        })
+        const rowMap = new Map(rows.map((r) => [r.id, r]))
+        for (const issue of idCarrying) {
+          const row = rowMap.get(issue.existing_issue_id)
+          if (!row) {
+            this.logger.error(
+              { runId: run.runId, existingIssueId: issue.existing_issue_id },
+              'existing_issue_id not found — rejecting run',
+            )
+            return
+          }
+          if (
+            row.organizationSlug !== artifact.organization_slug ||
+            row.list !== list
+          ) {
+            this.logger.error(
+              {
+                runId: run.runId,
+                existingIssueId: issue.existing_issue_id,
+                rowOrg: row.organizationSlug,
+                rowList: row.list,
+                artifactOrg: artifact.organization_slug,
+                artifactList: list,
+              },
+              'existing_issue_id belongs to wrong org or list — rejecting run',
+            )
+            return
+          }
+        }
+      }
+
+      for (const issue of idCarrying) {
+        await tx.communityIssueFeed.update({
+          where: { id: issue.existing_issue_id },
+          data: {
+            title: issue.title,
+            summary: issue.summary,
+            category: issue.category as CommunityIssueFeedCategory,
+            priority: issue.priority as CommunityIssueFeedPriority,
+            detail: issue.detail as object,
+            rank: issue.rank,
+            archivedAt: null,
+            lastRefreshedRunId: run.runId,
+          },
+        })
+      }
+
+      const updatedIds = new Set(idCarrying.map((i) => i.existing_issue_id))
+      for (const issue of idLess) {
+        const created = await tx.communityIssueFeed.create({
+          data: {
+            organizationSlug: artifact.organization_slug,
+            list,
+            category: issue.category as CommunityIssueFeedCategory,
+            priority: issue.priority as CommunityIssueFeedPriority,
+            title: issue.title,
+            summary: issue.summary,
+            detail: issue.detail as object,
+            rank: issue.rank,
+            lastRefreshedRunId: run.runId,
+          },
+        })
+        updatedIds.add(created.id)
+      }
+
+      await tx.communityIssueFeed.updateMany({
+        where: {
+          organizationSlug: artifact.organization_slug,
+          list,
+          archivedAt: null,
+          id: { notIn: [...updatedIds] },
+        },
+        data: { archivedAt: new Date() },
+      })
+    })
   }
 }

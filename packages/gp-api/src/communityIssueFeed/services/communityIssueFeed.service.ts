@@ -2,12 +2,8 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Injectable } from '@nestjs/common'
 import { ExperimentRun } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import {
-  validateCommunityIssuesArtifact,
-} from '../communityIssueFeedArtifact.validation'
-import {
-  CommunityIssueFeedUpsertService,
-} from './communityIssueFeedUpsert.service'
+import { validateCommunityIssuesArtifact } from '../communityIssueFeedArtifact.validation'
+import { CommunityIssueFeedUpsertService } from './communityIssueFeedUpsert.service'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
