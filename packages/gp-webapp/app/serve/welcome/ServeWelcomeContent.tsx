@@ -14,7 +14,8 @@ import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
  * landing the lead in the serve onboarding flow.
  */
 export default function ServeWelcomeContent() {
-  const { client, setActive, signOut, loaded } = useClerk()
+  const clerk = useClerk()
+  const { client, setActive, signOut, loaded } = clerk
   const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
@@ -30,8 +31,33 @@ export default function ServeWelcomeContent() {
 
     async function run() {
       try {
-        // Clear any stale session so the ticket establishes the lead's own.
-        await signOut()
+        // If a session is already active in this browser (e.g. a colleague is
+        // signed into the same machine, or the recipient has a stale session),
+        // clear it BEFORE redeeming the ticket so the lead's own session is the
+        // one we activate. We pass a no-op callback to `signOut` so Clerk runs
+        // the callback INSTEAD of its default post-sign-out navigation — that
+        // redirect (to `afterSignOutUrl`) would unload this page before the
+        // ticket could be redeemed, which is exactly why already-logged-in
+        // recipients were being bounced to `/login`. When there is no active
+        // session, `signOut` is a no-op, so the fresh-browser happy path is
+        // unchanged. The ticket is redeemed and `setActive` below switches to
+        // the new session, so a same-user session simply re-establishes itself
+        // without erroring.
+        if (clerk.user) {
+          try {
+            // The callback runs in place of Clerk's default navigation; it
+            // intentionally does nothing so we stay on this page to redeem.
+            await signOut(() => undefined)
+          } catch (signOutErr) {
+            // A transient sign-out hiccup shouldn't strand the recipient — the
+            // ticket redemption + setActive below still switches them onto
+            // their own session.
+            console.warn(
+              '[serve/welcome] sign-out before redemption failed; continuing',
+              signOutErr,
+            )
+          }
+        }
 
         const result = await client.signIn.create({
           strategy: 'ticket',
