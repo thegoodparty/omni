@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import { SnackbarProvider } from '@shared/utils/Snackbar'
 import { render } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 
 // Analytics fans out to Segment on a real window; stub it so the flow's
 // trackServeOnboarding calls are inert in jsdom.
@@ -147,6 +148,100 @@ describe('ServeOnboardingFlow', () => {
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
       await screen.findByText('What office do you currently hold?'),
+    ).toBeInTheDocument()
+  })
+
+  // Resume directly onto the net-new office step (party saved, no office /
+  // term dates yet), then pick an office and reach the term-dates step. Shared
+  // setup for the two term-dates Continue-path tests below.
+  const reachTermDatesStep = async () => {
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    // ServeOfficePicker fetches positions via the legacy clientFetch route
+    // (not a typed clientRequest), so match it with a raw msw handler.
+    mswServer.use(
+      http.get('*/elections/races-by-year', () =>
+        HttpResponse.json([
+          {
+            brPositionId: 'br-pos-1',
+            position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+            city: 'Springfield',
+          },
+        ]),
+      ),
+    )
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    // Net-new resume with a saved party lands on the office step.
+    await screen.findByText('What office do you currently hold?')
+    await user.type(
+      screen.getByPlaceholderText('Enter 5 digit zip code'),
+      '90001',
+    )
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('When does your term run?')
+    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
+    await user.type(startInput!, '01012026')
+    await user.type(endInput!, '01012030')
+    return user
+  }
+
+  it('persists term dates and advances to constituents on the term-dates step', async () => {
+    let putBody: Record<string, unknown> | undefined
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    api.mock('PUT /v1/elected-office/:id', (req) => {
+      putBody = req.body as unknown as Record<string, unknown>
+      return { status: 200, data: buildEO({ party: 'independent' }) }
+    })
+
+    const user = await reachTermDatesStep()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(putBody).toBeDefined())
+    expect(putBody).toEqual({
+      termStartDate: '2026-01-01',
+      termEndDate: '2030-01-01',
+    })
+    expect(putBody).not.toHaveProperty('onboardingCompletedAt')
+    expect(
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('still advances to constituents when the term-dates save fails', async () => {
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    const user = await reachTermDatesStep()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // saveThenAdvance swallows the failed PUT; the chained goToConstituents
+    // still runs, so the user reaches the constituents step.
+    expect(
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      ),
     ).toBeInTheDocument()
   })
 
