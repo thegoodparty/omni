@@ -111,6 +111,20 @@ describe('ServeWelcomeContent', () => {
     expect(window.location.href).toBe(POST_AUTH)
   })
 
+  it('redeems only once on a rapid double-click (does not double-spend the ticket)', async () => {
+    render(<ServeWelcomeContent />)
+
+    const button = continueButton()
+    // Two clicks fire before React re-renders the button as disabled.
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    await waitFor(() =>
+      expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
+    )
+    expect(mockSignInCreate).toHaveBeenCalledTimes(1)
+  })
+
   it('skips redemption when already signed in as the ticket user', async () => {
     mockUser = { id: 'user_same' }
     mockSearchParams = ticketFor('user_same')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
@@ -56,6 +56,12 @@ export default function ServeWelcomeContent() {
   const searchParams = useSearchParams()
   const [redeeming, setRedeeming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Synchronous re-entrancy guard: `setRedeeming(true)` only disables the
+  // button after a re-render, so a rapid double-click could otherwise fire two
+  // parallel `signIn.create` calls against the same one-time ticket — one would
+  // consume it while the other failed and surfaced a spurious expired-link
+  // error.
+  const redeemingRef = useRef(false)
 
   const ticket = searchParams?.get('__clerk_ticket') ?? null
 
@@ -64,7 +70,9 @@ export default function ServeWelcomeContent() {
       setError(MISSING_TICKET_MESSAGE)
       return
     }
+    if (redeemingRef.current) return
 
+    redeemingRef.current = true
     setError(null)
     setRedeeming(true)
     try {
@@ -114,6 +122,7 @@ export default function ServeWelcomeContent() {
       console.error('[serve/welcome] redemption failed:', err)
       setError(CONSUMED_TICKET_MESSAGE)
       setRedeeming(false)
+      redeemingRef.current = false
     }
   }
 
