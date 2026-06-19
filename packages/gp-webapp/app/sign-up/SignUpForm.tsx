@@ -60,15 +60,18 @@ export default function SignUpForm() {
     setError(null)
     setSubmitting(true)
     try {
-      const { error: passwordError } = await signUp.password({
+      // `create()` establishes the sign-up attempt with all collected fields.
+      // The factor-specific `password()` helper assumes an existing attempt and
+      // fails with "No sign up attempt was found" when called first.
+      const { error: createError } = await signUp.create({
         emailAddress: email,
         password,
         firstName,
         lastName,
         legalAccepted: agreed,
       })
-      if (passwordError) {
-        setError(messageFrom(passwordError))
+      if (createError) {
+        setError(messageFrom(createError))
         return
       }
 
