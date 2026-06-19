@@ -128,6 +128,7 @@ export const EVENTS = {
     LinkActivated: 'Serve Onboarding - Magic Link Activated',
     NetNewCompleted: 'Serve Onboarding - Net New Completed',
     BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
+    PartyDesignationBlocked: 'Serve Onboarding - Party Designation Blocked',
   },
   Navigation: {
     Top: {
