@@ -5,11 +5,12 @@ model ElectedOffice {
 
   swornInDate DateTime? @map("sworn_in_date") @db.Date
 
-  electedDate    DateTime? @map("elected_date") @db.Date
-  termStartAt    DateTime? @map("term_start_at")
-  termEndAt      DateTime? @map("term_end_at")
-  termLengthDays Int?      @map("term_length_days")
-  isActive       Boolean   @default(true) @map("is_active")
+  electedDate           DateTime? @map("elected_date") @db.Date
+  termStartDate         DateTime? @map("term_start_date") @db.Date
+  termEndDate           DateTime? @map("term_end_date") @db.Date
+  party                 String?   @map("party")
+  pledgedAt             DateTime? @map("pledged_at")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
 
   user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int   @map("user_id")
@@ -25,6 +26,8 @@ model ElectedOffice {
   meetingBriefings         MeetingBriefing[]
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
+  priorities               Priority[]
+  dashboardCards           DashboardCard[]
 
   @@index([userId])
   @@index([campaignId])

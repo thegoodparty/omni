@@ -4,6 +4,7 @@ import Body1 from '@shared/typography/Body1'
 import H3 from '@shared/typography/H3'
 import Paper from '@shared/utils/Paper'
 import { usePositionName } from '@shared/hooks/usePositionName'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 
 export default function EmptyState(): React.JSX.Element {
   const positionName = usePositionName()
@@ -22,7 +23,7 @@ export default function EmptyState(): React.JSX.Element {
             While you wait, we suggest you check out our educational content on
             making the most of your account{' '}
             <a
-              href="https://goodpartyorg.circle.so/c/start-here"
+              href={`${CIRCLE_COMMUNITY_BASE}/c/start-here`}
               target="_blank"
               rel="noopener noreferrer"
             >

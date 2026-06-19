@@ -1,3 +1,4 @@
+import type { ExperimentVariantsResponse } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
   SynthesizeSpeechRequest,
@@ -12,6 +13,10 @@ import {
   CampaignVersions,
   User,
 } from 'helpers/types'
+import type {
+  CampaignStory,
+  CampaignStoryRewrite,
+} from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
 import type {
@@ -22,6 +27,14 @@ import type {
   GetIndividualActivitiesResponse,
 } from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type {
+  ChatConversationListResponse,
+  ChatConversationMessagesResponse,
+  ChatScope,
+  DashboardCardBucket,
+  DashboardCardListResponse,
+  SupportEstimate,
+} from 'app/dashboard/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
 
 export interface MeetingsListItemDto {
@@ -131,6 +144,15 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
+  // current user and returns the full variant map, so the browser never has to
+  // reach Amplitude (which ad blockers / some networks block) to render gated
+  // surfaces. Consumed in PageWrapper to seed FeatureFlagsProvider.
+  'GET /v1/experiment/variants': {
+    Request: {}
+    Response: ExperimentVariantsResponse
+  }
+
   'GET /v1/organizations': {
     Request: {}
     Response: {
@@ -190,6 +212,36 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/plan-version': {
     Request: {}
     Response: CampaignVersions
+  }
+
+  'GET /v1/campaigns/mine/story': {
+    Request: {}
+    Response: CampaignStory
+  }
+
+  // Partial upsert — each Campaign Story field autosaves on blur, so any
+  // subset of why/background/issues may be sent.
+  // At least one field is required (the server's Zod schema rejects an empty
+  // body with 400) — encode that in the type so a call site can't send `{}`.
+  'PUT /v1/campaigns/mine/story': {
+    Request:
+      | { why: string; background?: string; issues?: string }
+      | { why?: string; background: string; issues?: string }
+      | { why?: string; background?: string; issues: string }
+    Response: CampaignStory
+  }
+
+  // AI-suggested rewrite of one Campaign Story field. The server pairs the
+  // submitted text with the candidate's name and a section-specific prompt;
+  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  'POST /v1/campaigns/mine/story/rewrite': {
+    // `field` is single-sourced from the contract so it can't drift from the
+    // stored story shape; the server's Zod enum is the runtime mirror.
+    Request: {
+      field: keyof CampaignStory
+      text: string
+    }
+    Response: CampaignStoryRewrite
   }
 
   // The pro-upgrade filing-instructions screen reads this fresh so it renders
@@ -263,8 +315,18 @@ export type APIEndpoints = {
     Response: ElectedOffice
   }
 
-  'POST /v1/elected-office': {
+  'GET /v1/elected-office/mine': {
     Request: {}
+    Response: ElectedOffice[]
+  }
+
+  'POST /v1/elected-office': {
+    Request: ElectedOfficeInput
+    Response: ElectedOffice
+  }
+
+  'PUT /v1/elected-office/:id': {
+    Request: ElectedOfficeInput
     Response: ElectedOffice
   }
 
@@ -274,6 +336,42 @@ export type APIEndpoints = {
       kind: 'schedule' | 'briefing'
     }
     Response: { dispatched: true; kind: 'schedule' | 'briefing' }
+  }
+
+  'GET /v1/elected-office/support-estimate': {
+    Request: {}
+    // Null until the data team's ETL populates the office's support row.
+    Response: SupportEstimate | null
+  }
+
+  'GET /v1/dashboard/cards': {
+    Request: { bucket: DashboardCardBucket }
+    Response: DashboardCardListResponse
+  }
+
+  'PUT /v1/dashboard/cards/:id/dismiss': {
+    Request: {}
+    Response: void
+  }
+
+  'POST /v1/chats': {
+    Request: { scope: ChatScope }
+    Response: { conversationId: string; created: boolean }
+  }
+
+  'GET /v1/chats': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationListResponse
+  }
+
+  'GET /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationMessagesResponse
+  }
+
+  'DELETE /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: void
   }
 
   'GET /v1/contacts/stats': {
@@ -743,4 +841,25 @@ export type AdminOrganization = Organization & {
 export type ElectedOffice = {
   id: string
   swornInDate: string | null
+  electedDate: string | null
+  termStartDate: string | null
+  termEndDate: string | null
+  termLengthDays: number | null
+  isActive: boolean
+  party: string | null
+  pledgedAt: string | null
+  onboardingCompletedAt: string | null
+}
+
+export type ElectedOfficeInput = {
+  swornInDate?: string | null
+  electedDate?: string | null
+  termStartDate?: string | null
+  termEndDate?: string | null
+  party?: string | null
+  pledgedAt?: string | null
+  onboardingCompletedAt?: string | null
+  ballotReadyPositionId?: string | null
+  customPositionName?: string | null
+  overrideDistrictId?: string | null
 }

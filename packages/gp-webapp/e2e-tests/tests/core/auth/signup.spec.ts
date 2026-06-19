@@ -22,25 +22,15 @@ test.describe('Sign Up Functionality', () => {
 
   test('should display sign up form elements', async ({ page }) => {
     await expect(page.locator('.cl-signUp-root')).toBeVisible()
-    const firstNameVisible = await page
-      .locator('input[name=firstName]')
-      .isVisible()
-    const lastNameVisible = await page
-      .locator('input[name=lastName]')
-      .isVisible()
-    const emailVisible = await page
-      .locator('input[name=emailAddress]')
-      .isVisible()
-    const passwordVisible = await page
-      .locator('input[name=password]')
-      .isVisible()
-    const continueButtonVisible = await getClerkContinueButton(page).isVisible()
 
-    expect(firstNameVisible).toBeTruthy()
-    expect(lastNameVisible).toBeTruthy()
-    expect(emailVisible).toBeTruthy()
-    expect(passwordVisible).toBeTruthy()
-    expect(continueButtonVisible).toBeTruthy()
+    // Assert only the fields Clerk always renders for this instance. Password is
+    // optional now (email_code is an alternative factor) and may not appear, so
+    // it is intentionally not required here — the sign-up flow tests cover
+    // completing with or without a password.
+    await expect(page.locator('input[name=firstName]')).toBeVisible()
+    await expect(page.locator('input[name=lastName]')).toBeVisible()
+    await expect(page.locator('input[name=emailAddress]')).toBeVisible()
+    await expect(getClerkContinueButton(page)).toBeVisible()
   })
 
   test('should successfully sign up and redirect to onboarding', async ({

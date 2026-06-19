@@ -84,6 +84,7 @@
   --color-tertiary-foreground: var(--theme-tertiary-foreground);
   --color-tertiary-light: var(--theme-tertiary-light);
   --color-tertiary-dark: var(--theme-tertiary-dark);
+  --color-tertiary-focus: var(--theme-tertiary-focus);
   --color-link: var(--component-link);
 
   /* ==========================================================================
@@ -566,6 +567,8 @@
   --color-data-chart-3: #63d1a0;
   --color-data-chart-4: #ffc523;
   --color-data-chart-5: #ff9364;
+  --color-data-chart-6: #475569;
+  --color-data-chart-7: #818cf8;
 
   /* ==========================================================================
    * FIGMA COMPONENT TOKENS (static values)
@@ -580,6 +583,7 @@
   --color-components-input-base: #ffffff;
   --color-components-input-border: #d4d4d4;
   --color-components-input-focus: rgba(37, 99, 235, 0.3);
+  --color-primary-focus: var(--theme-primary-focus);
   --color-components-input-inactive-focus: var(
     --component-input-inactive-focus
   );

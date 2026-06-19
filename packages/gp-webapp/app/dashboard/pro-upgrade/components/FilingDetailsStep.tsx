@@ -410,6 +410,9 @@ const FilingDetailsStep = (): React.JSX.Element => {
       ])
       goToNextStep()
     } catch {
+      trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
+        email: getStringValue(formData.email),
+      })
       errorSnackbar('Failed to submit filing details. Please try again later.')
     } finally {
       setLoading(false)

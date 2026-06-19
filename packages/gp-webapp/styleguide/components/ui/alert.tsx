@@ -10,10 +10,10 @@ const alertVariants = cva(
       variant: {
         default:
           'border-tertiary text-tertiary-dark [&>svg]:text-tertiary-dark',
-        info: 'border-info text-info-dark [&>svg]:text-info',
-        success: 'border-success text-success-dark [&>svg]:text-success',
+        info: 'border-info text-info-dark [&>svg]:text-info-dark',
+        success: 'border-success text-success-dark [&>svg]:text-success-dark',
         destructive:
-          'border-destructive text-destructive-dark [&>svg]:text-destructive',
+          'border-destructive text-destructive-dark [&>svg]:text-destructive-dark',
       },
     },
     defaultVariants: {
@@ -22,16 +22,51 @@ const alertVariants = cva(
   },
 )
 
+const alertAccentVars: Record<
+  string,
+  { '--alert-accent': string; '--alert-accent-fg': string }
+> = {
+  default: {
+    '--alert-accent': 'var(--color-tertiary-dark)',
+    '--alert-accent-fg': 'var(--color-tertiary-foreground)',
+  },
+  info: {
+    '--alert-accent': 'var(--color-info-dark)',
+    '--alert-accent-fg': 'var(--color-info-contrast)',
+  },
+  success: {
+    '--alert-accent': 'var(--color-success-dark)',
+    '--alert-accent-fg': 'var(--color-success-contrast)',
+  },
+  destructive: {
+    '--alert-accent': 'var(--color-destructive-dark)',
+    '--alert-accent-fg': 'var(--color-destructive-foreground)',
+  },
+}
+
 interface AlertProps
   extends React.ComponentProps<'div'>, VariantProps<typeof alertVariants> {
   icon?: React.ReactNode
 }
 
-function Alert({ className, variant, icon, children, ...props }: AlertProps) {
+function Alert({
+  className,
+  variant,
+  icon,
+  children,
+  style,
+  ...props
+}: AlertProps) {
   return (
     <div
       data-slot="alert"
       role="alert"
+      style={
+        {
+          ...alertAccentVars[variant ?? 'default'],
+          ...style,
+        } as React.CSSProperties
+      }
       className={cn(
         alertVariants({ variant }),
         icon

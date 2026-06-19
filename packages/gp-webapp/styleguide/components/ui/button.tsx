@@ -27,6 +27,10 @@ const buttonVariants = cva(
         link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
         neutral:
           'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',
+        alertOutline:
+          'bg-transparent [border-color:var(--alert-accent)] [color:var(--alert-accent)] hover:[background-color:color-mix(in_srgb,var(--alert-accent)_10%,transparent)]',
+        alertFilled:
+          '[background-color:var(--alert-accent)] [border-color:var(--alert-accent)] [color:var(--alert-accent-fg)] hover:opacity-90',
       },
       size: {
         small: 'h-8 px-4 py-2 text-sm tracking-wide has-[>svg]:px-3',

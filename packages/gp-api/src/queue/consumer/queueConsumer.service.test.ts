@@ -1414,3 +1414,137 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(true)
   })
 })
+
+describe('QueueConsumerService - handleAgentExperimentResult', () => {
+  let service: QueueConsumerService
+  let module: TestingModule
+  let runs: Map<string, { runId: string; status: string }>
+  let mockExperimentRuns: {
+    findUnique: ReturnType<typeof vi.fn>
+    optimisticLockingUpdate: ReturnType<typeof vi.fn>
+    markStarted: ReturnType<typeof vi.fn>
+  }
+
+  const seedRun = (runId: string, status: string) => {
+    runs.set(runId, { runId, status })
+    return runs.get(runId)
+  }
+
+  const agentResultMessage = (data: Record<string, unknown>): Message => ({
+    MessageId: `msg-${String(data.runId)}-${String(data.status)}`,
+    Body: JSON.stringify({
+      type: QueueType.AGENT_EXPERIMENT_RESULT,
+      data,
+    }),
+  })
+
+  beforeEach(async () => {
+    runs = new Map()
+
+    mockExperimentRuns = {
+      findUnique: vi.fn(async ({ where }: { where: { runId: string } }) =>
+        runs.get(where.runId),
+      ),
+      optimisticLockingUpdate: vi.fn(
+        async (
+          { where }: { where: { runId: string } },
+          modifier: (run: {
+            runId: string
+            status: string
+          }) => Promise<Record<string, unknown>>,
+        ) => {
+          const current = runs.get(where.runId)
+          if (!current) throw new Error('not found')
+          const patch = await modifier(current)
+          const updated = { ...current, ...patch }
+          runs.set(where.runId, updated as { runId: string; status: string })
+          return updated
+        },
+      ),
+      markStarted: vi.fn(async (runId: string) => {
+        const current = runs.get(runId)
+        if (current && current.status === 'QUEUED') {
+          runs.set(runId, { ...current, status: 'RUNNING' })
+        }
+      }),
+    }
+
+    module = await Test.createTestingModule({
+      providers: [
+        QueueConsumerService,
+        { provide: AiContentService, useValue: {} },
+        { provide: CampaignsService, useValue: { model: {} } },
+        { provide: AiGenerationService, useValue: {} },
+        { provide: CampaignTasksService, useValue: {} },
+        { provide: CampaignTcrComplianceService, useValue: {} },
+        { provide: ContactsService, useValue: {} },
+        { provide: DomainsService, useValue: {} },
+        { provide: ElectedOfficeService, useValue: {} },
+        { provide: OrganizationsService, useValue: {} },
+        { provide: PollIndividualMessageService, useValue: { client: {} } },
+        { provide: PollIssuesService, useValue: {} },
+        { provide: PollsService, useValue: {} },
+        { provide: S3Service, useValue: {} },
+        { provide: SlackService, useValue: { message: vi.fn() } },
+        { provide: UsersService, useValue: {} },
+        { provide: AnalyticsService, useValue: {} },
+        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: mockExperimentRuns },
+        {
+          provide: MeetingBriefingsService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
+        { provide: PinoLogger, useValue: createMockLogger() },
+      ],
+    }).compile()
+    service = module.get(QueueConsumerService)
+  })
+
+  it('flips a QUEUED run to RUNNING on started', async () => {
+    seedRun('run-started', 'QUEUED')
+
+    const result = await service.processMessage(
+      agentResultMessage({ runId: 'run-started', status: 'started' }),
+    )
+
+    expect(result).toBe(true)
+    expect(mockExperimentRuns.markStarted).toHaveBeenCalledWith('run-started')
+    expect(runs.get('run-started')?.status).toBe('RUNNING')
+  })
+
+  it('accepts a terminal result for a still-QUEUED run', async () => {
+    seedRun('run-queued-fail', 'QUEUED')
+
+    const result = await service.processMessage(
+      agentResultMessage({
+        runId: 'run-queued-fail',
+        status: 'failed',
+        error: 'boom',
+      }),
+    )
+
+    expect(result).toBe(true)
+    expect(runs.get('run-queued-fail')?.status).toBe('FAILED')
+  })
+
+  it('skips a terminal result for an already-terminal run', async () => {
+    seedRun('run-done', 'COMPLETED')
+
+    const result = await service.processMessage(
+      agentResultMessage({
+        runId: 'run-done',
+        status: 'failed',
+        error: 'late',
+      }),
+    )
+
+    expect(result).toBe(true)
+    expect(runs.get('run-done')?.status).toBe('COMPLETED')
+    expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
+})

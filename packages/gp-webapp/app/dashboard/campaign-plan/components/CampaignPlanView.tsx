@@ -104,6 +104,10 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanDownloaded, { campaignId, source })
   }
 
+  const handleShared = (method: 'copy' | 'email') => {
+    trackEvent(planEvents.PlanShared, { campaignId, method })
+  }
+
   const handleContinue = (source: PlanContinueSource) => {
     trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
@@ -119,6 +123,7 @@ const CampaignPlanView = ({
       pressOutletsState={data.pressOutletsState}
       voterInsightsContext={data.voterInsightsContext}
       onDownload={handleDownload}
+      onShared={handleShared}
       onContinue={handleContinue}
       showConfetti={false}
       bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"

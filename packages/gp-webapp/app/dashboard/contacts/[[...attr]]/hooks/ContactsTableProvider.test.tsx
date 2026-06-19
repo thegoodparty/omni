@@ -9,6 +9,20 @@ import {
   useContactsTable,
 } from './ContactsTableProvider'
 import { makePerson } from '../components/shared/test-fixtures'
+import type { ElectedOffice } from 'gpApi/api-endpoints'
+
+const electedOfficeFixture: ElectedOffice = {
+  id: 'eo_1',
+  swornInDate: null,
+  electedDate: null,
+  termStartDate: null,
+  termEndDate: null,
+  termLengthDays: null,
+  isActive: true,
+  party: null,
+  pledgedAt: null,
+  onboardingCompletedAt: null,
+}
 
 // The provider reads all four navigation hooks; the global setup only mocks
 // useRouter/usePathname, so provide the rest here. params is mutable so a test
@@ -158,7 +172,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     mockContactsList()
     api.mock('GET /v1/elected-office/current', {
       status: 200,
-      data: { id: 'eo_1', swornInDate: null },
+      data: electedOfficeFixture,
     })
     api.mock('GET /v1/contacts/:id', {
       status: 200,
@@ -187,7 +201,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     // lal_1 request would fire against the wrong endpoint.
     api.mock('GET /v1/elected-office/current', async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
-      return { status: 200, data: { id: 'eo_1', swornInDate: null } }
+      return { status: 200, data: electedOfficeFixture }
     })
     api.mock('GET /v1/contacts/:id', {
       status: 200,

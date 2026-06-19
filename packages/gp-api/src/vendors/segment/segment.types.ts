@@ -23,6 +23,11 @@ export const EVENTS = {
   Onboarding: {
     UserCreated: 'Onboarding - User Created',
   },
+  ServeOnboarding: {
+    // Emitted when sales generates a magic link for an elected-official lead.
+    // Keyed to the provisioned user id + email (the EO may not exist yet).
+    MagicLinkSent: 'Serve Onboarding - Magic Link Sent',
+  },
   //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
   // Used in: https://app.hubspot.com/workflows/21589597/platform/flow/1739287110/edit
   CandidateWebsite: {
@@ -74,6 +79,14 @@ export const EVENTS = {
     OpportunitiesChallengesGenerationCompleted:
       'Campaign Plan V2 - Opportunities & Challenges Generation Completed',
     StrategyRaceChanged: 'Campaign Plan V2 - Strategy Race Changed',
+  },
+  // Campaign AI assistant streaming. The browser only sees a message *sent*;
+  // these are the server-truth outcomes of the SSE stream the client cannot
+  // honestly observe. The webapp's send/click events live under `AI Assistant`
+  // in gp-webapp.
+  AiChat: {
+    ResponseCompleted: 'AI Assistant - Response Completed',
+    ResponseFailed: 'AI Assistant - Response Failed',
   },
 }
 

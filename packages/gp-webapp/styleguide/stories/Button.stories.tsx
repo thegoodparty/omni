@@ -7,10 +7,6 @@ const meta: Meta<typeof Button> = {
   title: 'Components/Button',
   parameters: { layout: 'centered' },
   tags: ['autodocs'],
-  argTypes: {
-    asChild: { table: { disable: true } },
-    icon: { table: { disable: true } },
-  },
 }
 export default meta
 
@@ -111,6 +107,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       name: 'Disabled',
       control: 'boolean',
     },
+    asChild: { table: { disable: true } },
+    icon: { table: { disable: true } },
   },
   render: ({ showIcon, children, loadingText, ...buttonArgs }) => (
     <Button
@@ -124,6 +122,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-wrap items-center gap-3">
       <Button variant="default">Default</Button>
@@ -140,6 +139,7 @@ export const Variants: Story = {
 const labelClass = 'text-xs text-muted-foreground font-medium'
 
 export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="grid grid-cols-5 gap-x-6 gap-y-3 items-center">
       <span />
@@ -236,6 +236,7 @@ export const States: Story = {
 }
 
 export const Sizes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex items-center gap-4">
       <Button size="small">Small</Button>

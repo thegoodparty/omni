@@ -1,43 +1,33 @@
 import { describe, it, expect } from 'vitest'
 import { electedOfficeSchema } from './schema'
 
-describe('schema transforms', () => {
-  describe('numberOrNull (via electedOfficeSchema)', () => {
-    it('transforms null to null', () => {
-      const result = electedOfficeSchema.parse({
-        isActive: true,
-        termLengthDays: null,
-      })
-      expect(result.termLengthDays).toBeNull()
+describe('electedOfficeSchema', () => {
+  it('parses the editable elected-office fields', () => {
+    const result = electedOfficeSchema.parse({
+      electedDate: '2024-11-05',
+      swornInDate: '2025-01-06',
+      termStartDate: '2025-01-07',
+      termEndDate: '2029-01-05',
+      party: 'Independent',
     })
+    expect(result.termStartDate).toBe('2025-01-07')
+    expect(result.party).toBe('Independent')
+  })
 
-    it('transforms undefined to null', () => {
-      const result = electedOfficeSchema.parse({ isActive: true })
-      expect(result.termLengthDays).toBeNull()
-    })
+  it('treats all fields as optional/nullable', () => {
+    const result = electedOfficeSchema.parse({})
+    expect(result).toEqual({})
+  })
 
-    it('transforms empty string to null', () => {
-      const result = electedOfficeSchema.parse({
-        isActive: true,
-        termLengthDays: '',
-      })
-      expect(result.termLengthDays).toBeNull()
-    })
-
-    it('transforms valid number string to number', () => {
-      const result = electedOfficeSchema.parse({
-        isActive: true,
-        termLengthDays: '365',
-      })
-      expect(result.termLengthDays).toBe(365)
-    })
-
-    it('transforms NaN-producing string to null', () => {
-      const result = electedOfficeSchema.parse({
-        isActive: true,
-        termLengthDays: 'abc',
-      })
-      expect(result.termLengthDays).toBeNull()
-    })
+  it('no longer accepts the derived isActive/termLengthDays fields', () => {
+    // They are derived server-side from the term dates, so the form schema
+    // strips them rather than persisting them.
+    const result = electedOfficeSchema.parse({
+      termStartDate: '2025-01-07',
+      isActive: true,
+      termLengthDays: 365,
+    }) as Record<string, unknown>
+    expect('isActive' in result).toBe(false)
+    expect('termLengthDays' in result).toBe(false)
   })
 })

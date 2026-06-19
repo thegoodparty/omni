@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
+  addMonths,
   compareAsc,
   endOfMonth,
   format,
@@ -9,11 +10,14 @@ import {
 import { gql, GraphQLClient } from 'graphql-request'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { PositionLevel } from 'src/generated/graphql.types'
+import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import { truncateZip } from 'src/shared/util/zipcodes.util'
 import zipcodes from 'zipcodes'
 import { ElectionLevels } from '../../shared/constants/governmentLevels'
 import {
   BallotReadyMilestone,
+  PersonOfficeHolder,
+  PersonWithOfficeHolders,
   RaceMilestonesGraphResponse,
   RaceNode,
   RacesByIdNode,
@@ -559,6 +563,62 @@ export class BallotReadyService {
     }
   }
 
+  /**
+   * Fetch every office-holder record BR has for a given person (by BR node id),
+   * including the position and term boundaries (startAt / endAt). Used to
+   * pre-fill an elected office at magic-link time. Returns null on any failure
+   * so the caller can fall back to asking the user.
+   */
+  async fetchPersonOfficeHolders(
+    personId: string,
+  ): Promise<PersonOfficeHolder[] | null> {
+    const query = gql`
+      query PersonOfficeHolders($personId: ID!) {
+        node(id: $personId) {
+          ... on Person {
+            id
+            databaseId
+            fullName
+            officeHolders {
+              nodes {
+                id
+                databaseId
+                startAt
+                endAt
+                isCurrent
+                isVacant
+                officeTitle
+                position {
+                  id
+                  databaseId
+                  name
+                  level
+                  state
+                  subAreaName
+                  subAreaValue
+                  electionFrequencies {
+                    frequency
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `
+
+    try {
+      const response =
+        await this.graphQLClient.request<PersonWithOfficeHolders>(query, {
+          personId,
+        })
+      return response?.node?.officeHolders?.nodes ?? null
+    } catch (error) {
+      this.logger.error({ error }, 'Error at fetchPersonOfficeHolders:')
+      return null
+    }
+  }
+
   // Fetch the per-category milestone windows for a BR race. Source:
   // Race.election.milestones() — BR returns one row per (category, type,
   // feature), so we collapse via earliest OPEN / latest CLOSE per
@@ -686,4 +746,51 @@ function getMonthBounds(dateString: string): { gt: string; lt: string } {
     gt: format(startOfMonth(reference), 'yyyy-MM-dd'),
     lt: format(endOfMonth(reference), 'yyyy-MM-dd'),
   }
+}
+
+export const FUTURE_OFFICEHOLDER_WINDOW_MONTHS = 3
+
+/**
+ * Pick the office-holder record to pre-fill an elected office from. Prefers the
+ * soonest upcoming term that starts within FUTURE_OFFICEHOLDER_WINDOW_MONTHS
+ * (an elected-but-not-yet-sworn-in lead), otherwise falls back to the current
+ * term. Pure function so it can be unit-tested without hitting BR.
+ */
+export const selectPreferredOfficeHolder = (
+  holders: PersonOfficeHolder[],
+  now: Date = new Date(),
+): PersonOfficeHolder | null => {
+  // BallotReady can return isVacant records that still reference the prior
+  // holder (e.g. a seat vacated mid-term). Those must never seed an EO pre-fill
+  // for a seat the person no longer holds, so drop them before any selection.
+  const active = holders.filter((holder) => !holder.isVacant)
+  if (!active.length) return null
+
+  const windowEnd = addMonths(now, FUTURE_OFFICEHOLDER_WINDOW_MONTHS)
+
+  const upcoming = active
+    .filter((holder): holder is PersonOfficeHolder & { startAt: string } => {
+      if (!holder.startAt) return false
+      const start = parseIsoDateAsUTC(holder.startAt)
+      return start > now && start <= windowEnd
+    })
+    .sort(
+      (a, b) =>
+        parseIsoDateAsUTC(a.startAt).getTime() -
+        parseIsoDateAsUTC(b.startAt).getTime(),
+    )
+  if (upcoming.length) return upcoming[0]
+
+  const current =
+    active.find((holder) => holder.isCurrent) ??
+    active.find((holder) => {
+      const start = holder.startAt ? parseIsoDateAsUTC(holder.startAt) : null
+      const end = holder.endAt ? parseIsoDateAsUTC(holder.endAt) : null
+      // endAt is the exclusive term boundary (the successor's start day), so a
+      // holder is current only while now < endAt — matching isHeldOffice and the
+      // half-open [start, end) overlap semantics. Using >= would keep selecting
+      // the outgoing holder on the successor's first day.
+      return (!start || start <= now) && (!end || end > now)
+    })
+  return current ?? null
 }

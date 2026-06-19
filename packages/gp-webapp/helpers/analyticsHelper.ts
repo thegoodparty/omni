@@ -24,6 +24,12 @@ const UTM_KEYS = [
 const CLID_SUFFIX = 'clid'
 
 export const EVENTS = {
+  CampaignStory: {
+    RewriteRequested: 'Campaign Story - Rewrite Requested',
+    RewriteAccepted: 'Campaign Story - Rewrite Accepted',
+    RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
+    RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
+  },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
@@ -118,6 +124,10 @@ export const EVENTS = {
     SmsPollSent: 'Serve Onboarding - SMS Poll Sent',
     SuccessPageViewed: 'Serve Onboarding - Success Page Viewed',
     NotEnoughConstituents: 'Serve Onboarding - SMS Poll Creation Failed',
+    // Net-new (sales-sent magic link) elected-official onboarding funnel.
+    LinkActivated: 'Serve Onboarding - Magic Link Activated',
+    NetNewCompleted: 'Serve Onboarding - Net New Completed',
+    BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
   },
   Navigation: {
     Top: {
@@ -184,6 +194,7 @@ export const EVENTS = {
       StrategicLandscapeDisplayed:
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
+      PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
       CampaignManagerClicked:
         'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
@@ -554,6 +565,7 @@ export const EVENTS = {
     },
     DlcCompliance: {
       RegistrationSubmitted: 'Pro Upgrade - Filing Details Submitted',
+      RegistrationSubmitError: 'Pro Upgrade - Filing Details Submit Error',
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
@@ -583,6 +595,7 @@ export const EVENTS = {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
     CampaignCompleted: 'Candidacy - Campaign Completed',
+    DebriefClicked: 'Candidacy - Debrief Clicked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -634,6 +647,7 @@ export const EVENTS = {
     ResourcesCompleted: 'Onboarding V2 - Resources Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
+    PlanShared: 'Onboarding V2 - Plan Shared',
     PlanDownloaded: 'Onboarding V2 - Plan Downloaded',
     CampaignManagerClicked: 'Onboarding V2 - Campaign Manager Clicked',
     MediaRequested: 'Onboarding V2 - Media Requested',

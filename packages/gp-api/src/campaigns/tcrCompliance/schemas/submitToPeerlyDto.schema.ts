@@ -19,6 +19,8 @@ export class SubmitToPeerlyDto extends createZodDto(
       committeeType: tcrComplianceBaseShape.committeeType,
       websiteUrl: z.string().url(),
     })
-    .superRefine(tcrComplianceSuperRefine)
+    .superRefine((data, ctx) =>
+      tcrComplianceSuperRefine(data, ctx, { requireFecCommitteeId: false }),
+    )
     .transform(tcrComplianceTransform),
 ) {}

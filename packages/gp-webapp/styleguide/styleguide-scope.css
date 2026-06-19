@@ -216,6 +216,7 @@
   --base-muted-foreground: var(--tw-neutral-400);
   --base-muted: var(--tw-neutral-800);
   --base-inactive: var(--tw-neutral-700);
+  --color-inactive: var(--tw-neutral-700);
   --base-border: var(--tw-neutral-600);
   --base-accent: var(--tw-neutral-700);
   --base-accent-foreground: #ffffff;
@@ -324,11 +325,13 @@
    * DATA/CHART TOKENS (dark mode)
    * ==========================================================================
    */
-  --data-chart-1: var(--color-lavender-400);
-  --data-chart-2: var(--color-halo-green-200);
-  --data-chart-3: var(--color-bright-yellow-400);
-  --data-chart-4: var(--color-waxflower-200);
-  --data-chart-5: var(--color-midnight-200);
+  --data-chart-1: var(--color-midnight-200);
+  --data-chart-2: var(--color-lavender-400);
+  --data-chart-3: var(--color-halo-green-200);
+  --data-chart-4: var(--color-bright-yellow-400);
+  --data-chart-5: var(--color-waxflower-200);
+  --data-chart-6: var(--color-slate-400);
+  --data-chart-7: var(--tw-indigo-300);
 
   /*
    * ==========================================================================
@@ -398,6 +401,8 @@
   --accent-foreground: var(--base-accent-foreground);
   --color-accent: var(--base-accent);
   --color-accent-foreground: var(--base-accent-foreground);
+  --color-base-accent: var(--base-accent);
+  --color-base-accent-foreground: var(--base-accent-foreground);
 
   /* Secondary */
   --secondary: var(--theme-secondary);

@@ -14,6 +14,11 @@ import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
+import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
+import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
+import { isElectionResultDismissed } from '../election-result/dismissal'
+import { CONTACTS_DATA_TITLE } from './contactsLabels'
+import { useWinVoterContext } from './useWinVoterContext'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -37,6 +42,7 @@ const DashboardLayout = ({
   const organization = useOrganization()
   const router = useRouter()
   const hookPathname = usePathname()
+  const isImpersonating = useIsImpersonating()
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -59,6 +65,13 @@ const DashboardLayout = ({
       return
     }
 
+    // An impersonating admin can dismiss the forced election-result gate
+    // without answering it; don't bounce them back to it for the rest of
+    // the session.
+    if (isImpersonating && isElectionResultDismissed()) {
+      return
+    }
+
     const weeksResult = weeksTill(electionDate)
     const shouldRedirect =
       typeof details?.wonGeneral !== 'boolean' &&
@@ -69,7 +82,7 @@ const DashboardLayout = ({
     if (shouldRedirect) {
       router.push('/dashboard/election-result')
     }
-  }, [currentPath, details?.wonGeneral, electionDate, router])
+  }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
   return (
     <EcanvasserProvider>
@@ -82,6 +95,7 @@ const DashboardLayout = ({
         <SidebarInset className="bg-[#f5f5f5]">
           {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
+          <ElectedOfficeTermDatesModalController />
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             {activeCampaign && showAlert && (
               <AlertSection campaign={activeCampaign} />
@@ -101,13 +115,12 @@ const DashboardLayout = ({
 }
 
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
+  ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/outreach', 'Voter Outreach'],
   ['/dashboard/voter-records', 'Voter Data'],
-  // Sidebar renders this item's `v2Name` ("Constituents") in place of its
-  // `label` ("Contacts") via `item.v2Name || label`. Keep the mobile title
-  // in sync so the same page reads the same name in both surfaces.
-  ['/dashboard/contacts', 'Constituents'],
+  // /dashboard/contacts is intentionally absent: its title depends on Win vs
+  // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
   ['/dashboard/campaign-details', 'My Profile'],
@@ -115,6 +128,10 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
 ]
+
+const isContactsPath = (pathname: string): boolean =>
+  pathname === '/dashboard/contacts' ||
+  pathname.startsWith('/dashboard/contacts/')
 
 const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
@@ -127,7 +144,17 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
 const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
-  const pageTitle = getMobilePageTitle(pathname)
+  // The Contacts route is shared: Win reads "Voter Data", Serve reads
+  // "Constituent Data". Use the same Win/Serve source as the page body
+  // (useWinVoterContext) so the header and content always agree — and wait for
+  // isReady so a Win user never flashes "Constituent Data" during load.
+  const { isWin, isReady } = useWinVoterContext()
+  const pageTitle =
+    pathname && isContactsPath(pathname)
+      ? isReady
+        ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
+        : null
+      : getMobilePageTitle(pathname)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

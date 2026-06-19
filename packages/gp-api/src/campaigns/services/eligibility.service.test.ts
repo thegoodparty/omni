@@ -22,8 +22,7 @@ const buildOffice = (
   overrides: Partial<ElectedOffice> = {},
 ): Partial<ElectedOffice> => ({
   organizationSlug: 'office-slug',
-  isActive: true,
-  termEndAt: FUTURE_TERM_END,
+  termEndDate: FUTURE_TERM_END,
   createdAt: new Date('2020-01-01'),
   ...overrides,
 })
@@ -189,10 +188,10 @@ describe('EligibilityService', () => {
     vi.useRealTimers()
   })
 
-  it('treats an active office with a future term end as held', async () => {
+  it('treats an office with a future term end as held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: true, termEndAt: FUTURE_TERM_END })],
+      [buildOffice({ termEndDate: FUTURE_TERM_END })],
     )
 
     const result = await service.evaluate(1)
@@ -205,7 +204,7 @@ describe('EligibilityService', () => {
   it('treats an office with a past term end as not held', async () => {
     const service = await buildService(
       [],
-      [buildOffice({ isActive: true, termEndAt: PAST_TERM_END })],
+      [buildOffice({ termEndDate: PAST_TERM_END })],
     )
 
     const result = await service.evaluate(1)
@@ -214,27 +213,15 @@ describe('EligibilityService', () => {
     expect(result.canGainOffice).toBe(true)
   })
 
-  it('treats an inactive office with a null term end as not held', async () => {
-    const service = await buildService(
-      [],
-      [buildOffice({ isActive: false, termEndAt: null })],
-    )
+  it('treats an office with a null term end as not held (derived inactive)', async () => {
+    // isActive is derived from termEndDate; a null end means term data is
+    // missing, so the office is not held until the holder supplies dates.
+    const service = await buildService([], [buildOffice({ termEndDate: null })])
 
     const result = await service.evaluate(1)
 
     expect(result.holdsOffice).toBe(false)
-  })
-
-  it('treats an active office with a null term end as held', async () => {
-    const service = await buildService(
-      [],
-      [buildOffice({ isActive: true, termEndAt: null })],
-    )
-
-    const result = await service.evaluate(1)
-
-    expect(result.holdsOffice).toBe(true)
-    expect(result.canGainOffice).toBe(false)
+    expect(result.canGainOffice).toBe(true)
   })
 
   it('returns the held office organizationSlug as reelectionOfficeSlug', async () => {
@@ -254,16 +241,14 @@ describe('EligibilityService', () => {
       [
         buildOffice({
           organizationSlug: 'older-office',
-          isActive: false,
-          termStartAt: new Date('2018-01-01'),
-          termEndAt: new Date('2019-01-01'),
+          termStartDate: new Date('2018-01-01'),
+          termEndDate: new Date('2019-01-01'),
           createdAt: new Date('2022-06-01'),
         }),
         buildOffice({
           organizationSlug: 'newer-office',
-          isActive: false,
-          termStartAt: new Date('2022-01-01'),
-          termEndAt: new Date('2023-01-01'),
+          termStartDate: new Date('2022-01-01'),
+          termEndDate: new Date('2023-01-01'),
           createdAt: new Date('2018-06-01'),
         }),
       ],
@@ -275,22 +260,20 @@ describe('EligibilityService', () => {
     expect(result.reelectionOfficeSlug).toBe('newer-office')
   })
 
-  it('falls back to termEndAt when termStartAt is null', async () => {
+  it('falls back to termEndDate when termStartDate is null', async () => {
     const service = await buildService(
       [],
       [
         buildOffice({
           organizationSlug: 'earlier-end',
-          isActive: false,
-          termStartAt: null,
-          termEndAt: new Date('2019-06-01'),
+          termStartDate: null,
+          termEndDate: new Date('2019-06-01'),
           createdAt: new Date('2022-01-01'),
         }),
         buildOffice({
           organizationSlug: 'later-end',
-          isActive: false,
-          termStartAt: null,
-          termEndAt: new Date('2023-06-01'),
+          termStartDate: null,
+          termEndDate: new Date('2023-06-01'),
           createdAt: new Date('2018-01-01'),
         }),
       ],
@@ -308,16 +291,14 @@ describe('EligibilityService', () => {
       [
         buildOffice({
           organizationSlug: 'older-created',
-          isActive: false,
-          termStartAt: null,
-          termEndAt: null,
+          termStartDate: null,
+          termEndDate: null,
           createdAt: new Date('2018-01-01'),
         }),
         buildOffice({
           organizationSlug: 'newer-created',
-          isActive: false,
-          termStartAt: null,
-          termEndAt: null,
+          termStartDate: null,
+          termEndDate: null,
           createdAt: new Date('2022-01-01'),
         }),
       ],

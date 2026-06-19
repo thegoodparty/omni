@@ -43,6 +43,9 @@ export class CreateOutreachSchema extends createZodDto(
           'campaignPlanDueDate must be a valid calendar date',
         )
         .optional(),
+      // Notification-only metadata for the CAS Slack message — not persisted.
+      textCount: z.coerce.number().int().nonnegative().optional(),
+      billableTextCount: z.coerce.number().int().nonnegative().optional(),
     })
     .strict()
     .superRefine((data, ctx) => {

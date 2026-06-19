@@ -49,6 +49,13 @@ const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const TEST_USER_DOMAIN = '@test.goodparty.org'
 
+// Refusal shown to sales when an EO magic link targets an email that already
+// belongs to a real, self-owned GoodParty login (password set or owns a
+// campaign). Reusing such an account would hand an admin-initiated sign-in
+// token to someone else's account.
+export const EXISTING_ACCOUNT_MAGIC_LINK_ERROR =
+  "This email already belongs to an existing GoodParty account and can't be sent an elected-official magic link."
+
 @Injectable()
 export class UsersService extends createPrismaBase(MODELS.User) {
   constructor(
@@ -518,6 +525,126 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       )
       throw new BadGatewayException('Failed to create impersonation token')
     }
+  }
+
+  /**
+   * Provisions a passwordless Clerk identity + local user for a sales-sent EO
+   * magic link and mints a single-use sign-in token. Idempotent on email:
+   * reuses an existing Clerk user / local user when present, so returning leads
+   * don't get a duplicate identity. The token is redeemed by the webapp via
+   * Clerk's `ticket` sign-in strategy.
+   */
+  async provisionMagicLinkUser(data: {
+    email: string
+    firstName: string
+    lastName: string
+    expiresInSeconds?: number
+  }): Promise<{ user: User; token: string; clerkId: string }> {
+    const email = data.email.trim()
+
+    // Reject the magic link for any account the person actually controls. A
+    // password, an OAuth/SSO identity (e.g. Google), a TOTP/2FA authenticator,
+    // backup codes, or a linked web3 wallet all mean the person can already
+    // authenticate, so reusing the account would hand an admin-initiated sign-in
+    // token to someone else. Only a bare passwordless email identity with none
+    // of these is reusable.
+    const assertReusablePasswordless = async (id: string): Promise<void> => {
+      const clerkUser = await this.clerkClient.users.getUser(id)
+      const controlsAccount =
+        clerkUser.passwordEnabled ||
+        clerkUser.totpEnabled ||
+        clerkUser.backupCodeEnabled ||
+        (clerkUser.externalAccounts?.length ?? 0) > 0 ||
+        (clerkUser.web3Wallets?.length ?? 0) > 0
+      if (controlsAccount) {
+        throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      }
+    }
+
+    let clerkId: string
+    const existing = await this.resolveClerkIdByEmail(email)
+    if (existing.source === 'clerk') {
+      clerkId = existing.clerkId
+      await assertReusablePasswordless(clerkId)
+    } else {
+      try {
+        const created = await this.clerkClient.users.createUser({
+          emailAddress: [email],
+          firstName: data.firstName,
+          lastName: data.lastName,
+          skipPasswordRequirement: true,
+        })
+        clerkId = created.id
+      } catch (err) {
+        // Two concurrent magic-link requests for the same email both miss the
+        // lookup above and race on createUser; the loser gets Clerk's 422
+        // form_identifier_exists. Re-resolve the identity the winner just
+        // created and reuse it (under the same gates) instead of surfacing an
+        // unhandled 422.
+        const clerkStatus =
+          err instanceof Error
+            ? (err as Error & { status?: unknown }).status
+            : undefined
+        const clerkErrors =
+          err instanceof Error
+            ? (err as Error & { errors?: { code?: string }[] }).errors
+            : undefined
+        const isDuplicateIdentity =
+          clerkStatus === 422 &&
+          Array.isArray(clerkErrors) &&
+          clerkErrors.some((e) => e?.code === 'form_identifier_exists')
+        if (!isDuplicateIdentity) {
+          throw err
+        }
+        const raced = await this.resolveClerkIdByEmail(email)
+        if (raced.source !== 'clerk') {
+          throw err
+        }
+        clerkId = raced.clerkId
+        await assertReusablePasswordless(clerkId)
+      }
+    }
+
+    const user = await this.findOrProvisionByClerk({
+      clerkId,
+      email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+    })
+    if (!user) {
+      throw new ConflictException(
+        'This email is already linked to a different Clerk identity',
+      )
+    }
+
+    // A user who already owns a campaign is a real candidate account, not a
+    // fresh EO lead, so never repurpose it for a magic-link sign-in. Check the
+    // RESOLVED user unconditionally: findOrProvisionByClerk can return a
+    // pre-existing legacy local user matched by email (clerkId was null, so no
+    // Clerk identity existed and reusedExistingClerkUser stays false) that owns
+    // a campaign — gating on reusedExistingClerkUser would skip that case. A
+    // brand-new lead's just-created user owns no campaign, so this never blocks
+    // legitimate leads. Campaign ownership is the only signal: a passwordless,
+    // campaign-less account is either a new lead or a stranded partial create,
+    // so it must stay reusable — gating on a missing ElectedOffice would
+    // permanently block legitimate admin retries after a failed first attempt.
+    const campaignCount = await this.client.campaign.count({
+      where: { userId: user.id },
+    })
+    if (campaignCount > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+    }
+
+    const signInToken = await this.clerkClient.signInTokens.createSignInToken({
+      userId: clerkId,
+      // Sales-sent invites are not redeemed immediately — give the lead a week.
+      expiresInSeconds: data.expiresInSeconds ?? 60 * 60 * 24 * 7,
+    })
+    if (!signInToken.token) {
+      throw new BadGatewayException('Clerk did not return a sign-in token')
+    }
+
+    return { user, token: signInToken.token, clerkId }
   }
 
   async flushLastVisited(

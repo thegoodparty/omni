@@ -67,6 +67,11 @@ export interface ValidateInsightsSqlOptions {
   // type column to the user's district AND lock state_postal_code to the
   // user's state.
   mandatoryFilters: MandatoryFilter[]
+  // Skip the base SELECT-list shape check. Callers that run their own, richer
+  // select-list validation (e.g. the constituent-data tool, which recognizes
+  // APPROX_COUNT_DISTINCT — parsed as `function`, not `aggr_func`) set this so a
+  // valid no-GROUP-BY aggregate isn't rejected by the coarser base check here.
+  skipSelectShapeCheck?: boolean
 }
 
 const stripQuotes = (s: string): string =>
@@ -215,7 +220,7 @@ export const validateInsightsSql = (
   // Aggregate-only shape: must have GROUP BY OR every selected expression
   // must be an aggregate function (or literal).
   const hasGroupBy = stmt.groupby !== null && stmt.groupby !== undefined
-  if (!hasGroupBy) {
+  if (!hasGroupBy && !opts.skipSelectShapeCheck) {
     if (!selectListIsAllAggregateOrLiteral(stmt.columns)) {
       throw new SqlRejected(
         'query must use GROUP BY or be a pure aggregate (e.g. COUNT(*))',

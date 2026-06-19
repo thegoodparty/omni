@@ -37,6 +37,10 @@ WORKDIR /app
 # Install dependencies
 COPY package.json package-lock.json ./
 COPY packages/people-api/package.json ./packages/people-api/package.json
+# people-api imports @goodparty_org/contracts; nest build typechecks against it,
+# so the prebuilt workspace package must be present for module resolution.
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/contracts/dist ./packages/contracts/dist
 RUN npm cache clean --force && \
     npm ci --build-from-source --ignore-scripts --workspace people-api
 

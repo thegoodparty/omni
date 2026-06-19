@@ -35,8 +35,16 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
   the URL is predictable per PR.
 - `prod` deploys to the production target.
+- The **Storybook styleguide** (`packages/gp-webapp/styleguide`) is its own Vercel
+  project (`VERCEL_PROJECT_ID_STYLEGUIDE`), served at `style.goodparty.org`. The
+  `deploy-styleguide` job in `gp-webapp.yml` deploys it on merges to `develop`
+  only (single-environment site): `vercel build` runs the project's configured
+  `build-storybook` (`rootDirectory=packages/gp-webapp`,
+  `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
+  the project's **production** target, which Vercel serves at its production
+  domain. The project has no Git integration — CLI-only, like the others.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
-  build` peaks near Node's default ~4GB heap and started OOMing intermittently
+build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every
   worker the build spawns, so raise it cautiously — several workers at a
   bigger cap can trip the kernel OOM killer instead.
