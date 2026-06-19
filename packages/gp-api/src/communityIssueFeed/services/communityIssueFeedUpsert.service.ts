@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { ExperimentRun } from '../../generated/prisma'
-import { CommunityIssuesArtifact } from '../communityIssueFeedArtifact.validation'
+import {
+  CommunityIssuesArtifact,
+} from '../communityIssueFeedArtifact.validation'
 
 @Injectable()
 export class CommunityIssueFeedUpsertService {
