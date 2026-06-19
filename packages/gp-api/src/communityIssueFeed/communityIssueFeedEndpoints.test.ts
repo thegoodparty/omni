@@ -126,6 +126,18 @@ describe('GET /v1/community-issue-feed', () => {
     },
   )
 
+  it('returns refresh.status=running when no ExperimentRun exists yet', async () => {
+    await seedIssue()
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
+  })
+
   it(
     'refresh.status reflects the latest ExperimentRun status;' +
       ' lastCompletedAt is ISO string from COMPLETED run updatedAt',

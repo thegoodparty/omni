@@ -96,7 +96,7 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
       priorities.map((p) => p.sourceCommunityIssueFeedId),
     )
 
-    const runStatus = latestRun ? RUN_STATUS_MAP[latestRun.status] : 'completed'
+    const runStatus = latestRun ? RUN_STATUS_MAP[latestRun.status] : 'running'
     const lastCompletedAt = latestCompletedRun
       ? latestCompletedRun.updatedAt.toISOString()
       : null

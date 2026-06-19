@@ -8,9 +8,9 @@ import { ChatMessageRoleSchema, ChatScopeSchema } from '../generated/enums'
 // --- Anchor ------------------------------------------------------------------
 
 export const ChatAnchorSnapshotSchema = z.object({
-  title: z.string(),
-  summary: z.string(),
-  highlightedText: z.string().optional(),
+  title: z.string().max(500),
+  summary: z.string().max(5_000),
+  highlightedText: z.string().max(2_000).optional(),
 })
 export type ChatAnchorSnapshot = z.infer<typeof ChatAnchorSnapshotSchema>
 

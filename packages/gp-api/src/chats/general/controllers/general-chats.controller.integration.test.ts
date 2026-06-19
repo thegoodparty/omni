@@ -235,6 +235,26 @@ describe('GeneralChatsController (integration)', () => {
     })
   })
 
+  describe('POST /v1/chats anchor snapshot field length limits', () => {
+    it('rejects a snapshot.title longer than 500 chars with 400', async () => {
+      const anchor = {
+        resourceType: 'community_issue_feed',
+        resourceId: 'issue-abc',
+        url: 'https://goodparty.org/issues/issue-abc',
+        snapshot: {
+          title: 'a'.repeat(501),
+          summary: 'Short summary.',
+        },
+      }
+      const res = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE, anchor },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
   describe('back-compat: briefing-annotation conversations', () => {
     it('defaults pre-existing conversations to briefing_annotation scope', async () => {
       const legacy = await service.prisma.chatConversation.create({
