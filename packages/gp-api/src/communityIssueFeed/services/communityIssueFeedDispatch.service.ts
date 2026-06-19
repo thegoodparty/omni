@@ -229,6 +229,7 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
   ): Promise<void> {
     const offices = await this.client.electedOffice.findMany({
       select: { organizationSlug: true },
+      orderBy: { organizationSlug: 'asc' },
     })
 
     const slice = offices.filter((o) => inBucket(o.organizationSlug))
@@ -257,6 +258,7 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
           experimentType,
           status: {
             in: [
+              ExperimentRunStatus.QUEUED,
               ExperimentRunStatus.RUNNING,
               ExperimentRunStatus.AWAITING_RESUME,
             ],

@@ -44,7 +44,7 @@ export const CommunityIssueFeedDetailSchema =
   })
 
 export const DispatchRequestSchema = z.object({
-  orgSlugs: z.array(z.string()),
+  orgSlugs: z.array(z.string()).min(1).max(200),
 })
 
 export class DispatchRequestDto extends createZodDto(DispatchRequestSchema) {}

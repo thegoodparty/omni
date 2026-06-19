@@ -2,7 +2,9 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
+import { DispatchRequestSchema } from '../schemas/communityIssueFeed.schema'
 import { CommunityIssueFeedDispatchService } from './communityIssueFeedDispatch.service'
 
 const service = useTestService()
@@ -356,5 +358,94 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     expect(types).toContain('trending_issues')
     expect(result.dispatched).toBe(2)
     expect(result.skipped).toBe(0)
+  })
+})
+
+// 'cif-cron-2' hashes to bucket 0 (mod 7) via FNV-1a — Sunday (UTC day 0).
+// Freeze time to 2026-06-21 (Sunday) so the cron selects bucket 0.
+const CRON_BUCKET0_SLUG = 'cif-cron-2'
+const SUNDAY_UTC = new Date('2026-06-21T08:00:00.000Z')
+
+describe(
+  'CommunityIssueFeedDispatchService.dispatchWeeklyTrendingIssues' +
+    ' — QUEUED guard',
+  () => {
+    beforeEach(() => {
+      vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+      vi.useFakeTimers({ now: SUNDAY_UTC })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+
+    it(
+      'skips an org with a QUEUED trending_issues run' +
+        ' (cron in-flight check includes QUEUED)',
+      async () => {
+        await service.prisma.organization.upsert({
+          where: { slug: CRON_BUCKET0_SLUG },
+          create: { slug: CRON_BUCKET0_SLUG, ownerId: service.user.id },
+          update: {},
+        })
+        await service.prisma.electedOffice.create({
+          data: {
+            userId: service.user.id,
+            organizationSlug: CRON_BUCKET0_SLUG,
+          },
+        })
+        await service.prisma.experimentRun.create({
+          data: {
+            organizationSlug: CRON_BUCKET0_SLUG,
+            experimentType: 'trending_issues',
+            status: ExperimentRunStatus.QUEUED,
+          },
+        })
+
+        mockResolveServeContext({
+          state: 'MN',
+          positionName: 'City Council',
+          isServeIcp: true,
+        })
+        const dispatchSpy = mockDispatchRun()
+
+        const cronLock = service.app.get(CronLockService)
+        vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+        vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+        await service.app
+          .get(CommunityIssueFeedDispatchService)
+          .dispatchWeeklyTrendingIssues()
+
+        const trendingCalls = dispatchSpy.mock.calls.filter(
+          (c) =>
+            c[0].type === 'trending_issues' &&
+            c[0].organizationSlug === CRON_BUCKET0_SLUG,
+        )
+        expect(trendingCalls).toHaveLength(0)
+      },
+    )
+  },
+)
+
+describe('DispatchRequestSchema — orgSlugs cap', () => {
+  it('rejects an orgSlugs array longer than 200', () => {
+    const result = DispatchRequestSchema.safeParse({
+      orgSlugs: Array.from({ length: 201 }, (_, i) => `org-${i}`),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts an orgSlugs array of exactly 200', () => {
+    const result = DispatchRequestSchema.safeParse({
+      orgSlugs: Array.from({ length: 200 }, (_, i) => `org-${i}`),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an empty orgSlugs array', () => {
+    const result = DispatchRequestSchema.safeParse({ orgSlugs: [] })
+    expect(result.success).toBe(false)
   })
 })

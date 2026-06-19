@@ -62,6 +62,12 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     const anchorParsed = rawAnchor
       ? ChatAnchorSchema.safeParse(rawAnchor)
       : null
+    if (anchorParsed && !anchorParsed.success) {
+      this.logger.warn(
+        { conversationId, error: anchorParsed.error },
+        'chiefOfStaffContext: anchor parse failed; degrading to null',
+      )
+    }
     const anchor: ChatAnchor | null = anchorParsed?.success
       ? anchorParsed.data
       : null
