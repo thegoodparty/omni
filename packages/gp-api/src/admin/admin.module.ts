@@ -6,9 +6,12 @@ import { SlackModule } from 'src/vendors/slack/slack.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.module'
 import { ArtifactReviewModule } from 'src/artifactReview/artifactReview.module'
+import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
+import { ElectionsModule } from 'src/elections/elections.module'
 import { AdminCampaignsController } from './campaigns/adminCampaigns.controller'
 import { AdminCampaignsService } from './campaigns/adminCampaigns.service'
 import { AdminUsersController } from './users/adminUsers.controller'
+import { AdminElectedOfficeController } from './electedOffice/adminElectedOffice.controller'
 import { AdminAgentRunsController } from './agentRuns/adminAgentRuns.controller'
 import { AdminAgentRunsService } from './agentRuns/services/adminAgentRuns.service'
 import { AdminBriefingsController } from './briefings/adminBriefings.controller'
@@ -23,10 +26,13 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
     AwsModule,
     AgentExperimentsModule,
     ArtifactReviewModule,
+    ElectedOfficeModule,
+    ElectionsModule,
   ],
   controllers: [
     AdminCampaignsController,
     AdminUsersController,
+    AdminElectedOfficeController,
     AdminAgentRunsController,
     AdminBriefingsController,
   ],

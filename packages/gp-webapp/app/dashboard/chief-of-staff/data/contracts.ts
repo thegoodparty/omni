@@ -23,8 +23,6 @@ export interface SupportEstimate {
   districtSize: number
   /** 0–100, already a percentage. */
   percentOfDistrict: number
-  /** Signed delta in percentage points vs last month. */
-  trendVsLastMonth: number
 }
 
 // ---------------------------------------------------------------------------

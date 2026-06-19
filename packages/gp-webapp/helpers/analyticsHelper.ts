@@ -24,6 +24,12 @@ const UTM_KEYS = [
 const CLID_SUFFIX = 'clid'
 
 export const EVENTS = {
+  CampaignStory: {
+    RewriteRequested: 'Campaign Story - Rewrite Requested',
+    RewriteAccepted: 'Campaign Story - Rewrite Accepted',
+    RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
+    RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
+  },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
@@ -118,6 +124,10 @@ export const EVENTS = {
     SmsPollSent: 'Serve Onboarding - SMS Poll Sent',
     SuccessPageViewed: 'Serve Onboarding - Success Page Viewed',
     NotEnoughConstituents: 'Serve Onboarding - SMS Poll Creation Failed',
+    // Net-new (sales-sent magic link) elected-official onboarding funnel.
+    LinkActivated: 'Serve Onboarding - Magic Link Activated',
+    NetNewCompleted: 'Serve Onboarding - Net New Completed',
+    BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
   },
   Navigation: {
     Top: {

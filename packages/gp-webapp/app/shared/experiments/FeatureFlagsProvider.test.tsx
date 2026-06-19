@@ -34,9 +34,10 @@ vi.mock('helpers/buildUserTraits', () => ({
 }))
 
 let mockUser: User | null = null
+let mockIsUserLoading = false
 
 vi.mock('@shared/hooks/useUser', () => ({
-  useUser: () => [mockUser, vi.fn()],
+  useUser: () => [mockUser, vi.fn(), mockIsUserLoading],
 }))
 
 const mockApiKey = vi.hoisted(() => ({ value: 'test-amplitude-key' }))
@@ -80,6 +81,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 
 beforeEach(() => {
   mockUser = null
+  mockIsUserLoading = false
   mockApiKey.value = 'test-amplitude-key'
   mockExperimentClient.fetch.mockReset().mockResolvedValue(undefined)
   mockExperimentClient.variant
@@ -238,6 +240,32 @@ describe('FeatureFlagsProvider', () => {
         user_properties: fullUserTraits,
       })
     })
+
+    it('re-fetches when traits change even if the user id is unchanged', async () => {
+      mockUser = fullUser
+      const { result, rerender } = renderHook(() => useFeatureFlags(), {
+        wrapper,
+      })
+
+      await waitFor(() => {
+        expect(result.current.ready).toBe(true)
+      })
+      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(1)
+
+      // Same id, new traits (e.g. the user updated their zip) — a segment input
+      // changed, so Amplitude must be re-evaluated.
+      const updatedTraits = { ...fullUserTraits, zip: '10001' }
+      vi.mocked(buildUserTraits).mockReturnValue(updatedTraits)
+      mockUser = { ...fullUser, zip: '10001' }
+      rerender()
+
+      await waitFor(() => {
+        expect(mockExperimentClient.fetch).toHaveBeenLastCalledWith({
+          user_id: '42',
+          user_properties: updatedTraits,
+        })
+      })
+    })
   })
 
   describe('error reporting', () => {
@@ -360,6 +388,161 @@ describe('FeatureFlagsProvider', () => {
       })
 
       expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(2)
+    })
+  })
+})
+
+describe('server-seeded initialVariants', () => {
+  const seededWrapper = ({ children }: { children: React.ReactNode }) => (
+    <FeatureFlagsProvider
+      initialVariants={{ 'campaign-story': { value: 'on' } }}
+    >
+      {children}
+    </FeatureFlagsProvider>
+  )
+
+  it('initializes the client with the seed and fetchOnStart disabled', async () => {
+    mockUser = fullUser
+
+    renderHook(() => useFeatureFlags(), { wrapper: seededWrapper })
+
+    await waitFor(() => {
+      expect(Experiment.initialize).toHaveBeenCalled()
+    })
+    expect(Experiment.initialize).toHaveBeenCalledWith(
+      'test-amplitude-key',
+      expect.objectContaining({
+        fetchOnStart: false,
+        initialVariants: { 'campaign-story': { value: 'on' } },
+      }),
+    )
+  })
+
+  it('is ready immediately and does not fetch on mount when seeded', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+
+    expect(result.current.ready).toBe(true)
+    // Give the gated effect a chance to (wrongly) fetch; it must not.
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+  })
+
+  it('adopts the first authed identity then refetches when it changes', async () => {
+    mockUser = fullUser
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+
+    await waitFor(() => {
+      expect(result.current.ready).toBe(true)
+    })
+    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+
+    // A genuine identity change after the seed must still trigger a refetch —
+    // the seed short-circuit is one-shot, not a permanent fetch suppressor.
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+
+    await waitFor(() => {
+      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({
+        user_id: '99',
+        user_properties: fullUserTraits,
+      })
+    })
+  })
+
+  it('clears and refetches anonymously when the user logs out after seeding', async () => {
+    mockUser = fullUser
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+
+    await waitFor(() => {
+      expect(result.current.ready).toBe(true)
+    })
+    mockExperimentClient.clear.mockReset()
+
+    mockUser = null
+    rerender()
+
+    await waitFor(() => {
+      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
+    })
+    expect(mockExperimentClient.clear).toHaveBeenCalled()
+  })
+
+  it('discards the seed and fetches anonymously when the client has no user', async () => {
+    // Server seeded for an authed SSR session, but the client resolves
+    // anonymous — the seed is for the wrong identity and must not be trusted.
+    mockUser = null
+
+    renderHook(() => useFeatureFlags(), { wrapper: seededWrapper })
+
+    await waitFor(() => {
+      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
+    })
+    expect(mockExperimentClient.clear).toHaveBeenCalled()
+  })
+
+  it('treats an empty seed as no seed (no initialVariants, fetches normally)', async () => {
+    mockUser = fullUser
+    const emptyWrapper = ({ children }: { children: React.ReactNode }) => (
+      <FeatureFlagsProvider initialVariants={{}}>
+        {children}
+      </FeatureFlagsProvider>
+    )
+
+    renderHook(() => useFeatureFlags(), { wrapper: emptyWrapper })
+
+    await waitFor(() => {
+      expect(mockExperimentClient.fetch).toHaveBeenCalled()
+    })
+    expect(Experiment.initialize).toHaveBeenCalledWith(
+      'test-amplitude-key',
+      expect.objectContaining({
+        fetchOnStart: false,
+        initialVariants: undefined,
+      }),
+    )
+  })
+})
+
+describe('user-loading gate', () => {
+  it('does not fetch while the user is still loading', async () => {
+    mockIsUserLoading = true
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+    expect(result.current.ready).toBe(false)
+  })
+
+  it('fetches once the user finishes loading', async () => {
+    mockIsUserLoading = true
+    const { rerender } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+
+    mockIsUserLoading = false
+    mockUser = fullUser
+    rerender()
+
+    await waitFor(() => {
+      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({
+        user_id: '42',
+        user_properties: fullUserTraits,
+      })
     })
   })
 })

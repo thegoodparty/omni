@@ -203,6 +203,17 @@ export {
 } from './campaigns/CommunityEvents.schema'
 
 export {
+  CampaignStorySchema,
+  CAMPAIGN_STORY_FIELD_MAX_LENGTH,
+  type CampaignStory,
+} from './campaigns/CampaignStory.schema'
+
+export {
+  CampaignStoryRewriteSchema,
+  type CampaignStoryRewrite,
+} from './campaigns/CampaignStoryRewrite.schema'
+
+export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
 } from './campaigns/CampaignWithPositionName.schema'
@@ -318,6 +329,11 @@ export {
 export { ZipCodesArraySchema } from './elections/zipCodes'
 
 export {
+  ElectedOfficeSupportSchema,
+  type ElectedOfficeSupport,
+} from './elections/ElectedOfficeSupport.schema'
+
+export {
   SPEECH_SYNTHESIS_ENGINE_VALUES,
   type SpeechSynthesisEngine,
   SpeechSynthesisEngineSchema,
@@ -398,6 +414,8 @@ export {
 } from './artifactFeedback/ArtifactFeedback.schema'
 
 export * from './artifactReview'
+
+export * from './experiments'
 
 export {
   AgentRunCandidateSummarySchema,

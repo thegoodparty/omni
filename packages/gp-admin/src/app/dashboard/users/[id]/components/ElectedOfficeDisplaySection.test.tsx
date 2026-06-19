@@ -5,6 +5,7 @@ import type { ElectedOffice } from '@goodparty_org/sdk'
 
 const mockElectedOffice: ElectedOffice = {
   id: 'uuid-123',
+  organizationSlug: 'eo-uuid-123',
   createdAt: '2024-11-15T12:00:00.000Z',
   updatedAt: '2024-11-20T12:00:00.000Z',
   userId: 456,
@@ -15,6 +16,9 @@ const mockElectedOffice: ElectedOffice = {
   termLengthDays: 1461,
   termEndDate: '2029-01-05T12:00:00.000Z',
   isActive: true,
+  party: null,
+  pledgedAt: null,
+  onboardingCompletedAt: null,
 }
 
 describe('ElectedOfficeDisplaySection', () => {

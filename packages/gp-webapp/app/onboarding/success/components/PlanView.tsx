@@ -144,7 +144,7 @@ const PlanView = ({
   }
 
   const downloadNotReadyTooltip =
-    'Your plan is still being generated. It will be ready in a moment.'
+    'Your plan is still being generated. This usually takes less than 3 minutes.'
 
   return (
     <div className="relative min-h-screen w-full bg-base-surface pb-28 text-foreground">
@@ -224,7 +224,7 @@ const PlanView = ({
             </Tooltip>
           )}
 
-          {/* Desktop download. Label reads "Preparing plan…" while the plan
+          {/* Desktop download. Label reads "Preparing Plan…" while the plan
               is still generating, and the tooltip explains the disabled
               state on hover. */}
           {planReady ? (
@@ -249,7 +249,7 @@ const PlanView = ({
                     size="large"
                     icon={<DownloadIcon className="size-5" />}
                     loading
-                    loadingText="Preparing plan…"
+                    loadingText="Preparing Plan…"
                   >
                     Download
                   </Button>

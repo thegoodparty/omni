@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { TestDataHelper } from './data.helper'
 
 // Clerk verifies any `+clerk_test` email with this fixed code on development
@@ -10,34 +10,72 @@ export const getClerkContinueButton = (page: Page): Locator =>
   page.getByRole('button', { name: /^continue$/i })
 
 /**
- * After the identifier (email) step, ensures Clerk is showing the PASSWORD first
- * factor before the caller fills it. The Clerk instance now offers `email_code`
- * as an additional first factor, so depending on factor ordering Clerk may land
- * on the email-code screen instead of password. When the password field isn't
- * already visible, switch to the password method via "Use another method".
+ * Resolves true if `locator` becomes editable within `timeout`, false otherwise.
+ * Editability — not mere visibility — is the property fill() requires: Clerk can
+ * render a field that is visible but `disabled`, which passes a visibility check
+ * yet rejects fill().
+ */
+const becomesEditable = (locator: Locator, timeout: number): Promise<boolean> =>
+  expect(locator)
+    .toBeEditable({ timeout })
+    .then(() => true)
+    .catch(() => false)
+
+/**
+ * Resolves true if `locator` becomes visible within `timeout`, false otherwise.
+ * Uses a bounded `waitFor` rather than a point-in-time `isVisible()` snapshot, so
+ * a control that Clerk renders a moment later (slow screen transition) is still
+ * caught instead of being missed by a single check.
+ */
+const becomesVisible = (locator: Locator, timeout: number): Promise<boolean> =>
+  locator
+    .waitFor({ state: 'visible', timeout })
+    .then(() => true)
+    .catch(() => false)
+
+/**
+ * Matches a clickable Clerk control by accessible name regardless of whether
+ * Clerk renders it as a `<button>` or an `<a>`. Clerk's "Use another method"
+ * affordance and the strategy options on the factor-selection screen are links
+ * in some flows (e.g. when `email_code` is the default first factor) and buttons
+ * in others, so a single `getByRole('button', …)` misses them.
+ */
+const clerkControl = (page: Page, name: RegExp): Locator =>
+  page
+    .getByRole('button', { name })
+    .or(page.getByRole('link', { name }))
+    .first()
+
+/**
+ * After the identifier (email) step, ensures Clerk is showing an EDITABLE
+ * password first factor before the caller fills it. When password is optional
+ * and `email_code` is also a first factor, Clerk defaults to the email-code
+ * ("Check your email") screen — which has no password field at all — and in some
+ * flows renders a `disabled` password input instead. In both cases the password
+ * method must be selected explicitly via "Use another method" (rendered as a
+ * link or a button) before the field becomes editable; a visibility check is not
+ * enough, since a disabled field is still "visible" and fill() would time out.
  */
 export const ensureClerkPasswordFactor = async (page: Page): Promise<void> => {
   const passwordField = page.getByLabel(/password/i).first()
-  try {
-    await passwordField.waitFor({ state: 'visible', timeout: 5000 })
+
+  // Fast path: password is the active first factor and ready to type into.
+  if (await becomesEditable(passwordField, 5000)) {
     return
-  } catch {
-    // Password isn't the active first factor (Clerk defaulted to e.g.
-    // email_code). Fall through and select the password method explicitly.
   }
 
-  const useAnotherMethod = page.getByRole('button', {
-    name: /use another method/i,
-  })
-  await useAnotherMethod.waitFor({ state: 'visible', timeout: 5000 })
-  await useAnotherMethod.click()
+  // Password isn't the active/editable first factor (Clerk defaulted to e.g.
+  // email_code, or rendered the password input disabled). Open the method
+  // picker and select password explicitly.
+  const useAnotherMethod = clerkControl(page, /use another method/i)
+  if (await becomesVisible(useAnotherMethod, 5000)) {
+    await useAnotherMethod.click()
+    await clerkControl(page, /password/i).click()
+  }
 
-  await page
-    .getByRole('button', { name: /password/i })
-    .first()
-    .click()
-
-  await passwordField.waitFor({ state: 'visible', timeout: 5000 })
+  // The field must be genuinely editable before the caller fills it; otherwise
+  // fill() times out on a visible-but-disabled (or absent) input.
+  await expect(passwordField).toBeEditable({ timeout: 10000 })
 }
 
 /**
@@ -91,15 +129,12 @@ export const fillClerkSignUpForm = async (page: Page) => {
   await page.locator('input[name=emailAddress]').fill(testUser.email)
 
   // Password is optional on the instance now (email_code is also offered as a
-  // factor), so only fill it when the prebuilt form actually renders the field.
-  // Wait for it rather than snapshotting, since fill() above doesn't guarantee
-  // the rest of the form has finished hydrating on a slow CI render.
+  // factor), so only fill it when the prebuilt form actually renders an
+  // editable field. Check editability (not just visibility), since Clerk can
+  // render the password input disabled when password isn't required — a
+  // visibility-only check would then pass and the fill() would time out.
   const passwordField = page.locator('input[name=password]')
-  const passwordVisible = await passwordField
-    .waitFor({ state: 'visible', timeout: 3000 })
-    .then(() => true)
-    .catch(() => false)
-  if (passwordVisible) {
+  if (await becomesEditable(passwordField, 3000)) {
     await passwordField.fill(testUser.password)
   }
 

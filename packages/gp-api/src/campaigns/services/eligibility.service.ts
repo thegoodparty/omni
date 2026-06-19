@@ -54,10 +54,10 @@ export class EligibilityService {
     )
   }
 
-  // termStartAt is the semantic "most recently held"; fall back to termEndAt
-  // then createdAt for rows where term dates were never populated (e.g.
-  // backfill / import) so createdAt order can't pick the wrong office.
+  // termStartDate is the semantic "most recently held"; fall back to
+  // termEndDate then createdAt for rows where term dates were never populated
+  // (e.g. backfill / import) so createdAt order can't pick the wrong office.
   private officeRecency(office: ElectedOffice): Date {
-    return office.termStartAt ?? office.termEndAt ?? office.createdAt
+    return office.termStartDate ?? office.termEndDate ?? office.createdAt
   }
 }

@@ -6,9 +6,9 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { Campaign } from '../generated/prisma'
-import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
-import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
+import { Organization } from '../generated/prisma'
+import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
+import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -24,17 +24,17 @@ export class OnboardingLocalNewsController {
   constructor(private readonly localNewsService: OnboardingLocalNewsService) {}
 
   @Get()
-  @UseCampaign()
+  @UseOrganization()
   @ResponseSchema(localNewsResponseSchema)
   getLocalNews(
     @Query() query: GetLocalNewsQueryDTO,
-    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
   ) {
     return this.localNewsService.getLocalNews({
       city: query.city,
       state: query.state,
       office: query.office,
-      campaign,
+      userId: organization.ownerId,
     })
   }
 }

@@ -39,8 +39,7 @@ describe('GET /v1/eligibility', () => {
       data: {
         organizationSlug: 'eo-ended-900',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2000-01-01'),
+        termEndDate: new Date('2000-01-01'),
       },
     })
 
@@ -63,8 +62,9 @@ describe('GET /v1/eligibility', () => {
       data: {
         organizationSlug: 'eo-held-900',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        // A held office is one with a future (exclusive) term end — isActive is
+        // derived from this, so a null end would read as not held.
+        termEndDate: new Date('2999-01-01'),
       },
     })
 

@@ -49,6 +49,7 @@ model Campaign {
   campaignTasks            CampaignTask[]
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
+  campaignStory            CampaignStory?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
 

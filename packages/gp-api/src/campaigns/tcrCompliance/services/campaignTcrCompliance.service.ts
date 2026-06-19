@@ -11,6 +11,7 @@ import { isValid, parseISO, subMinutes } from 'date-fns'
 import {
   Campaign,
   ExperimentRun,
+  OfficeLevel,
   Prisma,
   TcrCompliance,
   TcrComplianceStatus,
@@ -41,6 +42,7 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
 import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
+import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
@@ -460,6 +462,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
+    // The agent resolves the FEC committee id by scraping FEC public records,
+    // which is unreliable — so it may submit without one. The submit DTO
+    // intentionally defers the federal requirement to here: fall back to the
+    // value persisted on the TcrCompliance row (e.g. backfilled by staff),
+    // then re-enforce presence + format so a federal brand never reaches
+    // Peerly without a valid committee id.
+    const fecCommitteeId =
+      input.fecCommitteeId ?? existing.fecCommitteeId ?? undefined
+    if (input.officeLevel === OfficeLevel.federal) {
+      if (!fecCommitteeId) {
+        throw new BadRequestException(
+          'FEC Committee ID is required for federal office level',
+        )
+      }
+      if (!FEC_COMMITTEE_ID_PATTERN.test(fecCommitteeId)) {
+        throw new BadRequestException(
+          'FEC Committee ID must be "C" followed by 8 digits (e.g., C00123456)',
+        )
+      }
+    }
+
     // Pre-Peerly claim: only one concurrent caller may proceed past this
     // point. The TTL allows re-claim if a prior caller crashed mid-flight
     // without clearing its claim.
@@ -502,7 +525,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       email: input.email,
       phone: input.phone,
       officeLevel: input.officeLevel,
-      fecCommitteeId: input.fecCommitteeId,
+      fecCommitteeId,
       committeeType: input.committeeType,
       websiteDomain: hostname,
     }
@@ -539,7 +562,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         email: input.email,
         phone: input.phone,
         officeLevel: input.officeLevel,
-        fecCommitteeId: input.fecCommitteeId ?? null,
+        fecCommitteeId: fecCommitteeId ?? null,
         committeeType: input.committeeType,
         websiteDomain: hostname,
         postalAddress: campaign.formattedAddress ?? existing.postalAddress,
