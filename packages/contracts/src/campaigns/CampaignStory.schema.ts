@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+// Canonical max length for a stored Campaign Story field. The single source
+// of truth for both the input cap (gp-api's update/rewrite schemas) and the
+// rewrite output cap, so they can't drift.
+export const CAMPAIGN_STORY_FIELD_MAX_LENGTH = 10000
+
 /**
  * A candidate's campaign story: the three free-text answers (why,
  * background, issues) shown on the Campaign Story page. Persisted 1:1 with

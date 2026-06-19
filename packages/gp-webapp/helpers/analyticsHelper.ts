@@ -24,6 +24,12 @@ const UTM_KEYS = [
 const CLID_SUFFIX = 'clid'
 
 export const EVENTS = {
+  CampaignStory: {
+    RewriteRequested: 'Campaign Story - Rewrite Requested',
+    RewriteAccepted: 'Campaign Story - Rewrite Accepted',
+    RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
+    RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
+  },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',

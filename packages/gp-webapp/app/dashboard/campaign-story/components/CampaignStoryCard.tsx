@@ -6,11 +6,16 @@ import {
   Button,
   Card,
   Textarea,
+  CheckIcon,
+  LoaderCircleIcon,
   SparklesIcon,
   WandSparklesIcon,
+  XMarkIcon,
 } from '@styleguide'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export type CampaignStoryField = keyof CampaignStory
 
@@ -52,6 +57,20 @@ const CampaignStoryCard = ({
   const savedRef = useRef(value)
   const savingRef = useRef(false)
   const [saveFailed, setSaveFailed] = useState(false)
+
+  // AI "Help me rewrite" suggestion. `rewrite` holds the latest draft; the
+  // card is shown whenever we're generating, have a draft, or hit an error.
+  const [rewrite, setRewrite] = useState<string | null>(null)
+  const [isRewriting, setIsRewriting] = useState(false)
+  const [rewriteError, setRewriteError] = useState(false)
+  // Set when the server returns 403 — the campaign has hit its lifetime AI
+  // rewrite cap. Permanent for the session: no point retrying.
+  const [limitReached, setLimitReached] = useState(false)
+  // Guards against overlapping rewrite calls (e.g. a double-click landing
+  // before the disabled state re-renders), so an older response can't resolve
+  // after a newer one and show a stale suggestion.
+  const rewritingRef = useRef(false)
+  const rewriteActive = isRewriting || rewrite !== null || rewriteError
 
   // Safety net for the navigate-away/refresh case: the only save trigger is
   // blur, so warn before unload if the latest text hasn't been persisted.
@@ -133,6 +152,68 @@ const CampaignStoryCard = ({
     }
   }
 
+  const requestRewrite = async (source: 'initial' | 'retry'): Promise<void> => {
+    const text = valueRef.current.trim()
+    if (!text || rewritingRef.current || limitReached) return
+    rewritingRef.current = true
+    setIsRewriting(true)
+    setRewriteError(false)
+    setRewrite(null)
+    trackEvent(EVENTS.CampaignStory.RewriteRequested, { field: id, source })
+    try {
+      const { data } = await clientRequest(
+        'POST /v1/campaigns/mine/story/rewrite',
+        { field: id, text },
+      )
+      setRewrite(data.rewrite)
+    } catch (error) {
+      // 403 = campaign hit its lifetime rewrite cap. An expected limit, not an
+      // error to report — show the limit notice instead of the generic retry.
+      if (error instanceof FetchError && error.status === 403) {
+        setLimitReached(true)
+        trackEvent(EVENTS.CampaignStory.RewriteLimitReached, { field: id })
+      } else {
+        reportErrorToSentry(error, {
+          context: 'CampaignStoryCard.rewrite',
+          field: id,
+        })
+        setRewriteError(true)
+      }
+    } finally {
+      rewritingRef.current = false
+      setIsRewriting(false)
+    }
+  }
+
+  const discardRewrite = (): void => {
+    setRewrite(null)
+    setRewriteError(false)
+  }
+
+  // "Use this" replaces the field with the suggestion and persists it now,
+  // rather than waiting for a blur — the user accepted via a button click, so
+  // there may be no blur to trigger the autosave.
+  const acceptRewrite = (text: string): void => {
+    valueRef.current = text
+    setValue(text)
+    onAnsweredChange?.(text.trim().length > 0)
+    trackEvent(EVENTS.CampaignStory.RewriteAccepted, { field: id })
+    discardRewrite()
+    void save()
+  }
+
+  const hintBox = (
+    <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
+      <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-primary">
+          Campaign Manager
+        </span>
+        <span className="text-sm text-foreground">{hint}</span>
+      </div>
+    </div>
+  )
+
   return (
     <Card className="p-6">
       <div className="flex flex-col gap-1">
@@ -168,21 +249,91 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-            <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-bold uppercase tracking-wide text-primary">
-                Campaign Manager
-              </span>
-              <span className="text-sm text-foreground">{hint}</span>
-            </div>
-          </div>
+        {limitReached && (
+          <p className="text-sm text-muted-foreground">
+            You&apos;ve reached your AI rewrite limit for this campaign. You can
+            still edit your answers yourself.
+          </p>
+        )}
 
-          <Button icon={<WandSparklesIcon />} className="sm:shrink-0">
-            Help me rewrite
-          </Button>
-        </div>
+        {rewriteActive ? (
+          <>
+            <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-primary">
+                  <WandSparklesIcon className="size-4" />
+                  Suggested rewrite
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  From your Campaign Manager
+                </span>
+              </div>
+
+              {isRewriting ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircleIcon className="size-4 animate-spin text-primary" />
+                  Your Campaign Manager is writing a draft&hellip;
+                </p>
+              ) : rewriteError ? (
+                <p className="text-sm text-destructive">
+                  Couldn&apos;t generate a rewrite. Please try again.
+                </p>
+              ) : (
+                <p className="whitespace-pre-wrap text-base text-foreground">
+                  {rewrite}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  variant="outline"
+                  icon={<XMarkIcon />}
+                  onClick={() => {
+                    if (rewrite) {
+                      trackEvent(EVENTS.CampaignStory.RewriteDiscarded, {
+                        field: id,
+                      })
+                    }
+                    discardRewrite()
+                  }}
+                  disabled={isRewriting}
+                >
+                  Discard
+                </Button>
+                <Button
+                  variant="outline"
+                  icon={<WandSparklesIcon />}
+                  onClick={() => requestRewrite('retry')}
+                  disabled={isRewriting || limitReached}
+                >
+                  Try again
+                </Button>
+                <Button
+                  icon={<CheckIcon />}
+                  onClick={() => rewrite && acceptRewrite(rewrite)}
+                  disabled={isRewriting || !rewrite}
+                >
+                  Use this
+                </Button>
+              </div>
+            </div>
+
+            {hintBox}
+          </>
+        ) : (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {hintBox}
+
+            <Button
+              icon={<WandSparklesIcon />}
+              className="sm:shrink-0"
+              onClick={() => requestRewrite('initial')}
+              disabled={trimmedLength === 0 || limitReached}
+            >
+              Help me rewrite
+            </Button>
+          </div>
+        )}
       </div>
     </Card>
   )

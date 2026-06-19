@@ -1,11 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CampaignStoryCard, {
   type CampaignStorySection,
 } from './CampaignStoryCard'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
+beforeEach(() => {
+  vi.mocked(trackEvent).mockClear()
+})
 
 const section: CampaignStorySection = {
   id: 'why',
@@ -188,5 +199,147 @@ describe('CampaignStoryCard', () => {
     await user.tab()
 
     expect(called).toBe(false)
+  })
+
+  describe('Help me rewrite', () => {
+    it('disables the rewrite button until there is text', async () => {
+      const user = userEvent.setup()
+      render(<CampaignStoryCard section={section} initialValue={null} />)
+
+      const button = screen.getByRole('button', { name: /Help me rewrite/ })
+      expect(button).toBeDisabled()
+
+      await user.type(
+        screen.getByPlaceholderText('Tap to write your why'),
+        'a rough why',
+      )
+      expect(button).toBeEnabled()
+    })
+
+    it('requests a rewrite and shows the suggestion with three actions', async () => {
+      const user = userEvent.setup()
+      let rewriteBody: { field?: string; text?: string } | null = null
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async ({ body }) => {
+        rewriteBody = body
+        return { status: 200, data: { rewrite: 'A sharper why.' } }
+      })
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+
+      expect(await screen.findByText('A sharper why.')).toBeInTheDocument()
+      expect(rewriteBody).toEqual({ field: 'why', text: 'rough why' })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteRequested,
+        { field: 'why', source: 'initial' },
+      )
+      expect(
+        screen.getByRole('button', { name: /Discard/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Try again/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Use this/ }),
+      ).toBeInTheDocument()
+    })
+
+    it('"Use this" replaces the text and saves immediately', async () => {
+      const user = userEvent.setup()
+      let putBody: { why?: string } | null = null
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 200,
+        data: { rewrite: 'A sharper why.' },
+      }))
+      api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+        putBody = body
+        return { status: 200, data: emptyStory }
+      })
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await screen.findByText('A sharper why.')
+      await user.click(screen.getByRole('button', { name: /Use this/ }))
+
+      await waitFor(() => {
+        expect(putBody).toEqual({ why: 'A sharper why.' })
+      })
+      const textarea = screen.getByPlaceholderText<HTMLTextAreaElement>(
+        'Tap to write your why',
+      )
+      expect(textarea.value).toBe('A sharper why.')
+      // The suggestion card is dismissed once accepted.
+      expect(screen.queryByText('Suggested rewrite')).not.toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteAccepted,
+        { field: 'why' },
+      )
+    })
+
+    it('"Discard" dismisses the suggestion without saving', async () => {
+      const user = userEvent.setup()
+      let putCalled = false
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 200,
+        data: { rewrite: 'A sharper why.' },
+      }))
+      api.mock('PUT /v1/campaigns/mine/story', async () => {
+        putCalled = true
+        return { status: 200, data: emptyStory }
+      })
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await screen.findByText('A sharper why.')
+      await user.click(screen.getByRole('button', { name: /Discard/ }))
+
+      expect(screen.queryByText('A sharper why.')).not.toBeInTheDocument()
+      expect(putCalled).toBe(false)
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteDiscarded,
+        { field: 'why' },
+      )
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteAccepted,
+        expect.anything(),
+      )
+    })
+
+    it('shows an error when the rewrite call fails', async () => {
+      const user = userEvent.setup()
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 500,
+        data: { rewrite: '' },
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+
+      expect(
+        await screen.findByText(/Couldn't generate a rewrite/),
+      ).toBeInTheDocument()
+    })
+
+    it('shows the AI-limit notice and disables rewriting on a 403', async () => {
+      const user = userEvent.setup()
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 403,
+        data: { rewrite: '' },
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+
+      expect(
+        await screen.findByText(/reached your AI rewrite limit/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Help me rewrite/ }),
+      ).toBeDisabled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteLimitReached,
+        { field: 'why' },
+      )
+    })
   })
 })

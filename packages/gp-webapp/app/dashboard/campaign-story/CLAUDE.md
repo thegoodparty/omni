@@ -22,8 +22,22 @@ campaign plan, stump speech, and voter messaging.
   `PUT /v1/campaigns/mine/story` (partial body, one field). Backed by the
   `campaign_story` table in gp-api (`src/campaignStory/`); response shape is
   `CampaignStory` from `@goodparty_org/contracts`.
-- **"Help me rewrite"** is still a non-functional placeholder — wiring the AI
-  rewrite is a separate ticket.
+- **"Help me rewrite"** calls `POST /v1/campaigns/mine/story/rewrite` (Gemini
+  Flash, server-side) with the section id + current text; gp-api pairs it with
+  the candidate's name and a section-specific, non-partisan prompt. The
+  suggestion renders in a card with Discard / Try again / Use this. "Use this"
+  replaces the field and persists immediately (no wait for blur). The button is
+  disabled when the field is empty (nothing to rewrite).
+- **Rewrite limit.** A per-campaign lifetime cap of 200 rewrite attempts,
+  tracked in `campaign_story.rewrite_count` and enforced server-side (403). A
+  lifetime attempt is refunded if the Gemini call itself fails, so infra errors
+  don't burn the cap. On a **403** the card shows an "AI rewrite limit reached"
+  notice and disables rewriting for the session (manual edits still allowed).
+- **Rewrite analytics.** `CampaignStoryCard` fires Segment events via
+  `trackEvent(EVENTS.CampaignStory.*)`: `RewriteRequested` ({ field, source:
+  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`, and
+  `RewriteLimitReached` (403) — all carry `field`. Names live in
+  `helpers/analyticsHelper.ts`.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real

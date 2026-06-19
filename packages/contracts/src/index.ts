@@ -204,8 +204,14 @@ export {
 
 export {
   CampaignStorySchema,
+  CAMPAIGN_STORY_FIELD_MAX_LENGTH,
   type CampaignStory,
 } from './campaigns/CampaignStory.schema'
+
+export {
+  CampaignStoryRewriteSchema,
+  type CampaignStoryRewrite,
+} from './campaigns/CampaignStoryRewrite.schema'
 
 export {
   CampaignWithPositionNameSchema,
