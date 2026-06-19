@@ -18,7 +18,7 @@ import type {
 } from './contracts'
 
 export const dashboardApi = {
-  async getSupportEstimate(): Promise<SupportEstimate> {
+  async getSupportEstimate(): Promise<SupportEstimate | null> {
     const { data } = await clientRequest(
       'GET /v1/elected-office/support-estimate',
       {},

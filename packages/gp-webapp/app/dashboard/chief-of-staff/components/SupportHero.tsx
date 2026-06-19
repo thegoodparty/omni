@@ -39,9 +39,13 @@ export default function SupportHero(): React.JSX.Element {
 
       {isPending ? (
         <Skeleton className="mt-2 h-9 w-48" />
-      ) : isError || !data ? (
+      ) : isError ? (
         <p className="mt-1 text-sm text-muted-foreground">
           We could not load your support estimate right now.
+        </p>
+      ) : !data ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your support estimate isn&apos;t available yet.
         </p>
       ) : (
         <div className="mt-1 flex items-baseline gap-2">
