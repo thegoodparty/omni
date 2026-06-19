@@ -139,7 +139,7 @@ export const Disabled: Story = {
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          <p>You don't have permission to do this</p>
+          <p>You don&apos;t have permission to do this</p>
         </TooltipContent>
       </Tooltip>
     </div>
