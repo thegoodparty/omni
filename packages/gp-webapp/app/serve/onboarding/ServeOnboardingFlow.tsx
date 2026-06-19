@@ -205,17 +205,24 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // Disqualification event: picking a major party (Democrat/Republican) surfaces
   // the blocking alert and keeps Continue disabled. Dedupe to once per session
   // via a ref so toggling between the two doesn't spam the event — mirrors the
-  // Win flow's `PartyDesignationBlocked` tracking.
+  // Win flow's `PartyDesignationBlocked` tracking. Gated on the party step so a
+  // returning EO whose stored `party` hydrates to a major value on load (via
+  // setParty(eo.party)) doesn't emit the event before the user is actually on
+  // the step — the Win flow's partyAffiliation only ever changes via step UI.
   const partyBlockedFiredRef = useRef(false)
   useEffect(() => {
-    if (isServeMajorParty(party) && !partyBlockedFiredRef.current) {
+    if (
+      step === 'party' &&
+      isServeMajorParty(party) &&
+      !partyBlockedFiredRef.current
+    ) {
       partyBlockedFiredRef.current = true
       trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PartyBlocked, {
         electedOfficeId: currentEO?.id,
         party,
       })
     }
-  }, [party, currentEO?.id])
+  }, [step, party, currentEO?.id])
 
   const officeIsChosen = Boolean(
     office?.positionId ||

@@ -95,4 +95,31 @@ describe('serve onboarding party step', () => {
     )
     expect(blockedCalls).toHaveLength(1)
   })
+
+  it('does not fire the disqualification event at load when a returning EO hydrates a major party', async () => {
+    // A returning lead whose stored party is a major value would set `party`
+    // via setParty(eo.party) on mount; the event must stay gated to the party
+    // step so this load-time hydrate doesn't pollute the funnel.
+    const mockImpl = ((endpoint: string) => {
+      if (endpoint === 'GET /v1/elected-office/current') {
+        return Promise.resolve({
+          ok: true,
+          data: { id: 'eo-1', party: 'democratic' },
+        })
+      }
+      return Promise.resolve({ ok: false })
+    }) as unknown as typeof clientRequest
+    mockClientRequest.mockImplementation(mockImpl)
+
+    renderFlow()
+    // Continue renders only once the load effect settles on the welcome step.
+    expect(
+      await screen.findByRole('button', { name: /continue/i }),
+    ).toBeEnabled()
+
+    const blockedAtLoad = trackEvent.mock.calls.filter(
+      ([name]) => name === 'Serve Onboarding - Party Designation Blocked',
+    )
+    expect(blockedAtLoad).toHaveLength(0)
+  })
 })
