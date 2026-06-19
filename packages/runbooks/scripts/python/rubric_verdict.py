@@ -118,6 +118,14 @@ def main():
               "fix the TSV before gating", file=sys.stderr)
         sys.exit(2)
     v = verdict(rows)
+    if not v["graded"]:
+        # Every row was disqualified at a gate -> zero graded briefings. The GO checks
+        # pass vacuously (no spread to measure, no blowouts, no splits), so verdict()
+        # reports GO — but a rubric that DQ's everything had its inter-judge reliability
+        # tested on nothing. Refuse to gate (exit 2, cannot-assess), never a vacuous GO.
+        print(f"error: zero graded briefings in {sys.argv[1]} — all rows were DQ'd; "
+              "cannot assess inter-judge spread on an all-DQ sample", file=sys.stderr)
+        sys.exit(2)
     graded, disq, split_gate = v["graded"], v["disq"], v["split_gate"]
     max_spread, mean_spread, blowouts = v["max_spread"], v["mean_spread"], v["blowouts"]
 

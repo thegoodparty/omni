@@ -200,3 +200,19 @@ def test_latest_run_ids_excludes_v4_and_preserves_v7_time_order(monkeypatch):
     out = pm._latest_run_ids("bucket", "exp", 2)
     assert v4 not in out
     assert out == [v7_old, v7_new]
+
+
+def test_latest_run_ids_warns_when_only_v4_ids_present(monkeypatch, capsys):
+    # All run ids are UUIDv4 -> v7 filter empties the window. The operator must be
+    # told v4 ids were dropped, not left with the same "no runs found" message a
+    # genuinely empty bucket produces.
+    import perf_monitor as pm
+
+    v4a = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    v4b = "00000000-0000-4000-8000-000000000000"
+    monkeypatch.setattr(pm, "list_run_ids", lambda b, e: [v4a, v4b])
+
+    out = pm._latest_run_ids("bucket", "exp", 5)
+    assert out == []
+    err = capsys.readouterr().err.lower()
+    assert "v4" in err or "uuidv7" in err

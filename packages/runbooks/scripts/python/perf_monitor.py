@@ -52,7 +52,17 @@ def _latest_run_ids(bucket, exp, n):
     # for UUIDv7 (time-ordered). A v4 (random) id — from an older harness or a manual
     # dispatch — would sort to an arbitrary position and silently pollute the window, so
     # restrict to v7 (version nibble at string index 14) before sorting.
-    v7 = [i for i in list_run_ids(bucket, exp) if len(i) > 14 and i[14] == "7"]
+    all_ids = list_run_ids(bucket, exp)
+    v7 = [i for i in all_ids if len(i) > 14 and i[14] == "7"]
+    dropped = len(all_ids) - len(v7)
+    if dropped and not v7:
+        # Distinct from a genuinely empty bucket: the runs exist but are unusable here.
+        print(f"WARNING: s3://{bucket}/{exp}/ has {dropped} non-UUIDv7 run id(s) and zero "
+              "UUIDv7 ids — the monitor needs time-ordered UUIDv7 ids to pick the latest "
+              "window; re-dispatch with a UUIDv7-emitting harness.", file=sys.stderr)
+    elif dropped:
+        print(f"WARNING: ignoring {dropped} non-UUIDv7 run id(s) under s3://{bucket}/{exp}/ "
+              "(not time-ordered; cannot be placed in the latest-N window)", file=sys.stderr)
     return sorted(v7)[-n:]
 
 

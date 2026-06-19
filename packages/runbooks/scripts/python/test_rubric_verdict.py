@@ -216,3 +216,18 @@ def test_main_refuses_to_gate_on_zero_data_rows(tmp_path, monkeypatch, capsys):
         rubric_verdict.main()
     assert e.value.code == 2
     assert "zero" in capsys.readouterr().err.lower()
+
+
+def test_main_refuses_to_gate_on_all_dq_sample(tmp_path: Path, monkeypatch, capsys):
+    # Every row a unanimous DQ -> zero graded briefings. verdict() reports GO
+    # (the gate checks pass vacuously: no spread, no blowouts, no splits), but a
+    # rubric that disqualifies everything had its inter-judge reliability tested on
+    # nothing. main() must refuse to adopt (exit 2, cannot-assess), not print GO.
+    tsv = tmp_path / "alldq.tsv"
+    tsv.write_text("u1\tb1\tDQ\tDQ\nu2\tb1\tDQ\tDQ\n")
+    monkeypatch.setattr(sys, "argv", ["rubric_verdict.py", str(tsv)])
+    with pytest.raises(SystemExit) as e:
+        rubric_verdict.main()
+    assert e.value.code == 2
+    err = capsys.readouterr().err.lower()
+    assert "graded" in err or "dq" in err
