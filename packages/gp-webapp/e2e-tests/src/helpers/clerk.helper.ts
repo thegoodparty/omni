@@ -87,58 +87,38 @@ const toClerkTestEmail = (email: string): string =>
   email.includes('+clerk_test') ? email : email.replace('@', '+clerk_test@')
 
 /**
- * Completes Clerk's email-code verification step when the instance renders one
- * after sign-up. With password now optional, Clerk may require email-code
- * verification instead of (or in addition to) a password, so this fills the test
- * OTP when the code screen appears and is a no-op when it doesn't.
+ * Completes the custom sign-up form's email-code verification step. The form
+ * (app/sign-up/SignUpForm.tsx) renders the code as a single `input-otp` field
+ * tagged `data-testid="signup-otp-input"` and a manual "Verify" submit button.
+ * `+clerk_test` emails verify with the fixed OTP, so this is deterministic.
  */
 export const completeClerkEmailCodeVerification = async (
   page: Page,
 ): Promise<void> => {
-  // Clerk renders the email code as six per-digit inputs that all share the
-  // `aria-label` "Enter verification code. Digit N", so a name-based locator
-  // matches all six and trips strict mode. Target the first digit by Clerk's
-  // stable class and type the full code — Clerk auto-advances focus.
-  const codeInput = page.locator('.cl-otpCodeFieldInput').first()
-  try {
-    await codeInput.waitFor({ state: 'visible', timeout: 5000 })
-  } catch {
-    return
-  }
+  const codeInput = page.getByTestId('signup-otp-input')
+  await codeInput.waitFor({ state: 'visible', timeout: 15000 })
+  await codeInput.fill(CLERK_TEST_OTP_CODE)
 
-  await codeInput.pressSequentially(CLERK_TEST_OTP_CODE)
-
-  // Most configs auto-submit once all digits are entered; for manual-submit
-  // configs the verify button may take a render cycle to appear, so wait for it
-  // rather than snapshotting and treat a timeout as "auto-submitted".
-  const verifyButton = page.getByRole('button', { name: /^verify/i })
-  try {
-    await verifyButton.waitFor({ state: 'visible', timeout: 3000 })
-    await verifyButton.click()
-  } catch {
-    // Button never appeared — Clerk auto-submitted when the last digit was entered.
-  }
+  // The custom flow does not auto-submit; click Verify once all digits are in.
+  await page.getByTestId('signup-verify-submit').click()
 }
 
 export const fillClerkSignUpForm = async (page: Page) => {
   const generated = TestDataHelper.generateTestUserData()
   const testUser = { ...generated, email: toClerkTestEmail(generated.email) }
 
+  // The custom form (app/sign-up/SignUpForm.tsx) always renders all four fields
+  // and a required password; field `name`s mirror Clerk's so this stays stable.
   await page.locator('input[name=firstName]').fill(testUser.firstName)
   await page.locator('input[name=lastName]').fill(testUser.lastName)
   await page.locator('input[name=emailAddress]').fill(testUser.email)
+  await page.locator('input[name=password]').fill(testUser.password)
 
-  // Password is optional on the instance now (email_code is also offered as a
-  // factor), so only fill it when the prebuilt form actually renders an
-  // editable field. Check editability (not just visibility), since Clerk can
-  // render the password input disabled when password isn't required — a
-  // visibility-only check would then pass and the fill() would time out.
-  const passwordField = page.locator('input[name=password]')
-  if (await becomesEditable(passwordField, 3000)) {
-    await passwordField.fill(testUser.password)
-  }
+  // Submission is gated on the Terms & Conditions checkbox (a Radix
+  // role="checkbox" button), so toggle it before submitting.
+  await page.getByTestId('signup-terms').click()
 
-  await getClerkContinueButton(page).click()
+  await page.getByTestId('signup-submit').click()
 
   await completeClerkEmailCodeVerification(page)
 

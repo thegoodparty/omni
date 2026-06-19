@@ -1,4 +1,4 @@
-import { Open_Sans } from 'next/font/google'
+import { Open_Sans, Outfit } from 'next/font/google'
 import Script from 'next/script'
 import { Suspense } from 'react'
 import PageWrapper from './shared/layouts/PageWrapper'
@@ -15,6 +15,14 @@ const openSans = Open_Sans({
   adjustFontFallback: false,
 })
 
+// Display font for the marketing design system (e.g. the sign-up page
+// headings). Exposed as a CSS variable and applied only where referenced.
+const outfit = Outfit({
+  subsets: ['latin'],
+  weight: ['700'],
+  variable: '--outfit-font',
+})
+
 export const metadata = {
   applicationName: 'GoodParty',
   metadataBase: new URL(APP_BASE),
@@ -24,7 +32,7 @@ export const metadata = {
 }
 
 const RootLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <html lang="en" className={openSans.variable}>
+  <html lang="en" className={`${openSans.variable} ${outfit.variable}`}>
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
