@@ -3,10 +3,10 @@
 import { useRef, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
-import type { Source } from '@shared/briefings/types'
 import {
   toDisplaySource,
   type DisplaySource,
+  type SourceInput,
 } from '@shared/briefings/displaySource'
 
 const PILL_CLASS =
@@ -111,11 +111,11 @@ const SectionSourcePills = ({
   sourceById,
 }: {
   sourceIds: string[]
-  sourceById: Map<string, Source>
+  sourceById: Map<string, SourceInput>
 }): React.JSX.Element | null => {
   const resolved = sourceIds
     .map((id) => sourceById.get(id))
-    .filter((s): s is Source => Boolean(s))
+    .filter((s): s is SourceInput => Boolean(s))
     .map(toDisplaySource)
   if (resolved.length === 0) return null
   return (

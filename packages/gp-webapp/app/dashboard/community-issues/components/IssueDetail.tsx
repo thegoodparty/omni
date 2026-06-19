@@ -8,7 +8,7 @@ import type {
   CommunityIssueSource,
 } from 'gpApi/api-endpoints'
 import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
-import type { Source } from '@shared/briefings/types'
+import type { SourceInput } from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 type Props = {
@@ -31,13 +31,13 @@ const priorityVariant = (
   return { className: 'bg-success-background text-success-dark', label: 'Low' }
 }
 
-const toSource = (s: CommunityIssueSource): Source => ({
+const toSource = (s: CommunityIssueSource): SourceInput => ({
   id: s.id,
   name: s.name,
-  source_type: s.source_type as Source['source_type'],
+  source_type: s.source_type,
   url: s.url ?? null,
   publisher: s.publisher ?? null,
-  article_type: (s.article_type ?? null) as Source['article_type'],
+  article_type: s.article_type ?? null,
   article_date: s.article_date ?? null,
   page_number: null,
   section_heading: null,
@@ -63,7 +63,7 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
     )
   }
 
-  const sources: Source[] = detail.sources.map(toSource)
+  const sources: SourceInput[] = detail.sources.map(toSource)
   const sourceById = new Map(sources.map((s) => [s.id, s]))
 
   return (
@@ -165,7 +165,7 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
 
       {sources.length > 0 ? (
         <div className="border-y border-border py-2">
-          <SourcesCollapsible sources={sources} />
+          <SourcesCollapsible sources={sources} onExpand={() => undefined} />
         </div>
       ) : null}
 

@@ -7,24 +7,35 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@styleguide'
-import type { Source } from '@shared/briefings/types'
-import { toDisplaySource } from '@shared/briefings/displaySource'
+import {
+  toDisplaySource,
+  type SourceInput,
+} from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 type Props = {
-  sources: Source[]
+  sources: SourceInput[]
+  /** Called when the collapsible opens. Defaults to firing BriefingAssistant.SourcesExpanded. */
+  onExpand?: () => void
 }
 
-const SourcesCollapsible = ({ sources }: Props): React.JSX.Element | null => {
+const SourcesCollapsible = ({
+  sources,
+  onExpand,
+}: Props): React.JSX.Element | null => {
   const [open, setOpen] = useState(false)
   if (sources.length === 0) return null
 
   const handleOpenChange = (next: boolean): void => {
     setOpen(next)
     if (next) {
-      trackEvent(EVENTS.BriefingAssistant.SourcesExpanded, {
-        sourceCount: sources.length,
-      })
+      if (onExpand) {
+        onExpand()
+      } else {
+        trackEvent(EVENTS.BriefingAssistant.SourcesExpanded, {
+          sourceCount: sources.length,
+        })
+      }
     }
   }
 
