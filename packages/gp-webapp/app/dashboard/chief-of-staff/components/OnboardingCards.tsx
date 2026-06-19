@@ -43,8 +43,6 @@ export default function OnboardingCards({
         return (
           <TaskCard
             key={key}
-            highlighted={config.highlighted}
-            scrollSpy
             eyebrowLabel={config.eyebrowLabel}
             EyebrowIcon={SparklesIcon}
             title={config.title}

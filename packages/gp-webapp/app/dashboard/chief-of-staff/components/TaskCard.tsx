@@ -1,9 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Button, Card } from '@styleguide'
-import { cn } from '@styleguide/lib/utils'
 import type { LucideIcon } from 'lucide-react'
 
 export interface TaskCardProps {
@@ -21,10 +19,6 @@ export interface TaskCardProps {
   onCta?: () => void
   onSkip?: () => void
   skipDisabled?: boolean
-  /** Active onboarding card emphasis. */
-  highlighted?: boolean
-  /** Outline the card in blue while it's the one centered in the viewport. */
-  scrollSpy?: boolean
 }
 
 /**
@@ -43,36 +37,9 @@ export default function TaskCard({
   onCta,
   onSkip,
   skipDisabled = false,
-  highlighted = false,
-  scrollSpy = false,
 }: TaskCardProps): React.JSX.Element {
-  const cardRef = useRef<HTMLDivElement | null>(null)
-  const [centered, setCentered] = useState(false)
-
-  useEffect(() => {
-    if (!scrollSpy) return
-    const el = cardRef.current
-    if (!el || typeof IntersectionObserver === 'undefined') return
-    // Only the card crossing the middle ~10% band of the viewport counts as
-    // centered, so exactly one lights up as you scroll.
-    const observer = new IntersectionObserver(
-      ([entry]) => setCentered(entry?.isIntersecting ?? false),
-      { rootMargin: '-45% 0px -45% 0px', threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [scrollSpy])
-
   return (
-    <Card
-      ref={cardRef}
-      className={cn(
-        'gap-3 rounded-2xl border border-border p-4 shadow-sm transition-colors lg:p-6',
-        highlighted &&
-          'border-primary ring-2 ring-primary/40 bg-gradient-to-br from-primary/10 to-card',
-        scrollSpy && centered && !highlighted && 'ring-2 ring-info',
-      )}
-    >
+    <Card className="gap-3 rounded-2xl border border-border p-4 shadow-sm transition-colors lg:p-6">
       <div className="flex items-start justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <EyebrowIcon className="size-3.5" aria-hidden />

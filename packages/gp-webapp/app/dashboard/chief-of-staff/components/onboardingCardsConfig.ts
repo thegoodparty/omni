@@ -12,7 +12,6 @@ export interface OnboardingCardConfig {
    * sent to the model; the real turn begins when the user replies.
    */
   opener: string[]
-  highlighted?: boolean
 }
 
 // Render order on the dashboard.
@@ -28,7 +27,6 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
         'track priorities, and stay on top of your district.',
       ctaLabel: 'Meet my Chief of Staff',
       opener: COS_INTRO_MESSAGES,
-      highlighted: true,
     },
     priorities: {
       eyebrowLabel: 'Get started',
