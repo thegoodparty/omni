@@ -171,6 +171,11 @@ export const OpenOnClick: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByText('Campaign plan'))
+    await expect(
+      within(document.body).findByText(
+        'Opens on hover and tap — tap again to dismiss.',
+      ),
+    ).resolves.toBeVisible()
   },
 }
 
