@@ -19,7 +19,7 @@ export const COS_INTRO_MESSAGES: string[] = [
  */
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
-  crud_priorities: 'Reading your priorities',
+  crud_priorities: 'Working on your priorities',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   constituent_data: 'Reviewing district data',
