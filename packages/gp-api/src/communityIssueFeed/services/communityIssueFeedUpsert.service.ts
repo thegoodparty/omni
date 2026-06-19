@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import {
-  CommunityIssueFeedCategory,
-  CommunityIssueFeedList,
-  CommunityIssueFeedPriority,
-  ExperimentRun,
-} from '../../generated/prisma'
+import { CommunityIssueFeedList, ExperimentRun } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CommunityIssuesArtifact,
@@ -35,6 +30,9 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
       (i) => typeof i.existing_issue_id !== 'string',
     )
 
+    // Assumes at most one in-flight run per (org, list). Concurrent runs for the
+    // same org+list could interleave archive-by-omission with the other's creates
+    // under READ COMMITTED; the pipeline is agent-triggered so this is rare.
     await this.client.$transaction(async (tx) => {
       if (idCarrying.length > 0) {
         const rows = await tx.communityIssueFeed.findMany({
@@ -79,8 +77,8 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
           data: {
             title: issue.title,
             summary: issue.summary,
-            category: issue.category as CommunityIssueFeedCategory,
-            priority: issue.priority as CommunityIssueFeedPriority,
+            category: issue.category,
+            priority: issue.priority,
             detail: issue.detail as object,
             rank: issue.rank,
             archivedAt: null,
@@ -95,8 +93,8 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
           data: {
             organizationSlug: artifact.organization_slug,
             list,
-            category: issue.category as CommunityIssueFeedCategory,
-            priority: issue.priority as CommunityIssueFeedPriority,
+            category: issue.category,
+            priority: issue.priority,
             title: issue.title,
             summary: issue.summary,
             detail: issue.detail as object,

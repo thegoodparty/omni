@@ -347,6 +347,68 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
     expect(unchanged?.archivedAt).toBeNull()
   })
 
+  it('skips upsert when artifact org does not match run org', async () => {
+    const prior = await service.prisma.communityIssueFeed.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueFeedList.top_community,
+        category: CommunityIssueFeedCategory.public_safety,
+        priority: CommunityIssueFeedPriority.high,
+        title: 'Prior',
+        summary: 'prior.',
+      },
+    })
+
+    const key = `wrong-org-${Date.now()}.json`
+    const run = await seedRun(ORG, 'top_community_issues', key)
+    mockS3({
+      [key]: JSON.stringify(
+        makeArtifact('different-org', run.runId, [makeIssue(1)]),
+      ),
+    })
+
+    await service.app
+      .get(CommunityIssueFeedService)
+      .onExperimentRunCompleted(run)
+
+    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+      where: { id: prior.id },
+    })
+    expect(unchanged?.lastRefreshedRunId).toBeNull()
+    expect(unchanged?.archivedAt).toBeNull()
+  })
+
+  it('skips upsert when artifact generated_for_run_id does not match run id', async () => {
+    const prior = await service.prisma.communityIssueFeed.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueFeedList.top_community,
+        category: CommunityIssueFeedCategory.public_safety,
+        priority: CommunityIssueFeedPriority.high,
+        title: 'Prior',
+        summary: 'prior.',
+      },
+    })
+
+    const key = `wrong-run-id-${Date.now()}.json`
+    const run = await seedRun(ORG, 'top_community_issues', key)
+    mockS3({
+      [key]: JSON.stringify(
+        makeArtifact(ORG, 'completely-different-run-id', [makeIssue(1)]),
+      ),
+    })
+
+    await service.app
+      .get(CommunityIssueFeedService)
+      .onExperimentRunCompleted(run)
+
+    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+      where: { id: prior.id },
+    })
+    expect(unchanged?.lastRefreshedRunId).toBeNull()
+    expect(unchanged?.archivedAt).toBeNull()
+  })
+
   it('rejects an artifact with more than 10 issues — nothing changes', async () => {
     const prior = await service.prisma.communityIssueFeed.create({
       data: {

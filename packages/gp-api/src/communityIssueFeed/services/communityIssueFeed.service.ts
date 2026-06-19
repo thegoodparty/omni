@@ -38,12 +38,36 @@ export class CommunityIssueFeedService extends createPrismaBase(
       )
       return
     }
-    const parsed: unknown = JSON.parse(raw)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      this.logger.error(
+        { runId: run.runId, err },
+        'community-issue artifact is not valid JSON',
+      )
+      return
+    }
     const validation = validateCommunityIssuesArtifact(parsed)
     if (!validation.ok) {
       this.logger.error(
         { runId: run.runId, reason: validation.reason },
         'community-issue artifact failed validation',
+      )
+      return
+    }
+    if (
+      validation.artifact.organization_slug !== run.organizationSlug ||
+      validation.artifact.generated_for_run_id !== run.runId
+    ) {
+      this.logger.error(
+        {
+          runId: run.runId,
+          artifactOrg: validation.artifact.organization_slug,
+          runOrg: run.organizationSlug,
+          artifactRunId: validation.artifact.generated_for_run_id,
+        },
+        'community-issue artifact org or run id does not match run — skipping',
       )
       return
     }
