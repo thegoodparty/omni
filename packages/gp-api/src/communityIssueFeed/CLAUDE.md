@@ -67,6 +67,15 @@ Both crons are guarded by `CronLockService.tryClaimDailyRun` (distributed lock) 
 
 `POST /v1/community-issue-feed/dispatch` requires `AdminOrM2MGuard` (staff / M2M callers only).
 
+## Deliberate behaviors (intentional — do not "fix" to the obvious-looking alternative)
+
+These are conscious decisions from the design doc (ClickUp `2ky4jq2q-86653`) and its
+Implementation Notes (`2ky4jq2q-87833`). Each looks like a missing guard at a glance but is intentional:
+
+- **Archived issues stay resolvable on detail (design §1).** `getDetailForOrg` does **not** filter `archivedAt: null`. An issue you prioritized and that later gets archived must still open from your priorities, so a direct `GET /v1/community-issue-feed/:id` for an archived issue returns **200 with `archived: true`** (not a 404). The list endpoint (`listForOrg`) does exclude archived; only detail resolves them.
+- **You cannot prioritize an archived issue (design §3).** `prioritize` fetches the issue without an `archivedAt` filter (so it can tell archived apart from missing/wrong-org) and returns **400** if it is archived. This intentionally differs from a 404.
+- **`dispatchForCohort` allows re-dispatch of terminal runs.** Its in-flight check blocks `QUEUED`/`RUNNING`/`AWAITING_RESUME` only — **not** `COMPLETED`/`FAILED` — because it is the manual **refresh** tool (the only launch-time dispatch path while crons are flagged off); blocking `COMPLETED` would make a feed un-refreshable after its first success. This is deliberately different from `onElectedOfficeCreated`, which blocks `COMPLETED` because it must fire at most once per office.
+
 ## Data model
 
 `CommunityIssueFeed` (see `prisma/schema/communityIssueFeed.prisma`):

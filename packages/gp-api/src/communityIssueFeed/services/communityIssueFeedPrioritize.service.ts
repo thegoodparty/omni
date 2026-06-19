@@ -19,6 +19,9 @@ export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
       where: { id: issueId, organizationSlug },
     })
     if (!issue) throw new NotFoundException('Community issue not found')
+    // Deliberate (design §3): the fetch above does NOT filter archivedAt, so an
+    // archived issue resolves here and returns 400 (not a 404) — you cannot
+    // prioritize a resolved/archived issue. Active issues fall through.
     if (issue.archivedAt !== null)
       throw new BadRequestException('Cannot prioritize an archived issue')
 

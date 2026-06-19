@@ -121,6 +121,10 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
     organizationSlug: string,
     electedOfficeId: string,
   ) {
+    // Deliberate (design §1): NO archivedAt filter here. Archived issues stay
+    // resolvable so a prioritized-then-archived issue's source remains viewable
+    // from the user's priorities. The response carries `archived` (below) so the
+    // client surfaces the archived state instead of us returning a 404.
     const issue = await this.model.findFirst({
       where: { id, organizationSlug },
     })
