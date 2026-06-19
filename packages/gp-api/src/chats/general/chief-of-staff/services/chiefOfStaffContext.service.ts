@@ -2,17 +2,20 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
 
 export interface ChiefOfStaffContext {
   conversationId: string
   electedOfficeId: string
+  organizationSlug: string
   userFirstName: string | null
   userLastName: string | null
   officeTitle: string | null
   jurisdiction: string | null
   swornInDate: Date | null
   priorities: PriorityRecord[]
+  anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
   // service leaves this null; the handler fills it from DistrictResolverService
   // (which also populates jurisdiction).
@@ -55,15 +58,31 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
+    const rawAnchor = conversation.anchor
+    const anchorParsed = rawAnchor
+      ? ChatAnchorSchema.safeParse(rawAnchor)
+      : null
+    if (anchorParsed && !anchorParsed.success) {
+      this.logger.warn(
+        { conversationId, error: anchorParsed.error },
+        'chiefOfStaffContext: anchor parse failed; degrading to null',
+      )
+    }
+    const anchor: ChatAnchor | null = anchorParsed?.success
+      ? anchorParsed.data
+      : null
+
     return {
       conversationId,
       electedOfficeId: electedOffice.id,
+      organizationSlug: electedOffice.organizationSlug,
       userFirstName: electedOffice.user?.firstName ?? null,
       userLastName: electedOffice.user?.lastName ?? null,
       officeTitle: electedOffice.organization.customPositionName,
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
       priorities,
+      anchor,
       districtFilters: null,
       constituentToolEnabled: false,
     }

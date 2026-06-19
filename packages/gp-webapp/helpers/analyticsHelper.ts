@@ -155,6 +155,7 @@ export const EVENTS = {
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
+      ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
     },
   },
@@ -667,6 +668,13 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
+  },
+  CommunityIssues: {
+    ListViewed: 'Community Issues - List Viewed',
+    IssueDetailViewed: 'Community Issues - Issue Detail Viewed',
+    PrioritizeClicked: 'Community Issues - Prioritize Clicked',
+    AskAIStarted: 'Community Issues - Ask AI Started',
+    RunPollClicked: 'Community Issues - Run Poll Clicked',
   },
 } as const
 

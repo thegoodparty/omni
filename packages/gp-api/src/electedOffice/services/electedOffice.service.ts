@@ -15,6 +15,7 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
+import { CommunityIssueFeedDispatchService } from '@/communityIssueFeed/services/communityIssueFeedDispatch.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
@@ -90,6 +91,7 @@ export class ElectedOfficeService extends createPrismaBase(
     private readonly meetingBriefings: MeetingBriefingsService,
     @Inject(forwardRef(() => PrioritiesService))
     private readonly priorities: PrioritiesService,
+    private readonly communityIssueFeedDispatch: CommunityIssueFeedDispatchService,
   ) {
     super()
   }
@@ -276,6 +278,15 @@ export class ElectedOfficeService extends createPrismaBase(
         this.logger.error(
           { err, electedOfficeId: electedOffice.id },
           'meeting schedule dispatch failed after EO created',
+        )
+      })
+
+    await this.communityIssueFeedDispatch
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'community issue feed dispatch failed after EO created',
         )
       })
   }

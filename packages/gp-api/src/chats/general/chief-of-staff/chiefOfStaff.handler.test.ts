@@ -11,6 +11,7 @@ import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
+import type { CommunityIssueFeedReadPort } from './services/communityIssueFeedRead.port'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -59,13 +60,16 @@ describe('ChiefOfStaffHandler', () => {
         Promise.resolve({
           conversationId: 'c1',
           electedOfficeId: 'office-1',
+          organizationSlug: ORG,
           userFirstName: 'Jordan',
           userLastName: 'Lee',
           officeTitle: 'Council Member',
           jurisdiction: null,
           swornInDate: null,
           priorities: [],
+          anchor: null,
           districtFilters: null,
+          constituentToolEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -118,11 +122,13 @@ describe('ChiefOfStaffHandler', () => {
       USER_ID,
     )
     expect(result).toEqual({ conversationId: 'fresh', created: true })
-    expect(store.createScopedConversation).toHaveBeenCalledWith({
-      ownerUserId: USER_ID,
-      organizationSlug: ORG,
-      scope: ChatScope.chief_of_staff,
-    })
+    expect(store.createScopedConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUserId: USER_ID,
+        organizationSlug: ORG,
+        scope: ChatScope.chief_of_staff,
+      }),
+    )
   })
 
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
@@ -280,5 +286,151 @@ describe('ChiefOfStaffHandler', () => {
     expect(Object.keys(handler.buildTools(ctx))).not.toContain(
       'query_constituent_data',
     )
+  })
+
+  describe('anchor + community issues tool', () => {
+    const ANCHOR = {
+      resourceType: 'community_issue_feed' as const,
+      resourceId: 'issue-abc',
+      url: 'https://goodparty.org/issues/issue-abc',
+      snapshot: {
+        title: 'Fix the potholes on Main Street',
+        summary: 'Residents have complained about road conditions.',
+      },
+    }
+
+    it('passes anchor and title to createScopedConversation', async () => {
+      store.createScopedConversation = vi.fn(() =>
+        Promise.resolve({ id: 'anchored' }),
+      ) as never
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const result = await handler.resolveConversation(
+        {
+          scope: ChatScope.chief_of_staff,
+          organizationSlug: ORG,
+          anchor: ANCHOR,
+        },
+        USER_ID,
+      )
+      expect(result).toEqual({ conversationId: 'anchored', created: true })
+      expect(store.createScopedConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: ANCHOR,
+          title: 'Fix the potholes on Main Street',
+        }),
+      )
+    })
+
+    it('prompt contains anchored_issue block with snapshot title and summary', async () => {
+      const contextWithAnchor = {
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            userFirstName: 'Jordan',
+            userLastName: 'Lee',
+            officeTitle: 'Council Member',
+            jurisdiction: null,
+            swornInDate: null,
+            priorities: [],
+            anchor: ANCHOR,
+            districtFilters: null,
+            constituentToolEnabled: false,
+          }),
+        ),
+      } as unknown as ChiefOfStaffContextService
+      const handler = new ChiefOfStaffHandler(
+        store,
+        contextWithAnchor,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('<anchored_issue>')
+      expect(prompt).toContain('Fix the potholes on Main Street')
+      expect(prompt).toContain(
+        'Residents have complained about road conditions',
+      )
+    })
+
+    it('prompt includes highlightedText when present in anchor snapshot', async () => {
+      const anchorWithHighlight = {
+        ...ANCHOR,
+        snapshot: { ...ANCHOR.snapshot, highlightedText: 'key excerpt here' },
+      }
+      const contextWithAnchor = {
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            userFirstName: null,
+            userLastName: null,
+            officeTitle: null,
+            jurisdiction: null,
+            swornInDate: null,
+            priorities: [],
+            anchor: anchorWithHighlight,
+            districtFilters: null,
+            constituentToolEnabled: false,
+          }),
+        ),
+      } as unknown as ChiefOfStaffContextService
+      const handler = new ChiefOfStaffHandler(
+        store,
+        contextWithAnchor,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('Highlighted: key excerpt here')
+    })
+
+    it('registers read_community_issues tool when port is provided', async () => {
+      const communityPort: CommunityIssueFeedReadPort = {
+        getDetail: vi.fn(),
+      }
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        communityPort,
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'read_community_issues',
+      )
+    })
+
+    it('omits read_community_issues tool when port is absent', async () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'read_community_issues',
+      )
+    })
   })
 })

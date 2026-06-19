@@ -473,6 +473,10 @@ export {
 } from './dashboard/SupportEstimate.schema'
 
 export {
+  ChatAnchorSnapshotSchema,
+  type ChatAnchorSnapshot,
+  ChatAnchorSchema,
+  type ChatAnchor,
   CreateChatRequestSchema,
   type CreateChatRequest,
   CreateChatResponseSchema,
