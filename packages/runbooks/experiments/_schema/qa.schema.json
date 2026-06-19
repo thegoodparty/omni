@@ -31,7 +31,7 @@
     "agent": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional overrides for the evaluator stage (qa/eval.md judge). Omitted = platform defaults. Used only when qa/eval.md is present; harmless on a deterministic-only folder. The runner-image engine applies the defaults at runtime and clamps max_turns to its own ceiling. Defaults are documentation/editor hints only and are NOT injected by the validator.",
+      "description": "Optional overrides for the evaluator stage (qa/eval.md judge). Omitted = platform defaults. Used only when qa/eval.md is present; harmless on a deterministic-only folder. The runner-image engine applies the defaults at runtime and clamps max_turns to its own ceiling. Defaults are documentation/editor hints only and are NOT injected by the validator. The evaluator is meant to be lightweight and editorial — it scores quality against the artifact's own embedded content in a single read and does NOT web-search, re-fetch sources, or re-verify per-claim grounding (those are the deterministic qa/main.py stage's job), so a small budget is intentional. See experiments/CLAUDE.md, 'The QA folder'.",
       "properties": {
         "model": {
           "type": "string",
