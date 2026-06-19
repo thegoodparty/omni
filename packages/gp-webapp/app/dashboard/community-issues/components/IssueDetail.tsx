@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { Badge } from '@styleguide'
+import { Badge, Button } from '@styleguide'
 import type {
   CommunityIssueFeedDetail,
   CommunityIssueSource,
@@ -10,6 +10,8 @@ import type {
 import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
 import type { SourceInput } from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import PrioritizeButton from './PrioritizeButton'
+import AskAiButton from './AskAiButton'
 
 type Props = {
   issue: CommunityIssueFeedDetail
@@ -77,6 +79,32 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
         </div>
         <h1 className="text-2xl font-bold text-foreground">{issue.title}</h1>
         <p className="text-sm text-muted-foreground">{issue.summary}</p>
+        <div className="flex flex-wrap gap-2">
+          <PrioritizeButton
+            issueId={issue.id}
+            initialPrioritized={issue.prioritized}
+          />
+          <AskAiButton
+            issue={{
+              id: issue.id,
+              title: issue.title,
+              summary: issue.summary,
+            }}
+          />
+          <Button
+            variant="outline"
+            asChild
+            onClick={() =>
+              trackEvent(EVENTS.CommunityIssues.RunPollClicked, {
+                issueId: issue.id,
+              })
+            }
+          >
+            <Link href={`/dashboard/polls/create?issue=${issue.id}`}>
+              Run a poll
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <section className="flex flex-col gap-2">
