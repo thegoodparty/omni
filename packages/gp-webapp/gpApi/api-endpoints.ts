@@ -698,8 +698,43 @@ export type CommunityIssueFeedCard = {
   prioritized: boolean
 }
 
+export type CommunityIssueSource = {
+  id: string
+  name: string
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'social_media'
+  url?: string | null
+  publisher?: string | null
+  article_type?: string | null
+  article_date?: string | null
+}
+
+export type CommunityIssueSubsection = {
+  summary: string
+  source_ids: string[]
+}
+
+export type CommunityIssueQuoteItem = {
+  text: string
+  attribution?: string
+  source_id: string
+}
+
+export type CommunityIssueDetail = {
+  sources: CommunityIssueSource[]
+  overview: CommunityIssueSubsection
+  history?: CommunityIssueSubsection
+  quotes?: { items: CommunityIssueQuoteItem[] }
+  research?: CommunityIssueSubsection
+  legislation?: CommunityIssueSubsection
+}
+
 export type CommunityIssueFeedDetail = CommunityIssueFeedCard & {
-  detail: Record<string, unknown> | null
+  detail: CommunityIssueDetail | null
   relatedBriefings: Array<{
     meetingBriefingId: string
     briefingItemId: string
