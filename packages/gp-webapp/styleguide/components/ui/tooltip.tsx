@@ -136,7 +136,7 @@ function TooltipContent({
       >
         {children}
         {showArrow && (
-          <TooltipPrimitive.Arrow className="fill-components-tooltip-base z-50 size-2.5" />
+          <TooltipPrimitive.Arrow className="fill-components-tooltip-base z-50" />
         )}
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
