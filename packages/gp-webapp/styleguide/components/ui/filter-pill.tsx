@@ -105,17 +105,27 @@ function FilterPill({
     >
       {children}
       {onRemove && (
-        <button
-          type="button"
+        // ToggleGroupPrimitive.Item renders as <button>; a nested <button> is
+        // invalid HTML. <span role="button"> preserves keyboard accessibility
+        // without violating the interactive-in-interactive constraint.
+        <span
+          role="button"
+          tabIndex={0}
           onClick={(e) => {
             e.stopPropagation()
             onRemove()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.stopPropagation()
+              onRemove()
+            }
           }}
           className="ml-1.5 inline-flex items-center justify-center rounded-full outline-none hover:opacity-70 focus-visible:ring-[3px] focus-visible:ring-tertiary-focus"
           aria-label="Remove"
         >
           <XMarkIcon className="size-3" />
-        </button>
+        </span>
       )}
     </ToggleGroupPrimitive.Item>
   )

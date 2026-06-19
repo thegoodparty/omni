@@ -71,7 +71,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         key={type}
         type={isMultiple ? 'multiple' : 'single'}
         disabled={disabled}
-        value={isMultiple ? multiValue : (value ?? '')}
+        value={isMultiple ? multiValue : value}
         onValueChange={
           isMultiple
             ? (v) => setMultiValue(v as string[])
