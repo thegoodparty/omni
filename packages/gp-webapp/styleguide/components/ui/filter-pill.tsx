@@ -105,24 +105,17 @@ function FilterPill({
     >
       {children}
       {onRemove && (
-        <span
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation()
             onRemove()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.stopPropagation()
-              onRemove()
-            }
           }}
           className="ml-1.5 inline-flex items-center justify-center rounded-full outline-none hover:opacity-70 focus-visible:ring-[3px] focus-visible:ring-tertiary-focus"
           aria-label="Remove"
         >
           <XMarkIcon className="size-3" />
-        </span>
+        </button>
       )}
     </ToggleGroupPrimitive.Item>
   )

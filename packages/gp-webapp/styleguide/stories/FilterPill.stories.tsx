@@ -100,8 +100,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 export const Variants: Story = {
   parameters: { controls: { disable: true } },
   render: function Render() {
-    const [multiValue, setMultiValue] = React.useState<string[]>([])
-    const [pills, setPills] = React.useState(OFFICES)
+    const [multiValue, setMultiValue] = useState<string[]>([])
+    const [pills, setPills] = useState(OFFICES)
     return (
       <div className="flex flex-col gap-6">
         <div>
