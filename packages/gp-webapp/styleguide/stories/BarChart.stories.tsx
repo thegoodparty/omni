@@ -66,18 +66,18 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   ),
 }
 
-export const Orientation: StoryObj<typeof BarChart> = {
+export const Variants: StoryObj<typeof BarChart> = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-10">
       <div className="w-[480px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Vertical — estimated income range
         </p>
         <BarChart data={INCOME_DATA} orientation="vertical" percentage />
       </div>
       <div className="w-[480px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Horizontal — education
         </p>
         <BarChart data={EDUCATION_DATA} orientation="horizontal" percentage />
@@ -91,13 +91,15 @@ export const Values: StoryObj<typeof BarChart> = {
   render: () => (
     <div className="flex flex-col gap-10">
       <div className="w-[480px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Percentage
         </p>
         <BarChart data={INCOME_DATA} orientation="vertical" percentage />
       </div>
       <div className="w-[480px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">Count</p>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Count
+        </p>
         <BarChart
           data={INCOME_DATA.map((d) => ({ ...d, value: d.value * 1000 }))}
           orientation="vertical"

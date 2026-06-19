@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { PieChart } from '../components/ui/donut-chart'
+import { PieChart } from '../components/ui/pie-chart'
 
 const meta: Meta<typeof PieChart> = {
   title: 'Charts/PieChart',

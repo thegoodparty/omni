@@ -41,7 +41,7 @@ export const Variants: StoryObj<typeof DonutChart> = {
   render: () => (
     <div className="flex flex-wrap gap-8">
       <div className="w-[300px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Two segments
         </p>
         <DonutChart
@@ -53,13 +53,13 @@ export const Variants: StoryObj<typeof DonutChart> = {
         />
       </div>
       <div className="w-[300px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Three segments
         </p>
         <DonutChart data={THREE_SEGMENTS} percentage />
       </div>
       <div className="w-[300px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Four segments
         </p>
         <DonutChart
@@ -81,13 +81,15 @@ export const Values: StoryObj<typeof DonutChart> = {
   render: () => (
     <div className="flex flex-wrap gap-8">
       <div className="w-[300px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Percentage
         </p>
         <DonutChart data={THREE_SEGMENTS} percentage />
       </div>
       <div className="w-[300px]">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">Count</p>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Count
+        </p>
         <DonutChart
           data={THREE_SEGMENTS.map((d) => ({ ...d, value: d.value * 1000 }))}
         />
