@@ -64,6 +64,7 @@ describe('P2pPhoneListUploadService', () => {
   }
   let mockPeerlyPhoneList: { uploadPhoneList: ReturnType<typeof vi.fn> }
   let mockTcrCompliance: { fetchByCampaignId: ReturnType<typeof vi.fn> }
+  let mockPhoneListOwnership: { recordUpload: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     vi.mocked(voterFileUtil.typeToQuery).mockClear().mockReturnValue('SELECT 1')
@@ -80,10 +81,14 @@ describe('P2pPhoneListUploadService', () => {
         .fn()
         .mockResolvedValue({ peerlyIdentityId: 'peerly-id-1' }),
     }
+    mockPhoneListOwnership = {
+      recordUpload: vi.fn().mockResolvedValue(undefined),
+    }
     service = new P2pPhoneListUploadService(
       mockVoterDb as never,
       mockPeerlyPhoneList as never,
       mockTcrCompliance as never,
+      mockPhoneListOwnership as never,
       createMockLogger(),
     )
   })

@@ -15,6 +15,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyPhoneListOwnershipService } from 'src/vendors/peerly/services/peerlyPhoneListOwnership.service'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
@@ -43,6 +44,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly phoneListOwnership: PeerlyPhoneListOwnershipService,
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly attributionService: OutreachAttributionService,
@@ -174,6 +176,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
           'Phone list ID is required for P2P outreach',
         )
       }
+
+      // Verify the caller's campaign owns the phone list before assigning it to
+      // a Peerly job — phoneListId is a client-supplied, guessable, account-
+      // global id, so without this a campaign could text another campaign's
+      // curated/DNC-scrubbed audience (CWE-639). Mirrors the org-scoping already
+      // applied to voterFileFilterId above.
+      await this.phoneListOwnership.assertCampaignOwnsList(
+        campaign.id,
+        createOutreachDto.phoneListId,
+      )
 
       const outreach = await this.createP2pOutreach(
         campaign,

@@ -51,6 +51,7 @@ model Campaign {
   campaignStory            CampaignStory?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
+  peerlyPhoneLists         PeerlyPhoneList[]
 
   @@index([slug])
   @@map("campaign")

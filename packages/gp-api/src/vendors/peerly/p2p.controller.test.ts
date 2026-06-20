@@ -52,6 +52,9 @@ describe('P2pController', () => {
   let mockOrganizationsService: {
     getDistrictForOrgSlug: ReturnType<typeof vi.fn>
   }
+  let mockPhoneListOwnership: {
+    linkListId: ReturnType<typeof vi.fn>
+  }
   let mockRes: FastifyReply
 
   beforeEach(() => {
@@ -65,10 +68,14 @@ describe('P2pController', () => {
     mockOrganizationsService = {
       getDistrictForOrgSlug: vi.fn().mockResolvedValue(null),
     }
+    mockPhoneListOwnership = {
+      linkListId: vi.fn().mockResolvedValue(undefined),
+    }
     mockRes = createMockReply()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
+      mockPhoneListOwnership as never,
       mockOrganizationsService as never,
       createMockLogger(),
     )

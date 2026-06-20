@@ -1,0 +1,21 @@
+// Ownership record binding an uploaded Peerly phone list to the campaign that
+// created it. Peerly is a single shared account across all campaigns and its
+// list ids are sequential/guessable, so without this mapping any campaign could
+// assign another campaign's curated list to its own P2P job (CWE-639). Mirrors
+// the org-scoping VoterFileFilter already provides for voterFileFilterId.
+//
+// `token` is known at upload time; `listId` (Peerly's global list_id) is only
+// resolved later when the list goes active, so both are nullable and uniquely
+// constrained independently.
+model PeerlyPhoneList {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId Int      @map("campaign_id")
+  token      String?  @unique
+  listId     Int?     @unique @map("list_id")
+
+  @@index([campaignId])
+  @@map("peerly_phone_list")
+}
