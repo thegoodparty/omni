@@ -499,6 +499,8 @@ export {
   CHAT_MESSAGE_MAX_LENGTH,
   SendChatMessageRequestSchema,
   type SendChatMessageRequest,
+  ChatMessageSegmentSchema,
+  type ChatMessageSegment,
   ChatMessageSchema,
   type ChatMessage,
   ChatConversationSchema,

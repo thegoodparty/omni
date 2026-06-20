@@ -20,6 +20,7 @@ import { chiefOfStaffChatApi as chatApi } from '../../data/chat-api'
 import type {
   ChatErrorCode,
   ChatMessageDto,
+  ChatMessageSegment,
   ChatStreamEvent,
 } from '../../data/contracts'
 import {
@@ -52,7 +53,38 @@ interface Props {
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
-  | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
+  | {
+      kind: 'assistant'
+      id: string
+      content: string
+      toolsUsed?: string[]
+      // Persisted ordered structure (reloaded turns that used tools). When set,
+      // the assistant message renders these blocks instead of flat content.
+      segments?: ChatMessageSegment[]
+    }
+
+// Fold the flat persisted segments into render blocks: a text run, or a group
+// of consecutive tool pills (matches the live in-progress layout).
+type RenderBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; toolNames: string[] }
+
+function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  for (const seg of segments) {
+    if (seg.kind === 'text') {
+      blocks.push({ kind: 'text', text: seg.text ?? '' })
+      continue
+    }
+    const last = blocks[blocks.length - 1]
+    if (last && last.kind === 'tools') {
+      last.toolNames.push(seg.toolName ?? '')
+    } else {
+      blocks.push({ kind: 'tools', toolNames: [seg.toolName ?? ''] })
+    }
+  }
+  return blocks
+}
 
 // The in-progress assistant turn, rendered as ordered blocks (text, tool-group,
 // text, ...) in the order events arrive — so a tool's wait reads as its own
@@ -106,7 +138,14 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
     return { kind: 'user', id: msg.id, content: msg.content }
   }
   if (msg.role === 'assistant') {
-    return { kind: 'assistant', id: msg.id, content: msg.content }
+    return {
+      kind: 'assistant',
+      id: msg.id,
+      content: msg.content,
+      ...(msg.segments && msg.segments.length > 0
+        ? { segments: msg.segments }
+        : {}),
+    }
   }
   return null
 }
@@ -598,24 +637,52 @@ export default function ChiefOfStaffChatBody({
               <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <SparklesIcon className="size-3.5" aria-hidden />
               </span>
-              <div className={ASSISTANT_BUBBLE}>
-                {item.toolsUsed && item.toolsUsed.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.toolsUsed.map((t) => (
-                      <span
-                        key={t}
-                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                      >
-                        <SearchIcon className="size-3" aria-hidden />
-                        {toolDisplayName(t)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.content}
-                </ReactMarkdown>
-              </div>
+              {item.segments && item.segments.length > 0 ? (
+                // Reloaded turn that used tools: replay the persisted ordered
+                // text/tool blocks, matching the in-progress layout.
+                <div className="flex min-w-0 max-w-full flex-col gap-2">
+                  {groupSegments(item.segments).map((block, i) =>
+                    block.kind === 'text' ? (
+                      <div key={`b-${i}`} className={ASSISTANT_BUBBLE}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {block.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div key={`b-${i}`} className="flex flex-wrap gap-1.5">
+                        {block.toolNames.map((t, j) => (
+                          <span
+                            key={`${t}-${j}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <SearchIcon className="size-3" aria-hidden />
+                            {toolDisplayName(t)}
+                          </span>
+                        ))}
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <div className={ASSISTANT_BUBBLE}>
+                  {item.toolsUsed && item.toolsUsed.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.toolsUsed.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <SearchIcon className="size-3" aria-hidden />
+                          {toolDisplayName(t)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {item.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           ),
         )}

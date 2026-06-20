@@ -1,5 +1,9 @@
 import { Injectable, Optional } from '@nestjs/common'
-import { ChatMessage, ChatMessageRole } from '../../generated/prisma'
+import {
+  ChatMessage,
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+} from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { z } from 'zod'
@@ -9,7 +13,7 @@ import {
   LlmStreamTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
-import { ChatStoreService } from './chatStore.prisma'
+import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 
 export type ChatStreamErrorCode =
   | 'conversation_not_found'
@@ -347,11 +351,33 @@ export class ChatStreamService {
     let persistedId: string | undefined
     let persisted = false
 
+    // Ordered display structure of the turn, built from the same chunks the
+    // client sees (in queue order): text runs and tool calls interleaved.
+    // Persisted only if the turn used a tool (see persistAssistantText).
+    const segments: PersistedSegment[] = []
+    const pushTextDelta = (delta: string): void => {
+      const last = segments[segments.length - 1]
+      if (last && last.kind === ChatMessageSegmentKind.text) {
+        last.text = (last.text ?? '') + delta
+      } else {
+        segments.push({ kind: ChatMessageSegmentKind.text, text: delta })
+      }
+    }
+
     try {
       while (true) {
         const next = await queue.next()
         if (!next) break
-        yield next.chunk
+        const chunk = next.chunk
+        if (chunk.type === 'text') {
+          pushTextDelta(chunk.delta)
+        } else if (chunk.type === 'tool_call') {
+          segments.push({
+            kind: ChatMessageSegmentKind.tool,
+            toolName: chunk.toolName,
+          })
+        }
+        yield chunk
       }
 
       const metrics = await streamDone
@@ -360,6 +386,7 @@ export class ChatStreamService {
         const row = await this.persistAssistantText(
           args.conversationId,
           textBuffer.join(''),
+          segments,
         )
         if (row) {
           persistedId = row.id
@@ -406,12 +433,20 @@ export class ChatStreamService {
   private async persistAssistantText(
     conversationId: string,
     text: string,
+    segments?: PersistedSegment[],
   ): Promise<ChatMessage | null> {
     if (text.length === 0) return null
+    // Only persist the structure when the turn actually used a tool — a
+    // pure-text turn renders identically from `content`, so storing a single
+    // text segment would be wasted rows.
+    const usedTool = segments?.some(
+      (s) => s.kind === ChatMessageSegmentKind.tool,
+    )
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,
       content: text,
+      ...(usedTool && segments ? { segments } : {}),
     })
   }
 }
