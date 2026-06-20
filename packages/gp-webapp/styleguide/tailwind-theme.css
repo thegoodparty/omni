@@ -77,6 +77,7 @@
   --color-primary-light: var(--theme-primary-light);
   --color-primary-dark: var(--theme-primary-dark);
   --color-primary-foreground: var(--theme-primary-foreground);
+  --color-primary-focus: var(--theme-primary-focus);
   --color-secondary: var(--theme-secondary);
   --color-secondary-light: var(--theme-secondary-light);
   --color-secondary-dark: var(--theme-secondary-dark);
