@@ -81,7 +81,7 @@ export class NavigationHelper {
     // the drawer is open would toggle it shut, so a caller that retries
     // (open -> click a nav link, on a flake) doesn't accidentally close it.
     const closeButton = page.getByRole('button', { name: /close menu/i })
-    if (await closeButton.isVisible().catch(() => false)) {
+    if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
       return
     }
 

@@ -46,15 +46,14 @@ export async function waitForContactsTableReady(page: Page): Promise<void> {
   await expect(
     page.locator('.contacts-table-wrapper .animate-pulse'),
   ).toHaveCount(0, { timeout: 30_000 })
-  await expect(
-    page
-      .locator('table')
-      .first()
-      .locator('tbody tr')
-      .first()
-      .locator('td')
-      .first(),
-  ).toHaveText(/.+/, { timeout: 30_000 })
+  // Zero results is a valid settled state once the skeleton clears. Don't wait
+  // 30s for a first-row cell that will never exist (a misleading timeout) —
+  // callers that require rows assert that for themselves.
+  const rows = page.locator('table').first().locator('tbody tr')
+  if ((await rows.count()) === 0) return
+  await expect(rows.first().locator('td').first()).toHaveText(/.+/, {
+    timeout: 30_000,
+  })
 }
 
 // Run an action that re-queries the contacts table (apply/create/update a
