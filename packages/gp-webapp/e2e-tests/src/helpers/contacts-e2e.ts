@@ -86,28 +86,31 @@ export async function applyContactsQuery(
 // personContactPanel keys on) immediately but shows `animate-pulse` skeletons
 // until GET /v1/contacts/:id resolves, so field labels like "Veteran Status"
 // aren't in the DOM yet — asserting on them before the detail loads is the flaky
-// "field not found". Arm the response waiter before the click that triggers it.
+// "field not found". Arm the response waiter inside the loop so it always
+// corresponds to the click that produced the visible panel (a first click can
+// 200 but fail to open the panel; the retry's click is the one we want to wait
+// on).
 export async function openPersonPanel(
   page: Page,
   row: Locator,
   panel: Locator,
 ): Promise<void> {
-  const detailLanded = page.waitForResponse(
-    isGetResponse(PERSON_DETAIL_RESPONSE),
-    {
-      timeout: 30_000,
-    },
-  )
   for (let attempt = 0; attempt < 3; attempt++) {
+    const detailLanded = page.waitForResponse(
+      isGetResponse(PERSON_DETAIL_RESPONSE),
+      {
+        timeout: 30_000,
+      },
+    )
     await row.locator('td').first().click({ force: true })
     try {
       await expect(panel).toBeVisible({ timeout: 10_000 })
+      await detailLanded
       break
     } catch {
       if (attempt === 2) await expect(panel).toBeVisible()
     }
   }
-  await detailLanded
   await expect(panel.locator('.animate-pulse')).toHaveCount(0, {
     timeout: 30_000,
   })
