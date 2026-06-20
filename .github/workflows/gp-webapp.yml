@@ -291,6 +291,13 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # Pin the blob output explicitly. Playwright's default resolves
+          # `blob-report` against the nearest package.json dir — here
+          # packages/gp-webapp, NOT e2e-tests (the same monorepo gotcha
+          # e2e-tests/CLAUDE.md documents for --config) — so the default would
+          # land outside the path we upload from. An absolute dir is immune to
+          # that resolution and to the step's cwd.
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report
 
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
@@ -357,6 +364,10 @@ jobs:
       # If they were skipped/cancelled (e.g. e2e-wait failed), there are no
       # blobs to merge — skip straight to the controlled fail-gate below rather
       # than letting merge-reports error on an empty input.
+      # Absolute --config and input dir: merge-reports resolves its input via
+      # path.resolve(process.cwd(), dir), so a relative arg is cwd-sensitive;
+      # absolute paths are not. The merged html + json land in the config's
+      # dir (e2e-tests) — exactly where the S3/parse steps below look.
       - name: Merge shard reports
         if: >-
           needs.e2e-shard.result == 'success'
@@ -364,7 +375,8 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: >-
           npx playwright merge-reports
-          --config="$PWD/playwright.merge.config.ts" ./blob-report
+          --config="${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/playwright.merge.config.ts"
+          "${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report"
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
