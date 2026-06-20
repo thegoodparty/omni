@@ -16,8 +16,8 @@ export default async function Page(): Promise<React.JSX.Element> {
   await serveAccess()
 
   const [topCommunity, trending] = await Promise.all([
-    serverRequest('GET /v1/community-issue-feed', { list: 'top_community' }),
-    serverRequest('GET /v1/community-issue-feed', { list: 'trending' }),
+    serverRequest('GET /v1/community-issues', { list: 'top_community' }),
+    serverRequest('GET /v1/community-issues', { list: 'trending' }),
   ])
 
   return (

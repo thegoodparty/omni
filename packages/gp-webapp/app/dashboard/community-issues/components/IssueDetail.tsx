@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Badge, Button } from '@styleguide'
 import { ArchiveIcon } from 'styleguide/components/ui/icons'
 import type {
-  CommunityIssueFeedDetail,
+  CommunityIssueDetail,
   CommunityIssueSource,
 } from 'gpApi/api-endpoints'
 import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
@@ -15,7 +15,7 @@ import PrioritizeButton from './PrioritizeButton'
 import AskAiButton from './AskAiButton'
 
 type Props = {
-  issue: CommunityIssueFeedDetail
+  issue: CommunityIssueDetail
 }
 
 const priorityVariant = (

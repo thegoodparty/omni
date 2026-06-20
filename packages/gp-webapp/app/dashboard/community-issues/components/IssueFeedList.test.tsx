@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
-import type { CommunityIssueFeedCard } from 'gpApi/api-endpoints'
+import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import IssueFeedList from './IssueFeedList'
 
 const makeCard = (
-  overrides: Partial<CommunityIssueFeedCard> = {},
-): CommunityIssueFeedCard => ({
+  overrides: Partial<CommunityIssueCard> = {},
+): CommunityIssueCard => ({
   id: 'issue-1',
   list: 'top_community',
   category: 'Housing',
