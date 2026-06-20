@@ -56,6 +56,14 @@ jobs:
     needs: discover-stale-stacks
     if: needs.discover-stale-stacks.outputs.stacks != '[]'
     runs-on: ubuntu-latest
+    # Serialize on the preview stack name (shared with the deploy job in
+    # gp-api.yml and gp-api-teardown-preview.yml) so this never runs `pulumi
+    # cancel`/`destroy` against a stack a PR-close teardown is already
+    # destroying — concurrent cancels would clear each other's locks and both
+    # could fail, stranding the ALB.
+    concurrency:
+      group: gp-api-preview-${{ matrix.stack }}
+      cancel-in-progress: false
     env:
       PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -99,6 +107,12 @@ jobs:
             Its load balancer may still be holding ELB quota — check the run.
 
   check-elb-quota:
+    # Run after the destroys (always(), so it still runs when destroy is
+    # skipped for an empty stale set or when a leg fails) so the count
+    # reflects post-cleanup reality — and so it still fires when a failed
+    # destroy leaves an ALB stranded.
+    needs: [destroy]
+    if: always()
     runs-on: ubuntu-latest
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

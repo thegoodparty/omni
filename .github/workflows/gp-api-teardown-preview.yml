@@ -11,10 +11,12 @@ on:
 env:
   WORKSPACE: packages/gp-api
 
-# Share the deploy job's concurrency group (gp-api.yml) so a teardown queues
-# behind any in-flight preview deploy for the same PR instead of racing it.
+# Serialize on the preview stack name (shared with the deploy job in gp-api.yml
+# and the cron cleanup destroy in gp-api-cleanup-preview.yml) so a teardown
+# never runs a Pulumi operation against the stack while a deploy or a cron
+# destroy is mid-flight on it.
 concurrency:
-  group: gp-api-deploy-pr-${{ github.event.number }}
+  group: gp-api-preview-gp-api-pr-${{ github.event.number }}
   cancel-in-progress: false
 
 jobs:
