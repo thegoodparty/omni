@@ -114,7 +114,7 @@ export const Sides: StoryObj<typeof Sheet> = {
 export const Overflow: StoryObj<typeof Sheet> = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <Sheet defaultOpen>
+    <Sheet>
       <SheetTrigger asChild>
         <Button variant="outline">Open Sheet</Button>
       </SheetTrigger>
