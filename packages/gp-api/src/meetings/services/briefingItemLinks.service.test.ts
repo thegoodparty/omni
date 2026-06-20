@@ -56,7 +56,7 @@ const baseArtifact = {
 describe('briefingItemLinks: item link writing from stamped artifact', () => {
   it(
     'writes link rows for items stamped with valid org priority_id and' +
-      ' community_issue_feed_id',
+      ' community_issue_id',
     async () => {
       const suffix = Date.now()
       const orgSlug = `bil-valid-${suffix}`
@@ -70,7 +70,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
           source: 'user_stated',
         },
       })
-      const feed = await service.prisma.communityIssueFeed.create({
+      const feed = await service.prisma.communityIssue.create({
         data: {
           organizationSlug: orgSlug,
           list: 'top_community',
@@ -98,7 +98,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
               {
                 item_id: 'item_002',
                 overview: 'Community issue.',
-                community_issue_feed_id: feed.id,
+                community_issue_id: feed.id,
               },
             ],
           },
@@ -128,12 +128,12 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
       expect(links[0]).toMatchObject({
         briefingItemId: 'item_001',
         priorityId: priority.id,
-        communityIssueFeedId: null,
+        communityIssueId: null,
       })
       expect(links[1]).toMatchObject({
         briefingItemId: 'item_002',
         priorityId: null,
-        communityIssueFeedId: feed.id,
+        communityIssueId: feed.id,
       })
     },
   )
@@ -162,7 +162,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
       },
     })
 
-    const validFeed = await service.prisma.communityIssueFeed.create({
+    const validFeed = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: orgSlug,
         list: 'top_community',
@@ -190,7 +190,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
             {
               item_id: 'item_002',
               overview: 'Valid feed item.',
-              community_issue_feed_id: validFeed.id,
+              community_issue_id: validFeed.id,
             },
           ],
         },
@@ -217,7 +217,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
     expect(links[0]).toMatchObject({
       briefingItemId: 'item_002',
       priorityId: null,
-      communityIssueFeedId: validFeed.id,
+      communityIssueId: validFeed.id,
     })
   })
 
@@ -234,7 +234,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
         source: 'user_stated',
       },
     })
-    const newFeed = await service.prisma.communityIssueFeed.create({
+    const newFeed = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: orgSlug,
         list: 'trending',
@@ -286,7 +286,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
     expect(linksAfterFirst).toHaveLength(1)
     expect(linksAfterFirst[0].briefingItemId).toBe('item_001')
 
-    // Second run: item_002 stamped with community_issue_feed_id only
+    // Second run: item_002 stamped with community_issue_id only
     const run2 = await service.prisma.experimentRun.create({
       data: {
         organizationSlug: orgSlug,
@@ -306,7 +306,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
             {
               item_id: 'item_002',
               overview: 'New feed item.',
-              community_issue_feed_id: newFeed.id,
+              community_issue_id: newFeed.id,
             },
           ],
         },
@@ -325,14 +325,14 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
     expect(linksAfterSecond).toHaveLength(1)
     expect(linksAfterSecond[0]).toMatchObject({
       briefingItemId: 'item_002',
-      communityIssueFeedId: newFeed.id,
+      communityIssueId: newFeed.id,
       priorityId: null,
     })
   })
 
   it(
     'produces no link for an item with neither priority_id nor' +
-      ' community_issue_feed_id',
+      ' community_issue_id',
     async () => {
       const suffix = Date.now()
       const orgSlug = `bil-nolink-${suffix}`

@@ -1,0 +1,43 @@
+# communityIssues
+
+Serve-side community-issues feature. Ingests a ranked list of civic issues
+from an AI experiment run, surfaces them to elected officials, and lets them
+prioritize issues into their elected-office priority list.
+
+This module replaced the old campaign-side `communityIssues` module (deleted)
+and the `communityIssueFeed` module (renamed here) in the same PR.
+
+## Key files
+
+| File                                           | Purpose                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| `communityIssues.module.ts`                    | NestJS module; exports nothing (consumers import the module) |
+| `controllers/communityIssues.controller.ts`    | HTTP routes under `/v1/community-issues`                     |
+| `schemas/communityIssues.schema.ts`            | Zod DTOs and response schemas                                |
+| `services/communityIssue.service.ts`           | Root service; handles `onExperimentRunCompleted`             |
+| `services/communityIssueUpsert.service.ts`     | Upsert logic for artifact rows                               |
+| `services/communityIssueRead.service.ts`       | Read queries (list, detail)                                  |
+| `services/communityIssuePrioritize.service.ts` | Prioritize / de-prioritize an issue                          |
+| `services/communityIssueDispatch.service.ts`   | Dispatch AI experiment runs per org slug                     |
+| `communityIssueBucketing.ts`                   | FNV-1a bucket assignment (deterministic slug → list)         |
+| `communityIssueArtifact.validation.ts`         | Zod validation for S3 artifact JSON                          |
+
+## Prisma model
+
+`CommunityIssue` — accessed via `this.client.communityIssue` / `tx.communityIssue`.
+Enum types: `CommunityIssueList`, `CommunityIssueCategory`, `CommunityIssuePriority`.
+
+Related fields on other models:
+
+- `Priority.sourceCommunityIssueId` + `PrioritySource.community_issue`
+- `MeetingBriefingItemLink.communityIssueId`
+
+## HTTP routes
+
+All routes under `@Controller('community-issues')` → `/v1/community-issues`.
+
+## Test command
+
+```bash
+npx vitest run src/communityIssues/
+```

@@ -1,13 +1,36 @@
-import { Module } from '@nestjs/common'
-import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { Module, forwardRef } from '@nestjs/common'
+import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
+import { CronModule } from '@/cron/cron.module'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { OrganizationsModule } from '@/organizations/organizations.module'
+import { AwsModule } from '@/vendors/aws/aws.module'
 import { CommunityIssuesController } from './controllers/communityIssues.controller'
-import { CommunityIssuesService } from './services/communityIssues.service'
-import { CommunityIssueStatusLogService } from './services/communityIssueStatusLog.service'
+import { CommunityIssueService } from './services/communityIssue.service'
+import { CommunityIssueDispatchService } from './services/communityIssueDispatch.service'
+import { CommunityIssuePrioritizeService } from './services/communityIssuePrioritize.service'
+import { CommunityIssueReadService } from './services/communityIssueRead.service'
+import { CommunityIssueUpsertService } from './services/communityIssueUpsert.service'
 
 @Module({
-  imports: [ClerkModule],
+  imports: [
+    AgentExperimentsModule,
+    AwsModule,
+    CronModule,
+    forwardRef(() => ElectedOfficeModule),
+    OrganizationsModule,
+  ],
   controllers: [CommunityIssuesController],
-  providers: [CommunityIssuesService, CommunityIssueStatusLogService],
-  exports: [CommunityIssuesService, CommunityIssueStatusLogService],
+  providers: [
+    CommunityIssueService,
+    CommunityIssueDispatchService,
+    CommunityIssuePrioritizeService,
+    CommunityIssueReadService,
+    CommunityIssueUpsertService,
+  ],
+  exports: [
+    CommunityIssueService,
+    CommunityIssueDispatchService,
+    CommunityIssueReadService,
+  ],
 })
 export class CommunityIssuesModule {}

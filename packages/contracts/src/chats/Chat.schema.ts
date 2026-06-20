@@ -1,5 +1,5 @@
-import { z } from 'zod'
-import { ChatMessageRoleSchema, ChatScopeSchema } from '../generated/enums'
+import { z } from "zod";
+import { ChatMessageRoleSchema, ChatScopeSchema } from "../generated/enums";
 
 // Scope-generic chat surface (Chief of Staff is the first consumer). Shared by
 // gp-api and gp-webapp. The SSE event shapes are lifted from the briefing
@@ -11,16 +11,16 @@ export const ChatAnchorSnapshotSchema = z.object({
   title: z.string().max(500),
   summary: z.string().max(5_000),
   highlightedText: z.string().max(2_000).optional(),
-})
-export type ChatAnchorSnapshot = z.infer<typeof ChatAnchorSnapshotSchema>
+});
+export type ChatAnchorSnapshot = z.infer<typeof ChatAnchorSnapshotSchema>;
 
 export const ChatAnchorSchema = z.object({
-  resourceType: z.literal('community_issue_feed'),
+  resourceType: z.literal("community_issue"),
   resourceId: z.string(),
   url: z.string(),
   snapshot: ChatAnchorSnapshotSchema,
-})
-export type ChatAnchor = z.infer<typeof ChatAnchorSchema>
+});
+export type ChatAnchor = z.infer<typeof ChatAnchorSchema>;
 
 // --- Create / find-or-create -------------------------------------------------
 
@@ -30,26 +30,26 @@ export type ChatAnchor = z.infer<typeof ChatAnchorSchema>
 export const CreateChatRequestSchema = z.object({
   scope: ChatScopeSchema,
   anchor: ChatAnchorSchema.optional(),
-})
-export type CreateChatRequest = z.infer<typeof CreateChatRequestSchema>
+});
+export type CreateChatRequest = z.infer<typeof CreateChatRequestSchema>;
 
 export const CreateChatResponseSchema = z.object({
   conversationId: z.string(),
   created: z.boolean(),
-})
-export type CreateChatResponse = z.infer<typeof CreateChatResponseSchema>
+});
+export type CreateChatResponse = z.infer<typeof CreateChatResponseSchema>;
 
 // --- Send a message ----------------------------------------------------------
 
-export const CHAT_MESSAGE_MAX_LENGTH = 10_000
+export const CHAT_MESSAGE_MAX_LENGTH = 10_000;
 
 export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
   clientMessageId: z.string().uuid().optional(),
-})
+});
 export type SendChatMessageRequest = z.infer<
   typeof SendChatMessageRequestSchema
->
+>;
 
 // --- Replay a conversation ---------------------------------------------------
 
@@ -58,16 +58,16 @@ export const ChatMessageSchema = z.object({
   role: ChatMessageRoleSchema,
   content: z.string(),
   createdAt: z.coerce.date(),
-})
-export type ChatMessage = z.infer<typeof ChatMessageSchema>
+});
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 export const ChatConversationSchema = z.object({
   conversationId: z.string(),
   scope: ChatScopeSchema,
   title: z.string().nullable(),
   messages: z.array(ChatMessageSchema),
-})
-export type ChatConversation = z.infer<typeof ChatConversationSchema>
+});
+export type ChatConversation = z.infer<typeof ChatConversationSchema>;
 
 // --- History list ------------------------------------------------------------
 
@@ -76,52 +76,52 @@ export const ChatHistoryItemSchema = z.object({
   title: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
-})
-export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>
+});
+export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
 
 export const ChatHistoryResponseSchema = z.object({
   conversations: z.array(ChatHistoryItemSchema),
-})
-export type ChatHistoryResponse = z.infer<typeof ChatHistoryResponseSchema>
+});
+export type ChatHistoryResponse = z.infer<typeof ChatHistoryResponseSchema>;
 
 export const ChatHistoryQuerySchema = z.object({
   scope: ChatScopeSchema,
-})
-export type ChatHistoryQuery = z.infer<typeof ChatHistoryQuerySchema>
+});
+export type ChatHistoryQuery = z.infer<typeof ChatHistoryQuerySchema>;
 
 // --- SSE stream events -------------------------------------------------------
 
 export const CHAT_STREAM_ERROR_CODE_VALUES = [
-  'conversation_not_found',
-  'upstream_unavailable',
-  'rate_limited',
-  'aborted',
-  'internal',
-] as const
-export const ChatStreamErrorCodeSchema = z.enum(CHAT_STREAM_ERROR_CODE_VALUES)
-export type ChatStreamErrorCode = z.infer<typeof ChatStreamErrorCodeSchema>
+  "conversation_not_found",
+  "upstream_unavailable",
+  "rate_limited",
+  "aborted",
+  "internal",
+] as const;
+export const ChatStreamErrorCodeSchema = z.enum(CHAT_STREAM_ERROR_CODE_VALUES);
+export type ChatStreamErrorCode = z.infer<typeof ChatStreamErrorCodeSchema>;
 
-export const ChatStreamEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), delta: z.string() }),
+export const ChatStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), delta: z.string() }),
   z.object({
-    type: z.literal('tool_call'),
+    type: z.literal("tool_call"),
     toolName: z.string(),
     args: z.unknown(),
   }),
   z.object({
-    type: z.literal('tool_result'),
+    type: z.literal("tool_result"),
     toolName: z.string(),
     result: z.unknown(),
   }),
   z.object({
-    type: z.literal('done'),
+    type: z.literal("done"),
     assistantMessageId: z.string().optional(),
   }),
   z.object({
-    type: z.literal('error'),
+    type: z.literal("error"),
     code: ChatStreamErrorCodeSchema,
     message: z.string(),
     retryable: z.boolean(),
   }),
-])
-export type ChatStreamEvent = z.infer<typeof ChatStreamEventSchema>
+]);
+export type ChatStreamEvent = z.infer<typeof ChatStreamEventSchema>;
