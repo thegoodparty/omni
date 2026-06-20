@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useFormData } from '@shared/hooks/useFormData'
 import TextingComplianceForm from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceForm'
-import { EinCheckInput } from 'app/dashboard/pro-sign-up/committee-check/components/EinCheckInput'
+import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
 import {
   checkEinSanity,
   einIndicatorState,
