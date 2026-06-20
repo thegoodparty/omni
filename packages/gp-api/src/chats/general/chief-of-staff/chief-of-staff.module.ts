@@ -15,7 +15,7 @@ import {
   type SearchProvider,
 } from '@/llm/tools/webSearch.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { CommunityIssueFeedModule } from '@/communityIssueFeed/communityIssueFeed.module'
+import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -29,8 +29,8 @@ import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.servi
 import { CONSTITUENT_TABLES } from './services/constituentDataScope'
 import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
-import { CommunityIssueFeedReadAdapter } from './services/communityIssueFeedRead.adapter'
-import { COMMUNITY_ISSUE_FEED_READ_PORT } from './services/communityIssueFeedRead.port'
+import { CommunityIssueReadAdapter } from './services/communityIssueRead.adapter'
+import { COMMUNITY_ISSUE_READ_PORT } from './services/communityIssueRead.port'
 
 export { CHIEF_OF_STAFF_MODELS }
 
@@ -66,7 +66,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     OrganizationsModule,
     ElectionsModule,
     FeaturesModule,
-    CommunityIssueFeedModule,
+    CommunityIssuesModule,
   ],
   providers: [
     ChiefOfStaffHandler,
@@ -75,7 +75,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     GeneralChatStoreService,
     PrioritiesServiceAdapter,
     DistrictResolverService,
-    CommunityIssueFeedReadAdapter,
+    CommunityIssueReadAdapter,
     {
       provide: PRIORITIES_PORT,
       useClass: PrioritiesServiceAdapter,
@@ -93,8 +93,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
       useValue: CONSTITUENT_TABLES,
     },
     {
-      provide: COMMUNITY_ISSUE_FEED_READ_PORT,
-      useClass: CommunityIssueFeedReadAdapter,
+      provide: COMMUNITY_ISSUE_READ_PORT,
+      useClass: CommunityIssueReadAdapter,
     },
   ],
   exports: [ChiefOfStaffHandler],

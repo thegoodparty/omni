@@ -1,4 +1,4 @@
-export interface CommunityIssueFeedDetail {
+export interface CommunityIssueDetail {
   id: string
   title: string
   summary: string
@@ -15,13 +15,12 @@ export interface CommunityIssueFeedDetail {
   priorityId: string | null
 }
 
-export interface CommunityIssueFeedReadPort {
+export interface CommunityIssueReadPort {
   getDetail: (
     id: string,
     organizationSlug: string,
     electedOfficeId: string,
-  ) => Promise<CommunityIssueFeedDetail>
+  ) => Promise<CommunityIssueDetail>
 }
 
-export const COMMUNITY_ISSUE_FEED_READ_PORT =
-  'COS_COMMUNITY_ISSUE_FEED_READ_PORT'
+export const COMMUNITY_ISSUE_READ_PORT = 'COS_COMMUNITY_ISSUE_READ_PORT'

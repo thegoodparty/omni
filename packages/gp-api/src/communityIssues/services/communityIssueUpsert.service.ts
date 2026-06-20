@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common'
-import { CommunityIssueFeedList, ExperimentRun } from '../../generated/prisma'
+import { CommunityIssueList, ExperimentRun } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CommunityIssuesArtifact,
   CommunityIssuesArtifactIssue,
-} from '../communityIssueFeedArtifact.validation'
+} from '../communityIssueArtifact.validation'
 
 @Injectable()
-export class CommunityIssueFeedUpsertService extends createPrismaBase(
-  MODELS.CommunityIssueFeed,
+export class CommunityIssueUpsertService extends createPrismaBase(
+  MODELS.CommunityIssue,
 ) {
   async upsertFromArtifact(
     run: ExperimentRun,
@@ -16,8 +16,8 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
   ): Promise<void> {
     const list =
       artifact.list === 'top_community'
-        ? CommunityIssueFeedList.top_community
-        : CommunityIssueFeedList.trending
+        ? CommunityIssueList.top_community
+        : CommunityIssueList.trending
 
     const idCarrying = artifact.issues.filter(
       (
@@ -72,7 +72,7 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
     // under READ COMMITTED; the pipeline is agent-triggered so this is rare.
     await this.client.$transaction(async (tx) => {
       for (const issue of idCarrying) {
-        await tx.communityIssueFeed.update({
+        await tx.communityIssue.update({
           where: { id: issue.existing_issue_id },
           data: {
             title: issue.title,
@@ -89,7 +89,7 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
 
       const updatedIds = new Set(idCarrying.map((i) => i.existing_issue_id))
       for (const issue of idLess) {
-        const created = await tx.communityIssueFeed.create({
+        const created = await tx.communityIssue.create({
           data: {
             organizationSlug: artifact.organization_slug,
             list,
@@ -105,7 +105,7 @@ export class CommunityIssueFeedUpsertService extends createPrismaBase(
         updatedIds.add(created.id)
       }
 
-      await tx.communityIssueFeed.updateMany({
+      await tx.communityIssue.updateMany({
         where: {
           organizationSlug: artifact.organization_slug,
           list,

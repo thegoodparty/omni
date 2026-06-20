@@ -7,8 +7,8 @@ import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 
 @Injectable()
-export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
-  MODELS.CommunityIssueFeed,
+export class CommunityIssuePrioritizeService extends createPrismaBase(
+  MODELS.CommunityIssue,
 ) {
   async prioritize(
     issueId: string,
@@ -31,8 +31,8 @@ export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
           electedOfficeId,
           title: issue.title,
           description: issue.summary,
-          source: PrioritySource.community_issue_feed,
-          sourceCommunityIssueFeedId: issueId,
+          source: PrioritySource.community_issue,
+          sourceCommunityIssueId: issueId,
         },
       })
     } catch (e) {
@@ -41,7 +41,7 @@ export class CommunityIssueFeedPrioritizeService extends createPrismaBase(
         e.code === 'P2002'
       ) {
         return this.client.priority.findFirstOrThrow({
-          where: { sourceCommunityIssueFeedId: issueId, electedOfficeId },
+          where: { sourceCommunityIssueId: issueId, electedOfficeId },
         })
       }
       throw e

@@ -4,8 +4,8 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
-import { DispatchRequestSchema } from '../schemas/communityIssueFeed.schema'
-import { CommunityIssueFeedDispatchService } from './communityIssueFeedDispatch.service'
+import { DispatchRequestSchema } from '../schemas/communityIssues.schema'
+import { CommunityIssueDispatchService } from './communityIssueDispatch.service'
 
 const service = useTestService()
 
@@ -37,7 +37,7 @@ const mockDispatchRun = () =>
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
+describe('CommunityIssueDispatchService.onElectedOfficeCreated', () => {
   beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
   })
@@ -48,7 +48,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
 
   it('dispatches one run of each type for a new elected office', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-signup-${suffix}`
+    const orgSlug = `ci-signup-${suffix}`
     await seedOrg(orgSlug)
     mockResolveServeContext({
       state: 'MN',
@@ -65,7 +65,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
     })
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .onElectedOfficeCreated(electedOffice)
 
     const types = dispatchSpy.mock.calls.map((c) => c[0].type)
@@ -76,7 +76,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
 
   it('is idempotent — second call dispatches nothing when runs already exist', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-idem-${suffix}`
+    const orgSlug = `ci-idem-${suffix}`
     await seedOrg(orgSlug)
     mockResolveServeContext({
       state: 'MN',
@@ -108,7 +108,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
 
     // Call with pre-existing runs — should dispatch nothing
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .onElectedOfficeCreated(electedOffice)
 
     expect(dispatchSpy).not.toHaveBeenCalled()
@@ -116,7 +116,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
 
   it('re-dispatches when only a FAILED prior run exists', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-failed-${suffix}`
+    const orgSlug = `ci-failed-${suffix}`
     await seedOrg(orgSlug)
     mockResolveServeContext({
       state: 'MN',
@@ -147,7 +147,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
     }
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .onElectedOfficeCreated(electedOffice)
 
     expect(dispatchSpy).toHaveBeenCalledTimes(2)
@@ -156,7 +156,7 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
   it('skips dispatch when automation is disabled', async () => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', '')
     const suffix = Date.now()
-    const orgSlug = `cif-disabled-${suffix}`
+    const orgSlug = `ci-disabled-${suffix}`
     await seedOrg(orgSlug)
     const dispatchSpy = mockDispatchRun()
 
@@ -168,21 +168,21 @@ describe('CommunityIssueFeedDispatchService.onElectedOfficeCreated', () => {
     })
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .onElectedOfficeCreated(electedOffice)
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 })
 
-describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
+describe('CommunityIssueDispatchService.dispatchForCohort', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
   it('skips orgs that fail the serve-ICP gate', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-cohort-icp-${suffix}`
+    const orgSlug = `ci-cohort-icp-${suffix}`
     await service.prisma.organization.upsert({
       where: { slug: orgSlug },
       create: { slug: orgSlug, ownerId: service.user.id },
@@ -202,7 +202,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     const dispatchSpy = mockDispatchRun()
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
     expect(dispatchSpy).not.toHaveBeenCalled()
@@ -210,7 +210,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
 
   it('skips orgs with an in-flight run of that type', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-cohort-inflight-${suffix}`
+    const orgSlug = `ci-cohort-inflight-${suffix}`
     await service.prisma.organization.upsert({
       where: { slug: orgSlug },
       create: { slug: orgSlug, ownerId: service.user.id },
@@ -238,7 +238,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     const dispatchSpy = mockDispatchRun()
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
     // trending_issues should still be dispatched (no in-flight run for it)
@@ -250,7 +250,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
 
   it('skips orgs with a QUEUED run of that type', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-cohort-queued-${suffix}`
+    const orgSlug = `ci-cohort-queued-${suffix}`
     await service.prisma.organization.upsert({
       where: { slug: orgSlug },
       create: { slug: orgSlug, ownerId: service.user.id },
@@ -277,7 +277,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     const dispatchSpy = mockDispatchRun()
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
     const types = dispatchSpy.mock.calls.map((c) => c[0].type)
@@ -287,7 +287,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
 
   it('re-dispatches when the only prior run of that type is COMPLETED', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-cohort-completed-${suffix}`
+    const orgSlug = `ci-cohort-completed-${suffix}`
     await service.prisma.organization.upsert({
       where: { slug: orgSlug },
       create: { slug: orgSlug, ownerId: service.user.id },
@@ -319,7 +319,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     const dispatchSpy = mockDispatchRun()
 
     await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
     const types = dispatchSpy.mock.calls.map((c) => c[0].type)
@@ -330,7 +330,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
 
   it('dispatches both types for an eligible org with no in-flight runs', async () => {
     const suffix = Date.now()
-    const orgSlug = `cif-cohort-ok-${suffix}`
+    const orgSlug = `ci-cohort-ok-${suffix}`
     await service.prisma.organization.upsert({
       where: { slug: orgSlug },
       create: { slug: orgSlug, ownerId: service.user.id },
@@ -350,7 +350,7 @@ describe('CommunityIssueFeedDispatchService.dispatchForCohort', () => {
     const dispatchSpy = mockDispatchRun()
 
     const result = await service.app
-      .get(CommunityIssueFeedDispatchService)
+      .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
     const types = dispatchSpy.mock.calls.map((c) => c[0].type)
@@ -367,7 +367,7 @@ const CRON_BUCKET0_SLUG = 'cif-cron-2'
 const SUNDAY_UTC = new Date('2026-06-21T08:00:00.000Z')
 
 describe(
-  'CommunityIssueFeedDispatchService.dispatchWeeklyTrendingIssues' +
+  'CommunityIssueDispatchService.dispatchWeeklyTrendingIssues' +
     ' — QUEUED guard',
   () => {
     beforeEach(() => {
@@ -415,7 +415,7 @@ describe(
         vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
 
         await service.app
-          .get(CommunityIssueFeedDispatchService)
+          .get(CommunityIssueDispatchService)
           .dispatchWeeklyTrendingIssues()
 
         const trendingCalls = dispatchSpy.mock.calls.filter(

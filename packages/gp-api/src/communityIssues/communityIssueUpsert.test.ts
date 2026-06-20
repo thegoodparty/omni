@@ -1,19 +1,19 @@
 import {
-  CommunityIssueFeedCategory,
-  CommunityIssueFeedList,
-  CommunityIssueFeedPriority,
+  CommunityIssueCategory,
+  CommunityIssueList,
+  CommunityIssuePriority,
   ExperimentRunStatus,
 } from '../generated/prisma'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
-import { CommunityIssueFeedService } from './services/communityIssueFeed.service'
+import { CommunityIssueService } from './services/communityIssue.service'
 
 const service = useTestService()
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const ORG = 'test-org-cif'
+const ORG = 'test-org-ci'
 const BUCKET = 'artifact-bucket'
 
 const seedOrg = async (slug = ORG) => {
@@ -92,7 +92,7 @@ afterEach(() => {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
+describe('CommunityIssueService.onExperimentRunCompleted', () => {
   it('is a no-op for unrelated experiment types', async () => {
     mockS3({})
     const run = await service.prisma.experimentRun.create({
@@ -104,11 +104,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
         artifactKey: 'irrelevant.json',
       },
     })
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const count = await service.prisma.communityIssueFeed.count()
+    const count = await service.prisma.communityIssue.count()
     expect(count).toBe(0)
   })
 
@@ -121,11 +119,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const rows = await service.prisma.communityIssueFeed.findMany({
+    const rows = await service.prisma.communityIssue.findMany({
       where: { organizationSlug: ORG },
       orderBy: { rank: 'asc' },
     })
@@ -134,18 +130,18 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
     expect(rows[1].rank).toBe(2)
     expect(rows[0].lastRefreshedRunId).toBe(run.runId)
     expect(rows[0].archivedAt).toBeNull()
-    expect(rows[0].list).toBe(CommunityIssueFeedList.top_community)
-    expect(rows[0].category).toBe(CommunityIssueFeedCategory.public_safety)
-    expect(rows[0].priority).toBe(CommunityIssueFeedPriority.high)
+    expect(rows[0].list).toBe(CommunityIssueList.top_community)
+    expect(rows[0].category).toBe(CommunityIssueCategory.public_safety)
+    expect(rows[0].priority).toBe(CommunityIssuePriority.high)
   })
 
   it('updates an issue with a matching existing_issue_id', async () => {
-    const existing = await service.prisma.communityIssueFeed.create({
+    const existing = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.low,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.low,
         title: 'Old Title',
         summary: 'Old summary.',
         rank: 5,
@@ -164,37 +160,35 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       [key]: JSON.stringify(makeArtifact(ORG, run.runId, [updatedIssue])),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const row = await service.prisma.communityIssueFeed.findUnique({
+    const row = await service.prisma.communityIssue.findUnique({
       where: { id: existing.id },
     })
     expect(row?.title).toBe('Updated Title')
     expect(row?.rank).toBe(1)
     expect(row?.lastRefreshedRunId).toBe(run.runId)
-    expect(row?.priority).toBe(CommunityIssueFeedPriority.high)
-    expect(row?.category).toBe(CommunityIssueFeedCategory.education)
+    expect(row?.priority).toBe(CommunityIssuePriority.high)
+    expect(row?.category).toBe(CommunityIssueCategory.education)
   })
 
   it('archives active rows absent from the new result', async () => {
-    const toKeep = await service.prisma.communityIssueFeed.create({
+    const toKeep = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Kept',
         summary: 'stays.',
       },
     })
-    const toArchive = await service.prisma.communityIssueFeed.create({
+    const toArchive = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.education,
-        priority: CommunityIssueFeedPriority.low,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.education,
+        priority: CommunityIssuePriority.low,
         title: 'Gone',
         summary: 'gets archived.',
       },
@@ -210,28 +204,26 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const kept = await service.prisma.communityIssueFeed.findUnique({
+    const kept = await service.prisma.communityIssue.findUnique({
       where: { id: toKeep.id },
     })
     expect(kept?.archivedAt).toBeNull()
 
-    const archived = await service.prisma.communityIssueFeed.findUnique({
+    const archived = await service.prisma.communityIssue.findUnique({
       where: { id: toArchive.id },
     })
     expect(archived?.archivedAt).not.toBeNull()
   })
 
   it('resurrects an archived row by clearing archivedAt', async () => {
-    const archived = await service.prisma.communityIssueFeed.create({
+    const archived = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.low,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.low,
         title: 'Archived Issue',
         summary: 'was archived.',
         archivedAt: new Date('2025-01-01'),
@@ -251,11 +243,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const row = await service.prisma.communityIssueFeed.findUnique({
+    const row = await service.prisma.communityIssue.findUnique({
       where: { id: archived.id },
     })
     expect(row?.archivedAt).toBeNull()
@@ -265,23 +255,23 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   it('rejects the whole run when existing_issue_id belongs to a different org', async () => {
     const otherOrg = `other-org-${Date.now()}`
     await seedOrg(otherOrg)
-    const foreignIssue = await service.prisma.communityIssueFeed.create({
+    const foreignIssue = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: otherOrg,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Foreign',
         summary: 'belongs to other org.',
       },
     })
 
-    const priorIssue = await service.prisma.communityIssueFeed.create({
+    const priorIssue = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.education,
-        priority: CommunityIssueFeedPriority.low,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.education,
+        priority: CommunityIssuePriority.low,
         title: 'Prior',
         summary: 'should be unchanged.',
         rank: 1,
@@ -298,11 +288,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+    const unchanged = await service.prisma.communityIssue.findUnique({
       where: { id: priorIssue.id },
     })
     expect(unchanged?.lastRefreshedRunId).toBeNull()
@@ -311,12 +299,12 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   })
 
   it('rejects the whole run when existing_issue_id belongs to the wrong list', async () => {
-    const topIssue = await service.prisma.communityIssueFeed.create({
+    const topIssue = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Top Issue',
         summary: 'in top_community list.',
         rank: 1,
@@ -336,11 +324,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+    const unchanged = await service.prisma.communityIssue.findUnique({
       where: { id: topIssue.id },
     })
     expect(unchanged?.lastRefreshedRunId).toBeNull()
@@ -348,12 +334,12 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   })
 
   it('skips upsert when artifact org does not match run org', async () => {
-    const prior = await service.prisma.communityIssueFeed.create({
+    const prior = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Prior',
         summary: 'prior.',
       },
@@ -367,11 +353,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+    const unchanged = await service.prisma.communityIssue.findUnique({
       where: { id: prior.id },
     })
     expect(unchanged?.lastRefreshedRunId).toBeNull()
@@ -379,12 +363,12 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   })
 
   it('skips upsert when artifact generated_for_run_id does not match run id', async () => {
-    const prior = await service.prisma.communityIssueFeed.create({
+    const prior = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Prior',
         summary: 'prior.',
       },
@@ -398,11 +382,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const unchanged = await service.prisma.communityIssueFeed.findUnique({
+    const unchanged = await service.prisma.communityIssue.findUnique({
       where: { id: prior.id },
     })
     expect(unchanged?.lastRefreshedRunId).toBeNull()
@@ -410,12 +392,12 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   })
 
   it('rejects an artifact with more than 10 issues — nothing changes', async () => {
-    const prior = await service.prisma.communityIssueFeed.create({
+    const prior = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Prior',
         summary: 'prior.',
       },
@@ -430,11 +412,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       [key]: JSON.stringify(makeArtifact(ORG, run.runId, issues)),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const allRows = await service.prisma.communityIssueFeed.findMany({
+    const allRows = await service.prisma.communityIssue.findMany({
       where: { organizationSlug: ORG },
     })
     expect(allRows).toHaveLength(1)
@@ -443,12 +423,12 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
   })
 
   it('rejects an artifact with an unknown category — nothing changes', async () => {
-    const prior = await service.prisma.communityIssueFeed.create({
+    const prior = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
-        list: CommunityIssueFeedList.top_community,
-        category: CommunityIssueFeedCategory.public_safety,
-        priority: CommunityIssueFeedPriority.high,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
         title: 'Prior',
         summary: 'prior.',
       },
@@ -464,11 +444,9 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const row = await service.prisma.communityIssueFeed.findUnique({
+    const row = await service.prisma.communityIssue.findUnique({
       where: { id: prior.id },
     })
     expect(row?.lastRefreshedRunId).toBeNull()
@@ -483,17 +461,15 @@ describe('CommunityIssueFeedService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await service.app
-      .get(CommunityIssueFeedService)
-      .onExperimentRunCompleted(run)
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
 
-    const rows = await service.prisma.communityIssueFeed.findMany({
+    const rows = await service.prisma.communityIssue.findMany({
       where: { organizationSlug: ORG },
       orderBy: { rank: 'asc' },
     })
     expect(rows[0].rank).toBe(3)
     expect(rows[1].rank).toBe(7)
     expect(rows.every((r) => r.lastRefreshedRunId === run.runId)).toBe(true)
-    expect(rows[0].list).toBe(CommunityIssueFeedList.trending)
+    expect(rows[0].list).toBe(CommunityIssueList.trending)
   })
 })

@@ -677,10 +677,10 @@ export type APIEndpoints = {
     }
   }
 
-  'GET /v1/community-issue-feed': {
+  'GET /v1/community-issues': {
     Request: { list: 'top_community' | 'trending' }
     Response: {
-      issues: CommunityIssueFeedCard[]
+      issues: CommunityIssueCard[]
       refresh: {
         status: 'running' | 'completed' | 'failed'
         lastCompletedAt: string | null
@@ -688,18 +688,18 @@ export type APIEndpoints = {
     }
   }
 
-  'GET /v1/community-issue-feed/:id': {
+  'GET /v1/community-issues/:id': {
     Request: { id: string }
-    Response: CommunityIssueFeedDetail
+    Response: CommunityIssueDetail
   }
 
-  'POST /v1/community-issue-feed/:id/prioritize': {
+  'POST /v1/community-issues/:id/prioritize': {
     Request: { id: string }
     Response: Priority
   }
 }
 
-export type CommunityIssueFeedCard = {
+export type CommunityIssueCard = {
   id: string
   list: string
   category: string
@@ -731,7 +731,7 @@ export type CommunityIssueQuoteItem = {
   source_id: string
 }
 
-export type CommunityIssueDetail = {
+export type CommunityIssueContent = {
   sources: CommunityIssueSource[]
   overview: CommunityIssueSubsection
   history?: CommunityIssueSubsection
@@ -740,9 +740,9 @@ export type CommunityIssueDetail = {
   legislation?: CommunityIssueSubsection
 }
 
-export type CommunityIssueFeedDetail = CommunityIssueFeedCard & {
+export type CommunityIssueDetail = CommunityIssueCard & {
   archived: boolean
-  detail: CommunityIssueDetail | null
+  detail: CommunityIssueContent | null
   relatedBriefings: Array<{
     meetingBriefingId: string
     briefingItemId: string

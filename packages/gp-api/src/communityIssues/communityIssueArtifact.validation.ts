@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
-  CommunityIssueFeedCategory,
-  CommunityIssueFeedPriority,
+  CommunityIssueCategory,
+  CommunityIssuePriority,
 } from '../generated/prisma'
 
 const SourceSchema = z.object({
@@ -77,9 +77,9 @@ const DetailSchema = z
   })
 
 const IssueSchema = z.object({
-  category: z.nativeEnum(CommunityIssueFeedCategory),
+  category: z.nativeEnum(CommunityIssueCategory),
   rank: z.number(),
-  priority: z.nativeEnum(CommunityIssueFeedPriority),
+  priority: z.nativeEnum(CommunityIssuePriority),
   title: z.string(),
   summary: z.string(),
   existing_issue_id: z.string().optional(),

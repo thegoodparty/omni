@@ -11,7 +11,6 @@ import { AdminAuditInterceptor } from '@/authentication/interceptors/AdminAudit.
 import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShares.module'
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
-import { CommunityIssueFeedModule } from '@/communityIssueFeed/communityIssueFeed.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
@@ -99,7 +98,6 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     SegmentModule,
     WebsitesModule,
     CommunityIssuesModule,
-    CommunityIssueFeedModule,
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,

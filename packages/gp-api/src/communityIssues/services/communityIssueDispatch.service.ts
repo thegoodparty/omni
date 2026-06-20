@@ -5,7 +5,7 @@ import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { bucketForSlug } from '../communityIssueFeedBucketing'
+import { bucketForSlug } from '../communityIssueBucketing'
 
 const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
@@ -24,7 +24,7 @@ const TOP_CRON_JOB = 'top_community_issues'
 type DispatchSummary = { dispatched: number; skipped: number }
 
 @Injectable()
-export class CommunityIssueFeedDispatchService extends createPrismaBase(
+export class CommunityIssueDispatchService extends createPrismaBase(
   MODELS.ExperimentRun,
 ) {
   constructor(
@@ -47,7 +47,7 @@ export class CommunityIssueFeedDispatchService extends createPrismaBase(
     if (!isAutomationEnabled()) {
       this.logger.info(
         { electedOfficeId: electedOffice.id },
-        'automation disabled; skipping community-issue feed signup dispatch',
+        'automation disabled; skipping community-issue signup dispatch',
       )
       return
     }

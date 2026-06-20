@@ -1,15 +1,15 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 
-const CommunityIssueFeedListQuerySchema = z.object({
+const CommunityIssueListQuerySchema = z.object({
   list: z.enum(['top_community', 'trending']),
 })
 
-export class CommunityIssueFeedListQueryDto extends createZodDto(
-  CommunityIssueFeedListQuerySchema,
+export class CommunityIssueListQueryDto extends createZodDto(
+  CommunityIssueListQuerySchema,
 ) {}
 
-export const CommunityIssueFeedCardSchema = z.object({
+export const CommunityIssueCardSchema = z.object({
   id: z.string(),
   list: z.string(),
   category: z.string(),
@@ -20,28 +20,27 @@ export const CommunityIssueFeedCardSchema = z.object({
   prioritized: z.boolean(),
 })
 
-export const CommunityIssueFeedListResponseSchema = z.object({
-  issues: z.array(CommunityIssueFeedCardSchema),
+export const CommunityIssueListResponseSchema = z.object({
+  issues: z.array(CommunityIssueCardSchema),
   refresh: z.object({
     status: z.enum(['running', 'completed', 'failed']),
     lastCompletedAt: z.string().nullable(),
   }),
 })
 
-export const CommunityIssueFeedDetailSchema =
-  CommunityIssueFeedCardSchema.extend({
-    archived: z.boolean(),
-    detail: z.record(z.unknown()).nullable(),
-    relatedBriefings: z.array(
-      z.object({
-        meetingBriefingId: z.string(),
-        briefingItemId: z.string(),
-        meetingDate: z.string(),
-      }),
-    ),
-    prioritized: z.boolean(),
-    priorityId: z.string().nullable(),
-  })
+export const CommunityIssueDetailSchema = CommunityIssueCardSchema.extend({
+  archived: z.boolean(),
+  detail: z.record(z.unknown()).nullable(),
+  relatedBriefings: z.array(
+    z.object({
+      meetingBriefingId: z.string(),
+      briefingItemId: z.string(),
+      meetingDate: z.string(),
+    }),
+  ),
+  prioritized: z.boolean(),
+  priorityId: z.string().nullable(),
+})
 
 export const DispatchRequestSchema = z.object({
   orgSlugs: z.array(z.string()).min(1).max(200),
