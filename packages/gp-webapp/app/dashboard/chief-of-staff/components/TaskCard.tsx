@@ -39,7 +39,7 @@ export default function TaskCard({
   skipDisabled = false,
 }: TaskCardProps): React.JSX.Element {
   return (
-    <Card className="gap-3 rounded-2xl border border-border p-4 shadow-sm transition-colors lg:p-6">
+    <Card className="gap-3 rounded-2xl border border-grayscale-300 p-4 shadow-sm transition-colors lg:p-6">
       <div className="flex items-start justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <EyebrowIcon className="size-3.5" aria-hidden />
