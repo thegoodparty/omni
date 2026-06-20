@@ -13,6 +13,7 @@ import {
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { cn } from '@styleguide/lib/utils'
 
 const meta: Meta<typeof Sheet> = {
   title: 'Components/Sheet',
@@ -131,15 +132,13 @@ export const Anatomy: StoryObj<typeof Sheet> = {
             <Input id="anatomy-name" placeholder="Enter name" />
           </div>
         </div>
-        <div className="mt-auto">
-          <p className={`${sectionLabel} px-6 pb-2`}>SheetFooter</p>
-          <SheetFooter className="mt-0">
-            <SheetClose asChild>
-              <Button variant="outline">SheetClose</Button>
-            </SheetClose>
-            <Button>Primary action</Button>
-          </SheetFooter>
-        </div>
+        <SheetFooter>
+          <SheetClose asChild>
+            <Button variant="outline">SheetClose</Button>
+          </SheetClose>
+          <Button>Primary action</Button>
+          <p className={cn(sectionLabel, 'pb-2')}>SheetFooter</p>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   ),
