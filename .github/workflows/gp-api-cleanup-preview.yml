@@ -149,5 +149,5 @@ jobs:
           status: custom
           custom_payload: |
             {
-              text: ":warning: AWS ELB usage in us-west-2 is ${{ steps.check.outputs.count }}/${{ steps.check.outputs.quota }} (>= ${{ steps.check.outputs.threshold }}). New PR-preview deploys may fail with TooManyLoadBalancers — clear stale preview stacks or request a quota increase."
+              "text": ":warning: AWS ELB usage in us-west-2 is ${{ steps.check.outputs.count }}/${{ steps.check.outputs.quota }} (>= ${{ steps.check.outputs.threshold }}). New PR-preview deploys may fail with TooManyLoadBalancers — clear stale preview stacks or request a quota increase."
             }
