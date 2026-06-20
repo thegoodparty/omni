@@ -87,6 +87,68 @@ describe('validateRegistrationForm', () => {
     })
   })
 
+  describe('contactSelection (>=1 channel, per-channel gating — ENG-10357)', () => {
+    const filingBase = (
+      overrides: Partial<FormDataState> = {},
+    ): FormDataState =>
+      baseValidFormData({
+        // Leave all three contact values blank to prove only the selected,
+        // filled channel matters.
+        email: '',
+        phone: '',
+        address: { formatted_address: '', place_id: '' },
+        ...overrides,
+      })
+
+    it('is invalid when no channel is selected', () => {
+      const result = validateRegistrationForm(filingBase(), {
+        requireWebsite: false,
+        contactSelection: { email: false, phone: false, address: false },
+      })
+      expect(result.validations.contactChannel).toBe(false)
+      expect(result.isValid).toBe(false)
+    })
+
+    it('is valid with exactly one selected, filled channel', () => {
+      const result = validateRegistrationForm(
+        filingBase({ phone: '5555550123' }),
+        {
+          requireWebsite: false,
+          contactSelection: { email: false, phone: true, address: false },
+        },
+      )
+      expect(result.validations.contactChannel).toBe(true)
+      expect(result.validations.phone).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('does not require an unselected channel even if its value is blank', () => {
+      const result = validateRegistrationForm(
+        filingBase({ email: 'jane@example.com' }),
+        {
+          requireWebsite: false,
+          contactSelection: { email: true, phone: false, address: false },
+        },
+      )
+      // Phone + address are unselected and blank, but must still pass.
+      expect(result.validations.phone).toBe(true)
+      expect(result.validations.address).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('fails the selected channel when its value is invalid', () => {
+      const result = validateRegistrationForm(
+        filingBase({ email: 'not-an-email' }),
+        {
+          requireWebsite: false,
+          contactSelection: { email: true, phone: false, address: false },
+        },
+      )
+      expect(result.validations.email).toBe(false)
+      expect(result.isValid).toBe(false)
+    })
+  })
+
   describe('agentic flow (requireWebsite: false)', () => {
     it('accepts a fully populated form with a valid website', () => {
       const result = validateRegistrationForm(baseValidFormData(), {

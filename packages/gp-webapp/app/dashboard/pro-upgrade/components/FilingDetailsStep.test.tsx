@@ -86,6 +86,9 @@ const seedCampaign = (details: CampaignDetails | null) =>
   ])
 
 // Fill every field a non-federal candidate must provide for a valid submit.
+// Contact inputs are now gated behind a per-channel checkbox (ENG-10357): the
+// candidate must check a channel before its input renders. Selecting email +
+// phone here exercises the >=1-channel rule with more than one channel checked.
 const fillValidNonFederalForm = () => {
   fireEvent.change(screen.getByLabelText('Campaign committee name'), {
     target: { value: 'Friends of Jane' },
@@ -93,13 +96,14 @@ const fillValidNonFederalForm = () => {
   fireEvent.change(screen.getByLabelText('Campaign filing link'), {
     target: { value: 'https://example.com/filing' },
   })
-  fireEvent.change(screen.getByLabelText('Email'), {
+  fireEvent.click(screen.getByLabelText('Email'))
+  fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
     target: { value: 'jane@example.com' },
   })
-  fireEvent.change(screen.getByLabelText('Phone'), {
+  fireEvent.click(screen.getByLabelText('Phone'))
+  fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
     target: { value: '4155551234' },
   })
-  fireEvent.click(screen.getByTestId('select-address'))
 }
 
 describe('ballotLevelToOfficeLevel', () => {
@@ -141,6 +145,10 @@ describe('getInitialFilingDetailsState', () => {
     // Filing contact info must be entered fresh to match the official filing.
     expect(state.email).toBe('')
     expect(state.phone).toBe('')
+    // No contact channel is pre-selected — the candidate opts in per channel.
+    expect(state.emailOnFiling).toBe(false)
+    expect(state.phoneOnFiling).toBe(false)
+    expect(state.addressOnFiling).toBe(false)
   })
 })
 
@@ -182,9 +190,48 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByText(/it will take much longer/i)).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign committee name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign filing link')).toBeInTheDocument()
+    // The contact channels render as checkboxes; their inputs stay hidden until
+    // the matching channel is checked (ENG-10357).
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
     expect(screen.getByLabelText('Phone')).toBeInTheDocument()
+    expect(screen.getByLabelText('Address')).toBeInTheDocument()
+  })
+
+  it('hides every contact input until its channel checkbox is checked', () => {
+    render(<FilingDetailsStep />)
+
+    // No contact input on load — only the three channel checkboxes.
+    expect(screen.queryByPlaceholderText('jane@gmail.com')).toBeNull()
+    expect(screen.queryByPlaceholderText('(555) 555-5555')).toBeNull()
+    expect(screen.queryByTestId('select-address')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Email'))
+    expect(screen.getByPlaceholderText('jane@gmail.com')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('(555) 555-5555')).toBeNull()
+    expect(screen.queryByTestId('select-address')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Address'))
     expect(screen.getByTestId('select-address')).toBeInTheDocument()
+  })
+
+  it('hides a contact input and drops its value when its channel is unchecked', () => {
+    render(<FilingDetailsStep />)
+    // Once the input is shown it also carries the label "Email", so toggle via
+    // the checkbox role to disambiguate from the text input.
+    const emailCheckbox = screen.getByRole('checkbox', { name: 'Email' })
+
+    fireEvent.click(emailCheckbox)
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
+      target: { value: 'jane@example.com' },
+    })
+    // Uncheck email; its input disappears.
+    fireEvent.click(emailCheckbox)
+    expect(screen.queryByPlaceholderText('jane@gmail.com')).toBeNull()
+
+    // Re-checking reveals a blank input — the prior value was cleared so it
+    // cannot leak into the submitted payload (ENG-10357).
+    fireEvent.click(emailCheckbox)
+    expect(screen.getByPlaceholderText('jane@gmail.com')).toHaveValue('')
   })
 
   it('navigates to the previous step from the footer Back button', () => {
@@ -230,7 +277,9 @@ describe('FilingDetailsStep', () => {
         ein: CLEAN_EIN,
         email: 'jane@example.com',
         phone: '4155551234',
-        address: { formatted_address: '123 Main St', place_id: 'place-123' },
+        // Only the checked channels carry a value; address was left unchecked,
+        // so the payload must report it empty (ENG-10357).
+        address: { formatted_address: '', place_id: '' },
         // Non-federal committees submit as CANDIDATE.
         committeeType: 'CANDIDATE',
       }),
@@ -274,9 +323,61 @@ describe('FilingDetailsStep', () => {
       expect(item).toHaveClass('list-item')
     }
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
-    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+    // With no channel checked, the banner names the >=1-channel rule rather
+    // than the individual contact fields (whose inputs aren't rendered yet).
+    expect(screen.getByText('Filing Contact')).toBeInTheDocument()
+    // An unchecked contact channel is not required, so its field must not be
+    // listed as failing (ENG-10357).
+    expect(screen.queryByText('Filing Address')).not.toBeInTheDocument()
+    expect(screen.queryByText('Filing Email')).not.toBeInTheDocument()
     // `website` has no input in this form and must never be listed.
     expect(screen.queryByText('Website')).not.toBeInTheDocument()
+  })
+
+  it('blocks submit when no contact channel is selected (ENG-10357)', () => {
+    render(<FilingDetailsStep />)
+    // Everything except a contact channel is filled.
+    fireEvent.change(screen.getByLabelText('Campaign committee name'), {
+      target: { value: 'Friends of Jane' },
+    })
+    fireEvent.change(screen.getByLabelText('Campaign filing link'), {
+      target: { value: 'https://example.com/filing' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
+    expect(screen.getByText('Filing Contact')).toBeInTheDocument()
+  })
+
+  it('allows submit with exactly one contact channel selected (ENG-10357)', async () => {
+    render(<FilingDetailsStep />)
+    fireEvent.change(screen.getByLabelText('Campaign committee name'), {
+      target: { value: 'Friends of Jane' },
+    })
+    fireEvent.change(screen.getByLabelText('Campaign filing link'), {
+      target: { value: 'https://example.com/filing' },
+    })
+    // Only the phone channel is checked + filled.
+    fireEvent.click(screen.getByLabelText('Phone'))
+    fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
+      target: { value: '4155551234' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
+    const [, payload] = mockSubmit.mock.calls[0]!
+    // Only the checked channel carries a value; the unchecked ones are empty.
+    expect(payload).toEqual(
+      expect.objectContaining({
+        phone: '4155551234',
+        email: '',
+        address: { formatted_address: '', place_id: '' },
+      }),
+    )
+    await waitFor(() => expect(goToNextStep).toHaveBeenCalledTimes(1))
   })
 
   it('redirects to the EIN step instead of rendering when the persisted EIN fails sanity', () => {
@@ -340,13 +441,11 @@ describe('FilingDetailsStep', () => {
     fireEvent.change(screen.getByLabelText('Campaign filing link'), {
       target: { value: 'https://www.fec.gov/data/committee/C00123456' },
     })
-    fireEvent.change(screen.getByLabelText('Email'), {
+    // One contact channel satisfies the >=1 rule.
+    fireEvent.click(screen.getByLabelText('Email'))
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
       target: { value: 'jane@example.com' },
     })
-    fireEvent.change(screen.getByLabelText('Phone'), {
-      target: { value: '4155551234' },
-    })
-    fireEvent.click(screen.getByTestId('select-address'))
     fireEvent.change(screen.getByLabelText('FEC Committee ID'), {
       target: { value: 'C00123456' },
     })
