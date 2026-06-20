@@ -1,5 +1,5 @@
 'use client'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
 import AlertSection from '../components/AlertSection'
@@ -16,6 +16,28 @@ import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
+import { AiChatBar, AiChatSurface } from './ai-chat'
+import { campaignAssistantChatApi } from './ai-chat/campaign-chat-api'
+import type { AiChatConfig } from './ai-chat'
+
+const CAMPAIGN_ASSISTANT_CONFIG: AiChatConfig = {
+  title: 'AI Campaign Manager',
+  subtitle: 'Always on, working on your campaign',
+  placeholder: 'How can I help?',
+  introSeenKey: 'ai-campaign-manager-intro-seen',
+  suggestions: [
+    "What's most urgent this week?",
+    'How is my voter outreach going?',
+    'Help me prepare for the debate',
+  ],
+  introMessages: [
+    "Hi, I'm your AI Campaign Manager.",
+    'I keep track of your campaign goals, voter outreach, and key deadlines.',
+    'Ask me anything, or tell me what you need help with today.',
+  ],
+}
+
+const SERVE_PATHS = ['/dashboard/chief-of-staff', '/dashboard/briefings']
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -39,9 +61,12 @@ const DashboardLayout = ({
   const organization = useOrganization()
   const router = useRouter()
   const hookPathname = usePathname()
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null)
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
+  const isServePath = SERVE_PATHS.some((p) => currentPath?.startsWith(p))
   const details = activeCampaign?.details
   const goals =
     activeCampaign && 'goals' in activeCampaign
@@ -97,6 +122,24 @@ const DashboardLayout = ({
             {children}
           </div>
         </SidebarInset>
+        {!isServePath && !hideMenu && (
+          <>
+            <AiChatBar
+              chatApi={campaignAssistantChatApi}
+              config={CAMPAIGN_ASSISTANT_CONFIG}
+              firstName={user?.firstName ?? undefined}
+              onOpen={() => { setChatConversationId(null); setChatOpen(true) }}
+              onOpenConversation={(id) => { setChatConversationId(id); setChatOpen(true) }}
+            />
+            <AiChatSurface
+              chatApi={campaignAssistantChatApi}
+              config={CAMPAIGN_ASSISTANT_CONFIG}
+              open={chatOpen}
+              onOpenChange={setChatOpen}
+              initialConversationId={chatConversationId}
+            />
+          </>
+        )}
       </SidebarProvider>
     </EcanvasserProvider>
   )
