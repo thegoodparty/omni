@@ -22,6 +22,7 @@ type PlaygroundArgs = {
   open: boolean
   side: 'top' | 'right' | 'bottom' | 'left'
   align: 'start' | 'center' | 'end'
+  sideOffset: number
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -29,6 +30,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     open: false,
     side: 'bottom',
     align: 'center',
+    sideOffset: 4,
   },
   argTypes: {
     open: {
@@ -43,8 +45,12 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: 'inline-radio',
       options: ['start', 'center', 'end'],
     },
+    sideOffset: {
+      control: { type: 'range', min: 0, max: 24, step: 2 },
+      description: 'Distance in px between trigger and popover.',
+    },
   },
-  render: ({ open, side, align }) => {
+  render: ({ open, side, align, sideOffset }) => {
     const [, updateArgs] = useArgs()
     return (
       <div className="flex h-[300px] items-center justify-center">
@@ -55,7 +61,12 @@ export const Playground: StoryObj<PlaygroundArgs> = {
           <PopoverTrigger asChild>
             <Button variant="outline">Open popover</Button>
           </PopoverTrigger>
-          <PopoverContent className="w-80" side={side} align={align}>
+          <PopoverContent
+            className="w-80"
+            side={side}
+            align={align}
+            sideOffset={sideOffset}
+          >
             <div className="space-y-2">
               <h4 className="font-medium leading-none">Dimensions</h4>
               <p className="text-sm text-muted-foreground">
@@ -67,6 +78,27 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       </div>
     )
   },
+}
+
+export const Anatomy: StoryObj<typeof Popover> = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex h-[300px] items-center justify-center">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline">Trigger</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72">
+          <div className="space-y-2">
+            <h4 className="font-medium leading-none">PopoverContent</h4>
+            <p className="text-sm text-muted-foreground">
+              Renders in a portal above all other content. Accepts any children.
+            </p>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  ),
 }
 
 export const Triggers: StoryObj<typeof Popover> = {
@@ -169,7 +201,7 @@ export const Patterns: StoryObj<typeof Popover> = {
 export const Placement: StoryObj<typeof Popover> = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex h-[320px] items-center justify-center gap-8">
+    <div className="flex h-[400px] items-center justify-center gap-8">
       {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
         <Popover key={side}>
           <PopoverTrigger asChild>
