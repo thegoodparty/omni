@@ -131,5 +131,11 @@ describe('PeerlyPhoneListOwnershipService', () => {
 
       await expect(service.linkListId('tok-abc', 42)).resolves.toBeUndefined()
     })
+
+    it('resolves without throwing when no upload row matches (count 0)', async () => {
+      updateMany.mockResolvedValue({ count: 0 })
+
+      await expect(service.linkListId('tok-abc', 42)).resolves.toBeUndefined()
+    })
   })
 })

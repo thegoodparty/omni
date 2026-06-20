@@ -35,13 +35,22 @@ export class PeerlyPhoneListOwnershipService extends createPrismaBase(
   // Best-effort and idempotent (only fills a still-null listId).
   async linkListId(token: string, listId: number): Promise<void> {
     try {
-      await this.model.updateMany({
+      const { count } = await this.model.updateMany({
         // updateMany bypasses Prisma's @updatedAt auto-stamp, so set it
         // explicitly — otherwise updated_at would misreport when the list_id
         // was resolved.
         where: { token, listId: null },
         data: { listId, updatedAt: new Date() },
       })
+      if (count === 0) {
+        // No upload row to stamp — typically recordUpload's write was lost. The
+        // outreach gate's trust-on-first-use will still establish ownership, but
+        // log so the missing upload record is visible.
+        this.logger.warn(
+          { token, listId },
+          'No phone list ownership row to link list_id to (upload record missing)',
+        )
+      }
     } catch (err) {
       this.logger.error(
         { err, listId },

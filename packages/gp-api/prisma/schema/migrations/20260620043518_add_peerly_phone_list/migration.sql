@@ -34,4 +34,4 @@ SELECT DISTINCT ON ("phone_list_id")
 FROM "outreach"
 WHERE "phone_list_id" IS NOT NULL
 ORDER BY "phone_list_id", "created_at"
-ON CONFLICT DO NOTHING;
+ON CONFLICT ("list_id") DO NOTHING;

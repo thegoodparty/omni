@@ -120,6 +120,11 @@ describe('P2pPhoneListUploadService', () => {
       )
 
       expect(result).toEqual({ token: 'token-abc', listName: 'My List' })
+      // Ownership must be recorded so the later outreach gate can verify it.
+      expect(mockPhoneListOwnership.recordUpload).toHaveBeenCalledWith(
+        mockCampaign.id,
+        'token-abc',
+      )
     })
 
     it('uploads with the correct peerlyIdentityId', async () => {
