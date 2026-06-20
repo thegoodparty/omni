@@ -10,7 +10,12 @@ CREATE TYPE "CommunityIssuePriority" AS ENUM ('low', 'medium', 'high');
 -- AlterEnum
 BEGIN;
 CREATE TYPE "PrioritySource_new" AS ENUM ('win_import', 'user_stated', 'community_issue');
-ALTER TABLE "priority" ALTER COLUMN "source" TYPE "PrioritySource_new" USING ("source"::text::"PrioritySource_new");
+ALTER TABLE "priority" ALTER COLUMN "source" TYPE "PrioritySource_new" USING (
+  CASE "source"::text
+    WHEN 'community_issue_feed' THEN 'community_issue'
+    ELSE "source"::text
+  END::"PrioritySource_new"
+);
 ALTER TYPE "PrioritySource" RENAME TO "PrioritySource_old";
 ALTER TYPE "PrioritySource_new" RENAME TO "PrioritySource";
 DROP TYPE "public"."PrioritySource_old";
@@ -97,3 +102,8 @@ ALTER TABLE "meeting_briefing_item_link" ADD CONSTRAINT "meeting_briefing_item_l
 
 -- AddForeignKey
 ALTER TABLE "priority" ADD CONSTRAINT "priority_source_community_issue_id_fkey" FOREIGN KEY ("source_community_issue_id") REFERENCES "community_issue"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Migrate chat anchors written under the prior (CommunityIssueFeed) naming
+UPDATE "chat_conversation"
+SET "anchor" = jsonb_set("anchor", '{resourceType}', '"community_issue"')
+WHERE "anchor" ->> 'resourceType' = 'community_issue_feed';
