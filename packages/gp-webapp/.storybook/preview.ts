@@ -25,10 +25,7 @@ const preview: Preview = {
       const isDark = context.globals['colorScheme'] === 'dark'
       if (typeof document !== 'undefined') {
         document.documentElement.classList.toggle('sb-dark', isDark)
-        // Also put `.dark` on <html> so portaled overlays (Select, DropdownMenu,
-        // Combobox, Tooltip) render to document.body inside the dark scope. The
-        // story-wrapper `.dark` below only covers inline content, not portals.
-        document.documentElement.classList.toggle('dark', isDark)
+        document.body.classList.toggle('dark', isDark)
       }
       return React.createElement(
         'div',
@@ -49,7 +46,6 @@ const preview: Preview = {
     layout: 'fullscreen',
     options: {
       storySort: {
-        method: 'alphabetical',
         order: [
           'Foundations',
           [
