@@ -4,8 +4,10 @@ Serve-side community-issues feature. Ingests a ranked list of civic issues
 from an AI experiment run, surfaces them to elected officials, and lets them
 prioritize issues into their elected-office priority list.
 
-This module replaced the old campaign-side `communityIssues` module (deleted)
-and the `communityIssueFeed` module (renamed here) in the same PR.
+This module is the consolidation of two earlier ones: the dead campaign-side
+constituent-issue tracker (deleted, it had no consumers) and the Serve issue
+feed that was briefly named with a "Feed" suffix to avoid the collision —
+renamed onto this clean name once the dead module was removed.
 
 ## Key files
 
