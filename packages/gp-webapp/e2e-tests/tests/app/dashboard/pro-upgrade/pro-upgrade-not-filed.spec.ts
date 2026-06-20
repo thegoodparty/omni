@@ -22,8 +22,11 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
     await authenticateTestUser(page)
     await page.goto('/dashboard')
     await page.waitForURL(/\/dashboard/)
-    await waitForDashboardReady(page)
+    // Dismiss the Pro promo modal first: it aria-hides the page and ignores
+    // Escape, so waitForDashboardReady's Escape-based close can't clear it —
+    // only dismissOverlays (clicks the close button) can. Matches dashboard.spec.
     await NavigationHelper.dismissOverlays(page)
+    await waitForDashboardReady(page)
 
     // Dashboard banner entry → wizard value-prop step.
     await page.getByRole('button', { name: 'Get Pro' }).click()
