@@ -63,7 +63,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
               done.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="gap-4">
+          <SheetBody>
             <div className="grid gap-2">
               <Label htmlFor="playground-name">Name</Label>
               <Input id="playground-name" defaultValue="Pedro Duarte" />
@@ -125,7 +125,7 @@ export const Overflow: StoryObj<typeof Sheet> = {
             SheetBody scrolls independently — header and footer stay fixed.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="gap-4">
+        <SheetBody>
           {Array.from({ length: 12 }, (_, i) => (
             <div key={i} className="grid gap-2">
               <Label htmlFor={`overflow-field-${i}`}>Field {i + 1}</Label>
@@ -162,19 +162,19 @@ export const Anatomy: StoryObj<typeof Sheet> = {
             SheetDescription — supporting text below the title.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="flex flex-col gap-2">
+        <SheetBody className="gap-2">
           <p className={sectionLabel}>Content area</p>
           <div className="grid gap-2">
             <Label htmlFor="anatomy-name">Name</Label>
             <Input id="anatomy-name" placeholder="Enter name" />
           </div>
         </SheetBody>
+        <p className={cn(sectionLabel, 'px-6')}>SheetFooter</p>
         <SheetFooter>
           <SheetClose asChild>
             <Button variant="outline">SheetClose</Button>
           </SheetClose>
           <Button>Primary action</Button>
-          <p className={cn(sectionLabel, 'pb-2')}>SheetFooter</p>
         </SheetFooter>
       </SheetContent>
     </Sheet>
