@@ -63,7 +63,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
               done.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="grid gap-4">
+          <SheetBody className="gap-4">
             <div className="grid gap-2">
               <Label htmlFor="playground-name">Name</Label>
               <Input id="playground-name" defaultValue="Pedro Duarte" />

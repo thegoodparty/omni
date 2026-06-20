@@ -83,7 +83,7 @@ function SheetBody({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="sheet-body"
-      className={cn('flex-1 overflow-y-auto px-6', className)}
+      className={cn('flex flex-1 flex-col overflow-y-auto px-6', className)}
       {...props}
     />
   )
