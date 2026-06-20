@@ -68,15 +68,10 @@ export class BriefingItemLinksService extends createPrismaBase(
   ): Promise<LinkRow[]> {
     const candidates: LinkRow[] = []
     for (const item of items) {
-      const rawPriorityId = 'priority_id' in item ? item.priority_id : undefined
-      const rawFeedIdVal =
-        'community_issue_id' in item
-          ? (item as Record<string, unknown>)['community_issue_id']
-          : undefined
-      const rawFeedId =
-        typeof rawFeedIdVal === 'string' ? rawFeedIdVal : undefined
+      const rawPriorityId = item.priority_id
+      const rawCommunityIssueId = item.community_issue_id
 
-      if (!rawPriorityId && !rawFeedId) continue
+      if (!rawPriorityId && !rawCommunityIssueId) continue
 
       const priorityId = await this.validatePriorityId(
         rawPriorityId,
@@ -84,7 +79,7 @@ export class BriefingItemLinksService extends createPrismaBase(
         { itemId: item.item_id, meetingBriefingId, organizationSlug },
       )
       const communityIssueId = await this.validateFeedId(
-        rawFeedId,
+        rawCommunityIssueId,
         organizationSlug,
         item.item_id,
         meetingBriefingId,

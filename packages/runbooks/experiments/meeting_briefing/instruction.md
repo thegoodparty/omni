@@ -196,14 +196,15 @@ Failure: the call raises (connection error, scope violation, or `UpstreamError`)
 
 **This step is iterate-separately guidance.** The backend now writes link rows from stamped `executive_summary.items[]` ids. Stamp each `executive_summary` item with the correct ids to activate those links.
 
-Before classifying agenda items, fetch the official's priorities and community-issue-feed entries over MCP. These shape both tier selection (Step 5) and the stamping rule (Step 17):
+Before classifying agenda items, fetch the official's priorities and community issues over MCP. These shape both tier selection (Step 5) and the stamping rule (Step 17):
 
 ```
 GET /v1/priorities          → org's durable priority list (may be empty)
-GET /v1/community-issue-feed → latest community issues for the org (may be empty)
+GET /v1/community-issues → latest community issues for the org (may be empty)
 ```
 
 Both are `@McpTool` endpoints; call them with the org's auth context. Store the results in memory:
+
 - `PRIORITIES` — array of `{ id, title, description }` objects (non-archived, active)
 - `COMMUNITY_ISSUES` — array of `{ id, title, summary, list, category }` objects (non-archived)
 
@@ -888,7 +889,7 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 | `briefing_ready`          | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing.                                                                                                                                    |
 | `awaiting_agenda`         | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
 | `no_meeting_found`        | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state.                                                                                                                           |
-| `agenda_provided_by_user` | The agent used a user-supplied agenda (either pre-staged at `/workspace/input/agenda.pdf` or pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                  |
+| `agenda_provided_by_user` | The agent used a user-supplied agenda (either pre-staged at `/workspace/input/agenda.pdf` or pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                 |
 | `error`                   | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail.                                                                                                                               |
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
@@ -1003,10 +1004,10 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `meeting_time`: start time of the meeting in 24-hour `HH:MM` format, in the local timezone given by `meeting_timezone` (e.g. `"19:00"`). Capture from the same source you used for `meeting_date` (streaming platform meeting detail, city meeting schedule, or agenda packet header). Briefings own this independently of `meeting_schedule` so the row is self-sufficient. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_timezone`: IANA timezone name for `meeting_time` (e.g. `"America/Chicago"`). Use the timezone the governing body publishes the meeting in, not UTC. If only an abbreviation like `"CST"` or `"Eastern Time"` is visible on the source, resolve to the matching IANA zone for the city's location. For `no_meeting_found` or `error` status, emit an empty string.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
-**Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
+  **Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
   - `priority_id` — the `id` of the matching Priority from `PRIORITIES` (Step 1b), if this item was surfaced via a priority match. Otherwise omit or set `null`.
-  - `community_issue_feed_id` — the `id` of the matching CommunityIssueFeed entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
-  
+  - `community_issue_id` — the `id` of the matching CommunityIssue entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
+
   At most one of these fields should be non-null per item. If both match (rare), prefer `priority_id`. If neither matches (item elevated via Haystaq or vote-requirement alone), leave both omitted. These ids are used by the backend to write `MeetingBriefingItemLink` rows connecting the briefing item to its source priority or issue — they must be the exact database ids returned by the MCP calls, not inferred values.
 
 - `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each entry reflects what the deep dive actually says. A structured object with `lead_in` (a single framing sentence) and `items` (an array, one entry per **featured** item — not queued, not standard, in the same order they appear in top-level `items[]`). Each `executive_summary.items[]` entry carries: `item_id` (must match an entry in top-level `items[]` with `tier: "featured"` — the UI uses this to link the entry to its deep-dive panel), `title` (must **verbatim equal** `items[item_id].title`; do not paraphrase or shorten), and `overview` (a one-sentence distillation of `items[item_id].display.summary` — same facts, tighter framing, so the lead-of-briefing matches the deep dive). Default `lead_in` when items follow: _"The following items on your agenda require action and/or have a vote:"_ (with trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, set `items: []` and use a standalone `lead_in` covering the case (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Per-field caps enforced by the schema: `lead_in` 300 chars, `title` 100 chars (must match `items[].title`), `overview` 300 chars; max 5 entries. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
@@ -1033,6 +1034,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   }
   ```
 - `run_metadata`:
+
   ```json
   {
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
@@ -1044,6 +1046,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
     ]
   }
   ```
+
   Append an entry to `run_decisions[]` every time you make a non-mechanical choice that shapes the resulting artifact — meeting selection, fallback to a different meeting, decision to skip a section, decision to proceed without a required source, decision to set `briefing_status` to anything other than `briefing_ready`. Mechanical actions (download a file, parse a PDF, run a query) do not need entries.
 
   **`discovered_agenda_location` guidance.** gp-api persists this string and passes it back as `knownAgendaLocation` on the next run for the same body. Optimize it for a future agent reading it cold.
@@ -1052,6 +1055,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   - **When the channel-0 hint worked.** If you arrived via the hint and it's still the best lead for next time, write it back unchanged.
   - **When the channel-0 hint was stale.** Replace it with whatever location actually worked. Do not chain "X is stale, try Y" into the prose — record the current best location only.
   - **On `awaiting_agenda` and `no_meeting_found`.** Still emit a value when the parent page was reachable; the packet just isn't published yet (or the meeting was cancelled). Set to `null` only when no plausible future-run starting point exists. Preserving the location across these runs is a feature, not an oversight — the next run on this body should not have to rediscover the platform.
+
 - `items`: per Steps 3–9. Each section that supports per-section `source_ids` (constituent_sentiment per Step 16, budget_impact per Step 12) must populate the field with ids from `sources[]`; empty `[]` is permitted when no defensible citation exists, but do not fabricate.
 - `claims`: per Step 13. May be empty when `briefing_status` is `awaiting_agenda` or `no_meeting_found`.
 - `sources`: per Step 14.
