@@ -33,7 +33,7 @@ const PrioritizeButton = ({
     setLoading(true)
     setError(null)
     try {
-      await clientRequest('POST /v1/community-issue-feed/:id/prioritize', {
+      await clientRequest('POST /v1/community-issues/:id/prioritize', {
         id: issueId,
       })
       setPrioritized(true)

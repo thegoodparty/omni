@@ -3,15 +3,15 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import {
-  CommunityIssueFeedCategory,
-  CommunityIssueFeedList,
-  CommunityIssueFeedPriority,
+  CommunityIssueCategory,
+  CommunityIssueList,
+  CommunityIssuePriority,
   ExperimentRunStatus,
 } from '../generated/prisma'
 
 const service = useTestService()
 
-const BASE = '/v1/community-issue-feed'
+const BASE = '/v1/community-issues'
 
 let eoId: string
 let eoOrgSlug: string
@@ -22,7 +22,7 @@ const eoHeaders = () => ({
 
 const seedElectedOffice = async () => {
   eoId = uuidv7()
-  eoOrgSlug = `eo-cif-${eoId}`
+  eoOrgSlug = `eo-ci-${eoId}`
   await service.prisma.organization.create({
     data: { slug: eoOrgSlug, ownerId: service.user.id },
   })
@@ -33,18 +33,18 @@ const seedElectedOffice = async () => {
 
 const seedIssue = (
   overrides: Partial<{
-    list: CommunityIssueFeedList
+    list: CommunityIssueList
     rank: number | null
     archivedAt: Date | null
     organizationSlug: string
   }> = {},
 ) =>
-  service.prisma.communityIssueFeed.create({
+  service.prisma.communityIssue.create({
     data: {
       organizationSlug: overrides.organizationSlug ?? eoOrgSlug,
-      list: overrides.list ?? CommunityIssueFeedList.top_community,
-      category: CommunityIssueFeedCategory.public_safety,
-      priority: CommunityIssueFeedPriority.high,
+      list: overrides.list ?? CommunityIssueList.top_community,
+      category: CommunityIssueCategory.public_safety,
+      priority: CommunityIssuePriority.high,
       title: 'Road Maintenance',
       summary: 'Roads need fixing.',
       detail: { overview: { summary: 'ok' }, sources: [] },
@@ -71,7 +71,7 @@ beforeEach(async () => {
   await seedElectedOffice()
 })
 
-describe('GET /v1/community-issue-feed', () => {
+describe('GET /v1/community-issues', () => {
   it(
     'returns only active issues for the caller org + list, ordered by rank ASC' +
       ' with correct prioritized flag',
@@ -88,8 +88,8 @@ describe('GET /v1/community-issue-feed', () => {
           electedOfficeId: eoId,
           title: 'prio',
           description: 'desc',
-          source: 'community_issue_feed',
-          sourceCommunityIssueFeedId: issue1.id,
+          source: 'community_issue',
+          sourceCommunityIssueId: issue1.id,
         },
       })
 
@@ -166,7 +166,7 @@ describe('GET /v1/community-issue-feed', () => {
   )
 })
 
-describe('GET /v1/community-issue-feed — archived priority', () => {
+describe('GET /v1/community-issues — archived priority', () => {
   it('returns prioritized:false when the matching Priority has archivedAt set', async () => {
     const issue = await seedIssue()
     await service.prisma.priority.create({
@@ -174,8 +174,8 @@ describe('GET /v1/community-issue-feed — archived priority', () => {
         electedOfficeId: eoId,
         title: 'archived-prio',
         description: 'desc',
-        source: 'community_issue_feed',
-        sourceCommunityIssueFeedId: issue.id,
+        source: 'community_issue',
+        sourceCommunityIssueId: issue.id,
         archivedAt: new Date(),
       },
     })
@@ -194,7 +194,7 @@ describe('GET /v1/community-issue-feed — archived priority', () => {
   })
 })
 
-describe('GET /v1/community-issue-feed/:id — archived', () => {
+describe('GET /v1/community-issues/:id — archived', () => {
   it('returns 200 with archived:true for an archived issue', async () => {
     const issue = await seedIssue({
       archivedAt: new Date('2025-01-01'),
@@ -222,7 +222,7 @@ describe('GET /v1/community-issue-feed/:id — archived', () => {
   })
 })
 
-describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
+describe('GET /v1/community-issues/:id — cross-org security', () => {
   it('returns 404 when the issue belongs to a different org', async () => {
     const otherSlug = `other-org-${uuidv7()}`
     await service.prisma.organization.create({
@@ -248,8 +248,8 @@ describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
           electedOfficeId: eoId,
           title: 'archived-prio',
           description: 'desc',
-          source: 'community_issue_feed',
-          sourceCommunityIssueFeedId: issue.id,
+          source: 'community_issue',
+          sourceCommunityIssueId: issue.id,
           archivedAt: new Date(),
         },
       })
@@ -266,10 +266,10 @@ describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
   )
 })
 
-describe('GET /v1/community-issue-feed/:id', () => {
+describe('GET /v1/community-issues/:id', () => {
   it(
-    'resolves relatedBriefings via BOTH direct path (communityIssueFeedId)' +
-      ' and indirect path (priority.sourceCommunityIssueFeedId -> priorityId)',
+    'resolves relatedBriefings via BOTH direct path (communityIssueId)' +
+      ' and indirect path (priority.sourceCommunityIssueId -> priorityId)',
     async () => {
       const issue = await seedIssue()
 
@@ -302,7 +302,7 @@ describe('GET /v1/community-issue-feed/:id', () => {
         data: {
           meetingBriefingId: briefing.id,
           briefingItemId: 'direct-item',
-          communityIssueFeedId: issue.id,
+          communityIssueId: issue.id,
         },
       })
 
@@ -311,8 +311,8 @@ describe('GET /v1/community-issue-feed/:id', () => {
           electedOfficeId: eoId,
           title: 'prio',
           description: 'desc',
-          source: 'community_issue_feed',
-          sourceCommunityIssueFeedId: issue.id,
+          source: 'community_issue',
+          sourceCommunityIssueId: issue.id,
         },
       })
 
@@ -383,7 +383,7 @@ describe('GET /v1/community-issue-feed/:id', () => {
         data: {
           meetingBriefingId: briefing.id,
           briefingItemId: 'valid-item',
-          communityIssueFeedId: issue.id,
+          communityIssueId: issue.id,
         },
       })
 
@@ -391,7 +391,7 @@ describe('GET /v1/community-issue-feed/:id', () => {
         data: {
           meetingBriefingId: briefing.id,
           briefingItemId: 'stale-item',
-          communityIssueFeedId: issue.id,
+          communityIssueId: issue.id,
         },
       })
 
@@ -407,7 +407,7 @@ describe('GET /v1/community-issue-feed/:id', () => {
   )
 })
 
-describe('POST /v1/community-issue-feed/:id/prioritize — archived', () => {
+describe('POST /v1/community-issues/:id/prioritize — archived', () => {
   it('returns 400 when prioritizing an archived issue', async () => {
     const issue = await seedIssue({
       archivedAt: new Date('2025-01-01'),
@@ -443,7 +443,7 @@ describe('POST /v1/community-issue-feed/:id/prioritize — archived', () => {
   })
 })
 
-describe('POST /v1/community-issue-feed/:id/prioritize — cross-org security', () => {
+describe('POST /v1/community-issues/:id/prioritize — cross-org security', () => {
   it('returns 404 when the issue belongs to a different org', async () => {
     const otherSlug = `other-org-${uuidv7()}`
     await service.prisma.organization.create({
@@ -461,7 +461,7 @@ describe('POST /v1/community-issue-feed/:id/prioritize — cross-org security', 
   })
 })
 
-describe('POST /v1/community-issue-feed/:id/prioritize', () => {
+describe('POST /v1/community-issues/:id/prioritize', () => {
   it('creates a Priority with correct snapshot fields', async () => {
     const issue = await seedIssue()
 
@@ -476,11 +476,11 @@ describe('POST /v1/community-issue-feed/:id/prioritize', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.title).toBe(issue.title)
     expect(res.data.description).toBe(issue.summary)
-    expect(res.data.source).toBe('community_issue_feed')
+    expect(res.data.source).toBe('community_issue')
     expect(res.data.electedOfficeId).toBe(eoId)
 
     const dbPriority = await service.prisma.priority.findFirst({
-      where: { sourceCommunityIssueFeedId: issue.id },
+      where: { sourceCommunityIssueId: issue.id },
     })
     expect(dbPriority).not.toBeNull()
   })
@@ -504,7 +504,7 @@ describe('POST /v1/community-issue-feed/:id/prioritize', () => {
     expect(first.data.id).toBe(second.data.id)
 
     const count = await service.prisma.priority.count({
-      where: { sourceCommunityIssueFeedId: issue.id },
+      where: { sourceCommunityIssueId: issue.id },
     })
     expect(count).toBe(1)
   })

@@ -53,7 +53,7 @@ describe('<AskAiButton>', () => {
     await waitFor(() =>
       expect(createConversationMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          resourceType: 'community_issue_feed',
+          resourceType: 'community_issue',
           resourceId: 'issue-1',
           url: expect.any(String),
           snapshot: expect.objectContaining({

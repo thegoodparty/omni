@@ -5,8 +5,8 @@ model MeetingBriefingItemLink {
   briefingItemId  String          @map("briefing_item_id")
   priorityId      String?         @map("priority_id")
   priority        Priority?       @relation(fields: [priorityId], references: [id])
-  communityIssueFeedId String?    @map("community_issue_feed_id")
-  communityIssueFeed CommunityIssueFeed? @relation(fields: [communityIssueFeedId], references: [id])
+  communityIssueId String?         @map("community_issue_id")
+  communityIssue   CommunityIssue? @relation(fields: [communityIssueId], references: [id])
 
   createdAt DateTime @default(now()) @map("created_at")
 

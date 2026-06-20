@@ -18,7 +18,7 @@ const mockPriority: Priority = {
   electedOfficeId: 'office-1',
   title: 'Housing Crisis',
   description: 'Rising rents',
-  source: 'community_issue_feed',
+  source: 'community_issue',
   sourceCampaignPositionId: null,
   targetDate: null,
   createdAt: new Date().toISOString(),
@@ -40,7 +40,7 @@ describe('<PrioritizeButton>', () => {
   })
 
   it('calls the API on click then renders "Added to priorities"', async () => {
-    api.mock('POST /v1/community-issue-feed/:id/prioritize', {
+    api.mock('POST /v1/community-issues/:id/prioritize', {
       status: 200,
       data: mockPriority,
     })
@@ -61,7 +61,7 @@ describe('<PrioritizeButton>', () => {
   })
 
   it('fires PrioritizeClicked event on click', async () => {
-    api.mock('POST /v1/community-issue-feed/:id/prioritize', {
+    api.mock('POST /v1/community-issues/:id/prioritize', {
       status: 200,
       data: mockPriority,
     })

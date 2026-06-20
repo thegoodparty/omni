@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
-  CommunityIssueFeedList,
+  CommunityIssueList,
   ExperimentRunStatus,
   Prisma,
 } from '../../generated/prisma'
@@ -43,8 +43,8 @@ const extractItemIds = (artifact: Prisma.JsonValue): Set<string> => {
 }
 
 @Injectable()
-export class CommunityIssueFeedReadService extends createPrismaBase(
-  MODELS.CommunityIssueFeed,
+export class CommunityIssueReadService extends createPrismaBase(
+  MODELS.CommunityIssue,
 ) {
   async listForOrg(
     organizationSlug: string,
@@ -53,8 +53,8 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
   ) {
     const prismaList =
       list === 'top_community'
-        ? CommunityIssueFeedList.top_community
-        : CommunityIssueFeedList.trending
+        ? CommunityIssueList.top_community
+        : CommunityIssueList.trending
 
     const [issues, latestRun, latestCompletedRun] = await Promise.all([
       this.model.findMany({
@@ -85,15 +85,15 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
         ? await this.client.priority.findMany({
             where: {
               electedOfficeId,
-              sourceCommunityIssueFeedId: { in: issueIds },
+              sourceCommunityIssueId: { in: issueIds },
               archivedAt: null,
             },
-            select: { sourceCommunityIssueFeedId: true },
+            select: { sourceCommunityIssueId: true },
           })
         : []
 
     const prioritizedIds = new Set(
-      priorities.map((p) => p.sourceCommunityIssueFeedId),
+      priorities.map((p) => p.sourceCommunityIssueId),
     )
 
     const runStatus = latestRun ? RUN_STATUS_MAP[latestRun.status] : 'running'
@@ -132,12 +132,12 @@ export class CommunityIssueFeedReadService extends createPrismaBase(
 
     const [directLinks, indirectPriority] = await Promise.all([
       this.client.meetingBriefingItemLink.findMany({
-        where: { communityIssueFeedId: id },
+        where: { communityIssueId: id },
         include: { meetingBriefing: true },
       }),
       this.client.priority.findFirst({
         where: {
-          sourceCommunityIssueFeedId: id,
+          sourceCommunityIssueId: id,
           electedOfficeId,
           archivedAt: null,
         },

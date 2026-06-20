@@ -5,10 +5,10 @@ elected-official (Serve) users; access is gated by `serveAccess()`.
 
 ## Pages
 
-| Route                             | File                 | What it does                                                                                                       |
-| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `/dashboard/community-issues`     | `page.tsx`           | Fetches both feed lists (`top_community` + `trending`) via `GET /v1/community-issue-feed`; renders `IssueFeedList` |
-| `/dashboard/community-issues/:id` | `[issueId]/page.tsx` | Fetches issue detail via `GET /v1/community-issue-feed/:id`; renders `IssueDetail`                                 |
+| Route                             | File                 | What it does                                                                                                   |
+| --------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/dashboard/community-issues`     | `page.tsx`           | Fetches both feed lists (`top_community` + `trending`) via `GET /v1/community-issues`; renders `IssueFeedList` |
+| `/dashboard/community-issues/:id` | `[issueId]/page.tsx` | Fetches issue detail via `GET /v1/community-issues/:id`; renders `IssueDetail`                                 |
 
 ## Key components
 
@@ -16,7 +16,7 @@ elected-official (Serve) users; access is gated by `serveAccess()`.
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `IssueFeedList`      | Tabbed list view — top-community tab + trending tab; shows refresh status                                                                      |
 | `IssueDetail`        | Full detail view — detail sections (overview, history, legislation, research, quotes) with inline source pills and a collapsible sources panel |
-| `PrioritizeButton`   | Calls `POST /v1/community-issue-feed/:id/prioritize`; adds issue to the org's Priorities list                                                  |
+| `PrioritizeButton`   | Calls `POST /v1/community-issues/:id/prioritize`; adds issue to the org's Priorities list                                                      |
 | `AskAiButton`        | Opens the CoS chat pre-anchored to the issue context                                                                                           |
 | `IssueDetailActions` | Action row: Prioritize + Ask AI + "Run a poll" link to `/dashboard/polls/create?issue=:id`                                                     |
 
@@ -28,6 +28,5 @@ elected-official (Serve) users; access is gated by `serveAccess()`.
 
 ## API endpoint
 
-All data reads from `GET /v1/community-issue-feed` (list) and `GET /v1/community-issue-feed/:id` (detail),
-backed by `packages/gp-api/src/communityIssueFeed/`. See that module's `CLAUDE.md` for
-the naming note distinguishing it from the unrelated campaign-side `communityIssues` module.
+All data reads from `GET /v1/community-issues` (list) and `GET /v1/community-issues/:id` (detail),
+backed by `packages/gp-api/src/communityIssues/`.

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import type {
+  CommunityIssueContent,
   CommunityIssueDetail,
-  CommunityIssueFeedDetail,
 } from 'gpApi/api-endpoints'
 import IssueDetail from './IssueDetail'
 
@@ -16,16 +16,16 @@ const makeSource = (id: string) => ({
 })
 
 const makeDetail = (
-  overrides: Partial<CommunityIssueDetail> = {},
-): CommunityIssueDetail => ({
+  overrides: Partial<CommunityIssueContent> = {},
+): CommunityIssueContent => ({
   sources: [makeSource('s1'), makeSource('s2')],
   overview: { summary: 'Overview text', source_ids: ['s1'] },
   ...overrides,
 })
 
 const makeFeedDetail = (
-  overrides: Partial<CommunityIssueFeedDetail> = {},
-): CommunityIssueFeedDetail => ({
+  overrides: Partial<CommunityIssueDetail> = {},
+): CommunityIssueDetail => ({
   id: 'issue-1',
   list: 'top_community',
   category: 'Housing',

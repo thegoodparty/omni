@@ -6,7 +6,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { CommunityIssueFeedDispatchService } from '@/communityIssueFeed/services/communityIssueFeedDispatch.service'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 // Imported after useTestService: analytics.service sits on a circular import
@@ -113,7 +113,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     mockResolveServeContext(null)
     vi.spyOn(
-      service.app.get(CommunityIssueFeedDispatchService),
+      service.app.get(CommunityIssueDispatchService),
       'onElectedOfficeCreated',
     ).mockResolvedValue(undefined)
   })

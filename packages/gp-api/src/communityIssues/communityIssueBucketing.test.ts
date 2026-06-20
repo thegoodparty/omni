@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bucketForSlug } from './communityIssueFeedBucketing'
+import { bucketForSlug } from './communityIssueBucketing'
 
 describe('bucketForSlug', () => {
   it('returns values in [0, mod) for mod=7', () => {

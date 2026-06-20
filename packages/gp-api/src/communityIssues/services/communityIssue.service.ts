@@ -2,8 +2,8 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Injectable } from '@nestjs/common'
 import { ExperimentRun } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { validateCommunityIssuesArtifact } from '../communityIssueFeedArtifact.validation'
-import { CommunityIssueFeedUpsertService } from './communityIssueFeedUpsert.service'
+import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
+import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -17,12 +17,12 @@ const parseJson = (raw: string): Record<string, unknown> =>
   JSON.parse(raw) as Record<string, unknown>
 
 @Injectable()
-export class CommunityIssueFeedService extends createPrismaBase(
-  MODELS.CommunityIssueFeed,
+export class CommunityIssueService extends createPrismaBase(
+  MODELS.CommunityIssue,
 ) {
   constructor(
     private readonly s3: S3Service,
-    private readonly upsert: CommunityIssueFeedUpsertService,
+    private readonly upsert: CommunityIssueUpsertService,
   ) {
     super()
   }

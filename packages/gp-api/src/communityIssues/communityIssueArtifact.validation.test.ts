@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateCommunityIssuesArtifact } from './communityIssueFeedArtifact.validation'
+import { validateCommunityIssuesArtifact } from './communityIssueArtifact.validation'
 
 const validSource = {
   id: 'src-1',
