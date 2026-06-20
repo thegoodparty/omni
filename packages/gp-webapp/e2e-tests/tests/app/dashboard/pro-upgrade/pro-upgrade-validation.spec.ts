@@ -85,7 +85,7 @@ test.describe('pro-upgrade front-end validation gates', () => {
     )
   })
 
-  test('filing-details gate requires at least one filing-contact channel', async ({
+  test('filing-details gate requires both email and phone; address optional', async ({
     page,
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
@@ -100,34 +100,29 @@ test.describe('pro-upgrade front-end validation gates', () => {
       timeout: 30_000,
     })
 
-    // Fill the always-required fields (committee name + a valid filing link with
-    // a path) but select no contact-method checkbox. The merged form
-    // (ENG-10357) requires at least one of email/phone/address, so submit must
-    // still be blocked and the summary must name the Filing Contact field.
+    // Fill committee name + a valid filing link + email, but leave phone blank.
+    // Peerly requires both email and phone, so the front end requires both
+    // (86aj5bqvw); submit must be blocked and the summary must name Filing
+    // Phone. The address is optional, so it must never block.
     await page.getByLabel('Campaign committee name').fill('Jane for Council')
     await page
       .getByLabel('Campaign filing link')
       .fill('https://sos.wyo.gov/filing/jane-for-council')
+    await page.getByPlaceholder('jane@gmail.com').fill('jane@example.com')
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
     await expect(
       page.getByText('Please fix the following fields:'),
     ).toBeVisible()
-    await expect(
-      page.getByText(
-        'Select at least one of email, phone, or address from your filing',
-      ),
-    ).toBeVisible()
+    await expect(page.getByText('Filing Phone')).toBeVisible()
     expect(new URL(page.url()).pathname).toBe(
       `${PRO_UPGRADE_PATH}/filing-details`,
     )
 
-    // Select the Email channel, which reveals its input, and fill a valid email.
-    // With one channel satisfied and the required fields filled, Continue
-    // advances to candidate-profile.
-    await page.getByRole('checkbox', { name: 'Email' }).click()
-    await page.getByPlaceholder('jane@gmail.com').fill('jane@example.com')
+    // Fill a valid US phone. With committee + filing link + email + phone (and
+    // no address), Continue advances to candidate-profile.
+    await page.getByPlaceholder('(555) 555-5555').fill('4155551234')
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
