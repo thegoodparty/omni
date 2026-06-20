@@ -384,4 +384,22 @@ describe('DomainsController.configureDomain', () => {
     )
     expect(mockDomains.configureDomain).not.toHaveBeenCalled()
   })
+
+  it('handler is registered for POST /configure with @UseCampaign()', () => {
+    // Guards the IDOR fix: @UseCampaign() is what binds the request to the
+    // caller's own campaign. Dropping it would leave every other test green
+    // while silently re-exposing the cross-tenant path this PR closed.
+    const reflector = new Reflector()
+
+    const path = Reflect.getMetadata('path', controller.configureDomain)
+    const method = Reflect.getMetadata('method', controller.configureDomain)
+    expect(path).toBe('configure')
+    expect(method).toBe(RequestMethod.POST)
+
+    const meta = reflector.get(
+      REQUIRE_CAMPAIGN_META_KEY,
+      controller.configureDomain,
+    )
+    expect(meta).toBeDefined()
+  })
 })
