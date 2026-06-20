@@ -159,10 +159,13 @@ jobs:
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
-    # Generous budget: this gate waits on gp-api's (slow) deploy. It fails fast
-    # if gp-api's deploy fails, so the large budget is only ever spent when
-    # gp-api is genuinely still deploying.
-    timeout-minutes: 30
+    # Generous budget: this gate waits on gp-api's (slow) deploy. The poll
+    # itself can spend ~28 min in sleeps alone on the slow path (149x10s +
+    # 17x10s), before gh-api/curl latency and runner provisioning — so keep the
+    # 45-min headroom the single-job version had. It fails fast if gp-api's
+    # deploy fails, so the full budget is only ever spent when gp-api is
+    # genuinely still deploying.
+    timeout-minutes: 45
     permissions:
       contents: read
       actions: read
@@ -331,7 +334,15 @@ jobs:
         with:
           app: gp-webapp
 
+      # Only when the shards actually ran. Skipping this (and merge/comment
+      # below) when they were skipped/cancelled keeps the result-producing
+      # chain uniform and the skipped path obvious — the fail-gate is the
+      # signal then. (download-artifact@v4 with a pattern does not error on zero
+      # matches, so this guard is for coherence, not to avoid a step failure.)
       - name: Download shard blob reports
+        if: >-
+          needs.e2e-shard.result == 'success'
+          || needs.e2e-shard.result == 'failure'
         uses: actions/download-artifact@v4
         with:
           pattern: e2e-blob-*
