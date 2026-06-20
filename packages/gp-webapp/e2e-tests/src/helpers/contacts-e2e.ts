@@ -107,6 +107,10 @@ export async function openPersonPanel(
       await detailLanded
       break
     } catch {
+      // Silence this attempt's waiter before re-arming: an unawaited
+      // waitForResponse rejects with a timeout 30s later, which would surface as
+      // an unhandled rejection after the test has moved on.
+      detailLanded.catch(() => undefined)
       if (attempt === 2) await expect(panel).toBeVisible()
     }
   }

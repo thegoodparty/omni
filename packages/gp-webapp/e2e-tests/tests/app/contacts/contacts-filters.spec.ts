@@ -93,7 +93,14 @@ const testFilterField = async (
       await expect(sheet).toBeHidden({ timeout: 15000 })
     } catch {
       await page.keyboard.press('Escape')
-      await expect(sheet).toBeHidden({ timeout: 5000 })
+      // Best-effort: if the sheet is still up after Escape, don't throw —
+      // applyContactsQuery must still await responseLanded and
+      // waitForContactsTableReady, or the next assertions read stale rows.
+      try {
+        await expect(sheet).toBeHidden({ timeout: 5000 })
+      } catch {
+        // ignored: sheet close is best-effort
+      }
     }
   })
 

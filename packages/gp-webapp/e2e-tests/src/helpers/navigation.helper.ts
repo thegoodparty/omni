@@ -86,11 +86,11 @@ export class NavigationHelper {
     }
 
     const openMenu = page.getByRole('button', { name: /open menu/i })
-    if (await openMenu.isVisible().catch(() => false)) {
+    if (await openMenu.isVisible({ timeout: 2000 }).catch(() => false)) {
       await openMenu.click()
     } else {
       const trigger = page.getByTestId('mobile-menu-trigger')
-      if (await trigger.isVisible().catch(() => false)) {
+      if (await trigger.isVisible({ timeout: 2000 }).catch(() => false)) {
         await trigger.click()
       } else {
         await NavigationHelper.openMobileNavMenu(page)
