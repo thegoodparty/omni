@@ -468,6 +468,21 @@ export {
 } from './dashboard/DashboardCard.schema'
 
 export {
+  ONBOARDING_CARD_KEY_VALUES,
+  OnboardingCardKeySchema,
+  type OnboardingCardKey,
+  ONBOARDING_CARD_STATUS_VALUES,
+  OnboardingCardStatusSchema,
+  type OnboardingCardStatus,
+  OnboardingCardSchema,
+  type OnboardingCard,
+  OnboardingCardsResponseSchema,
+  type OnboardingCardsResponse,
+  OnboardingCardKeyParamSchema,
+  type OnboardingCardKeyParam,
+} from './dashboard/OnboardingCard.schema'
+
+export {
   SupportEstimateSchema,
   type SupportEstimate,
 } from './dashboard/SupportEstimate.schema'

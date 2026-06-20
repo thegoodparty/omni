@@ -37,6 +37,7 @@ import type {
   ChatScope,
   DashboardCardBucket,
   DashboardCardListResponse,
+  OnboardingCardsResponse,
   SupportEstimate,
 } from 'app/dashboard/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
@@ -354,6 +355,16 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/dashboard/cards/:id/dismiss': {
+    Request: {}
+    Response: void
+  }
+
+  'GET /v1/dashboard/onboarding-cards': {
+    Request: {}
+    Response: OnboardingCardsResponse
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/skip': {
     Request: {}
     Response: void
   }

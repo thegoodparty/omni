@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { ChevronDownIcon } from '@styleguide/components/ui/icons'
-import { useDashboardCards, useDismissCard } from '../data/use-dashboard'
+import {
+  useDashboardCards,
+  useDismissCard,
+  useOnboardingCards,
+} from '../data/use-dashboard'
 import DashboardTaskCard from './DashboardTaskCard'
 
 const INITIAL_VISIBLE = 3
@@ -12,8 +16,9 @@ const INITIAL_VISIBLE = 3
  * control revealing the rest, and Skip on each card dismissing it via
  * `PUT /v1/dashboard/cards/:id/dismiss`.
  */
-export default function TaskList(): React.JSX.Element {
+export default function TaskList(): React.JSX.Element | null {
   const { data: cards, isPending, isError } = useDashboardCards('active')
+  const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
   const [expanded, setExpanded] = useState(false)
 
@@ -37,6 +42,11 @@ export default function TaskList(): React.JSX.Element {
   }
 
   if (!cards || cards.length === 0) {
+    // Don't claim "all caught up" while the get-started onboarding cards are
+    // shown above this list (or are still loading) — that reads as a
+    // contradiction. Show the empty state only once those are gone.
+    const onboardingActive = onboarding?.some((c) => c.status === 'active')
+    if (onboardingActive || onboarding === undefined) return null
     return (
       <p
         className="text-sm text-muted-foreground"
