@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
 import {
   Sheet,
+  SheetBody,
   SheetClose,
   SheetContent,
   SheetDescription,
@@ -62,7 +63,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
               done.
             </SheetDescription>
           </SheetHeader>
-          <div className="grid gap-4 px-6">
+          <SheetBody className="grid gap-4">
             <div className="grid gap-2">
               <Label htmlFor="playground-name">Name</Label>
               <Input id="playground-name" defaultValue="Pedro Duarte" />
@@ -71,7 +72,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
               <Label htmlFor="playground-username">Username</Label>
               <Input id="playground-username" defaultValue="@peduarte" />
             </div>
-          </div>
+          </SheetBody>
           <SheetFooter>
             <SheetClose asChild>
               <Button variant="outline">Cancel</Button>
@@ -110,6 +111,42 @@ export const Sides: StoryObj<typeof Sheet> = {
   ),
 }
 
+export const Overflow: StoryObj<typeof Sheet> = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Sheet defaultOpen>
+      <SheetTrigger asChild>
+        <Button variant="outline">Open Sheet</Button>
+      </SheetTrigger>
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>Long content</SheetTitle>
+          <SheetDescription>
+            SheetBody scrolls independently — header and footer stay fixed.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetBody className="flex flex-col gap-4">
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="grid gap-2">
+              <Label htmlFor={`overflow-field-${i}`}>Field {i + 1}</Label>
+              <Input
+                id={`overflow-field-${i}`}
+                placeholder={`Value ${i + 1}`}
+              />
+            </div>
+          ))}
+        </SheetBody>
+        <SheetFooter>
+          <SheetClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </SheetClose>
+          <Button>Save changes</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  ),
+}
+
 export const Anatomy: StoryObj<typeof Sheet> = {
   parameters: { controls: { disable: true } },
   render: () => (
@@ -125,13 +162,13 @@ export const Anatomy: StoryObj<typeof Sheet> = {
             SheetDescription — supporting text below the title.
           </SheetDescription>
         </SheetHeader>
-        <div className="px-6 flex flex-col gap-2">
+        <SheetBody className="flex flex-col gap-2">
           <p className={sectionLabel}>Content area</p>
           <div className="grid gap-2">
             <Label htmlFor="anatomy-name">Name</Label>
             <Input id="anatomy-name" placeholder="Enter name" />
           </div>
-        </div>
+        </SheetBody>
         <SheetFooter>
           <SheetClose asChild>
             <Button variant="outline">SheetClose</Button>
