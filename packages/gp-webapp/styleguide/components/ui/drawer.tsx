@@ -50,7 +50,7 @@ function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="drawer-handle"
       className={cn(
-        'bg-base-muted mx-auto mt-4 mb-2 h-2 w-[120px] rounded-full',
+        'bg-base-muted mx-auto mt-4 mb-2 h-2 w-30 rounded-full',
         className,
       )}
       {...props}
@@ -88,6 +88,16 @@ function DrawerContent({
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
+  )
+}
+
+function DrawerBody({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="drawer-body"
+      className={cn('flex-1 overflow-y-auto px-4', className)}
+      {...props}
+    />
   )
 }
 
@@ -145,6 +155,7 @@ export {
   DrawerOverlay,
   DrawerHandle,
   DrawerContent,
+  DrawerBody,
   DrawerHeader,
   DrawerFooter,
   DrawerTitle,

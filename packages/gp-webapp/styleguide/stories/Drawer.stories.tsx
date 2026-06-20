@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
 import {
   Drawer,
+  DrawerBody,
   DrawerClose,
   DrawerContent,
   DrawerDescription,
@@ -61,9 +62,9 @@ export const Playground: StoryObj<typeof Drawer> = {
             <DrawerTitle>Drawer Title</DrawerTitle>
             <DrawerDescription>Drawer description text.</DrawerDescription>
           </DrawerHeader>
-          <div className="p-4">
+          <DrawerBody>
             <p>Drawer content goes here.</p>
-          </div>
+          </DrawerBody>
           <DrawerFooter>
             <Button type="button">Submit</Button>
             <DrawerClose asChild>
@@ -139,7 +140,9 @@ export const Directions: StoryObj = {
               {hasHandle(value) && <DrawerHandle />}
               <DrawerHeader>
                 <DrawerTitle>{label} Drawer</DrawerTitle>
-                <DrawerDescription>direction=&quot;{value}&quot;</DrawerDescription>
+                <DrawerDescription>
+                  direction=&quot;{value}&quot;
+                </DrawerDescription>
               </DrawerHeader>
               <DrawerFooter>
                 <Button type="button">Confirm</Button>
@@ -154,6 +157,44 @@ export const Directions: StoryObj = {
         </div>
       ))}
     </div>
+  ),
+}
+
+export const Overflow: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Drawer>
+      <DrawerTrigger asChild>
+        <Button variant="outline">Open with Long Content</Button>
+      </DrawerTrigger>
+      <DrawerContent>
+        <DrawerHandle />
+        <DrawerHeader>
+          <DrawerTitle>Long Content</DrawerTitle>
+          <DrawerDescription>
+            DrawerBody scrolls independently — header and footer stay fixed.
+          </DrawerDescription>
+        </DrawerHeader>
+        <DrawerBody>
+          {Array.from({ length: 20 }, (_, i) => (
+            <p
+              key={i}
+              className="py-2 text-sm border-b border-border last:border-0"
+            >
+              Item {i + 1} — scrollable content row
+            </p>
+          ))}
+        </DrawerBody>
+        <DrawerFooter>
+          <Button type="button">Confirm</Button>
+          <DrawerClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
+          </DrawerClose>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   ),
 }
 
@@ -182,9 +223,9 @@ export const Anatomy: StoryObj = {
         </div>
         <div className="border-border border-b border-dashed">
           <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
-            Children
+            DrawerBody
           </p>
-          <div className="p-4 text-sm">Body content goes here.</div>
+          <DrawerBody className="text-sm">Body content goes here.</DrawerBody>
         </div>
         <div className="border-border border-dashed">
           <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
