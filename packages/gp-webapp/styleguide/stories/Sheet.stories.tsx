@@ -131,13 +131,15 @@ export const Anatomy: StoryObj<typeof Sheet> = {
             <Input id="anatomy-name" placeholder="Enter name" />
           </div>
         </div>
-        <SheetFooter>
-          <SheetClose asChild>
-            <Button variant="outline">SheetClose</Button>
-          </SheetClose>
-          <Button>Primary action</Button>
-          <p className={sectionLabel}>SheetFooter</p>
-        </SheetFooter>
+        <div className="mt-auto">
+          <p className={`${sectionLabel} px-6 pb-2`}>SheetFooter</p>
+          <SheetFooter className="mt-0">
+            <SheetClose asChild>
+              <Button variant="outline">SheetClose</Button>
+            </SheetClose>
+            <Button>Primary action</Button>
+          </SheetFooter>
+        </div>
       </SheetContent>
     </Sheet>
   ),
