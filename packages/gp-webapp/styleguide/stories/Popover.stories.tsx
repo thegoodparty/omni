@@ -17,7 +17,6 @@ const meta: Meta<typeof Popover> = {
 }
 
 export default meta
-type Story = StoryObj<typeof Popover>
 
 type PlaygroundArgs = {
   open: boolean
@@ -48,7 +47,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   render: ({ open, side, align }) => {
     const [, updateArgs] = useArgs()
     return (
-      <div className="flex h-[200px] items-center justify-center">
+      <div className="flex h-[300px] items-center justify-center">
         <Popover
           open={open}
           onOpenChange={(next) => updateArgs({ open: next })}
@@ -57,7 +56,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
             <Button variant="outline">Open popover</Button>
           </PopoverTrigger>
           <PopoverContent className="w-80" side={side} align={align}>
-            <div className="space-y-4">
+            <div className="space-y-2">
               <h4 className="font-medium leading-none">Dimensions</h4>
               <p className="text-sm text-muted-foreground">
                 Set the dimensions for the layer.
@@ -70,78 +69,84 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
 }
 
-export const Default: Story = {
+export const Triggers: StoryObj<typeof Popover> = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open popover</Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="space-y-4">
-          <h4 className="font-medium leading-none">Dimensions</h4>
-          <p className="text-sm text-muted-foreground">
-            Set the dimensions for the layer.
-          </p>
-        </div>
-      </PopoverContent>
-    </Popover>
-  ),
-}
-
-export const WithForm: Story = {
-  render: () => (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open settings</Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="space-y-4">
-          <h4 className="font-medium leading-none">Settings</h4>
+    <div className="flex h-[300px] items-center justify-center gap-8">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline">Text trigger</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72">
           <div className="space-y-2">
-            <Label htmlFor="popover-width">Width</Label>
-            <Input id="popover-width" type="number" defaultValue={100} />
+            <h4 className="font-medium leading-none">Details</h4>
+            <p className="text-sm text-muted-foreground">
+              Additional context about this item.
+            </p>
           </div>
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="small">
+            <InfoIcon className="size-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72">
           <div className="space-y-2">
-            <Label htmlFor="popover-height">Height</Label>
-            <Input id="popover-height" type="number" defaultValue={100} />
+            <h4 className="font-medium leading-none">Details</h4>
+            <p className="text-sm text-muted-foreground">
+              Additional context about this item.
+            </p>
           </div>
-          <Button className="w-full">Apply</Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
   ),
 }
 
-export const WithIcon: Story = {
+export const Patterns: StoryObj<typeof Popover> = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="small">
-          <InfoIcon className="size-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="space-y-4">
-          <h4 className="font-medium leading-none">Information</h4>
-          <p className="text-sm text-muted-foreground">
-            This is an informational popover with an icon trigger.
-          </p>
-        </div>
-      </PopoverContent>
-    </Popover>
-  ),
-}
-
-export const WithActions: Story = {
-  render: () => (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Actions</Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="space-y-4">
-          <h4 className="font-medium leading-none">Actions</h4>
+    <div className="flex h-[320px] items-center justify-center gap-8">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline">Info</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72">
           <div className="space-y-2">
+            <h4 className="font-medium leading-none">Information</h4>
+            <p className="text-sm text-muted-foreground">
+              A simple informational popover with a title and description.
+            </p>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline">Form</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-80">
+          <div className="space-y-4">
+            <h4 className="font-medium leading-none">Settings</h4>
+            <div className="space-y-2">
+              <Label htmlFor="popover-width">Width</Label>
+              <Input id="popover-width" placeholder="e.g. 320px" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="popover-height">Height</Label>
+              <Input id="popover-height" placeholder="e.g. 240px" />
+            </div>
+            <Button className="w-full">Apply</Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline">Actions</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-48">
+          <div className="flex flex-col gap-1">
             <Button variant="ghost" className="w-full justify-start">
               Edit
             </Button>
@@ -155,8 +160,30 @@ export const WithActions: Story = {
               Delete
             </Button>
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
+  ),
+}
+
+export const Placement: StoryObj<typeof Popover> = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex h-[320px] items-center justify-center gap-8">
+      {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
+        <Popover key={side}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="capitalize">
+              {side}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent side={side} className="w-40 p-3">
+            <p className="text-center text-sm text-muted-foreground capitalize">
+              {side}
+            </p>
+          </PopoverContent>
+        </Popover>
+      ))}
+    </div>
   ),
 }
