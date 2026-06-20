@@ -62,7 +62,7 @@ beforeEach(() => {
   mockAuth.mockReturnValue({ has: mockHas })
   mockUsersGet.mockResolvedValue({ id: 1, email: 'u@example.com' })
   mockGpAction.mockImplementation((fn: (client: unknown) => unknown) =>
-    fn(mockClient),
+    fn(mockClient)
   )
 })
 
