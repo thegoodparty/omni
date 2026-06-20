@@ -31,8 +31,11 @@ export function personContactPanel(page: Page): Locator {
 const CONTACTS_LIST_RESPONSE = /\/v1\/contacts(\?|$)/
 
 // The per-person detail endpoint (GET /v1/contacts/:id). The id segment has no
-// further slash, so this excludes /v1/contacts/:id/issues and /activities.
-const PERSON_DETAIL_RESPONSE = /\/v1\/contacts\/[^/?]+(\?|$)/
+// further slash, so this excludes /v1/contacts/:id/issues and /activities; the
+// negative lookahead also excludes the sibling single-segment endpoints
+// /v1/contacts/stats and /v1/contacts/download, which would otherwise satisfy
+// [^/?]+ and let detailLanded resolve on the wrong response.
+const PERSON_DETAIL_RESPONSE = /\/v1\/contacts\/(?!stats|download)[^/?]+(\?|$)/
 
 const isGetResponse = (regex: RegExp) => (res: Response) =>
   regex.test(res.url()) && res.request().method() === 'GET' && res.ok()
