@@ -195,7 +195,7 @@ step), repeat the `TOKEN=$(npx tsx ...)` mint from Step 1.
 Community-issue runs are shorter than briefings. Expect ~5-10 min per run; the
 45-min stale-run sweeper force-FAILs anything still RUNNING at that point.
 
-Re-assemble `PROD_DATABASE_URL` each call if the shell is new. Query
+Re-assemble `PROD_DATABASE_URL` and `COHORT` each call if the shell is new. Query
 `experiment_run` for the cohort window and group by type + status:
 
 ```bash
@@ -205,8 +205,10 @@ npx tsx -e '
 import { PrismaClient } from "./src/generated/prisma"
 const p = new PrismaClient({ datasourceUrl: process.env.PROD_DATABASE_URL })
 const START = "<DISPATCH_START>", END = "<DISPATCH_END>"  // from Step 4
+const slugs: string[] = JSON.parse(process.env.COHORT || "[]")
 ;(async () => {
   const w = {
+    organizationSlug: { in: slugs },
     experimentType: { in: ["top_community_issues","trending_issues"] },
     createdAt: { gte: new Date(START), lte: new Date(END) },
   }
@@ -225,11 +227,18 @@ const START = "<DISPATCH_START>", END = "<DISPATCH_END>"  // from Step 4
   console.log("COMPLETED avg dur:", agg._avg.durationSeconds, "s  total cost: $", agg._sum.costUsd)
   await p.$disconnect()
 })()
-'
+' COHORT="$COHORT"
 ```
 
-Repeat ~60s apart until COMPLETED + FAILED equals the `dispatched` count from Step 4.
-On the last poll, also fetch FAILED `runId` + `error`.
+Repeat ~60s apart. The run is **done** when COMPLETED + FAILED equals the
+`dispatched` count from Step 4. On the last poll, also fetch FAILED `runId` + `error`.
+
+The 45-min stale-run sweeper force-FAILs only **RUNNING** rows — not QUEUED or
+AWAITING_RESUME. If after ~60 min any run is still QUEUED or AWAITING_RESUME it has
+stalled with no automatic reclaim: stop polling, note those `runId`s from the table,
+and treat them as failed for convergence — stop when
+`COMPLETED + FAILED + stuck_non_terminal >= dispatched`, and carry the stuck runs
+into Step 6 as failures.
 
 ## Step 6: analysis (run after all terminal)
 
@@ -248,7 +257,8 @@ npx tsx ./_tmp_issues_analysis.ts && rm ./_tmp_issues_analysis.ts
 
 The script should:
 
-1. `experimentRun.findMany` where `experimentType IN ('top_community_issues','trending_issues')`,
+1. `experimentRun.findMany` where `organizationSlug IN (the cohort slugs)`,
+   `experimentType IN ('top_community_issues','trending_issues')`, and
    `createdAt` in [DISPATCH_START, DISPATCH_END] -> `runId`, `organizationSlug`,
    `experimentType`, `status`, `costUsd`, `durationSeconds`, `artifactBucket`,
    `artifactKey`, `error`.
