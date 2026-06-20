@@ -3,6 +3,7 @@ import * as React from 'react'
 import { Drawer as DrawerPrimitive } from 'vaul'
 
 import { cn } from '@styleguide/lib/utils'
+import { XMarkIcon } from './icons'
 
 function Drawer({
   ...props
@@ -77,6 +78,13 @@ function DrawerContent({
         )}
         {...props}
       >
+        <DrawerPrimitive.Close
+          className="absolute top-4 right-4 z-10 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-primary-focus focus-visible:ring-2 focus-visible:outline-none disabled:pointer-events-none"
+          aria-label="Close"
+        >
+          <XMarkIcon className="size-6" />
+          <span className="sr-only">Close</span>
+        </DrawerPrimitive.Close>
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
