@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -9,6 +9,18 @@ import {
   dashboardGreetingHeading,
   waitForDashboardReady,
 } from 'src/helpers/dashboard'
+
+// Open the mobile drawer and click a nav link, retrying the whole sequence. A
+// dashboard promo/coachmark overlay can pop in late and intercept the first
+// click; openMobileMenu is idempotent (won't toggle an open drawer shut), so
+// re-running it and re-clicking is safe until the click lands.
+const openMobileNavLink = async (page: Page, name: string) => {
+  await expect(async () => {
+    await NavigationHelper.dismissOverlays(page)
+    await NavigationHelper.openMobileMenu(page)
+    await page.getByRole('link', { name }).click({ timeout: 3000 })
+  }).toPass({ timeout: 30000 })
+}
 
 test.describe('Mobile Navigation', () => {
   // Configure mobile viewport
@@ -48,8 +60,7 @@ test.describe('Mobile Navigation', () => {
   test('should navigate to AI Assistant on mobile', async ({ page }) => {
     await WaitHelper.waitForPageReady(page)
 
-    await NavigationHelper.openMobileMenu(page)
-    await page.getByRole('link', { name: 'AI Assistant' }).click()
+    await openMobileNavLink(page, 'AI Assistant')
     // The mobile header renders the page title as a heading in addition to the
     // page's own heading, so scope to the first match to avoid strict mode.
     await expect(
@@ -61,8 +72,7 @@ test.describe('Mobile Navigation', () => {
   test('should navigate to Content Builder on mobile', async ({ page }) => {
     await WaitHelper.waitForPageReady(page)
 
-    await NavigationHelper.openMobileMenu(page)
-    await page.getByRole('link', { name: 'Content Builder' }).click()
+    await openMobileNavLink(page, 'Content Builder')
     // The mobile header renders the page title as a heading in addition to the
     // page's own heading, so scope to the first match to avoid strict mode.
     await expect(

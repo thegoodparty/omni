@@ -76,16 +76,29 @@ export class NavigationHelper {
   }
 
   static async openMobileMenu(page: Page): Promise<void> {
+    // The drawer mounts a "Close menu" button only while it is open. Treat that
+    // as the open signal so this is idempotent: clicking the trigger again while
+    // the drawer is open would toggle it shut, so a caller that retries
+    // (open -> click a nav link, on a flake) doesn't accidentally close it.
+    const closeButton = page.getByRole('button', { name: /close menu/i })
+    if (await closeButton.isVisible().catch(() => false)) {
+      return
+    }
+
     const openMenu = page.getByRole('button', { name: /open menu/i })
     if (await openMenu.isVisible().catch(() => false)) {
       await openMenu.click()
-      return
+    } else {
+      const trigger = page.getByTestId('mobile-menu-trigger')
+      if (await trigger.isVisible().catch(() => false)) {
+        await trigger.click()
+      } else {
+        await NavigationHelper.openMobileNavMenu(page)
+      }
     }
-    const trigger = page.getByTestId('mobile-menu-trigger')
-    if (await trigger.isVisible().catch(() => false)) {
-      await trigger.click()
-      return
-    }
-    await NavigationHelper.openMobileNavMenu(page)
+
+    // Confirm the drawer actually opened before callers reach for a nav link;
+    // the trigger click can no-op while the page is still settling.
+    await closeButton.waitFor({ state: 'visible', timeout: 10_000 })
   }
 }

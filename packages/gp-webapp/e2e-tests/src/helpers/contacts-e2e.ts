@@ -1,4 +1,9 @@
-import type { Locator, Page } from '@playwright/test'
+import {
+  type Locator,
+  type Page,
+  type Response,
+  expect,
+} from '@playwright/test'
 
 /** Filters sheet uses Radix Dialog; match by CTA button and sheet slot. */
 export function filtersSheet(page: Page, cta: RegExp): Locator {
@@ -18,4 +23,92 @@ export function personContactPanel(page: Page): Locator {
     .filter({ has: title })
     .or(page.getByRole('dialog').filter({ has: title }))
     .first()
+}
+
+// The contacts list endpoint (GET /v1/contacts), not the per-person detail
+// (/v1/contacts/:id), the stats (/v1/contacts/stats) or download
+// (/v1/contacts/download) — those carry a trailing path segment.
+const CONTACTS_LIST_RESPONSE = /\/v1\/contacts(\?|$)/
+
+// The per-person detail endpoint (GET /v1/contacts/:id). The id segment has no
+// further slash, so this excludes /v1/contacts/:id/issues and /activities.
+const PERSON_DETAIL_RESPONSE = /\/v1\/contacts\/[^/?]+(\?|$)/
+
+const isGetResponse = (regex: RegExp) => (res: Response) =>
+  regex.test(res.url()) && res.request().method() === 'GET' && res.ok()
+
+// Wait for the contacts table to leave its loading state and show a real row.
+// ContactsTable swaps every cell for an `animate-pulse` skeleton while the
+// contacts query is fetching, so the skeleton being gone (not just "some text
+// present", which matches the previous segment's stale rows) is the signal that
+// the displayed rows are the freshly-queried ones.
+export async function waitForContactsTableReady(page: Page): Promise<void> {
+  await expect(
+    page.locator('.contacts-table-wrapper .animate-pulse'),
+  ).toHaveCount(0, { timeout: 30_000 })
+  await expect(
+    page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first()
+      .locator('td')
+      .first(),
+  ).toHaveText(/.+/, { timeout: 30_000 })
+}
+
+// Run an action that re-queries the contacts table (apply/create/update a
+// segment) and resolve only once the table shows the NEW data.
+//
+// Why: the action fires a fresh GET /v1/contacts and the table renders skeleton
+// rows while it loads. Asserting before that settles reads the PREVIOUS
+// segment's rows — the flaky `td.nth(5)` "--" failures. Gate on the list
+// response landing AND the skeleton clearing so assertions see the new rows, not
+// stale ones. The response waiter is armed before the action so a fast refetch
+// can't resolve before we start listening.
+export async function applyContactsQuery(
+  page: Page,
+  action: () => Promise<void>,
+): Promise<void> {
+  const responseLanded = page.waitForResponse(
+    isGetResponse(CONTACTS_LIST_RESPONSE),
+    {
+      timeout: 30_000,
+    },
+  )
+  await action()
+  await responseLanded
+  await waitForContactsTableReady(page)
+}
+
+// Open the person overlay for a table row and wait for the person detail to
+// finish loading. The overlay renders its "Contact Information" title (which
+// personContactPanel keys on) immediately but shows `animate-pulse` skeletons
+// until GET /v1/contacts/:id resolves, so field labels like "Veteran Status"
+// aren't in the DOM yet — asserting on them before the detail loads is the flaky
+// "field not found". Arm the response waiter before the click that triggers it.
+export async function openPersonPanel(
+  page: Page,
+  row: Locator,
+  panel: Locator,
+): Promise<void> {
+  const detailLanded = page.waitForResponse(
+    isGetResponse(PERSON_DETAIL_RESPONSE),
+    {
+      timeout: 30_000,
+    },
+  )
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await row.locator('td').first().click({ force: true })
+    try {
+      await expect(panel).toBeVisible({ timeout: 10_000 })
+      break
+    } catch {
+      if (attempt === 2) await expect(panel).toBeVisible()
+    }
+  }
+  await detailLanded
+  await expect(panel.locator('.animate-pulse')).toHaveCount(0, {
+    timeout: 30_000,
+  })
 }

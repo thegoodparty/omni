@@ -9,7 +9,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { eventually, wait } from 'tests/utils/eventually'
+import { eventually } from 'tests/utils/eventually'
 
 // E2E coverage for the "Run for a new office" branch of the follow-on flow
 // (ENG-10389 task 11). Unlike same-office, this path must NOT skip the office
@@ -157,8 +157,9 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
   const differentOffice = allOffices.filter({ hasNotText: RACE.office }).first()
   await expect(differentOffice).toBeVisible()
   await differentOffice.click()
-  // Wait out the race-by-position hydration before the (creation) Continue.
-  await wait(1000)
+  // Selecting an office hydrates its race via race-by-position; FollowOnFlow
+  // keeps Continue disabled (canContinue → !isHydratingOffice) until that lands,
+  // so clickContinue's enabled-wait gates on the hydration — no fixed timeout.
   await clickContinue(page)
 
   // path-to-victory (not skipped — the picked office is structured).
