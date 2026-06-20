@@ -342,7 +342,14 @@ jobs:
       # playwright-report/ (HTML, for S3) and test-results/results.json (for the
       # comment). The merge config emits only those two reporters and omits the
       # main config's BASE_URL throw + globalSetup (no browser launches here).
+      # Only when the shards actually ran (success or failure → blobs exist).
+      # If they were skipped/cancelled (e.g. e2e-wait failed), there are no
+      # blobs to merge — skip straight to the controlled fail-gate below rather
+      # than letting merge-reports error on an empty input.
       - name: Merge shard reports
+        if: >-
+          needs.e2e-shard.result == 'success'
+          || needs.e2e-shard.result == 'failure'
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: >-
           npx playwright merge-reports
@@ -413,7 +420,13 @@ jobs:
       # Upsert a single results comment (mirrors the pr-preview-comment pattern:
       # a stable marker + find-and-update) so re-runs don't pile up duplicates.
       - name: Comment results on PR
-        if: ${{ always() && github.event_name == 'pull_request' }}
+        # Skip when the shards never ran (skipped/cancelled) — there are no
+        # results to report and a 0/0/0 comment would be misleading; the red
+        # E2E check from the fail-gate below is the signal in that case.
+        if: >-
+          ${{ always() && github.event_name == 'pull_request'
+          && (needs.e2e-shard.result == 'success'
+              || needs.e2e-shard.result == 'failure') }}
         uses: actions/github-script@v8
         env:
           REPORT_URL: ${{ steps.report.outputs.url }}
