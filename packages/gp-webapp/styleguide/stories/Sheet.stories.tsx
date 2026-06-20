@@ -125,7 +125,7 @@ export const Overflow: StoryObj<typeof Sheet> = {
             SheetBody scrolls independently — header and footer stay fixed.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="flex flex-col gap-4">
+        <SheetBody className="gap-4">
           {Array.from({ length: 12 }, (_, i) => (
             <div key={i} className="grid gap-2">
               <Label htmlFor={`overflow-field-${i}`}>Field {i + 1}</Label>
