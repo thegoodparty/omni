@@ -141,7 +141,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('validate contacts filters', async ({ page }) => {
-  test.setTimeout(5 * 60 * 1000)
+  // ~20 filter steps, each now gated on a real data-ready wait (segment refetch
+  // + skeleton clear + person-detail load) instead of racing stale rows. That's
+  // correct but slower; 5 min timed out mid-run on the preview, so give it room.
+  test.setTimeout(8 * 60 * 1000)
 
   await setupElectedOfficeUser(page, {
     zip: '82001',

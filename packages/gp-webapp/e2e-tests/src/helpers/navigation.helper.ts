@@ -1,6 +1,10 @@
 import type { Page } from '@playwright/test'
 import { WaitHelper } from './wait.helper'
 
+// Accessible name of the mobile sidebar Sheet (its sr-only SheetTitle), used to
+// target the drawer dialog without matching other dialogs (promos, task modals).
+export const MOBILE_DRAWER_TITLE = 'Sidebar'
+
 // LinkedIn's analytics script (snap.licdn.com) intermittently stalls in CI,
 // which prevents the browser's `load` event from firing and causes Playwright's
 // `page.goto()` to time out at 45s. Blocking it has no effect on test coverage.
@@ -9,19 +13,6 @@ export const blockSlowScripts = async (page: Page) => {
 }
 
 export class NavigationHelper {
-  /**
-   * Opens the mobile nav drawer. The trigger is a button with an
-   * accessible name of "Open menu" (aria-label) in every layout.
-   */
-  static async openMobileNavMenu(page: Page): Promise<void> {
-    const openMenu = page.getByRole('button', { name: /open menu/i }).first()
-    if (await openMenu.isVisible().catch(() => false)) {
-      await openMenu.click()
-      return
-    }
-    throw new Error('No mobile menu trigger found')
-  }
-
   static async navigateToPage(page: Page, path: string): Promise<void> {
     await page.goto(path)
     await WaitHelper.waitForPageReady(page)
@@ -76,29 +67,19 @@ export class NavigationHelper {
   }
 
   static async openMobileMenu(page: Page): Promise<void> {
-    // The drawer mounts a "Close menu" button only while it is open. Treat that
-    // as the open signal so this is idempotent: clicking the trigger again while
-    // the drawer is open would toggle it shut, so a caller that retries
-    // (open -> click a nav link, on a flake) doesn't accidentally close it.
-    const closeButton = page.getByRole('button', { name: /close menu/i })
-    if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    // The mobile drawer is a modal Radix Sheet (role="dialog", titled
+    // "Sidebar"). While open it aria-hides the page chrome — the header trigger
+    // AND the separate "Close menu" button both drop out of the accessibility
+    // tree — so the only reliable "open" signal is the dialog itself. Key the
+    // idempotency check on the dialog (not the aria-hidden close button): a
+    // retry must not fall through and re-click the trigger, which is behind the
+    // sheet overlay and gets its click intercepted.
+    const drawer = page.getByRole('dialog', { name: MOBILE_DRAWER_TITLE })
+    if (await drawer.isVisible().catch(() => false)) {
       return
     }
-
-    const openMenu = page.getByRole('button', { name: /open menu/i })
-    if (await openMenu.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await openMenu.click()
-    } else {
-      const trigger = page.getByTestId('mobile-menu-trigger')
-      if (await trigger.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await trigger.click()
-      } else {
-        await NavigationHelper.openMobileNavMenu(page)
-      }
-    }
-
-    // Confirm the drawer actually opened before callers reach for a nav link;
-    // the trigger click can no-op while the page is still settling.
-    await closeButton.waitFor({ state: 'visible', timeout: 10_000 })
+    // Closed: the trigger is in the live tree and not covered, so click it.
+    await page.getByTestId('mobile-menu-trigger').click()
+    await drawer.waitFor({ state: 'visible', timeout: 10_000 })
   }
 }

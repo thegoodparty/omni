@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
+  MOBILE_DRAWER_TITLE,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
@@ -10,15 +11,18 @@ import {
   waitForDashboardReady,
 } from 'src/helpers/dashboard'
 
-// Open the mobile drawer and click a nav link, retrying the whole sequence. A
-// dashboard promo/coachmark overlay can pop in late and intercept the first
-// click; openMobileMenu is idempotent (won't toggle an open drawer shut), so
-// re-running it and re-clicking is safe until the click lands.
+// Open the mobile drawer and click a nav link inside it. Dismiss any
+// promo/coachmark overlay ONCE up front (while the drawer is closed) — not
+// inside the retry, because dismissOverlays clicks any "Close"-named button and
+// would close the drawer itself. The link is scoped to the drawer dialog so a
+// hidden desktop-sidebar copy can't be matched, and openMobileMenu is idempotent
+// (returns early when the dialog is open) so re-running it on a retry is safe.
 const openMobileNavLink = async (page: Page, name: string) => {
+  await NavigationHelper.dismissOverlays(page)
+  const drawer = page.getByRole('dialog', { name: MOBILE_DRAWER_TITLE })
   await expect(async () => {
-    await NavigationHelper.dismissOverlays(page)
     await NavigationHelper.openMobileMenu(page)
-    await page.getByRole('link', { name }).click({ timeout: 3000 })
+    await drawer.getByRole('link', { name }).click({ timeout: 5000 })
   }).toPass({ timeout: 30000 })
 }
 
