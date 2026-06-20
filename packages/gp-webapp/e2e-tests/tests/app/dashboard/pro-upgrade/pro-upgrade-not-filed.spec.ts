@@ -7,8 +7,10 @@ import {
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 
 // The "not yet filed" dead-end (FilingStatusStep → FilingInstructionsStep)
-// writes only details.hasFiledForRace and hits no Stripe/webhook, so the shared
-// cached user is fine and this runs on every PR preview (not @dev-only).
+// hits no Stripe/webhook, so it runs on every PR preview (not @dev-only). The
+// "No, not yet" click persists details.hasFiledForRace on the campaign, so this
+// uses an isolated user — a shared cached user would carry that answer into
+// sibling specs that expect the filing-status step still unanswered.
 test.describe('Pro upgrade — not-yet-filed dead-end', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
@@ -19,7 +21,7 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
   }) => {
     test.setTimeout(120000)
 
-    await authenticateTestUser(page)
+    await authenticateTestUser(page, { isolated: true })
     await page.goto('/dashboard')
     await page.waitForURL(/\/dashboard/)
     // Dismiss the Pro promo modal first: it aria-hides the page and ignores
