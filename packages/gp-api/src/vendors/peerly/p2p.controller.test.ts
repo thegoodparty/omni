@@ -225,6 +225,12 @@ describe('P2pController', () => {
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
       ).toHaveBeenCalledWith(123)
+      // The resolved list_id is stamped onto the caller's ownership row so the
+      // outreach gate can later resolve list_id -> campaign.
+      expect(mockPhoneListOwnership.linkListId).toHaveBeenCalledWith(
+        'test-token',
+        123,
+      )
     })
   })
 

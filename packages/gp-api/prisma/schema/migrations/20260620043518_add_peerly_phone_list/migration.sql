@@ -23,13 +23,15 @@ CREATE INDEX "peerly_phone_list_campaign_id_idx" ON "peerly_phone_list"("campaig
 ALTER TABLE "peerly_phone_list" ADD CONSTRAINT "peerly_phone_list_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "campaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Backfill ownership from existing P2P outreach rows so every phone list already
--- in use is bound to its owning campaign. One row per Peerly list_id (DISTINCT
--- ON picks the lowest campaign_id deterministically); the unique list_id index
--- is additionally guarded by ON CONFLICT DO NOTHING.
+-- in use is bound to its owning campaign. One row per Peerly list_id. For a
+-- list_id that appears under more than one campaign (only possible if a past
+-- IDOR already occurred), assign it to the campaign that used it EARLIEST — the
+-- original owner — rather than an arbitrary one. The unique list_id index is
+-- additionally guarded by ON CONFLICT DO NOTHING.
 INSERT INTO "peerly_phone_list" ("campaign_id", "list_id", "updated_at")
 SELECT DISTINCT ON ("phone_list_id")
     "campaign_id", "phone_list_id", CURRENT_TIMESTAMP
 FROM "outreach"
 WHERE "phone_list_id" IS NOT NULL
-ORDER BY "phone_list_id", "campaign_id"
+ORDER BY "phone_list_id", "created_at"
 ON CONFLICT DO NOTHING;

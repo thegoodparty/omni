@@ -80,6 +80,18 @@ describe('PeerlyPhoneListOwnershipService', () => {
         service.assertCampaignOwnsList(7, 42),
       ).resolves.toBeUndefined()
     })
+
+    it('allows (does not block the user) when the claim write fails with no competing owner', async () => {
+      // Transient write failure: create throws and the re-read still finds no
+      // owner. The list is unclaimed, so there is no other tenant to protect —
+      // let the legitimate outreach through rather than blocking it.
+      findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+      create.mockRejectedValue(new Error('db down'))
+
+      await expect(
+        service.assertCampaignOwnsList(7, 42),
+      ).resolves.toBeUndefined()
+    })
   })
 
   describe('recordUpload', () => {
@@ -110,7 +122,7 @@ describe('PeerlyPhoneListOwnershipService', () => {
 
       expect(updateMany).toHaveBeenCalledWith({
         where: { token: 'tok-abc', listId: null },
-        data: { listId: 42 },
+        data: { listId: 42, updatedAt: expect.any(Date) },
       })
     })
 

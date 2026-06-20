@@ -36,8 +36,11 @@ export class PeerlyPhoneListOwnershipService extends createPrismaBase(
   async linkListId(token: string, listId: number): Promise<void> {
     try {
       await this.model.updateMany({
+        // updateMany bypasses Prisma's @updatedAt auto-stamp, so set it
+        // explicitly — otherwise updated_at would misreport when the list_id
+        // was resolved.
         where: { token, listId: null },
-        data: { listId },
+        data: { listId, updatedAt: new Date() },
       })
     } catch (err) {
       this.logger.error(
@@ -74,17 +77,29 @@ export class PeerlyPhoneListOwnershipService extends createPrismaBase(
     )
     try {
       await this.model.create({ data: { campaignId, listId } })
+      return
     } catch (err) {
-      // A concurrent claim or a backfilled row landing first can race the
-      // create. Re-check: if another campaign now owns it, reject; otherwise the
-      // caller's own claim won — allow.
-      const claimed = await this.model.findUnique({ where: { listId } })
-      if (claimed && claimed.campaignId !== campaignId) {
-        throw new ForbiddenException(
-          'Phone list does not belong to this campaign',
-        )
+      // create can fail two ways: (1) a concurrent request claimed the same
+      // listId first (unique-constraint race), or (2) a transient write error.
+      // Re-read to honor whoever actually owns the row.
+      const owner = await this.model.findUnique({ where: { listId } })
+      if (owner) {
+        if (owner.campaignId !== campaignId) {
+          throw new ForbiddenException(
+            'Phone list does not belong to this campaign',
+          )
+        }
+        return
       }
-      this.logger.warn({ err, campaignId, listId }, 'Phone list claim raced')
+      // No owner persisted (case 2): the list is still unclaimed, so there is no
+      // other tenant to protect. Allow the caller through rather than block a
+      // legitimate outreach — the next call re-attempts the claim. This is the
+      // deliberate trust-on-first-use posture, not an ownership bypass: a list a
+      // *different* campaign owns is always rejected above.
+      this.logger.warn(
+        { err, campaignId, listId },
+        'P2P phone list ownership claim did not persist; allowing (no competing owner)',
+      )
     }
   }
 }
