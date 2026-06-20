@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
+  CheckboxLabel,
   Label,
   Select,
   SelectContent,
@@ -36,6 +37,7 @@ import {
   getFailingFields,
   getValidationMessage,
   validateRegistrationForm,
+  type ContactChannelSelection,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
 import {
@@ -91,14 +93,28 @@ export const getInitialFilingDetailsState = (
     address: { formatted_address: '', place_id: '' },
     website: '',
     email: '',
+    // Contact channels start unselected; the candidate checks the ones that
+    // appear on their filing, which reveals that channel's input (ENG-10357).
+    emailOnFiling: false,
+    phoneOnFiling: false,
+    addressOnFiling: false,
   }
 }
 
-const validateFilingDetails = (data: FormDataState) =>
-  validateRegistrationForm(data, { requireWebsite: false })
-
 const getStringValue = (value: FormDataState[keyof FormDataState]): string =>
   typeof value === 'string' ? value : ''
+
+const getContactSelection = (data: FormDataState): ContactChannelSelection => ({
+  email: data.emailOnFiling === true,
+  phone: data.phoneOnFiling === true,
+  address: data.addressOnFiling === true,
+})
+
+const validateFilingDetails = (data: FormDataState) =>
+  validateRegistrationForm(data, {
+    requireWebsite: false,
+    contactSelection: getContactSelection(data),
+  })
 
 interface FilingDetailsFormProps {
   onSubmit: (formData: FormDataState) => void
@@ -119,8 +135,11 @@ const FilingDetailsForm = ({
   } = formData
   const isFederal = getStringValue(officeLevel) === 'federal'
 
+  const contactSelection = getContactSelection(formData)
+
   const { validations, isValid } = validateRegistrationForm(formData, {
     requireWebsite: false,
+    contactSelection,
   })
 
   // `website` is validated but has no input in this form (the agentic flow
@@ -146,6 +165,26 @@ const FilingDetailsForm = ({
       ? (addressValue as { formatted_address: string }).formatted_address
       : ''
   const [addressInput, setAddressInput] = useState(initialAddress)
+
+  // Toggling a contact channel reveals/hides its input. On uncheck, clear the
+  // channel's value so the submitted payload reflects only checked channels —
+  // the selected set is what Peerly may send the CV PIN to (ENG-10357).
+  const handleEmailToggle = (checked: boolean) =>
+    handleChange(
+      checked ? { emailOnFiling: true } : { emailOnFiling: false, email: '' },
+    )
+  const handlePhoneToggle = (checked: boolean) =>
+    handleChange(
+      checked ? { phoneOnFiling: true } : { phoneOnFiling: false, phone: '' },
+    )
+  const handleAddressToggle = (checked: boolean) => {
+    if (checked) {
+      handleChange({ addressOnFiling: true })
+      return
+    }
+    setAddressInput('')
+    handleChange({ addressOnFiling: false, address: null })
+  }
 
   const [validFecCommitteeId, setValidFecCommitteeId] = useState(
     getFecCommitteeIdValidation(getStringValue(formData.fecCommitteeId)),
@@ -281,49 +320,85 @@ const FilingDetailsForm = ({
             Which of these appear on your campaign filing?
           </div>
           <Body2 className="text-base-muted-foreground mt-1 mb-4">
-            Enter them exactly as they appear on your campaign filing. You will
-            receive a PIN within 7 business days to one of these to verify your
-            campaign.
+            Select at least one. Enter it exactly as it appears on your campaign
+            filing. You will receive a PIN within 7 business days to one of
+            these to verify your campaign.
           </Body2>
           <div className="flex flex-col gap-6">
-            <TextField
-              label="Email"
-              placeholder="jane@gmail.com"
-              fullWidth
-              required
-              error={showError('email')}
-              value={getStringValue(email)}
-              onChange={(e) => handleChange({ email: e.target.value })}
-            />
-            <TextField
-              label="Phone"
-              placeholder="(555) 555-5555"
-              fullWidth
-              required
-              error={showError('phone')}
-              value={getStringValue(phone)}
-              onChange={(e) => handleChange({ phone: e.target.value })}
-            />
-            <AddressAutocomplete
-              value={addressInput}
-              onChange={(value) => {
-                setAddressInput(value)
-                if (!value) handleChange({ address: null })
-              }}
-              onSelect={(place) => {
-                setAddressInput(place.formatted_address || '')
-                handleChange({
-                  address: {
-                    formatted_address: place.formatted_address || '',
-                    place_id: place.place_id || '',
-                  },
-                })
-              }}
-              placeholder="Address *"
-              variant="outlined"
-              error={showError('address')}
-              dropdownClassName="texting-compliance-address-dropdown"
-            />
+            <div className="flex flex-col gap-3">
+              <CheckboxLabel
+                id="email-on-filing"
+                label="Email"
+                checked={contactSelection.email}
+                onCheckedChange={(checked) =>
+                  handleEmailToggle(checked === true)
+                }
+              />
+              {contactSelection.email && (
+                <TextField
+                  label="Email"
+                  placeholder="jane@gmail.com"
+                  fullWidth
+                  required
+                  error={showError('email')}
+                  value={getStringValue(email)}
+                  onChange={(e) => handleChange({ email: e.target.value })}
+                />
+              )}
+            </div>
+            <div className="flex flex-col gap-3">
+              <CheckboxLabel
+                id="phone-on-filing"
+                label="Phone"
+                checked={contactSelection.phone}
+                onCheckedChange={(checked) =>
+                  handlePhoneToggle(checked === true)
+                }
+              />
+              {contactSelection.phone && (
+                <TextField
+                  label="Phone"
+                  placeholder="(555) 555-5555"
+                  fullWidth
+                  required
+                  error={showError('phone')}
+                  value={getStringValue(phone)}
+                  onChange={(e) => handleChange({ phone: e.target.value })}
+                />
+              )}
+            </div>
+            <div className="flex flex-col gap-3">
+              <CheckboxLabel
+                id="address-on-filing"
+                label="Address"
+                checked={contactSelection.address}
+                onCheckedChange={(checked) =>
+                  handleAddressToggle(checked === true)
+                }
+              />
+              {contactSelection.address && (
+                <AddressAutocomplete
+                  value={addressInput}
+                  onChange={(value) => {
+                    setAddressInput(value)
+                    if (!value) handleChange({ address: null })
+                  }}
+                  onSelect={(place) => {
+                    setAddressInput(place.formatted_address || '')
+                    handleChange({
+                      address: {
+                        formatted_address: place.formatted_address || '',
+                        place_id: place.place_id || '',
+                      },
+                    })
+                  }}
+                  placeholder="Address *"
+                  variant="outlined"
+                  error={showError('address')}
+                  dropdownClassName="texting-compliance-address-dropdown"
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
