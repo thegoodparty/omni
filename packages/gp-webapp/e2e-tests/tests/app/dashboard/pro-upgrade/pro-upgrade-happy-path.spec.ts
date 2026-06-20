@@ -77,21 +77,17 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByRole('textbox').first().fill('47-1234567')
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // 6. Filing details — checkbox-gated contact channels (ENG-10357). Only ≥1
-  // channel is required, so check Email + Phone (both plain TextFields) and
-  // skip the Google-autocomplete address, which is flaky in e2e and not needed
-  // to satisfy submission for a local-office candidate.
+  // 6. Filing details. Email and phone are both required (ENG-10483: Peerly
+  // needs both); the filing address is optional. Fill committee, filing link,
+  // email, and phone, and skip the Google-autocomplete address, which is flaky
+  // in e2e and not required for submission.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-details/)
   await page.getByPlaceholder('Jane for Council').fill('Jane for Council')
   await page
     .getByPlaceholder('https://')
     .fill('https://sos.wyo.gov/filing/jane-for-council')
 
-  // Each input only appears after its "appears on my filing" checkbox is
-  // checked. Toggle Email + Phone, then fill the revealed inputs.
-  await page.getByRole('checkbox', { name: 'Email' }).check()
   await page.getByPlaceholder('jane@gmail.com').fill(user.email)
-  await page.getByRole('checkbox', { name: 'Phone' }).check()
   await page.getByPlaceholder('(555) 555-5555').fill('(307) 555-1234')
 
   await page.getByRole('button', { name: 'Continue' }).click()
