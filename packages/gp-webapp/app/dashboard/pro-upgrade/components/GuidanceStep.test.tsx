@@ -3,11 +3,16 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import GuidanceStep from './GuidanceStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 vi.mock('./ProUpgradeWizard', () => ({
   useProUpgradeWizard: vi.fn(),
+}))
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: vi.fn(),
 }))
 
 // Keep EVENTS real; stub trackEvent so we don't hit analytics in tests.
@@ -18,6 +23,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 })
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
+const mockUseCampaign = vi.mocked(useCampaign)
 const goToStep = vi.fn()
 const goToNextStep = vi.fn()
 const goToPreviousStep = vi.fn()
@@ -31,6 +37,7 @@ describe('GuidanceStep', () => {
       goToNextStep,
       goToPreviousStep,
     })
+    mockUseCampaign.mockReturnValue([null])
   })
 
   it('fires the viewed analytics event on mount', () => {
@@ -60,6 +67,35 @@ describe('GuidanceStep', () => {
     for (const ordinal of ['1', '2', '3', '4']) {
       expect(screen.getByText(ordinal)).toBeInTheDocument()
     }
+  })
+
+  it('shows the filing window on item 2 when the campaign has one', () => {
+    mockUseCampaign.mockReturnValue([
+      {
+        details: {
+          filingPeriodsStart: '2026-05-14',
+          filingPeriodsEnd: '2026-08-25',
+        },
+      } as never,
+    ])
+
+    render(<GuidanceStep />)
+
+    // Same format the dead-end filing-instructions screen renders, so the two
+    // surfaces can't drift.
+    expect(
+      screen.getByText('May 14, 2026 – August 25, 2026'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders item 2 label-only when no filing window is available', () => {
+    mockUseCampaign.mockReturnValue([{ details: {} } as never])
+
+    render(<GuidanceStep />)
+
+    expect(screen.getByText('Your campaign filing details')).toBeInTheDocument()
+    // No empty range / en-dash artifact when the window is absent.
+    expect(screen.queryByText(/–/)).not.toBeInTheDocument()
   })
 
   it('navigates to the previous step from the footer Back button', () => {
