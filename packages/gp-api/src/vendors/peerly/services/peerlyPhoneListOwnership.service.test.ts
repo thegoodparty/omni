@@ -45,52 +45,16 @@ describe('PeerlyPhoneListOwnershipService', () => {
       expect(create).not.toHaveBeenCalled()
     })
 
-    it('claims the list for the caller (trust-on-first-use) when no record exists', async () => {
-      // Grandfather path: a list uploaded before the table existed and not
-      // captured by backfill. Claim it for the caller rather than block them.
+    it('fails closed (403) and never claims when no ownership record exists', async () => {
+      // Peerly list ids are sequential/account-global, so a missing record can
+      // be a freshly-uploaded list mid-flight. Claiming-on-miss would let an
+      // attacker race the uploader — so deny, never create.
       findUnique.mockResolvedValue(null)
-      create.mockResolvedValue({ id: 2, campaignId: 7, listId: 42 })
-
-      await expect(
-        service.assertCampaignOwnsList(7, 42),
-      ).resolves.toBeUndefined()
-      expect(create).toHaveBeenCalledWith({
-        data: { campaignId: 7, listId: 42 },
-      })
-    })
-
-    it('rejects when a concurrent claim by another campaign wins the race', async () => {
-      findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 3, campaignId: 99, listId: 42 })
-      create.mockRejectedValue(new Error('unique violation'))
 
       await expect(
         service.assertCampaignOwnsList(7, 42),
       ).rejects.toBeInstanceOf(ForbiddenException)
-    })
-
-    it('allows when the racing claim was the caller’s own', async () => {
-      findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 4, campaignId: 7, listId: 42 })
-      create.mockRejectedValue(new Error('unique violation'))
-
-      await expect(
-        service.assertCampaignOwnsList(7, 42),
-      ).resolves.toBeUndefined()
-    })
-
-    it('allows (does not block the user) when the claim write fails with no competing owner', async () => {
-      // Transient write failure: create throws and the re-read still finds no
-      // owner. The list is unclaimed, so there is no other tenant to protect —
-      // let the legitimate outreach through rather than blocking it.
-      findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
-      create.mockRejectedValue(new Error('db down'))
-
-      await expect(
-        service.assertCampaignOwnsList(7, 42),
-      ).resolves.toBeUndefined()
+      expect(create).not.toHaveBeenCalled()
     })
   })
 
@@ -107,10 +71,12 @@ describe('PeerlyPhoneListOwnershipService', () => {
       })
     })
 
-    it('swallows and logs upsert errors so the upload is not broken', async () => {
+    it('propagates upsert errors (ownership is required for fail-closed access)', async () => {
       upsert.mockRejectedValue(new Error('db down'))
 
-      await expect(service.recordUpload(7, 'tok-abc')).resolves.toBeUndefined()
+      await expect(service.recordUpload(7, 'tok-abc')).rejects.toThrow(
+        'db down',
+      )
     })
   })
 

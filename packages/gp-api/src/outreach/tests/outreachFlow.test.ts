@@ -114,6 +114,12 @@ beforeEach(async () => {
       aiContent: {},
     },
   })
+
+  // The P2P ownership gate fails closed: a phoneListId with no ownership row is
+  // rejected. Seed this campaign as the owner of the list the P2P tests submit.
+  await service.prisma.peerlyPhoneList.create({
+    data: { campaignId, listId: 3180213 },
+  })
 })
 
 // -- Helpers --------------------------------------------------------------------------
@@ -351,6 +357,48 @@ describe('Outreach submission flow — single API call contract', () => {
         expectedFailureStepLabel: 'tcrLookup',
         expectNoOutreachRow: true,
       })
+    })
+
+    it('phone list owned by another campaign → 403, no DB row (IDOR gate)', async () => {
+      // A different campaign owns this listId; the caller (999) must not be able
+      // to assign it to their own P2P job. This is the core invariant the
+      // peerly_phone_list ownership table closes. Campaign.organizationSlug is
+      // unique (org↔campaign is 1:1), so the other campaign needs its own org.
+      const otherOrgSlug = 'campaign-888'
+      await service.prisma.organization.create({
+        data: {
+          slug: otherOrgSlug,
+          ownerId: service.user.id,
+          positionId: 'pos-2',
+        },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          id: 888,
+          organizationSlug: otherOrgSlug,
+          userId: service.user.id,
+          slug: 'other-candidate',
+          details: {},
+          data: {},
+          aiContent: {},
+        },
+      })
+      await service.prisma.peerlyPhoneList.create({
+        data: { campaignId: 888, listId: 9999999 },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'Vote for me. Reply STOP to opt-out.',
+        phoneListId: 9999999,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(403)
+      const rows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(rows).toHaveLength(0)
     })
   })
 

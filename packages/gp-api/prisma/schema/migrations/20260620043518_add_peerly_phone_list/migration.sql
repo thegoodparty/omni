@@ -28,10 +28,12 @@ ALTER TABLE "peerly_phone_list" ADD CONSTRAINT "peerly_phone_list_campaign_id_fk
 -- IDOR already occurred), assign it to the campaign that used it EARLIEST — the
 -- original owner — rather than an arbitrary one. The unique list_id index is
 -- additionally guarded by ON CONFLICT DO NOTHING.
+-- NB: outreach.campaignId / outreach.createdAt have no @map, so the physical
+-- columns are camelCase. Only phone_list_id is @map'd to snake_case.
 INSERT INTO "peerly_phone_list" ("campaign_id", "list_id", "updated_at")
 SELECT DISTINCT ON ("phone_list_id")
-    "campaign_id", "phone_list_id", CURRENT_TIMESTAMP
+    "campaignId", "phone_list_id", CURRENT_TIMESTAMP
 FROM "outreach"
 WHERE "phone_list_id" IS NOT NULL
-ORDER BY "phone_list_id", "created_at"
+ORDER BY "phone_list_id", "createdAt"
 ON CONFLICT ("list_id") DO NOTHING;
