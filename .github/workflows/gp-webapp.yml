@@ -138,49 +138,35 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
           target: production
 
-  # Imperatively run the Playwright suite against the freshly deployed preview.
-  # Depends on deploy (not on Validate) so e2e starts as soon as the preview URL
-  # exists. Runs on PRs and on develop pushes (the dev deploy), not qa/master.
-  # One polls test exercises the analyze pipeline and needs AWS (OIDC) + Slack;
-  # the rest only need Clerk test keys. On PRs it upserts a results comment and
-  # publishes the HTML report to S3 so it's viewable via URL.
-  e2e:
-    name: E2E
+  # Run the Playwright suite against the freshly deployed preview, sharded
+  # across runners to cut wall-clock. Three jobs:
+  #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
+  #               idle on the same multi-minute poll.
+  #   e2e-shard — fans the suite across 4 runners via Playwright --shard; each
+  #               emits a blob report artifact.
+  #   e2e       — merges the shard blobs into one HTML report + results.json,
+  #               publishes to S3, upserts the PR comment, and fails iff any
+  #               shard failed. This is the single required status check the
+  #               develop ruleset gates on ("E2E"); keep its name stable.
+  # Runs on PRs and on develop pushes (the dev deploy), not qa/master. The one
+  # @dev-only polls test (analyze pipeline; needs AWS OIDC + Slack) runs only on
+  # the develop push; the rest only need Clerk test keys.
+  e2e-wait:
+    name: E2E Wait
     needs: [deploy]
     if: >-
       needs.deploy.outputs.url != ''
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
-    # Generous budget: the full-stack gate waits on gp-api's (slow) deploy before
-    # the ~15-min suite runs. It fails fast if gp-api's deploy fails, so the large
-    # budget is only ever spent when gp-api is genuinely still deploying.
-    timeout-minutes: 45
+    # Generous budget: this gate waits on gp-api's (slow) deploy. It fails fast
+    # if gp-api's deploy fails, so the large budget is only ever spent when
+    # gp-api is genuinely still deploying.
+    timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
-      id-token: write
       actions: read
-    env:
-      BASE_URL: ${{ needs.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
-          aws-region: us-west-2
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-
-      - name: Install Playwright browsers
-        working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        run: npx playwright install --with-deps chromium
-
       # Full-stack: the webapp is built against this PR's gp-api stack (or, on
       # develop, gp-api-dev), and gp-api runs on every PR/push. Wait until that
       # deploy of THIS commit is done before testing. gp-api's validate+build+ECS path is much
@@ -238,29 +224,129 @@ jobs:
           echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
           exit 1
 
-      # No --reporter override here: the playwright config emits list + html +
-      # json, and we need the html report (for S3) and results.json (for the
-      # comment). Passing --reporter=list would replace all three with list only.
-      - name: Run Playwright tests
-        id: run-tests
+  e2e-shard:
+    name: E2E Shard (${{ matrix.shard }})
+    needs: [deploy, e2e-wait]
+    if: >-
+      needs.deploy.outputs.url != ''
+      && (github.event_name == 'pull_request'
+          || (github.event_name == 'push' && github.ref_name == 'develop'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One failing shard must not cancel the others — we want the full result
+      # set and a complete merged report.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BASE_URL: ${{ needs.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # The @dev-only polls test (develop push only) drives the analyze
+      # pipeline and needs AWS; we don't know which shard it lands in, so all
+      # shards configure OIDC creds.
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+
+      - name: Install Playwright browsers
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        # --config must be an ABSOLUTE path: Playwright resolves a relative
-        # --config (and the implicit config search) against the nearest
-        # package.json dir, which here is packages/gp-webapp — one level above
-        # e2e-tests — so it silently runs with NO config (no baseURL, no
-        # globalSetup/clerkSetup) unless we point at the file explicitly.
-        # @dev-only specs run only on the post-merge develop e2e (warm dev stack +
-        # live pipelines: SQS analyze round-trip, Stripe webhook). Exclude them on
-        # PRs, where an ephemeral per-PR preview can't drive those pipelines. See
-        # e2e-tests/CLAUDE.md.
+        run: npx playwright install --with-deps chromium
+
+      # Each shard runs its file subset and emits a blob report the E2E summary
+      # job merges; --reporter=blob deliberately overrides the config's
+      # list/html/json reporters for the shard run.
+      # --config must be an ABSOLUTE path: Playwright resolves a relative
+      # --config (and the implicit config search) against the nearest
+      # package.json dir, which here is packages/gp-webapp — one level above
+      # e2e-tests — so it silently runs with NO config (no baseURL, no
+      # globalSetup/clerkSetup) unless we point at the file explicitly.
+      # @dev-only specs run only on the post-merge develop e2e (warm dev stack +
+      # live pipelines: SQS analyze round-trip, Stripe webhook). Exclude them on
+      # PRs, where an ephemeral per-PR preview can't drive those pipelines. See
+      # e2e-tests/CLAUDE.md.
+      - name: Run Playwright tests
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: >-
           npx playwright test --config="$PWD/playwright.config.ts" tests/
+          --shard=${{ matrix.shard }}/4 --reporter=blob
           ${{ github.event_name == 'pull_request' && '--grep-invert @dev-only' || '' }}
         env:
           TEST_RUN_NAME: "E2E Tests - PR Preview"
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Upload shard blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-blob-${{ matrix.shard }}
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+          retention-days: 7
+
+  # Merge the shard blob reports, publish, comment, and gate the merge.
+  # always(): run even when a shard failed (so the report + comment still post),
+  # but the gate keeps it skipped on qa/master like the shards. On PRs it
+  # upserts a results comment and publishes the HTML report to S3.
+  e2e:
+    name: E2E
+    needs: [deploy, e2e-shard]
+    if: >-
+      always()
+      && needs.deploy.outputs.url != ''
+      && (github.event_name == 'pull_request'
+          || (github.event_name == 'push' && github.ref_name == 'develop'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    env:
+      BASE_URL: ${{ needs.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+
+      - name: Download shard blob reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-blob-*
+          merge-multiple: true
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      # Merge the per-shard blobs into the same outputs a single run produced:
+      # playwright-report/ (HTML, for S3) and test-results/results.json (for the
+      # comment). The merge config emits only those two reporters and omits the
+      # main config's BASE_URL throw + globalSetup (no browser launches here).
+      - name: Merge shard reports
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: >-
+          npx playwright merge-reports
+          --config="$PWD/playwright.merge.config.ts" ./blob-report
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
@@ -335,7 +421,7 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
-          TEST_OUTCOME: ${{ steps.run-tests.outcome }}
+          TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         with:
           script: |
             const pr = context.issue.number
@@ -395,3 +481,12 @@ jobs:
                 body,
               })
             }
+
+      # Make the required "E2E" check red exactly when a shard had a failure (or
+      # was skipped because the gp-api gate failed). always() so an earlier
+      # report/comment step failing can't mask a shard failure.
+      - name: Fail if any shard did not pass
+        if: ${{ always() && needs.e2e-shard.result != 'success' }}
+        run: |
+          echo "::error::E2E shards result: ${{ needs.e2e-shard.result }}"
+          exit 1
