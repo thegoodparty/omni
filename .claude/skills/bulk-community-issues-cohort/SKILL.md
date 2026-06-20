@@ -89,12 +89,17 @@ curl -s -w "\nHTTP %{http_code}\n" -X POST "$PROD_API_URL/v1/community-issue-fee
 
 ## Step 2: assemble the cohort org list
 
-Source the serve-ICP org list from the prod DB. The dispatch endpoint enforces the
-serve-ICP gate server-side (fail-closed), so any non-ICP slugs in the list are
-harmlessly skipped. But filtering client-side first is cheaper and produces a
-cleaner dispatch log.
+The dispatch endpoint enforces the serve-ICP gate **server-side** (fail-closed via
+`resolveServeContext`), so any non-ICP slugs you pass are harmlessly skipped and
+counted in `skipped`. Note: `isServeIcp` is **not** a column on the gp-api
+`Organization` model — it is derived from the org's election `position`
+(`resolveServeContext` → `position.isServeIcp`), so you cannot filter on it in a
+single Prisma query here. Source the serve population (orgs that have an elected
+office) and let the server gate do the ICP filtering. (To pre-filter to ICP
+client-side, source the ICP set from its system of record — the Databricks
+`int__icp_offices` table — not a Prisma field.)
 
-Query the set of serve-ICP elected offices:
+Query the elected-office org slugs:
 
 ```bash
 # In the SAME shell (env still set from Step 1)
@@ -102,16 +107,17 @@ npx tsx -e '
 import { PrismaClient } from "./src/generated/prisma"
 const p = new PrismaClient({ datasourceUrl: process.env.PROD_DATABASE_URL })
 ;(async () => {
-  const orgs = await p.organization.findMany({
-    where: { isServeIcp: true },
-    select: { slug: true },
-    orderBy: { slug: "asc" },
+  const offices = await p.electedOffice.findMany({
+    select: { organizationSlug: true },
+    distinct: ["organizationSlug"],
+    orderBy: { organizationSlug: "asc" },
   })
-  console.log(JSON.stringify(orgs.map(o => o.slug)))
+  console.log(JSON.stringify(offices.map(o => o.organizationSlug)))
   await p.$disconnect()
 })()
 '
-# Save the output as ORG_SLUGS (a JSON array of strings).
+# Save the output as ORG_SLUGS (a JSON array of strings). The server gate skips
+# any non-serve-ICP slugs at dispatch (they show up in `skipped`).
 ```
 
 Review the list with the human. Decide on a target cohort size. Smaller test runs
