@@ -1,18 +1,26 @@
-"""meeting_briefing deep QA — schema + deterministic checks the runner's shim can't express.
+"""meeting_briefing deep QA check library — schema + deterministic checks the runner's shim can't express.
 
-Ships as a manifest attachment (`experiments/meeting_briefing/attachments/qa_checks.py`),
-gets dropped into `/workspace/qa_checks.py` by the runner. The agent runs this AFTER the
-generic schema-only validator at /workspace/validate_output.py for full coverage.
+This is the SINGLE SOURCE OF TRUTH for the meeting_briefing checks, and a pure
+CHECK LIBRARY: it exposes `validate_schema`, the ten `check_*` functions, the
+`CHECKS` list, and the `Finding`/`Report` dataclasses. It has no entrypoint and
+runs nothing on import. `qa/main.py` (the sole deterministic QA-gate entrypoint)
+imports this module and drives it; the agent does NOT run these checks itself.
 
-Why a separate file: the runner reserves `/workspace/validate_output.py` for its own
-generic schema-validation shim (pmf_engine/runner/main.py:_VALIDATOR_SCRIPT). Experiment-
-specific deterministic QA — cross-reference integrity, required_data_points coverage,
-discovery-channel depth for awaiting_agenda, etc. — has to live under a non-reserved
-basename and be invoked separately.
+This file lives in the experiment's `qa/` folder
+(`experiments/meeting_briefing/qa/qa_checks.py`) alongside `main.py`. The PMF QA
+gate runs `qa/main.py` deterministically after the primary agent finishes, and
+`main.py` imports `validate_schema` + `CHECKS` from here, then emits the
+contract-C fragment array.
 
-Two phases:
-  1. JSON Schema validation (re-runs the generic check so this file is sufficient on its own).
-  2. Deterministic QA checks the schema cannot express:
+Experiment-specific deterministic QA — cross-reference integrity, required_data_points
+coverage, discovery-channel depth for awaiting_agenda, etc. — is the kind of check the
+runner's generic schema-only validator (pmf_engine/runner/main.py:_VALIDATOR_SCRIPT)
+cannot express, which is why it lives here as its own module.
+
+Two phases (orchestrated by main.py):
+  1. JSON Schema validation (`validate_schema`) — re-runs the generic check so this
+     file is sufficient on its own.
+  2. Deterministic QA checks the schema cannot express (`CHECKS`):
        - cross-reference integrity (claim.item_id ↔ items[], source_ids ↔ sources[])
        - required_data_points coverage (every required: true point produced a value)
        - tier_reason / display consistency (budget_threshold → budget_impact non-null, etc.)
@@ -21,24 +29,13 @@ Two phases:
        - awaiting_agenda / no_meeting_found: all 4 discovery channels attempted (channel_<N>_ prefixes)
 
 No LLM calls. No external API requirements. Runs in well under a second on a typical artifact.
-
-Exit codes:
-  0  artifact is schema-valid AND all deterministic QA checks passed
-  1  schema validation failed
-  2  schema valid but one or more QA checks failed
-
-Run:
-  python3 /workspace/qa_checks.py                              # defaults to /workspace/output/meeting_briefing.json
-  python3 /workspace/qa_checks.py path/to/artifact.json
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 try:
@@ -46,63 +43,6 @@ try:
 except ImportError:
     print("FATAL: jsonschema not installed. Run: uv add jsonschema", file=sys.stderr)
     sys.exit(1)
-
-
-# ---------------------------------------------------------------------------
-# Locate inputs
-#
-# Runtime: at /workspace/qa_checks.py, schema is at /workspace/contract_schema.json
-# (the runner extracts it from manifest.output_schema and writes it there).
-#
-# CI / local dev: this file lives at experiments/meeting_briefing/attachments/qa_checks.py,
-# the manifest is two parents up at experiments/meeting_briefing/manifest.json. We try
-# the runtime path first and fall back to the dev path so the same file works in both.
-# ---------------------------------------------------------------------------
-
-RUNTIME_SCHEMA_PATH = Path("/workspace/contract_schema.json")
-DEV_MANIFEST_PATH = Path(__file__).resolve().parent.parent / "manifest.json"
-DEFAULT_ARTIFACT_PATH = Path("/workspace/output/meeting_briefing.json")
-
-
-def load_schema_from_manifest(manifest_path: Path | None = None) -> dict:
-    """Load the output schema for validation.
-
-    Argument is kept for backward compat with the test suite — callers can pass
-    a specific manifest.json. Default resolution: prefer the runtime
-    /workspace/contract_schema.json (already-extracted schema), otherwise fall
-    back to manifest.json's output_schema field for dev/CI runs.
-    """
-    if manifest_path is not None:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        schema = manifest.get("output_schema")
-        if not isinstance(schema, dict):
-            raise RuntimeError(
-                f"manifest.json at {manifest_path} is missing a dict-valued 'output_schema' field."
-            )
-        return schema
-
-    if RUNTIME_SCHEMA_PATH.exists():
-        schema = json.loads(RUNTIME_SCHEMA_PATH.read_text(encoding="utf-8"))
-        if not isinstance(schema, dict):
-            raise RuntimeError(
-                f"{RUNTIME_SCHEMA_PATH} did not contain a dict-valued JSON schema."
-            )
-        return schema
-
-    if DEV_MANIFEST_PATH.exists():
-        manifest = json.loads(DEV_MANIFEST_PATH.read_text(encoding="utf-8"))
-        schema = manifest.get("output_schema")
-        if not isinstance(schema, dict):
-            raise RuntimeError(
-                f"manifest.json at {DEV_MANIFEST_PATH} is missing a dict-valued 'output_schema' field."
-            )
-        return schema
-
-    raise RuntimeError(
-        f"No schema source found. Looked at {RUNTIME_SCHEMA_PATH} (runtime) and "
-        f"{DEV_MANIFEST_PATH} (dev). Pass an explicit manifest_path or run from a"
-        " context where one of these is reachable."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -381,11 +321,16 @@ def check_source_extracts_in_source(artifact: dict, findings: list[Finding]) -> 
     def normalize(s: str) -> str:
         return re.sub(r"\s+", " ", s).strip().lower()
 
+    # Normalize each source's retrieved text ONCE, not per citing claim.
+    normalized_by_id = {
+        sid: normalize(src.get("retrieved_text_or_snapshot", ""))
+        for sid, src in sources_by_id.items()
+    }
+
     for claim in artifact.get("claims", []):
         cid = claim.get("claim_id")
         cited_ids = claim.get("source_ids") or []
-        cited_texts = [normalize(sources_by_id.get(sid, {}).get("retrieved_text_or_snapshot", ""))
-                       for sid in cited_ids if sid in sources_by_id]
+        cited_texts = [normalized_by_id[sid] for sid in cited_ids if sid in normalized_by_id]
         for extract in claim.get("source_extracts") or []:
             if not extract:
                 continue
@@ -576,80 +521,3 @@ CHECKS = [
     check_awaiting_agenda_discovery_depth,
     check_discovered_agenda_location,
 ]
-
-
-# ---------------------------------------------------------------------------
-# Driver
-# ---------------------------------------------------------------------------
-
-
-def run(artifact_path: Path, manifest_path: Path | None = None) -> Report:
-    schema = load_schema_from_manifest(manifest_path)
-    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-
-    report = Report(artifact_path=str(artifact_path), schema_valid=False)
-
-    report.schema_errors = validate_schema(artifact, schema)
-    report.schema_valid = not report.schema_errors
-
-    if report.schema_valid:
-        for check in CHECKS:
-            check(artifact, report.findings)
-
-    return report
-
-
-def print_report(report: Report) -> None:
-    print(f"Artifact: {report.artifact_path}")
-    print(f"Schema:   {'OK' if report.schema_valid else 'FAILED'}")
-
-    if report.schema_errors:
-        print()
-        print(f"Schema errors ({len(report.schema_errors)}):")
-        for err in report.schema_errors[:20]:
-            print(f"  - {err}")
-        if len(report.schema_errors) > 20:
-            print(f"  ... and {len(report.schema_errors) - 20} more")
-        return
-
-    errors = report.errors
-    warnings = report.warnings
-    print(f"QA:       {len(errors)} error(s), {len(warnings)} warning(s)")
-
-    if errors:
-        print()
-        print(f"Errors ({len(errors)}):")
-        for f in errors:
-            print(f"  - [{f.check}] {f.message}")
-
-    if warnings:
-        print()
-        print(f"Warnings ({len(warnings)}):")
-        for f in warnings:
-            print(f"  - [{f.check}] {f.message}")
-
-    print()
-    if report.passed:
-        print("VERDICT: PASS")
-    else:
-        print("VERDICT: FAIL")
-
-
-def main() -> int:
-    artifact_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARTIFACT_PATH
-    if not artifact_path.exists():
-        print(f"FATAL: artifact not found: {artifact_path}", file=sys.stderr)
-        return 1
-
-    report = run(artifact_path)
-    print_report(report)
-
-    if not report.schema_valid:
-        return 1
-    if report.errors:
-        return 2
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
