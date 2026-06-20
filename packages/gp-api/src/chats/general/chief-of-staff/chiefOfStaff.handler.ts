@@ -33,6 +33,11 @@ import {
   buildListBriefingsTool,
 } from './services/briefingReadTools'
 import { PRIORITIES_PORT, PrioritiesToolPort } from './services/prioritiesPort'
+import {
+  COMMUNITY_ISSUE_FEED_READ_PORT,
+  CommunityIssueFeedReadPort,
+} from './services/communityIssueFeedRead.port'
+import { buildReadCommunityIssuesTool } from './services/communityIssueFeedRead.tool'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -84,6 +89,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly districtResolver?: DistrictResolverService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    @Inject(COMMUNITY_ISSUE_FEED_READ_PORT)
+    private readonly communityIssueFeedRead?: CommunityIssueFeedReadPort,
   ) {}
 
   async resolveConversation(
@@ -99,6 +107,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,
       scope: ChatScope.chief_of_staff,
+      ...(params.anchor && {
+        anchor: params.anchor,
+        title: params.anchor.snapshot.title,
+      }),
     })
     return { conversationId: created.id, created: true }
   }
@@ -205,6 +217,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           scope,
         })
       }
+    }
+
+    if (this.communityIssueFeedRead) {
+      tools.read_community_issues = buildReadCommunityIssuesTool({
+        port: this.communityIssueFeedRead,
+        organizationSlug: ctx.organizationSlug,
+        electedOfficeId: ctx.electedOfficeId,
+      })
     }
 
     return tools

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // Params a client sends to resolve (find-or-create) a conversation. Scope is
 // always present; the rest is scope-specific. CoS keys on the authed user +
@@ -8,6 +9,7 @@ import type { LlmStreamTool } from '@/llm/services/llm.service'
 export interface ResolveConversationParams {
   scope: ChatScope
   organizationSlug: string | null
+  anchor?: ChatAnchor
 }
 
 export interface ResolveConversationResult {

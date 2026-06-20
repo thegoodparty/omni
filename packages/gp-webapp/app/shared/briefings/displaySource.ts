@@ -1,5 +1,17 @@
 import type { Source } from '@shared/briefings/types'
 
+/**
+ * A source-like shape that `toDisplaySource` can consume. Widens `source_type`
+ * and `article_type` to `string` so callers outside the briefings domain
+ * (e.g. community-issues) can pass their own values without an unsound cast.
+ * Only `source_type === 'haystaq'` is special-cased; `article_type` is used
+ * only as a key into `ARTICLE_TYPE_LABEL`, so string-widening is safe.
+ */
+export type SourceInput = Omit<Source, 'source_type' | 'article_type'> & {
+  source_type: string
+  article_type?: string | null
+}
+
 export type DisplaySource = {
   id: string
   /** Long form name (used in popover/sources panel title fallback). */
@@ -56,7 +68,7 @@ const formatDate = (iso?: string | null): string | null => {
   })
 }
 
-const buildDescription = (s: Source): string | null => {
+const buildDescription = (s: SourceInput): string | null => {
   const parts: string[] = []
   const articleLabel = s.article_type
     ? ARTICLE_TYPE_LABEL[s.article_type]
@@ -72,7 +84,7 @@ const buildDescription = (s: Source): string | null => {
 const truncate = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 
-export const toDisplaySource = (s: Source): DisplaySource => {
+export const toDisplaySource = (s: SourceInput): DisplaySource => {
   if (s.source_type === 'haystaq') {
     return {
       id: s.id,

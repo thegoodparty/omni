@@ -15,6 +15,7 @@ import {
   type SearchProvider,
 } from '@/llm/tools/webSearch.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { CommunityIssueFeedModule } from '@/communityIssueFeed/communityIssueFeed.module'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -28,6 +29,8 @@ import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.servi
 import { CONSTITUENT_TABLES } from './services/constituentDataScope'
 import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
+import { CommunityIssueFeedReadAdapter } from './services/communityIssueFeedRead.adapter'
+import { COMMUNITY_ISSUE_FEED_READ_PORT } from './services/communityIssueFeedRead.port'
 
 export { CHIEF_OF_STAFF_MODELS }
 
@@ -63,6 +66,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     OrganizationsModule,
     ElectionsModule,
     FeaturesModule,
+    CommunityIssueFeedModule,
   ],
   providers: [
     ChiefOfStaffHandler,
@@ -71,6 +75,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     GeneralChatStoreService,
     PrioritiesServiceAdapter,
     DistrictResolverService,
+    CommunityIssueFeedReadAdapter,
     {
       provide: PRIORITIES_PORT,
       useClass: PrioritiesServiceAdapter,
@@ -86,6 +91,10 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     {
       provide: CONSTITUENT_TABLES_CONFIG,
       useValue: CONSTITUENT_TABLES,
+    },
+    {
+      provide: COMMUNITY_ISSUE_FEED_READ_PORT,
+      useClass: CommunityIssueFeedReadAdapter,
     },
   ],
   exports: [ChiefOfStaffHandler],

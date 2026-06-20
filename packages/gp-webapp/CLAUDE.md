@@ -96,7 +96,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 
 ## Boundaries
 
-- **Never** edit `middleware.ts`, `app/api/revalidate/route.ts`, or `gpApi/api-endpoints.ts` without explicit confirmation. The first two affect every request; the third is a cross-repo contract with `gp-api`.
+- **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `develop` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/CLAUDE.md` for fetch-helper rules.
@@ -114,23 +114,23 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Pointer table — when in doubt
 
-| Doing                                                        | Read                                              |
-| ------------------------------------------------------------ | ------------------------------------------------- |
-| Overall architecture / stack / module shape                  | `docs/architecture.md`                            |
-| Auth (cookie/JWT, server vs client, impersonation)           | `docs/architecture.md` § Auth                     |
-| Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/CLAUDE.md`         |
-| Writing a unit/component test                                | `docs/testing.md`                                 |
-| Reproducing a Sentry issue locally                           | `docs/debugging.md`                               |
-| State / providers / React Query patterns                     | `docs/state-management.md`                        |
-| Adding or removing a feature flag                            | `docs/feature-flags.md`                           |
+| Doing                                                        | Read                                                             |
+| ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Overall architecture / stack / module shape                  | `docs/architecture.md`                                           |
+| Auth (cookie/JWT, server vs client, impersonation)           | `docs/architecture.md` § Auth                                    |
+| Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/CLAUDE.md`                        |
+| Writing a unit/component test                                | `docs/testing.md`                                                |
+| Reproducing a Sentry issue locally                           | `docs/debugging.md`                                              |
+| State / providers / React Query patterns                     | `docs/state-management.md`                                       |
+| Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`               |
-| Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                    |
-| Working with helpers                                         | `helpers/CLAUDE.md`                               |
-| Working in `gpApi/`                                          | `gpApi/CLAUDE.md`                                 |
-| Writing or running E2E tests                                 | `e2e-tests/CLAUDE.md` (and `e2e-tests/README.md`) |
-| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                       |
-| Website feature internals                                    | `app/dashboard/website/README.md`                 |
+| Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`                              |
+| Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                                   |
+| Working with helpers                                         | `helpers/CLAUDE.md`                                              |
+| Working in `gpApi/`                                          | `gpApi/CLAUDE.md`                                                |
+| Writing or running E2E tests                                 | `e2e-tests/CLAUDE.md` (and `e2e-tests/README.md`)                |
+| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                                      |
+| Website feature internals                                    | `app/dashboard/website/README.md`                                |
 
 ## Code Style
 

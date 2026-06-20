@@ -1,0 +1,511 @@
+import { useTestService } from '@/test-service'
+import { HttpStatus } from '@nestjs/common'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { v7 as uuidv7 } from 'uuid'
+import {
+  CommunityIssueFeedCategory,
+  CommunityIssueFeedList,
+  CommunityIssueFeedPriority,
+  ExperimentRunStatus,
+} from '../generated/prisma'
+
+const service = useTestService()
+
+const BASE = '/v1/community-issue-feed'
+
+let eoId: string
+let eoOrgSlug: string
+
+const eoHeaders = () => ({
+  headers: { 'x-organization-slug': eoOrgSlug },
+})
+
+const seedElectedOffice = async () => {
+  eoId = uuidv7()
+  eoOrgSlug = `eo-cif-${eoId}`
+  await service.prisma.organization.create({
+    data: { slug: eoOrgSlug, ownerId: service.user.id },
+  })
+  await service.prisma.electedOffice.create({
+    data: { id: eoId, userId: service.user.id, organizationSlug: eoOrgSlug },
+  })
+}
+
+const seedIssue = (
+  overrides: Partial<{
+    list: CommunityIssueFeedList
+    rank: number | null
+    archivedAt: Date | null
+    organizationSlug: string
+  }> = {},
+) =>
+  service.prisma.communityIssueFeed.create({
+    data: {
+      organizationSlug: overrides.organizationSlug ?? eoOrgSlug,
+      list: overrides.list ?? CommunityIssueFeedList.top_community,
+      category: CommunityIssueFeedCategory.public_safety,
+      priority: CommunityIssueFeedPriority.high,
+      title: 'Road Maintenance',
+      summary: 'Roads need fixing.',
+      detail: { overview: { summary: 'ok' }, sources: [] },
+      rank: overrides.rank ?? 1,
+      archivedAt: overrides.archivedAt ?? null,
+    },
+  })
+
+const seedExperimentRun = (
+  experimentType: 'top_community_issues' | 'trending_issues',
+  status: ExperimentRunStatus,
+) =>
+  service.prisma.experimentRun.create({
+    data: {
+      organizationSlug: eoOrgSlug,
+      experimentType,
+      status,
+      artifactBucket: 'bucket',
+      artifactKey: `key-${Date.now()}.json`,
+    },
+  })
+
+beforeEach(async () => {
+  await seedElectedOffice()
+})
+
+describe('GET /v1/community-issue-feed', () => {
+  it(
+    'returns only active issues for the caller org + list, ordered by rank ASC' +
+      ' with correct prioritized flag',
+    async () => {
+      const issue1 = await seedIssue({ rank: 2 })
+      const issue2 = await seedIssue({ rank: 1 })
+      const archived = await seedIssue({
+        rank: 3,
+        archivedAt: new Date('2025-01-01'),
+      })
+
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: eoId,
+          title: 'prio',
+          description: 'desc',
+          source: 'community_issue_feed',
+          sourceCommunityIssueFeedId: issue1.id,
+        },
+      })
+
+      await seedExperimentRun(
+        'top_community_issues',
+        ExperimentRunStatus.COMPLETED,
+      )
+
+      const res = await service.client.get<{
+        issues: {
+          id: string
+          rank: number
+          prioritized: boolean
+        }[]
+        refresh: {
+          status: string
+          lastCompletedAt: string | null
+        }
+      }>(`${BASE}?list=top_community`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      const ids = res.data.issues.map((i) => i.id)
+      expect(ids).not.toContain(archived.id)
+      expect(ids[0]).toBe(issue2.id)
+      expect(ids[1]).toBe(issue1.id)
+
+      const p1 = res.data.issues.find((i) => i.id === issue1.id)
+      const p2 = res.data.issues.find((i) => i.id === issue2.id)
+      expect(p1?.prioritized).toBe(true)
+      expect(p2?.prioritized).toBe(false)
+
+      expect(res.data.refresh.status).toBe('completed')
+      expect(typeof res.data.refresh.lastCompletedAt).toBe('string')
+    },
+  )
+
+  it('returns refresh.status=running when no ExperimentRun exists yet', async () => {
+    await seedIssue()
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
+  })
+
+  it(
+    'refresh.status reflects the latest ExperimentRun status;' +
+      ' lastCompletedAt is ISO string from COMPLETED run updatedAt',
+    async () => {
+      await seedIssue()
+
+      const completed = await seedExperimentRun(
+        'top_community_issues',
+        ExperimentRunStatus.COMPLETED,
+      )
+      await seedExperimentRun(
+        'top_community_issues',
+        ExperimentRunStatus.RUNNING,
+      )
+
+      const res = await service.client.get<{
+        refresh: { status: string; lastCompletedAt: string | null }
+      }>(`${BASE}?list=top_community`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.refresh.status).toBe('running')
+      expect(res.data.refresh.lastCompletedAt).toBe(
+        completed.updatedAt.toISOString(),
+      )
+    },
+  )
+})
+
+describe('GET /v1/community-issue-feed — archived priority', () => {
+  it('returns prioritized:false when the matching Priority has archivedAt set', async () => {
+    const issue = await seedIssue()
+    await service.prisma.priority.create({
+      data: {
+        electedOfficeId: eoId,
+        title: 'archived-prio',
+        description: 'desc',
+        source: 'community_issue_feed',
+        sourceCommunityIssueFeedId: issue.id,
+        archivedAt: new Date(),
+      },
+    })
+    await seedExperimentRun(
+      'top_community_issues',
+      ExperimentRunStatus.COMPLETED,
+    )
+
+    const res = await service.client.get<{
+      issues: { id: string; prioritized: boolean }[]
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const found = res.data.issues.find((i) => i.id === issue.id)
+    expect(found?.prioritized).toBe(false)
+  })
+})
+
+describe('GET /v1/community-issue-feed/:id — archived', () => {
+  it('returns 200 with archived:true for an archived issue', async () => {
+    const issue = await seedIssue({
+      archivedAt: new Date('2025-01-01'),
+    })
+
+    const res = await service.client.get<{ archived: boolean }>(
+      `${BASE}/${issue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.archived).toBe(true)
+  })
+
+  it('returns archived:false for an active issue', async () => {
+    const issue = await seedIssue()
+
+    const res = await service.client.get<{ archived: boolean }>(
+      `${BASE}/${issue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.archived).toBe(false)
+  })
+})
+
+describe('GET /v1/community-issue-feed/:id — cross-org security', () => {
+  it('returns 404 when the issue belongs to a different org', async () => {
+    const otherSlug = `other-org-${uuidv7()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const otherIssue = await seedIssue({ organizationSlug: otherSlug })
+
+    const res = await service.client.get(
+      `${BASE}/${otherIssue.id}`,
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it(
+    'returns prioritized:false and priorityId:null when the matching' +
+      ' Priority has archivedAt set',
+    async () => {
+      const issue = await seedIssue()
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: eoId,
+          title: 'archived-prio',
+          description: 'desc',
+          source: 'community_issue_feed',
+          sourceCommunityIssueFeedId: issue.id,
+          archivedAt: new Date(),
+        },
+      })
+
+      const res = await service.client.get<{
+        prioritized: boolean
+        priorityId: string | null
+      }>(`${BASE}/${issue.id}`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.prioritized).toBe(false)
+      expect(res.data.priorityId).toBeNull()
+    },
+  )
+})
+
+describe('GET /v1/community-issue-feed/:id', () => {
+  it(
+    'resolves relatedBriefings via BOTH direct path (communityIssueFeedId)' +
+      ' and indirect path (priority.sourceCommunityIssueFeedId -> priorityId)',
+    async () => {
+      const issue = await seedIssue()
+
+      const briefing = await service.prisma.meetingBriefing.create({
+        data: {
+          electedOfficeId: eoId,
+          meetingDate: new Date('2026-07-01'),
+          meetingTime: '18:00',
+          meetingTimezone: 'America/New_York',
+          experimentRunId: (
+            await seedExperimentRun(
+              'top_community_issues',
+              ExperimentRunStatus.COMPLETED,
+            )
+          ).runId,
+          artifactBucket: 'bucket',
+          artifactKey: 'key.json',
+          artifact: {
+            executive_summary: {
+              items: [
+                { item_id: 'direct-item', content: 'Direct item content' },
+                { item_id: 'indirect-item', content: 'Indirect item content' },
+              ],
+            },
+          },
+        },
+      })
+
+      await service.prisma.meetingBriefingItemLink.create({
+        data: {
+          meetingBriefingId: briefing.id,
+          briefingItemId: 'direct-item',
+          communityIssueFeedId: issue.id,
+        },
+      })
+
+      const priority = await service.prisma.priority.create({
+        data: {
+          electedOfficeId: eoId,
+          title: 'prio',
+          description: 'desc',
+          source: 'community_issue_feed',
+          sourceCommunityIssueFeedId: issue.id,
+        },
+      })
+
+      await service.prisma.meetingBriefingItemLink.create({
+        data: {
+          meetingBriefingId: briefing.id,
+          briefingItemId: 'indirect-item',
+          priorityId: priority.id,
+        },
+      })
+
+      const res = await service.client.get<{
+        id: string
+        prioritized: boolean
+        priorityId: string | null
+        relatedBriefings: {
+          meetingBriefingId: string
+          briefingItemId: string
+          meetingDate: string
+        }[]
+      }>(`${BASE}/${issue.id}`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.id).toBe(issue.id)
+      expect(res.data.prioritized).toBe(true)
+      expect(res.data.priorityId).toBe(priority.id)
+
+      const itemIds = res.data.relatedBriefings.map((b) => b.briefingItemId)
+      expect(itemIds).toContain('direct-item')
+      expect(itemIds).toContain('indirect-item')
+      expect(
+        res.data.relatedBriefings.every(
+          (b) => b.meetingBriefingId === briefing.id,
+        ),
+      ).toBe(true)
+    },
+  )
+
+  it(
+    'drops relatedBriefing links whose briefingItemId is NOT in the' +
+      ' current artifact',
+    async () => {
+      const issue = await seedIssue()
+
+      const briefing = await service.prisma.meetingBriefing.create({
+        data: {
+          electedOfficeId: eoId,
+          meetingDate: new Date('2026-08-01'),
+          meetingTime: '18:00',
+          meetingTimezone: 'America/New_York',
+          experimentRunId: (
+            await seedExperimentRun(
+              'top_community_issues',
+              ExperimentRunStatus.COMPLETED,
+            )
+          ).runId,
+          artifactBucket: 'bucket',
+          artifactKey: 'key2.json',
+          artifact: {
+            executive_summary: {
+              items: [{ item_id: 'valid-item', content: 'Valid item content' }],
+            },
+          },
+        },
+      })
+
+      await service.prisma.meetingBriefingItemLink.create({
+        data: {
+          meetingBriefingId: briefing.id,
+          briefingItemId: 'valid-item',
+          communityIssueFeedId: issue.id,
+        },
+      })
+
+      await service.prisma.meetingBriefingItemLink.create({
+        data: {
+          meetingBriefingId: briefing.id,
+          briefingItemId: 'stale-item',
+          communityIssueFeedId: issue.id,
+        },
+      })
+
+      const res = await service.client.get<{
+        relatedBriefings: { briefingItemId: string }[]
+      }>(`${BASE}/${issue.id}`, eoHeaders())
+
+      expect(res.status).toBe(HttpStatus.OK)
+      const itemIds = res.data.relatedBriefings.map((b) => b.briefingItemId)
+      expect(itemIds).toContain('valid-item')
+      expect(itemIds).not.toContain('stale-item')
+    },
+  )
+})
+
+describe('POST /v1/community-issue-feed/:id/prioritize — archived', () => {
+  it('returns 400 when prioritizing an archived issue', async () => {
+    const issue = await seedIssue({
+      archivedAt: new Date('2025-01-01'),
+    })
+
+    const res = await service.client.post(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('still creates a Priority for an active issue after archived check', async () => {
+    const issue = await seedIssue()
+
+    const res = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const second = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.id).toBe(res.data.id)
+  })
+})
+
+describe('POST /v1/community-issue-feed/:id/prioritize — cross-org security', () => {
+  it('returns 404 when the issue belongs to a different org', async () => {
+    const otherSlug = `other-org-${uuidv7()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const otherIssue = await seedIssue({ organizationSlug: otherSlug })
+
+    const res = await service.client.post(
+      `${BASE}/${otherIssue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/community-issue-feed/:id/prioritize', () => {
+  it('creates a Priority with correct snapshot fields', async () => {
+    const issue = await seedIssue()
+
+    const res = await service.client.post<{
+      id: string
+      title: string
+      description: string
+      source: string
+      electedOfficeId: string
+    }>(`${BASE}/${issue.id}/prioritize`, {}, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.title).toBe(issue.title)
+    expect(res.data.description).toBe(issue.summary)
+    expect(res.data.source).toBe('community_issue_feed')
+    expect(res.data.electedOfficeId).toBe(eoId)
+
+    const dbPriority = await service.prisma.priority.findFirst({
+      where: { sourceCommunityIssueFeedId: issue.id },
+    })
+    expect(dbPriority).not.toBeNull()
+  })
+
+  it('is idempotent - second call returns existing Priority', async () => {
+    const issue = await seedIssue()
+
+    const first = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+    const second = await service.client.post<{ id: string }>(
+      `${BASE}/${issue.id}/prioritize`,
+      {},
+      eoHeaders(),
+    )
+
+    expect(first.status).toBe(HttpStatus.CREATED)
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(first.data.id).toBe(second.data.id)
+
+    const count = await service.prisma.priority.count({
+      where: { sourceCommunityIssueFeedId: issue.id },
+    })
+    expect(count).toBe(1)
+  })
+})
