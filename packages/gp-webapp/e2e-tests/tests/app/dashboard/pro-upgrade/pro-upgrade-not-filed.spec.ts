@@ -56,17 +56,19 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
       }),
     ).toBeVisible()
 
-    // Dead-end content from existing campaign data. Assert the labels are
-    // present with non-empty values rather than hard-coding the dates, which
-    // are race-specific and change over time. Each InstructionRow renders the
-    // label span and a value sibling inside one flex row, so the row that has
-    // the label text must carry a value beyond the label itself.
-    const labelHasValue = async (label: string): Promise<void> => {
+    // Dead-end content. Each InstructionRow renders the label span and a value
+    // sibling in one flex row. The values come from BallotReady data for the
+    // race, which a fresh PR-preview stack may not have populated — when a
+    // field is null the component renders its explicit "Not yet available"
+    // empty state. So assert the row resolved (label present, fetch no longer
+    // "Loading…") and carries text beyond the label, accepting either real
+    // data or the empty state. Don't hard-code the dates (they're race- and
+    // time-specific).
+    const labelResolved = async (label: string): Promise<void> => {
       const labelSpan = page.getByText(label, { exact: true })
       await expect(labelSpan).toBeVisible()
       const row = page.locator('div.flex.gap-3').filter({ has: labelSpan })
       await expect(row).not.toContainText('Loading…')
-      await expect(row).not.toContainText('Not yet available')
       await expect
         .poll(async () =>
           (await row.innerText())
@@ -78,14 +80,13 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
     }
 
     // Filing window is always rendered. The Filing office row is conditional
-    // (FilingInstructionsStep's `hasOffice` guard) — it only renders when
-    // BallotReady has address/phone for the race. The default race surfaces it
-    // (verified), but assert it only when present so a data gap fails as a
-    // skipped block, not an opaque timeout.
-    await labelHasValue('Filing window')
+    // (FilingInstructionsStep's `hasOffice` guard) — it only renders when the
+    // race has address/phone data. Assert it only when present so a data gap
+    // is a skipped block, not an opaque timeout.
+    await labelResolved('Filing window')
     const filingOfficeLabel = page.getByText('Filing office', { exact: true })
     if (await filingOfficeLabel.isVisible().catch(() => false)) {
-      await labelHasValue('Filing office')
+      await labelResolved('Filing office')
     }
 
     // "Email this to me" fires the success toast (sonner, bottom-center).
