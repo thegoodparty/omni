@@ -45,14 +45,14 @@ function DrawerOverlay({
   )
 }
 
-function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>) {
+function DrawerHandle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DrawerPrimitive.Handle>) {
   return (
-    <div
+    <DrawerPrimitive.Handle
       data-slot="drawer-handle"
-      className={cn(
-        'bg-base-muted mx-auto mt-4 mb-2 h-2 w-30 rounded-full',
-        className,
-      )}
+      className={cn('mx-auto mt-4 mb-2 h-2 w-30 rounded-full', className)}
       {...props}
     />
   )
