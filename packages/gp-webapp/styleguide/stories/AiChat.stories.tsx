@@ -233,10 +233,10 @@ export const ExtraBarActions: StoryObj = {
     const [open, setOpen] = useState(false)
     const extraBar = (
       <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" size="small" icon={<ShareIcon className="size-4" />}>
+        <Button type="button" variant="ghost" size="small" icon={<ShareIcon className="size-4" />}>
           Share
         </Button>
-        <Button type="button" variant="outline" size="small" icon={<DownloadIcon className="size-4" />}>
+        <Button type="button" variant="ghost" size="small" icon={<DownloadIcon className="size-4" />}>
           Download
         </Button>
       </div>
