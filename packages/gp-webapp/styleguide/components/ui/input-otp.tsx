@@ -56,7 +56,7 @@ function InputOTPSlot({
       data-slot="input-otp-slot"
       data-active={isActive}
       className={cn(
-        'data-[active=true]:border-ring data-[active=true]:ring-ring/50 data-[active=true]:aria-invalid:ring-destructive/20 dark:data-[active=true]:aria-invalid:ring-destructive/40 aria-invalid:border-destructive data-[active=true]:aria-invalid:border-destructive border-input dark:bg-input/30 relative flex h-9 w-9 items-center justify-center border-y border-r text-sm shadow-xs transition-all outline-none first:rounded-l-md first:border-l last:rounded-r-md data-[active=true]:z-10 data-[active=true]:ring-[3px]',
+        'data-[active=true]:border-components-input-active data-[active=true]:ring-components-input-focus data-[active=true]:aria-invalid:ring-destructive-focus aria-invalid:border-destructive data-[active=true]:aria-invalid:border-destructive border-components-input-border text-foreground relative -ml-px flex h-10 w-10 bg-components-input-base items-center justify-center border text-base transition-all outline-none first:ml-0 first:rounded-l-md last:rounded-r-md data-[active=true]:z-10 data-[active=true]:ring-[3px] md:text-sm',
         className,
       )}
       {...props}
@@ -71,9 +71,17 @@ function InputOTPSlot({
   )
 }
 
-function InputOTPSeparator({ ...props }: React.ComponentProps<'div'>) {
+function InputOTPSeparator({
+  className,
+  ...props
+}: React.ComponentProps<'div'>) {
   return (
-    <div data-slot="input-otp-separator" role="separator" {...props}>
+    <div
+      data-slot="input-otp-separator"
+      role="separator"
+      className={cn('text-muted-foreground', className)}
+      {...props}
+    >
       <MinusIcon />
     </div>
   )

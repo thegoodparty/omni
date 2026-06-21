@@ -163,7 +163,7 @@ export const States: Story = {
                 id="foc-off"
                 className="ring-[3px] ring-primary-focus"
               />
-              <Label htmlFor="foc-off" className="font-normal text-foreground">
+              <Label htmlFor="foc-off" variant="secondary">
                 Unchecked
               </Label>
             </div>
@@ -175,7 +175,7 @@ export const States: Story = {
                 id="foc-on"
                 className="ring-[3px] ring-primary-focus"
               />
-              <Label htmlFor="foc-on" className="font-normal text-foreground">
+              <Label htmlFor="foc-on" variant="secondary">
                 Checked
               </Label>
             </div>
