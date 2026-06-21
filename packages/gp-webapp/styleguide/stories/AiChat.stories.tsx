@@ -99,10 +99,23 @@ function AiChatDemo({
 // ---------------------------------------------------------------------------
 // Meta
 // ---------------------------------------------------------------------------
+const DISABLED = { table: { disable: true } }
+
 const meta: Meta = {
   title: 'Patterns/AiChat',
   component: AiChatBody,
   tags: ['autodocs'],
+  argTypes: {
+    chatApi: DISABLED,
+    config: DISABLED,
+    conversationIdOverride: DISABLED,
+    active: DISABLED,
+    onConversationCreated: DISABLED,
+    onSelectConversation: DISABLED,
+    className: DISABLED,
+    messageRenderer: DISABLED,
+    bottomSlot: DISABLED,
+  },
   decorators: [
     (Story) => (
       <QueryClientProvider client={queryClient}>
