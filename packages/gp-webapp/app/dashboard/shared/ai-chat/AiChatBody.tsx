@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, IconButton, Loader2Icon, MicIcon, SquareIcon } from '@styleguide'
-import { SearchIcon, SendIcon, SparklesIcon, ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/components/ui/icons'
+import { SearchIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { AiChatClient, AiChatConfig, ChatErrorCode, ChatMessageDto, ChatStreamEvent } from './types'
@@ -95,6 +95,8 @@ interface Props {
   className?: string
   /** Custom renderer for assistant message content. Defaults to ReactMarkdown. */
   messageRenderer?: (content: string) => React.ReactNode
+  /** Optional content rendered between the messages area and the composer. */
+  bottomSlot?: React.ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +112,7 @@ export default function AiChatBody({
   onSelectConversation,
   className,
   messageRenderer,
+  bottomSlot,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -398,14 +401,14 @@ export default function AiChatBody({
   )
 
   const onSend = useCallback(async () => {
-    const sent = await sendContent(composer)
-    if (sent) {
-      setComposer('')
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-      }
-      setMultiline(false)
+    const trimmed = composer.trim()
+    if (!trimmed || sendingRef.current || creatingRef.current) return
+    setComposer('')
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
     }
+    setMultiline(false)
+    await sendContent(trimmed)
   }, [composer, sendContent])
 
   const onRetry = useCallback(async () => {
@@ -566,9 +569,19 @@ export default function AiChatBody({
         </div>
       )}
 
+      {/* Bottom slot — between messages and composer */}
+      {bottomSlot && (
+        <div>
+          <div className="mx-auto w-full max-w-[608px] px-4 pt-3 pb-5 lg:px-6">
+            {bottomSlot}
+          </div>
+        </div>
+      )}
+
       {/* Composer */}
       <div className="border-t border-border px-3 py-3">
-        <div className={`relative mx-auto w-full max-w-[608px] bg-gradient-to-r from-brand-red-500 to-brand-blue-600 p-px transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}>
+        <div style={{ background: `linear-gradient(to right, var(--ai-gradient-from), var(--ai-gradient-to))` }}
+            className={`relative mx-auto w-full max-w-[608px] p-px transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}>
           <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-1.5 py-1.5 overflow-hidden transition-all ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
             {onSelectConversation && (
               <AiChatHistoryPopover
@@ -594,7 +607,7 @@ export default function AiChatBody({
                 }
               }}
               placeholder={config.placeholder ?? 'How can I help?'}
-              disabled={busy}
+              disabled={creating}
               aria-label="Ask a question"
               rows={1}
               className="flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-[15px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
@@ -622,14 +635,9 @@ export default function AiChatBody({
               aria-label="Send"
               className="shrink-0 bg-primary text-primary-foreground"
               onClick={() => void onSend()}
-              disabled={composer.trim().length === 0 || busy}
-              loading={busy}
+              disabled={composer.trim().length === 0}
             >
-              {composer.trim().length > 0 ? (
-                <SendIcon className="size-4" aria-hidden />
-              ) : (
-                <SparklesIcon className="size-4" aria-hidden />
-              )}
+              <SendIcon className="size-4" aria-hidden />
             </IconButton>
           </div>
         </div>

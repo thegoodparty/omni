@@ -40,14 +40,19 @@ export default function AiChatBar({
   return (
     <div className="fixed inset-x-0 bottom-0 z-[55] lg:left-64">
       {extraBar && (
-        <div className={`flex h-14 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
-          {extraBar}
+        <div className="flex h-14 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
+          <div className={`mx-auto flex w-full max-w-[608px] items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
+            {extraBar}
+          </div>
         </div>
       )}
       <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
-        <div className="relative w-full rounded-full bg-gradient-to-r from-brand-red-500 to-brand-blue-600 p-px">
-          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+        <div
+          className="relative w-full rounded-full p-px animate-spin-gradient"
+          style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
+        >
+          <div className="flex min-h-12 w-full items-center gap-1 rounded-full bg-card py-1.5 pl-1.5 pr-1.5">
             <AiChatHistoryPopover
               chatApi={chatApi}
               configTitle={config.title}

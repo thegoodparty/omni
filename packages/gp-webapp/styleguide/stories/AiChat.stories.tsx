@@ -5,11 +5,16 @@ import { useArgs } from 'storybook/preview-api'
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
-import { DownloadIcon } from '../components/ui/icons'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
+import { Progress } from '../components/ui/progress'
+import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
+import { Checkbox } from '../components/ui/checkbox'
+import { DownloadIcon, SparklesIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
+import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
 import { mockChatApi } from 'app/dashboard/shared/ai-chat/mock-chat-api'
-import type { AiChatConfig } from 'app/dashboard/shared/ai-chat/types'
+import type { AiChatClient, AiChatConfig, ChatMessageDto } from 'app/dashboard/shared/ai-chat/types'
 
 const queryClient = new QueryClient()
 
@@ -39,6 +44,8 @@ function AiChatDemo({
   open,
   onOpenChange,
   config = DEFAULT_CONFIG,
+  chatApi = mockChatApi,
+  initialConversationId,
   firstName,
   extraBar,
   extraBarAlign,
@@ -47,22 +54,24 @@ function AiChatDemo({
   open: boolean
   onOpenChange: (v: boolean) => void
   config?: AiChatConfig
+  chatApi?: AiChatClient
+  initialConversationId?: string
   firstName?: string
   extraBar?: React.ReactNode
   extraBarAlign?: 'start' | 'center' | 'end'
   messageRenderer?: (content: string) => React.ReactNode
 }) {
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(initialConversationId ?? null)
 
   return (
-    <div className="relative h-[500px] overflow-hidden rounded-lg border border-border bg-background">
+    <div className="relative h-[300px] overflow-hidden bg-background">
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Page content area
       </div>
 
       {!open && (
         <AiChatBar
-          chatApi={mockChatApi}
+          chatApi={chatApi}
           config={config}
           firstName={firstName}
           onOpen={() => onOpenChange(true)}
@@ -76,7 +85,7 @@ function AiChatDemo({
       )}
 
       <AiChatSurface
-        chatApi={mockChatApi}
+        chatApi={chatApi}
         config={config}
         open={open}
         onOpenChange={onOpenChange}
@@ -191,7 +200,7 @@ export const Bar: StoryObj = {
   },
 }
 
-export const BarWithExtraBar: StoryObj = {
+export const ExtraBarSlot: StoryObj = {
   parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(false)
@@ -217,7 +226,7 @@ export const BarWithExtraBar: StoryObj = {
 }
 
 export const DrawerOpen: StoryObj = {
-  parameters: { controls: { disable: true } },
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -231,7 +240,7 @@ export const DrawerOpen: StoryObj = {
 }
 
 export const CustomMessageRenderer: StoryObj = {
-  parameters: { controls: { disable: true } },
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
     const messageRenderer = (content: string) => (
@@ -265,5 +274,269 @@ export const ChiefOfStaff: StoryObj = {
       ],
     }
     return <AiChatDemo open={open} onOpenChange={setOpen} config={config} />
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — seeded mock APIs for rich-content stories
+// ---------------------------------------------------------------------------
+
+const SEEDED_ID = 'story-seeded'
+const RADIO_MARKER = '__radio_choices__'
+const CHECKBOX_MARKER = '__checkbox_list__'
+
+function makeSeededApi(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+): AiChatClient {
+  const dtos: ChatMessageDto[] = messages.map((m, i) => ({
+    id: `s-${i}`,
+    conversationId: SEEDED_ID,
+    role: m.role,
+    content: m.content,
+    createdAt: new Date(Date.now() - (messages.length - i) * 15_000).toISOString(),
+  }))
+  return {
+    ...mockChatApi,
+    async listMessages(id) {
+      await new Promise((r) => setTimeout(r, 150))
+      return id === SEEDED_ID ? dtos : []
+    },
+  }
+}
+
+function radioRenderer(content: string): React.ReactNode {
+  if (content !== RADIO_MARKER) return <p className="text-sm text-foreground">{content}</p>
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-foreground">
+        Which outreach strategy should we prioritize this week?
+      </p>
+      <RadioGroup defaultValue="" className="gap-2">
+        <RadioCardItem
+          value="door"
+          id="door"
+          title="Door-to-door canvassing"
+          description="Highest conversion rate for local races"
+        />
+        <RadioCardItem
+          value="phone"
+          id="phone"
+          title="Phone banking"
+          description="Reach more voters in less time"
+        />
+        <RadioCardItem
+          value="social"
+          id="social"
+          title="Social media blitz"
+          description="Best for engaging younger voters"
+        />
+      </RadioGroup>
+      <Button type="button" size="small" className="w-fit">
+        Confirm choice
+      </Button>
+    </div>
+  )
+}
+
+function checkboxRenderer(content: string): React.ReactNode {
+  if (content !== CHECKBOX_MARKER) return <p className="text-sm text-foreground">{content}</p>
+  const items = [
+    { label: 'Fundraising update and donor shoutouts', checked: true },
+    { label: 'Volunteer spotlight', checked: true },
+    { label: 'Policy position summary', checked: false },
+    { label: 'Event calendar for the week', checked: false },
+    { label: 'Recent press coverage', checked: false },
+  ]
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-foreground">
+        Select what to include in this week's campaign update:
+      </p>
+      <div className="flex flex-col gap-2.5">
+        {items.map((item, i) => (
+          <label key={i} className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <Checkbox defaultChecked={item.checked} id={`cb-${i}`} />
+            {item.label}
+          </label>
+        ))}
+      </div>
+      <Button type="button" size="small" className="w-fit">
+        Generate update
+      </Button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// WithRadioCards
+// ---------------------------------------------------------------------------
+
+const RADIO_API = makeSeededApi([
+  { role: 'user', content: 'What outreach strategy should I focus on?' },
+  { role: 'assistant', content: RADIO_MARKER },
+])
+
+export const WithRadioCards: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={RADIO_API}
+        initialConversationId={SEEDED_ID}
+        messageRenderer={radioRenderer}
+      />
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// WithCheckboxes
+// ---------------------------------------------------------------------------
+
+const CHECKBOX_API = makeSeededApi([
+  { role: 'user', content: "What should I include in this week's campaign update?" },
+  { role: 'assistant', content: CHECKBOX_MARKER },
+])
+
+export const WithCheckboxes: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={CHECKBOX_API}
+        initialConversationId={SEEDED_ID}
+        messageRenderer={checkboxRenderer}
+      />
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// WithProgressBar
+// ---------------------------------------------------------------------------
+
+export const WithProgressBar: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <div className="relative h-[300px] overflow-hidden bg-background">
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Page content area
+        </div>
+        {!open && (
+          <AiChatBar
+            chatApi={mockChatApi}
+            config={DEFAULT_CONFIG}
+            onOpen={() => setOpen(true)}
+            onOpenConversation={() => setOpen(true)}
+          />
+        )}
+        <Drawer open={open} onOpenChange={setOpen}>
+          <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
+            <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <SparklesIcon className="size-4" aria-hidden />
+              </span>
+              <div className="flex flex-col text-left">
+                <DrawerTitle>{DEFAULT_CONFIG.title}</DrawerTitle>
+                <span className="text-xs text-muted-foreground">{DEFAULT_CONFIG.subtitle}</span>
+              </div>
+            </DrawerHeader>
+            <AiChatBody
+              chatApi={mockChatApi}
+              config={DEFAULT_CONFIG}
+              active={open}
+              className="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
+              bottomSlot={
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Campaign setup</span>
+                    <span>65%</span>
+                  </div>
+                  <Progress value={65} className="h-1.5" />
+                </div>
+              }
+            />
+          </DrawerContent>
+        </Drawer>
+      </div>
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// LongConversation
+// ---------------------------------------------------------------------------
+
+const LONG_CONV_API = makeSeededApi([
+  { role: 'user', content: 'What should I focus on this week?' },
+  {
+    role: 'assistant',
+    content:
+      "Based on your campaign data, here are your **top 3 priorities**:\n\n1. **Voter outreach** — You're at 34% of your contact goal (1,247 of 3,600)\n2. **Fundraising** — Q3 deadline in 12 days, currently at $47,200 of $75,000\n3. **Debate prep** — Scheduled Thursday at City Hall",
+  },
+  { role: 'user', content: 'Tell me more about the voter outreach gap' },
+  {
+    role: 'assistant',
+    content:
+      "You need to contact **2,353 more voters** in the next 3 weeks to hit your goal. At your current pace of ~60 contacts/day you'll finish at roughly 68%.\n\nTo close the gap I'd suggest:\n- Adding a Saturday phone bank session (est. +120 contacts)\n- Activating your 14 inactive volunteers\n- Targeting precincts 7 and 12 — highest density, lowest contact rate",
+  },
+  { role: 'user', content: 'How bad is the fundraising situation?' },
+  {
+    role: 'assistant',
+    content:
+      "You're **$27,800 short** with 12 days left. That's about $2,317/day needed — doable but tight.\n\nYour top opportunities:\n- 8 major donors who gave last cycle haven't given yet this quarter\n- Your last fundraising email had a 22% open rate — above average\n- The donor event next Tuesday could net $8,000–$12,000 based on RSVPs",
+  },
+  { role: 'user', content: 'What happened at the city council housing vote?' },
+  {
+    role: 'assistant',
+    content:
+      "The council voted **6–3 in favor** of the Eastside rezoning proposal on Monday. Councilmembers Reyes, Park, and Thompson voted against.\n\nThis is relevant to your campaign because affordable housing is your #2 issue. Voters in precincts 4 and 9 — both swing areas — were closely watching this vote.",
+  },
+  { role: 'user', content: 'Draft a response to the housing vote' },
+  {
+    role: 'assistant',
+    content:
+      "Here's a draft statement:\n\n> \"Monday's 6–3 vote to rezone the Eastside is a step in the right direction, but we need to make sure new development actually delivers affordable units — not just market-rate housing dressed up with a few set-asides. I'll be watching the implementation closely and pushing for community benefit agreements that keep longtime residents in their neighborhoods.\"\n\nWant me to adjust the tone or length?",
+  },
+  { role: 'user', content: "That's good. Make it shorter for social media" },
+  {
+    role: 'assistant',
+    content:
+      "Here's a tighter version for social:\n\n> \"The Eastside rezoning passed 6–3 — good first step. Now we need to make sure it delivers real affordable housing, not just developer profits. I'll be watching the implementation closely. 🏘️\"\n\nUnder 280 characters, ready to post.",
+  },
+  { role: 'user', content: "What do I need to know for Thursday's debate?" },
+  {
+    role: 'assistant',
+    content:
+      "Thursday's debate is at **City Hall, 7 PM**. Format: 90 minutes, 3 candidates, 2-minute opening, 90-second responses.\n\nTop issues likely to come up based on recent local coverage:\n1. Housing affordability (very hot after Monday's vote)\n2. Public safety — opponent Chen has been running hard on this\n3. Infrastructure — pothole complaints up 40% this quarter\n\nI can draft talking points for any of these — just say the word.",
+  },
+])
+
+export const LongConversation: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <div className="relative h-[300px] overflow-hidden bg-background">
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Page content area
+        </div>
+        <AiChatSurface
+          chatApi={LONG_CONV_API}
+          config={DEFAULT_CONFIG}
+          open={open}
+          onOpenChange={setOpen}
+          initialConversationId={SEEDED_ID}
+        />
+      </div>
+    )
   },
 }

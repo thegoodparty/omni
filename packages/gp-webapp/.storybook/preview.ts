@@ -25,6 +25,7 @@ const preview: Preview = {
       const isDark = context.globals['colorScheme'] === 'dark'
       if (typeof document !== 'undefined') {
         document.documentElement.classList.toggle('sb-dark', isDark)
+        document.body.classList.toggle('dark', isDark)
       }
       return React.createElement(
         'div',
