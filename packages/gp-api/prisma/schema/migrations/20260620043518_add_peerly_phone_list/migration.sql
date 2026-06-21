@@ -30,10 +30,13 @@ ALTER TABLE "peerly_phone_list" ADD CONSTRAINT "peerly_phone_list_campaign_id_fk
 -- additionally guarded by ON CONFLICT DO NOTHING.
 -- NB: outreach.campaignId / outreach.createdAt have no @map, so the physical
 -- columns are camelCase. Only phone_list_id is @map'd to snake_case.
+-- The EXISTS guard skips any outreach row whose campaign no longer exists, so a
+-- dangling campaignId can't FK-violate the insert and fail the migration.
 INSERT INTO "peerly_phone_list" ("campaign_id", "list_id", "updated_at")
-SELECT DISTINCT ON ("phone_list_id")
-    "campaignId", "phone_list_id", CURRENT_TIMESTAMP
-FROM "outreach"
-WHERE "phone_list_id" IS NOT NULL
-ORDER BY "phone_list_id", "createdAt"
+SELECT DISTINCT ON (o."phone_list_id")
+    o."campaignId", o."phone_list_id", CURRENT_TIMESTAMP
+FROM "outreach" o
+WHERE o."phone_list_id" IS NOT NULL
+  AND EXISTS (SELECT 1 FROM "campaign" c WHERE c."id" = o."campaignId")
+ORDER BY o."phone_list_id", o."createdAt"
 ON CONFLICT ("list_id") DO NOTHING;
