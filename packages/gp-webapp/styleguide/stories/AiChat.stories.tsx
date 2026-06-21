@@ -8,7 +8,6 @@ import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
-import { Checkbox } from '../components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { DownloadIcon, ShareIcon, SparklesIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
@@ -335,7 +334,6 @@ export const ChiefOfStaff: StoryObj = {
 
 const SEEDED_ID = 'story-seeded'
 const RADIO_MARKER = '__radio_choices__'
-const CHECKBOX_MARKER = '__checkbox_list__'
 
 function makeSeededApi(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -390,35 +388,6 @@ function radioRenderer(content: string): React.ReactNode {
   )
 }
 
-function checkboxRenderer(content: string): React.ReactNode {
-  if (content !== CHECKBOX_MARKER) return <p className="text-sm text-foreground">{content}</p>
-  const items = [
-    { label: 'Fundraising update and donor shoutouts', checked: true },
-    { label: 'Volunteer spotlight', checked: true },
-    { label: 'Policy position summary', checked: false },
-    { label: 'Event calendar for the week', checked: false },
-    { label: 'Recent press coverage', checked: false },
-  ]
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-foreground">
-        Select what to include in this week's campaign update:
-      </p>
-      <div className="flex flex-col gap-2.5">
-        {items.map((item, i) => (
-          <label key={i} className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-            <Checkbox defaultChecked={item.checked} id={`cb-${i}`} />
-            {item.label}
-          </label>
-        ))}
-      </div>
-      <Button type="button" size="small" className="w-fit">
-        Generate update
-      </Button>
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // WithRadioCards
 // ---------------------------------------------------------------------------
@@ -439,31 +408,6 @@ export const WithRadioCards: StoryObj = {
         chatApi={RADIO_API}
         initialConversationId={SEEDED_ID}
         messageRenderer={radioRenderer}
-      />
-    )
-  },
-}
-
-// ---------------------------------------------------------------------------
-// WithCheckboxes
-// ---------------------------------------------------------------------------
-
-const CHECKBOX_API = makeSeededApi([
-  { role: 'user', content: "What should I include in this week's campaign update?" },
-  { role: 'assistant', content: CHECKBOX_MARKER },
-])
-
-export const WithCheckboxes: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
-  render: () => {
-    const [open, setOpen] = useState(true)
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        chatApi={CHECKBOX_API}
-        initialConversationId={SEEDED_ID}
-        messageRenderer={checkboxRenderer}
       />
     )
   },
