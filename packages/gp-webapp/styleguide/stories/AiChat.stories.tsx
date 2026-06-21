@@ -9,7 +9,8 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import { Checkbox } from '../components/ui/checkbox'
-import { DownloadIcon, SparklesIcon } from '../components/ui/icons'
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
+import { DownloadIcon, ShareIcon, SparklesIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
@@ -221,6 +222,56 @@ export const ExtraBarSlot: StoryObj = {
         onOpenChange={setOpen}
         extraBar={extraBar}
         extraBarAlign="center"
+      />
+    )
+  },
+}
+
+export const ExtraBarActions: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const [open, setOpen] = useState(false)
+    const extraBar = (
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" size="small" icon={<ShareIcon className="size-4" />}>
+          Share
+        </Button>
+        <Button type="button" variant="outline" size="small" icon={<DownloadIcon className="size-4" />}>
+          Download
+        </Button>
+      </div>
+    )
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        extraBar={extraBar}
+        extraBarAlign="end"
+      />
+    )
+  },
+}
+
+export const ExtraBarNav: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const [open, setOpen] = useState(false)
+    const [tab, setTab] = useState('overview')
+    const extraBar = (
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="voters">Voters</TabsTrigger>
+          <TabsTrigger value="finance">Finance</TabsTrigger>
+        </TabsList>
+      </Tabs>
+    )
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        extraBar={extraBar}
+        extraBarAlign="start"
       />
     )
   },
