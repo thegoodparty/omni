@@ -9,6 +9,7 @@ import { SearchIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { AiChatClient, AiChatConfig, ChatErrorCode, ChatMessageDto, ChatStreamEvent } from './types'
+import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
 import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 
@@ -443,7 +444,7 @@ export default function AiChatBody({
         ref={scrollRef}
         className={
           className ??
-          'mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3'
+          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`
         }
         data-testid="ai-chat-conversation"
       >
@@ -490,6 +491,7 @@ export default function AiChatBody({
                   size="small"
                   variant="ghost"
                   aria-label="Like this response"
+                  aria-pressed={feedback[item.id] === 'up'}
                   onClick={() => onFeedback(item.id, 'up')}
                   className={feedback[item.id] === 'up' ? 'text-primary' : 'text-muted-foreground'}
                 >
@@ -500,6 +502,7 @@ export default function AiChatBody({
                   size="small"
                   variant="ghost"
                   aria-label="Dislike this response"
+                  aria-pressed={feedback[item.id] === 'down'}
                   onClick={() => onFeedback(item.id, 'down')}
                   className={feedback[item.id] === 'down' ? 'text-destructive' : 'text-muted-foreground'}
                 >
@@ -511,7 +514,7 @@ export default function AiChatBody({
         )}
 
         {streaming !== null && (
-          <div className="self-start max-w-full text-sm text-foreground space-y-2">
+          <div aria-live="polite" aria-atomic="false" className="self-start max-w-full text-sm text-foreground space-y-2">
             {activeTools.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {activeTools.map((t) => (
@@ -552,7 +555,7 @@ export default function AiChatBody({
 
       {/* Suggestion chips — only on a fresh chat */}
       {suggestions.length > 0 && history.length === 0 && streaming === null && !error && (
-        <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-3 pt-2">
+        <div className={`mx-auto flex w-full ${CHAT_MAX_W} flex-wrap gap-2 px-3 pb-3 pt-2`}>
           {suggestions.map((s) => (
             <Button
               key={s}
@@ -572,7 +575,7 @@ export default function AiChatBody({
       {/* Bottom slot — between messages and composer */}
       {bottomSlot && (
         <div>
-          <div className="mx-auto w-full max-w-[608px] px-4 pt-3 pb-5 lg:px-6">
+          <div className={`mx-auto w-full ${CHAT_MAX_W} px-4 pt-3 pb-5 lg:px-6`}>
             {bottomSlot}
           </div>
         </div>
@@ -581,8 +584,8 @@ export default function AiChatBody({
       {/* Composer */}
       <div className="border-t border-border px-3 py-3">
         <div style={{ background: `linear-gradient(to right, var(--ai-gradient-from), var(--ai-gradient-to))` }}
-            className={`relative mx-auto w-full max-w-[608px] p-px transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}>
-          <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-1.5 py-1.5 overflow-hidden transition-all ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
+            className={`relative mx-auto w-full ${CHAT_MAX_W} p-px transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}>
+          <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-1.5 py-1.5 overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
             {onSelectConversation && (
               <AiChatHistoryPopover
                 chatApi={chatApi}
@@ -610,7 +613,7 @@ export default function AiChatBody({
               disabled={creating}
               aria-label="Ask a question"
               rows={1}
-              className="flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-[15px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
+              className="flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
             />
             <IconButton
               type="button"
@@ -624,7 +627,7 @@ export default function AiChatBody({
               {dictation.busy ? (
                 <Loader2Icon className="size-5 animate-spin" aria-hidden />
               ) : dictation.status === 'recording' ? (
-                <SquareIcon className="size-5 animate-pulse text-red-500" aria-hidden />
+                <SquareIcon className="size-5 animate-pulse text-destructive" aria-hidden />
               ) : (
                 <MicIcon className="size-5" aria-hidden />
               )}

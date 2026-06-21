@@ -2,6 +2,7 @@
 
 import { IconButton } from '@styleguide'
 import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
 import type { AiChatClient, AiChatConfig } from './types'
 
@@ -41,13 +42,13 @@ export default function AiChatBar({
     <div className="fixed inset-x-0 bottom-0 z-[55] lg:left-64">
       {extraBar && (
         <div className="flex h-14 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
-          <div className={`mx-auto flex w-full max-w-[608px] items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
+          <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
             {extraBar}
           </div>
         </div>
       )}
       <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
-      <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
+      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 py-4 lg:px-6`}>
         <div
           className="relative w-full rounded-full p-px animate-spin-gradient"
           style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
@@ -61,7 +62,7 @@ export default function AiChatBar({
             <button
               type="button"
               onClick={onOpen}
-              className="flex-1 truncate text-left text-[15px] font-medium text-muted-foreground"
+              className="flex-1 truncate text-left text-sm font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:ring-offset-2 rounded-full"
             >
               {placeholder}
             </button>

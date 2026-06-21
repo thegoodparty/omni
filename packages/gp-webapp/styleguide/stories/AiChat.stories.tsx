@@ -101,6 +101,7 @@ function AiChatDemo({
 // ---------------------------------------------------------------------------
 const meta: Meta = {
   title: 'Patterns/AiChat',
+  component: AiChatBody,
   tags: ['autodocs'],
   decorators: [
     (Story) => (

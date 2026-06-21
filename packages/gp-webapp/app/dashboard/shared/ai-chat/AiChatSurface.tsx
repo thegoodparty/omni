@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import AiChatBody from './AiChatBody'
+import { CHAT_MAX_W } from './constants'
 import type { AiChatClient, AiChatConfig } from './types'
 
 interface Props {
@@ -63,7 +64,7 @@ export default function AiChatSurface({
           config={config}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
-          className="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
+          className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
           messageRenderer={messageRenderer}
         />
       </DrawerContent>
