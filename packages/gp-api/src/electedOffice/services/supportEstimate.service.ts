@@ -1,18 +1,29 @@
 import { Injectable } from '@nestjs/common'
 import { SupportEstimate } from '@goodparty_org/contracts'
+import { ElectedOfficeSupportApiService } from './electedOfficeSupportApi.service'
 
 @Injectable()
 export class SupportEstimateService {
-  // TODO: data + research own a table keyed on electedOfficeId (analogous to
-  // the Win number) holding the estimate and its components. When it lands,
-  // replace this interim value with a read of that table by electedOfficeId.
-  // Confirm the table name, key, and columns with data + research (Bryan).
-  getSupportEstimate(_electedOfficeId: string): SupportEstimate {
+  constructor(private readonly supportApi: ElectedOfficeSupportApiService) {}
+
+  // Reads the office's constituent-support row from election-api (populated by
+  // the data team's ETL) and shapes it for the Serve dashboard hero. Returns
+  // null until a usable row exists, so the UI can show a "no estimate yet"
+  // state rather than fabricated numbers.
+  async getSupportEstimate(
+    electedOfficeId: string,
+  ): Promise<SupportEstimate | null> {
+    const support = await this.supportApi.getByElectedOfficeId(electedOfficeId)
+    if (!support || support.totalConstituents <= 0) {
+      return null
+    }
+    const rawPercent =
+      (support.supportConstituents / support.totalConstituents) * 100
     return {
-      likelySupport: 1240,
-      districtSize: 5200,
-      percentOfDistrict: 23.8,
-      trendVsLastMonth: 2.1,
+      likelySupport: support.supportConstituents,
+      districtSize: support.totalConstituents,
+      // Clamp + round to one decimal; the schema bounds this to [0, 100].
+      percentOfDistrict: Math.min(100, Math.round(rawPercent * 10) / 10),
     }
   }
 }

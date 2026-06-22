@@ -1,11 +1,11 @@
 export const CHART_COLORS = [
-  '#5975A6',
-  '#63D1A0',
-  '#CDA1FF',
-  '#FFC523',
-  '#FF9364',
-  '#475569',
-  '#818CF8',
+  'var(--data-chart-1)',
+  'var(--data-chart-2)',
+  'var(--data-chart-3)',
+  'var(--data-chart-4)',
+  'var(--data-chart-5)',
+  'var(--data-chart-6)',
+  'var(--data-chart-7)',
 ] as const
 
 export const formatChartNumber = (

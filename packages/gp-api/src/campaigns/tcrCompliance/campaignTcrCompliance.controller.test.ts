@@ -111,6 +111,24 @@ describe('CampaignTcrComplianceController', () => {
     vi.clearAllMocks()
   })
 
+  describe('getMyTcrCompliance', () => {
+    it('returns null when the campaign has no TCR record yet', async () => {
+      mockTcrService.fetchByCampaignId.mockResolvedValue(null)
+
+      const result = await controller.getMyTcrCompliance(mockCampaign)
+
+      expect(result).toBeNull()
+    })
+
+    it('returns the TCR record when one exists', async () => {
+      mockTcrService.fetchByCampaignId.mockResolvedValue(mockTcrCompliance)
+
+      const result = await controller.getMyTcrCompliance(mockCampaign)
+
+      expect(result).toEqual(mockTcrCompliance)
+    })
+  })
+
   describe('createTcrCompliance - Segment event tracking', () => {
     const tcrComplianceDto = {
       ein: '12-3456789',

@@ -124,7 +124,11 @@ export class GeneralChatsController {
     @Body(ZodValidationPipe) body: CreateChatDto,
   ): Promise<CreateChatResponse> {
     return this.chats.resolveConversation(
-      { scope: body.scope, organizationSlug: office.organizationSlug },
+      {
+        scope: body.scope,
+        organizationSlug: office.organizationSlug,
+        anchor: body.anchor,
+      },
       user.id,
     )
   }
@@ -249,6 +253,13 @@ export class GeneralChatsController {
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
+        ...(m.segments.length > 0 && {
+          segments: m.segments.map((s) => ({
+            kind: s.kind,
+            text: s.text,
+            toolName: s.toolName,
+          })),
+        }),
       })),
     }
   }

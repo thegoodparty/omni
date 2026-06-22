@@ -7,6 +7,7 @@ import {
   getNextOnboardingStep,
   getPreviousOnboardingStep,
   getVisibleOnboardingSteps,
+  resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
 const renderFlow = () =>
@@ -129,5 +130,34 @@ describe('new onboarding flow shell', () => {
       getNextOnboardingStep(ONBOARDING_STEPS, 'manual-office-entry', answers)
         ?.id,
     ).toBe('pledge')
+  })
+})
+
+describe('resolvePostPledgeRoute', () => {
+  it('sends campaign-story users to the story page (highest precedence)', () => {
+    expect(
+      resolvePostPledgeRoute({
+        campaignStoryEnabled: true,
+        campaignStrategyEnabled: true,
+      }),
+    ).toBe('/dashboard/campaign-story')
+  })
+
+  it('sends campaign-strategy-only users to the success page', () => {
+    expect(
+      resolvePostPledgeRoute({
+        campaignStoryEnabled: false,
+        campaignStrategyEnabled: true,
+      }),
+    ).toBe('/onboarding/success')
+  })
+
+  it('sends everyone else to the dashboard', () => {
+    expect(
+      resolvePostPledgeRoute({
+        campaignStoryEnabled: false,
+        campaignStrategyEnabled: false,
+      }),
+    ).toBe('/dashboard')
   })
 })

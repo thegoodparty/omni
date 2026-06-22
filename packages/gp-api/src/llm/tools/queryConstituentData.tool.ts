@@ -33,13 +33,25 @@ const DEFAULT_MIN_CELL_SIZE = 100
 const DEFAULT_MAX_ROWS = 200
 const HARD_MAX_ROWS = 1000
 
+export interface AdvertisedDimension {
+  name: string
+  label: string
+}
+
 export interface ConstituentDataScope {
   allowedTables: Set<string>
   // Coarse dimensions the agent may reference anywhere (SELECT/GROUP BY/WHERE).
   // The real anti-differencing control: fine-grained quasi-identifiers are not
   // listed, so they can't be sliced. Mandatory-filter columns are implicitly
-  // allowed (they're server-bound), but listing them here is harmless.
+  // allowed (they're server-bound), but listing them here is harmless. This is
+  // the validator allowlist (can be the whole approved table); it is NOT the
+  // menu shown to the model — see advertisedDimensions.
   allowedDimensions: Set<string>
+  // The curated, human-labelled subset surfaced to the model as recommended
+  // breakdowns. A usable slice of allowedDimensions so the agent isn't handed
+  // hundreds of raw column names (which made it reach for useless district
+  // breakdowns); the full table stays queryable via allowedDimensions.
+  advertisedDimensions: AdvertisedDimension[]
   // Columns that must never appear anywhere. App-side defensive backstop for the
   // hard "no political party / partisan-lean" line; in 6b the credential also
   // denies these at the warehouse.
@@ -339,7 +351,6 @@ const buildDescription = (scope: ConstituentDataScope): string => {
   const whereClause = scope.mandatoryFilters
     .map((f) => `${f.column} = '${f.value}'`)
     .join(' AND ')
-  const dims = [...scope.allowedDimensions].join(', ')
 
   return `Answer AGGREGATE questions about your constituents (how many, what share, averages), optionally broken down by an approved dimension. Returns counts/sums/averages only — never a list of people.
 
@@ -352,7 +363,7 @@ Write ONE SELECT against this exact table — you MUST include the FROM clause:
 
 The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
 
-Approved dimensions (the ONLY columns you may SELECT, GROUP BY, or filter on besides the scope columns): ${dims}
+Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*, each a 0-100 likelihood where a higher score means more aligned with the named position — report them as approximate shares/averages, never as exact head counts), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
 
 RULES:
   - Single SELECT, and it MUST contain "FROM ${table}".
@@ -413,23 +424,25 @@ export const buildQueryConstituentDataTool = (deps: {
 
 export interface ConstituentDataMetadata {
   table: string
-  dimensions: string[]
+  dimensions: AdvertisedDimension[]
   aggregateFunctions: string[]
   districtScope: MandatoryFilter[]
 }
 
-// Optional metadata helper: lets the agent discover the approved table,
-// dimensions, and aggregate functions without guessing internal names. It never
-// touches the warehouse, so it carries no data-exposure risk.
+// Optional metadata helper: lets the agent discover the recommended breakdown
+// dimensions (with human labels) and aggregate functions without guessing
+// internal names. Returns the curated advertised set, not the full validator
+// allowlist — handing over hundreds of raw columns is what confused the agent.
+// It never touches the warehouse, so it carries no data-exposure risk.
 export const buildDescribeConstituentDataTool = (deps: {
   scope: ConstituentDataScope
 }): LlmStreamTool<Record<string, never>, ConstituentDataMetadata> => ({
   description:
-    'List the table, approved breakdown dimensions, and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.',
+    'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.',
   inputSchema: z.object({}),
   execute: () => ({
     table: [...deps.scope.allowedTables][0] ?? '',
-    dimensions: [...deps.scope.allowedDimensions],
+    dimensions: deps.scope.advertisedDimensions,
     aggregateFunctions: [...ALLOWED_AGGREGATE_FUNCTIONS],
     districtScope: deps.scope.mandatoryFilters,
   }),

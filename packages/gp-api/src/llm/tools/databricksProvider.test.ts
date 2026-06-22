@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DatabricksSqlProvider,
   type DbsqlClientLike,
+  type DbsqlConnectOptions,
   type DbsqlOperationLike,
   type DbsqlSessionInstanceLike,
   type DbsqlSessionLike,
@@ -390,8 +391,8 @@ describe('DatabricksSqlProvider', () => {
     ).not.toThrow()
   })
 
-  it('passes connection credentials to the underlying client', async () => {
-    const connectArgs: Array<{ host: string; path: string; token: string }> = []
+  it('passes a PAT to the underlying client', async () => {
+    const connectArgs: DbsqlConnectOptions[] = []
     const factory = (): DbsqlClientLike => ({
       connect: async (opts) => {
         connectArgs.push(opts)
@@ -422,5 +423,107 @@ describe('DatabricksSqlProvider', () => {
         token: 'dapi-token',
       },
     ])
+  })
+
+  it('uses OAuth M2M when client id + secret are set (over a PAT)', async () => {
+    const connectArgs: DbsqlConnectOptions[] = []
+    const factory = (): DbsqlClientLike => ({
+      connect: async (opts) => {
+        connectArgs.push(opts)
+        return {
+          openSession: async () => ({
+            executeStatement: async () =>
+              makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+            close: async () => noop(),
+          }),
+          close: async () => noop(),
+        }
+      },
+    })
+
+    const provider = new DatabricksSqlProvider({
+      hostname: HOST,
+      httpPath: PATH,
+      accessToken: 'dapi-token',
+      oauthClientId: 'client-id',
+      oauthClientSecret: 'client-secret',
+      clientFactory: factory,
+    })
+
+    await provider.query(SELECT_N)
+
+    expect(connectArgs).toEqual([
+      {
+        host: HOST,
+        path: PATH,
+        authType: 'databricks-oauth',
+        oauthClientId: 'client-id',
+        oauthClientSecret: 'client-secret',
+      },
+    ])
+  })
+
+  it('throws on query when no credential is configured', async () => {
+    const provider = new DatabricksSqlProvider({
+      hostname: HOST,
+      httpPath: PATH,
+      clientFactory: () => ({ connect: async () => ({}) as never }),
+    })
+
+    await expect(provider.query(SELECT_N)).rejects.toThrow(/no credential/)
+  })
+
+  it('rejects queries after close with a clear "closed" error', async () => {
+    const { factory } = makeFactory(() =>
+      makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+    )
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+
+    await provider.query(SELECT_N)
+    await provider.close()
+
+    await expect(provider.query(SELECT_N)).rejects.toThrow(/provider is closed/)
+  })
+
+  it('tears down a connection that finishes connecting after close', async () => {
+    let releaseConnect = (): void => undefined
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve
+    })
+    let sessionClosed = 0
+    let connClosed = 0
+    const factory = (): DbsqlClientLike => ({
+      connect: async () => {
+        await connectGate
+        return {
+          openSession: async () => ({
+            executeStatement: async () =>
+              makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+            close: async () => {
+              sessionClosed++
+            },
+          }),
+          close: async () => {
+            connClosed++
+          },
+        }
+      },
+    })
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+
+    const queryPromise = provider.query(SELECT_N)
+    await provider.close()
+    releaseConnect()
+
+    await expect(queryPromise).rejects.toThrow(/provider is closed/)
+    // The late-arriving session + connection are torn down, not leaked.
+    expect(sessionClosed).toBe(1)
+    expect(connClosed).toBe(1)
   })
 })

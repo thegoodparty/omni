@@ -2,7 +2,6 @@
 import { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
-import AlertSection from '../components/AlertSection'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -14,6 +13,9 @@ import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
+import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
+import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
+import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 
@@ -30,7 +32,6 @@ const DashboardLayout = ({
   children,
   pathname = '',
   campaign,
-  showAlert = true,
   wrapperClassName = '',
   hideMenu = false,
 }: DashboardLayoutProps): React.JSX.Element | null => {
@@ -39,6 +40,7 @@ const DashboardLayout = ({
   const organization = useOrganization()
   const router = useRouter()
   const hookPathname = usePathname()
+  const isImpersonating = useIsImpersonating()
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -61,6 +63,13 @@ const DashboardLayout = ({
       return
     }
 
+    // An impersonating admin can dismiss the forced election-result gate
+    // without answering it; don't bounce them back to it for the rest of
+    // the session.
+    if (isImpersonating && isElectionResultDismissed()) {
+      return
+    }
+
     const weeksResult = weeksTill(electionDate)
     const shouldRedirect =
       typeof details?.wonGeneral !== 'boolean' &&
@@ -71,7 +80,7 @@ const DashboardLayout = ({
     if (shouldRedirect) {
       router.push('/dashboard/election-result')
     }
-  }, [currentPath, details?.wonGeneral, electionDate, router])
+  }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
   return (
     <EcanvasserProvider>
@@ -84,10 +93,8 @@ const DashboardLayout = ({
         <SidebarInset className="bg-[#f5f5f5]">
           {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
+          <ElectedOfficeTermDatesModalController />
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-            {activeCampaign && showAlert && (
-              <AlertSection campaign={activeCampaign} />
-            )}
             <ProUpgradePrompt
               campaign={activeCampaign}
               user={user}

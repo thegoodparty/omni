@@ -20,6 +20,7 @@ import { Button } from '@styleguide/components/ui/button'
 import { Input } from '@styleguide/components/ui/input'
 import { cn } from '@styleguide/lib/utils'
 import { stopImpersonatingAndReturnToAdmin } from '@shared/user/stopImpersonating'
+import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
 
 type SearchResult = { id: number; email: string; name: string | null }
 
@@ -84,6 +85,7 @@ export default function ImpersonationBanner() {
         throw new Error('Impersonation sign-in incomplete')
       }
       await setActive({ session: result.createdSessionId })
+      clearElectionResultDismissed()
       window.location.href = '/dashboard'
     } catch {
       errorSnackbar('Failed to switch impersonation')

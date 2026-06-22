@@ -1,13 +1,7 @@
 'use client'
 
-import { Alert, AlertDescription, Button, Card, CardContent } from '@styleguide'
-import {
-  CalendarCheck,
-  CircleAlert,
-  Target,
-  UsersRound,
-  Wand2,
-} from 'lucide-react'
+import { Button, Card, CardContent } from '@styleguide'
+import { CalendarCheck, Target, UsersRound, Wand2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -34,8 +28,12 @@ import type { Campaign } from 'helpers/types'
 import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { ONBOARDING_STEPS, firstOnboardingStepId } from './onboardingConfig'
-import { getVisibleOnboardingSteps } from './onboardingHelpers'
+import {
+  getVisibleOnboardingSteps,
+  resolvePostPledgeRoute,
+} from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
@@ -48,6 +46,7 @@ import {
 } from './VoterDemographicsStep'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
+import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
   BallotStatus,
   ManualOfficeForm,
@@ -146,14 +145,7 @@ const PartyAffiliationStep = ({
 }: PartyAffiliationStepProps): React.JSX.Element => {
   return (
     <div className="space-y-4">
-      {isMajorPartyAffiliation(value) ? (
-        <Alert variant="destructive" icon={<CircleAlert />}>
-          <AlertDescription>
-            Sorry, GoodParty.org is only for non-partisan and independent
-            candidates.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      {isMajorPartyAffiliation(value) ? <MajorPartyBlockedAlert /> : null}
       <RadioCardGroup
         name="party-affiliation"
         value={value}
@@ -346,7 +338,16 @@ export default function OnboardingFlow({
   // Gates the post-pledge Campaign Plan flow. When off, we skip the LLM
   // pre-warm calls and route the candidate directly to /dashboard after
   // pledge instead of /onboarding/success.
-  const { enabled: campaignStrategyEnabled } = useCampaignStrategyFlag()
+  const { ready: campaignStrategyReady, enabled: campaignStrategyEnabled } =
+    useCampaignStrategyFlag()
+  // Campaign-story users don't auto-generate a plan during onboarding: they
+  // write their Campaign Story first, then generate from it. So we skip the
+  // pre-warm and route them to the story page instead of /onboarding/success.
+  // trackExposure=false: onboarding only reads the flag for routing, it's not
+  // the treatment surface (the story page is), so the read mustn't fire
+  // exposure for every onboarding visitor.
+  const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
+    useCampaignStoryFlag(false)
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -399,11 +400,18 @@ export default function OnboardingFlow({
     liveCampaign?.organization?.customPositionName ||
     liveCampaign?.office ||
     null
+  // Block the pledge step's Continue until both plan flags resolve — routing
+  // post-pledge depends on them, and reading them mid-init would default to
+  // false and misroute (e.g. a campaign-story user sent to /onboarding/success
+  // and into the pre-warm they're excluded from).
+  const pledgeFlagsReady =
+    activeStep.id !== 'pledge' || (campaignStrategyReady && campaignStoryReady)
   const canContinue =
     isActiveStepValid &&
     !isSavingOffice &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking
+    !isOfficeHydrationBlocking &&
+    pledgeFlagsReady
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
     setIsP2vLoading(loading)
@@ -894,10 +902,12 @@ export default function OnboardingFlow({
         // Gated on the campaign-strategy flag: no point spending Gemini
         // calls if the user will be routed straight to /dashboard
         // post-pledge.
-        if (campaignStrategyEnabled) {
+        if (campaignStrategyEnabled && !campaignStoryEnabled) {
           // These prewarm calls are the real first request for the strategic
           // landscape and community events, so the `Requested` events fire
           // here (not on the success page, which only re-polls afterward).
+          // Skipped for campaign-story users — they generate on demand after
+          // completing their story, so there's nothing to pre-warm yet.
           const planCampaignId = liveCampaign?.id ?? campaign?.id
           trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
             campaignId: planCampaignId,
@@ -960,11 +970,15 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Flag off → /dashboard (legacy behavior, no campaign plan).
-      // Flag on → /onboarding/success (Sections 1-10 with LLM-backed
-      // strategic landscape, community events, voter insights).
+      // Campaign-story users go write their story first (the plan is
+      // generated from it later, on the Campaign Plan tab). Otherwise:
+      // campaign-strategy on → /onboarding/success (LLM-backed plan);
+      // off → /dashboard (legacy, no plan).
       router.push(
-        campaignStrategyEnabled ? '/onboarding/success' : '/dashboard',
+        resolvePostPledgeRoute({
+          campaignStoryEnabled,
+          campaignStrategyEnabled,
+        }),
       )
       return
     }
@@ -1105,7 +1119,9 @@ export default function OnboardingFlow({
             {nextStep
               ? 'Continue'
               : activeStep.id === 'pledge'
-                ? 'Agree & Create My Plan'
+                ? campaignStoryEnabled
+                  ? "Let's Create Your Story"
+                  : 'Agree & Create My Plan'
                 : 'Complete'}
           </Button>
         </div>

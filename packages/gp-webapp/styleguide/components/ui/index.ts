@@ -52,5 +52,6 @@ export * from './toggle-group'
 export * from './tooltip'
 
 // Charts
+export * from './bar-chart'
 export * from './bar-list'
 export * from './donut-chart'

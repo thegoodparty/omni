@@ -45,10 +45,10 @@ model Campaign {
   tcrCompliance            TcrCompliance?
   website                  Website?
   outreach                 Outreach[]
-  communityIssue           CommunityIssue[]
   campaignTasks            CampaignTask[]
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
+  campaignStory            CampaignStory?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
 

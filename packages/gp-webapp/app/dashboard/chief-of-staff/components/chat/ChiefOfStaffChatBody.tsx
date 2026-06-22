@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  Badge,
   Button,
   IconButton,
   Input,
@@ -19,9 +20,14 @@ import { chiefOfStaffChatApi as chatApi } from '../../data/chat-api'
 import type {
   ChatErrorCode,
   ChatMessageDto,
+  ChatMessageSegment,
   ChatStreamEvent,
 } from '../../data/contracts'
-import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
+import {
+  COS_INTRO_MESSAGES,
+  toolDisplayName,
+  toolStatusLabel,
+} from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 
@@ -31,6 +37,11 @@ interface Props {
    * prior messages. Omit for a fresh chat (deferred create on first send).
    */
   conversationIdOverride?: string
+  /**
+   * Display-only assistant messages played on open (e.g. an onboarding card's
+   * agent greeting). Always shown; bypasses the first-chat-only intro gate.
+   */
+  opener?: string[]
   /** When the parent surface closes, set false to abort the in-flight stream. */
   active?: boolean
   /** Fires once the deferred create resolves with the real conversation id. */
@@ -42,7 +53,50 @@ interface Props {
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
-  | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
+  | {
+      kind: 'assistant'
+      id: string
+      content: string
+      toolsUsed?: string[]
+      // Persisted ordered structure (reloaded turns that used tools). When set,
+      // the assistant message renders these blocks instead of flat content.
+      segments?: ChatMessageSegment[]
+    }
+
+// Fold the flat persisted segments into render blocks: a text run, or a group
+// of consecutive tool pills (matches the live in-progress layout). Tools are
+// stored as display labels and deduped within a group, so a run of calls that
+// share a label (e.g. several constituent-data queries) shows one pill, not a
+// stack — same as the live builder.
+type RenderBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; labels: string[] }
+
+function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  for (const seg of segments) {
+    if (seg.kind === 'text') {
+      blocks.push({ kind: 'text', text: seg.text ?? '' })
+      continue
+    }
+    const label = toolDisplayName(seg.toolName ?? '')
+    const last = blocks[blocks.length - 1]
+    if (last && last.kind === 'tools') {
+      if (!last.labels.includes(label)) last.labels.push(label)
+    } else {
+      blocks.push({ kind: 'tools', labels: [label] })
+    }
+  }
+  return blocks
+}
+
+// The in-progress assistant turn, rendered as ordered blocks (text, tool-group,
+// text, ...) in the order events arrive — so a tool's wait reads as its own
+// "Thinking..." block instead of being buried under the text. Live-only; the
+// committed message still stores flat content + toolsUsed.
+type LiveSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; tools: string[]; running: boolean }
 
 type ErrorState = {
   message: string
@@ -72,12 +126,30 @@ function newClientMessageId(): string {
   return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 }
 
+// A tool_call event carries the tool's input as `args` (unknown). Pull the
+// `action` field when present so the status label can reflect what the tool is
+// doing (e.g. reading vs saving priorities).
+function toolAction(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null || !('action' in args)) {
+    return undefined
+  }
+  const action = args.action
+  return typeof action === 'string' ? action : undefined
+}
+
 function messageToItem(msg: ChatMessageDto): ChatItem | null {
   if (msg.role === 'user') {
     return { kind: 'user', id: msg.id, content: msg.content }
   }
   if (msg.role === 'assistant') {
-    return { kind: 'assistant', id: msg.id, content: msg.content }
+    return {
+      kind: 'assistant',
+      id: msg.id,
+      content: msg.content,
+      ...(msg.segments && msg.segments.length > 0
+        ? { segments: msg.segments }
+        : {}),
+    }
   }
   return null
 }
@@ -87,7 +159,7 @@ const INTRO_SEEN_KEY = 'cos-intro-streamed'
 // Starter prompts shown on a fresh chat; tapping one sends it.
 const CHAT_SUGGESTIONS = [
   "What's most urgent this week?",
-  'Where do I stand on housing?',
+  'How many of my constituents are homeowners?',
   'What are constituents saying?',
 ]
 
@@ -123,6 +195,7 @@ const ASSISTANT_BUBBLE =
  */
 export default function ChiefOfStaffChatBody({
   conversationIdOverride,
+  opener,
   active = true,
   onConversationCreated,
   onSelectConversation,
@@ -132,7 +205,9 @@ export default function ChiefOfStaffChatBody({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [history, setHistory] = useState<ChatItem[]>([])
   const [streaming, setStreaming] = useState<string | null>(null)
-  const [activeTools, setActiveTools] = useState<string[]>([])
+  // Ordered blocks for the in-progress turn (see LiveSegment). Replaces the old
+  // flat "all pills on top + one text blob" view.
+  const [segments, setSegments] = useState<LiveSegment[]>([])
   const [composer, setComposer] = useState('')
   const dictation = useDictationAppend({
     value: composer,
@@ -161,33 +236,43 @@ export default function ChiefOfStaffChatBody({
     priorConversations !== undefined &&
     priorConversations.length === 0
 
+  // An onboarding-card opener always plays; otherwise the default intro plays
+  // only on the user's first chat. Either way it's the same typed animation.
+  const introMessages = opener ?? COS_INTRO_MESSAGES
   const introTotal = useMemo(
-    () => COS_INTRO_MESSAGES.reduce((sum, m) => sum + m.length, 0),
-    [],
+    () => introMessages.reduce((sum, m) => sum + m.length, 0),
+    [introMessages],
   )
 
   // Type the intro in with a single counter + interval. A counter is
   // StrictMode-safe (the discarded first mount only advances it; no duplicate
   // bubbles or interleaved chains like a recursive setTimeout closure).
   useEffect(() => {
-    if (!isFirstChat) return
-    let seen = false
-    try {
-      seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
-    } catch {
-      seen = false
+    const isOpener = opener !== undefined
+    // Default intro is gated to the first chat, once ever (localStorage). An
+    // opener bypasses both gates so it replays on every card click.
+    if (!isOpener && !isFirstChat) return
+    if (!isOpener) {
+      let seen = false
+      try {
+        seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
+      } catch {
+        seen = false
+      }
+      if (seen) return
     }
-    if (seen) return
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
       // Mark seen once typing actually begins — set here, not at effect entry,
       // so StrictMode's discarded first mount (whose interval is cleared
       // before it ticks) doesn't suppress the real run.
-      try {
-        window.localStorage.setItem(INTRO_SEEN_KEY, '1')
-      } catch {
-        // private mode / storage disabled — still stream this session
+      if (!isOpener) {
+        try {
+          window.localStorage.setItem(INTRO_SEEN_KEY, '1')
+        } catch {
+          // private mode / storage disabled — still stream this session
+        }
       }
       setIntroProgress((p) => {
         const next = Math.min(p + step, introTotal)
@@ -196,19 +281,19 @@ export default function ChiefOfStaffChatBody({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [isFirstChat, introTotal])
+  }, [opener, isFirstChat, introTotal])
 
   // Per-message visible slices derived from the single progress counter.
   const introParts = useMemo(() => {
     let remaining = introProgress
     const parts: string[] = []
-    for (const message of COS_INTRO_MESSAGES) {
+    for (const message of introMessages) {
       if (remaining <= 0) break
       parts.push(message.slice(0, remaining))
       remaining -= message.length
     }
     return parts
-  }, [introProgress])
+  }, [introProgress, introMessages])
 
   // Override path — replay an existing conversation's messages once on mount.
   const loadExisting = useCallback(async () => {
@@ -306,7 +391,7 @@ export default function ChiefOfStaffChatBody({
       sendingRef.current = true
       setSending(true)
       setStreaming('')
-      setActiveTools([])
+      setSegments([])
       setError(null)
 
       try {
@@ -324,25 +409,84 @@ export default function ChiefOfStaffChatBody({
         // so the boundary has no whitespace ("...now." + "You..."). Insert a
         // paragraph break when text resumes after a tool call.
         let breakBeforeNextText = false
+        // Ordered blocks for the live render, built from the same events.
+        let segs: LiveSegment[] = []
+        const commitSegs = (next: LiveSegment[]): void => {
+          segs = next
+          setSegments(next)
+        }
+        // Raw ordered segments mirroring what the backend persists (raw tool
+        // names, not display labels). Committed to history so a just-finished
+        // turn renders the same interleaving as a reloaded one.
+        const committedSegs: ChatMessageSegment[] = []
+        const pushCommittedText = (delta: string): void => {
+          if (!delta) return
+          const last = committedSegs[committedSegs.length - 1]
+          if (last && last.kind === 'text') {
+            last.text = (last.text ?? '') + delta
+          } else {
+            committedSegs.push({ kind: 'text', text: delta })
+          }
+        }
+        // A tool group stops "running" as soon as any text follows it.
+        const resolveRunningTools = (list: LiveSegment[]): LiveSegment[] =>
+          list.map((s) =>
+            s.kind === 'tools' && s.running ? { ...s, running: false } : s,
+          )
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
-            if (
+            // The post-tool paragraph break is applied ONLY to the flat
+            // `assembled` content (the no-tool fallback that renders as one
+            // bubble). Segments — both the live `segs` and the committed ones —
+            // store RAW deltas, matching what the backend persists, so a
+            // freshly-streamed turn and a reloaded one render identically.
+            // Separate text segments are already separate bubbles, so the gap
+            // doesn't need the literal break.
+            const needsBreak =
               breakBeforeNextText &&
               assembled.length > 0 &&
               !/\s$/.test(assembled) &&
               !/^\s/.test(ev.delta)
-            ) {
-              assembled += '\n\n'
-            }
             breakBeforeNextText = false
-            assembled += ev.delta
+            assembled += needsBreak ? `\n\n${ev.delta}` : ev.delta
+            pushCommittedText(ev.delta)
             setStreaming(assembled)
+            // Segment view: close any running tool group, then extend or open
+            // the trailing text block.
+            const resolved = resolveRunningTools(segs)
+            const last = resolved[resolved.length - 1]
+            commitSegs(
+              last && last.kind === 'text'
+                ? [
+                    ...resolved.slice(0, -1),
+                    { kind: 'text', text: last.text + ev.delta },
+                  ]
+                : [...resolved, { kind: 'text', text: ev.delta }],
+            )
           } else if (ev.type === 'tool_call') {
             if (assembled.length > 0) breakBeforeNextText = true
             if (!turnTools.includes(ev.toolName)) {
               turnTools.push(ev.toolName)
-              setActiveTools([...turnTools])
+            }
+            committedSegs.push({ kind: 'tool', toolName: ev.toolName })
+            // Segment view: store the resolved (action-aware) label and group
+            // consecutive tool calls into one running block. turnTools keeps the
+            // raw names for the committed message (reload has no args).
+            const label = toolStatusLabel(ev.toolName, toolAction(ev.args))
+            const last = segs[segs.length - 1]
+            if (last && last.kind === 'tools' && last.running) {
+              if (!last.tools.includes(label)) {
+                commitSegs([
+                  ...segs.slice(0, -1),
+                  { ...last, tools: [...last.tools, label] },
+                ])
+              }
+            } else {
+              commitSegs([
+                ...segs,
+                { kind: 'tools', tools: [label], running: true },
+              ])
             }
           } else if (ev.type === 'done') {
             assistantId = ev.assistantMessageId
@@ -373,7 +517,9 @@ export default function ChiefOfStaffChatBody({
               kind: 'assistant',
               id: assistantId ?? `local_assistant_${clientMessageId}`,
               content: assembled,
-              ...(turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+              ...(committedSegs.some((s) => s.kind === 'tool')
+                ? { segments: committedSegs }
+                : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
             },
           ])
           setStreaming(null)
@@ -395,7 +541,7 @@ export default function ChiefOfStaffChatBody({
       } finally {
         sendingRef.current = false
         setSending(false)
-        setActiveTools([])
+        setSegments([])
         abortRef.current = null
       }
     },
@@ -463,10 +609,18 @@ export default function ChiefOfStaffChatBody({
   }, [error, executeUserTurn, loadExisting])
 
   const busy = sending || creating
-  const showIntro = isFirstChat && history.length === 0 && !streaming && !error
+  const showIntro =
+    (opener !== undefined || isFirstChat) &&
+    history.length === 0 &&
+    !streaming &&
+    !error
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // vaul disables text selection on the drawer (user-select:none on fine
+    // pointers) and treats pointer-drags as drawer-drags. select-text restores
+    // selection and data-vaul-no-drag stops a select-drag from moving the
+    // sheet, so users can highlight and copy chat text.
+    <div className="flex min-h-0 flex-1 flex-col select-text" data-vaul-no-drag>
       <div
         ref={scrollRef}
         className={
@@ -508,24 +662,52 @@ export default function ChiefOfStaffChatBody({
               <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <SparklesIcon className="size-3.5" aria-hidden />
               </span>
-              <div className={ASSISTANT_BUBBLE}>
-                {item.toolsUsed && item.toolsUsed.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.toolsUsed.map((t) => (
-                      <span
-                        key={t}
-                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                      >
-                        <SearchIcon className="size-3" aria-hidden />
-                        {toolDisplayName(t)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.content}
-                </ReactMarkdown>
-              </div>
+              {item.segments && item.segments.length > 0 ? (
+                // Reloaded turn that used tools: replay the persisted ordered
+                // text/tool blocks, matching the in-progress layout.
+                <div className="flex min-w-0 max-w-full flex-col gap-2">
+                  {groupSegments(item.segments).map((block, i) =>
+                    block.kind === 'text' ? (
+                      <div key={`b-${i}`} className={ASSISTANT_BUBBLE}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {block.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div key={`b-${i}`} className="flex flex-wrap gap-1.5">
+                        {block.labels.map((label) => (
+                          <span
+                            key={label}
+                            className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <SearchIcon className="size-3" aria-hidden />
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <div className={ASSISTANT_BUBBLE}>
+                  {item.toolsUsed && item.toolsUsed.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.toolsUsed.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <SearchIcon className="size-3" aria-hidden />
+                          {toolDisplayName(t)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {item.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           ),
         )}
@@ -535,27 +717,37 @@ export default function ChiefOfStaffChatBody({
             <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
-            <div className={ASSISTANT_BUBBLE}>
-              {activeTools.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {activeTools.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                    >
-                      <SearchIcon className="size-3" aria-hidden />
-                      {toolDisplayName(t)}
-                    </span>
-                  ))}
+            <div className="flex min-w-0 max-w-full flex-col gap-2">
+              {segments.length === 0 && (
+                <div className={ASSISTANT_BUBBLE}>
+                  <span className="text-shimmer-muted">Thinking...</span>
                 </div>
               )}
-              {streaming ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {streaming}
-                </ReactMarkdown>
-              ) : activeTools.length === 0 ? (
-                <span className="text-muted-foreground">Thinking...</span>
-              ) : null}
+              {segments.map((seg, i) =>
+                seg.kind === 'text' ? (
+                  <div key={`seg-${i}`} className={ASSISTANT_BUBBLE}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {seg.text}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <div key={`seg-${i}`} className="flex flex-wrap gap-1.5">
+                    {seg.tools.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                      >
+                        <SearchIcon className="size-3" aria-hidden />
+                        {seg.running ? (
+                          <span className="text-shimmer">{t}</span>
+                        ) : (
+                          t
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                ),
+              )}
             </div>
           </div>
         )}
@@ -582,17 +774,23 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       {history.length === 0 && streaming === null && !error && (
-        <div className="mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2">
+        <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
           {CHAT_SUGGESTIONS.map((s) => (
-            <button
+            <Badge
               key={s}
-              type="button"
-              disabled={busy}
-              onClick={() => void sendContent(s)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 disabled:opacity-50"
+              asChild
+              variant="soft"
+              shape="pill"
+              className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
             >
-              {s}
-            </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void sendContent(s)}
+              >
+                {s}
+              </button>
+            </Badge>
           ))}
         </div>
       )}

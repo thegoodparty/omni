@@ -30,7 +30,7 @@ vi.mock('next/navigation', () => ({
   redirect: (url: string) => mockRedirect(url),
 }))
 
-vi.mock('./components/CampaignPlanPage', () => ({
+vi.mock('./components/CampaignPlanRouter', () => ({
   default: () => null,
 }))
 
@@ -44,35 +44,38 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockCandidateAccess.mockResolvedValue(undefined)
   mockGetServerUser.mockResolvedValue(mockUser)
-  mockRedirect.mockImplementation(() => undefined as never)
 })
 
 describe('dashboard/campaign-plan page', () => {
-  it('redirects to /dashboard when no strategy exists', async () => {
+  it('renders the router with planExists=false when no strategy exists', async () => {
     mockServerRequest.mockResolvedValue({ data: { exists: false } })
 
-    await Page()
+    const result = await Page()
 
     expect(mockServerRequest).toHaveBeenCalledWith(
       'GET /v1/campaignStrategy/mine/exists',
       {},
     )
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+    expect(result.props.planExists).toBe(false)
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('redirects to /dashboard when the existence check fails', async () => {
+  it('fails closed to planExists=false when the existence check fails', async () => {
     mockServerRequest.mockRejectedValue(new Error('api down'))
 
-    await Page()
+    const result = await Page()
 
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+    expect(result.props.planExists).toBe(false)
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('does not redirect when a strategy exists', async () => {
+  it('renders the router with planExists=true when a strategy exists', async () => {
     mockServerRequest.mockResolvedValue({ data: { exists: true } })
 
-    await Page()
+    const result = await Page()
 
+    expect(result.props.planExists).toBe(true)
+    expect(result.props.initialUser).toBe(mockUser)
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 })

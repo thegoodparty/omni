@@ -1,9 +1,17 @@
 import { useTestService } from '@/test-service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsersService, type ResolvedActorIdentity } from './users.service'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  EXISTING_ACCOUNT_MAGIC_LINK_ERROR,
+  UsersService,
+  type ResolvedActorIdentity,
+} from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 
@@ -328,6 +336,374 @@ describe('UsersService', () => {
         source: 'email-fallback',
         email: 'nobody@example.com',
       })
+    })
+  })
+
+  describe('provisionMagicLinkUser', () => {
+    let clerkClient: ClerkClient
+
+    const uniqueSuffix = () =>
+      `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+    })
+
+    // The suite runs with clearMocks (not restoreMocks), so a spied
+    // clerkClient.users.getUserList would otherwise leak into later tests and
+    // trip the lazy Clerk email-enrichment in findUser. Restore after each.
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('provisions a brand-new email and mints a sign-in token', async () => {
+      const email = `eo-new-${uniqueSuffix()}@example.com`
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: 'clerk_brand_new' } as never)
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'New',
+        lastName: 'Lead',
+      })
+
+      expect(createUser).toHaveBeenCalled()
+      expect(result.token).toBe('signin_token_abc')
+      expect(result.clerkId).toBe('clerk_brand_new')
+      expect(result.user.email).toBe(email)
+    })
+
+    it('recovers from a concurrent create that lost the duplicate-email race', async () => {
+      // Two concurrent magic-link requests both miss the initial lookup and
+      // race on createUser; the loser gets Clerk's 422 form_identifier_exists.
+      // It must re-resolve the winner's identity and reuse it, not 500.
+      const suffix = uniqueSuffix()
+      const email = `eo-race-${suffix}@example.com`
+      const clerkId = `clerk_race_${suffix}`
+      // First lookup misses (email not yet visible), the catch-path re-lookup
+      // finds the identity the winner just created.
+      vi.spyOn(clerkClient.users, 'getUserList')
+        .mockResolvedValueOnce({
+          data: [],
+          totalCount: 0,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+        .mockResolvedValue({
+          data: [{ id: clerkId } as never],
+          totalCount: 1,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockRejectedValue(
+          Object.assign(new Error('form_identifier_exists'), {
+            status: 422,
+            errors: [{ code: 'form_identifier_exists' }],
+          }),
+        )
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Race',
+        lastName: 'Loser',
+      })
+
+      expect(createUser).toHaveBeenCalledTimes(1)
+      expect(result.clerkId).toBe(clerkId)
+      expect(result.token).toBe('signin_token_abc')
+    })
+
+    it('reuses an existing passwordless EO lead without a campaign', async () => {
+      const suffix = uniqueSuffix()
+      const email = `eo-lead-${suffix}@example.com`
+      const clerkId = `clerk_lead_${suffix}`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Lead',
+          lastName: 'Person',
+          name: 'Lead Person',
+          clerkId,
+        },
+      })
+      // The existing identity is a real EO lead: it already owns an
+      // ElectedOffice (provisioned on the first magic link). Only such an
+      // account may be reused for a fresh sign-in token.
+      const eoOrgSlug = `eo-org-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: { userId: user.id, organizationSlug: eoOrgSlug },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const createUser = vi.spyOn(clerkClient.users, 'createUser')
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Lead',
+        lastName: 'Person',
+      })
+
+      expect(createUser).not.toHaveBeenCalled()
+      expect(result.clerkId).toBe(clerkId)
+      expect(result.token).toBe('signin_token_abc')
+    })
+
+    it('reuses a passwordless, campaign-less account that has no EO yet (retry after a stranded partial create)', async () => {
+      // If a first magic-link attempt provisioned the Clerk + local user but
+      // failed before the ElectedOffice was created, the account is a stranded
+      // partial lead — admins must be able to retry. Campaign ownership is the
+      // only block; a missing ElectedOffice must NOT permanently reject reuse.
+      const suffix = uniqueSuffix()
+      const email = `eo-retry-${suffix}@example.com`
+      const clerkId = `clerk_retry_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Stranded',
+          lastName: 'Lead',
+          name: 'Stranded Lead',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const createUser = vi.spyOn(clerkClient.users, 'createUser')
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Stranded',
+        lastName: 'Lead',
+      })
+
+      expect(createUser).not.toHaveBeenCalled()
+      expect(result.clerkId).toBe(clerkId)
+      expect(result.token).toBe('signin_token_abc')
+    })
+
+    it('refuses an existing account that has a Clerk password set', async () => {
+      const suffix = uniqueSuffix()
+      const email = `eo-pw-${suffix}@example.com`
+      const clerkId = `clerk_pw_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Real',
+          lastName: 'User',
+          name: 'Real User',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: true,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Real',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(ConflictException)
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Real',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
+    it('refuses an existing account linked to an OAuth/SSO identity', async () => {
+      // A Google (or other OAuth) user has passwordEnabled: false but still
+      // controls the account via SSO, so the magic link must not mint a token
+      // for it even though no password is set and no campaign is owned.
+      const suffix = uniqueSuffix()
+      const email = `eo-oauth-${suffix}@example.com`
+      const clerkId = `clerk_oauth_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Google',
+          lastName: 'User',
+          name: 'Google User',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+        externalAccounts: [{ provider: 'oauth_google' }],
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Google',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
+    it('refuses an existing account secured with a TOTP authenticator', async () => {
+      // A TOTP/2FA user can have passwordEnabled: false but still controls the
+      // account via their authenticator, so the magic link must not reuse it.
+      const suffix = uniqueSuffix()
+      const email = `eo-totp-${suffix}@example.com`
+      const clerkId = `clerk_totp_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Totp',
+          lastName: 'User',
+          name: 'Totp User',
+          clerkId,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+        totpEnabled: true,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Totp',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
+    it('refuses an existing account that owns a campaign', async () => {
+      const suffix = uniqueSuffix()
+      const email = `eo-camp-${suffix}@example.com`
+      const clerkId = `clerk_camp_${suffix}`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Campaign',
+          lastName: 'Owner',
+          name: 'Campaign Owner',
+          clerkId,
+        },
+      })
+      const orgSlug = `org-eo-camp-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          slug: `camp-eo-${suffix}`,
+          organizationSlug: orgSlug,
+          userId: user.id,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Campaign',
+          lastName: 'Owner',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
+    it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
+      // No Clerk identity exists for the email (clerkId is null), so a new Clerk
+      // user is created and reuse-tracking never trips — but findOrProvisionByClerk
+      // links the existing campaign-owning local user. The campaign gate must run
+      // on the resolved user, not only when we knowingly reused a Clerk identity.
+      const suffix = uniqueSuffix()
+      const email = `eo-legacy-camp-${suffix}@example.com`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Legacy',
+          lastName: 'Candidate',
+          name: 'Legacy Candidate',
+          clerkId: null,
+        },
+      })
+      const orgSlug = `org-legacy-camp-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          slug: `camp-legacy-${suffix}`,
+          organizationSlug: orgSlug,
+          userId: user.id,
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_legacy_${suffix}` } as never)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Legacy',
+          lastName: 'Candidate',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(createUser).toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
     })
   })
 

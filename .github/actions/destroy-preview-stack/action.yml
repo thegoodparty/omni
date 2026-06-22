@@ -1,0 +1,74 @@
+name: Destroy preview stack
+description: >-
+  Tear down a single gp-api Pulumi preview stack and reclaim its AWS
+  resources. Clears any stale state lock first so a stack whose deploy was
+  killed mid-run cannot strand its load balancer. AWS credentials, the gp-api
+  workspace, and PULUMI_CONFIG_PASSPHRASE must already be configured by the
+  caller.
+
+inputs:
+  stack-name:
+    description: Pulumi stack to destroy, e.g. gp-api-pr-1234.
+    required: true
+  working-directory:
+    description: gp-api deploy directory (the Pulumi project root).
+    required: false
+    default: packages/gp-api/deploy
+
+runs:
+  using: composite
+  steps:
+    - name: Install Pulumi CLI
+      uses: pulumi/actions@v6
+      with:
+        pulumi-version: "^3"
+
+    - name: Destroy stack
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        pulumi login s3://goodparty-iac-state
+
+        STACK_NAME="${{ inputs.stack-name }}"
+        echo "Destroying stack: $STACK_NAME"
+
+        if ! pulumi stack select "$STACK_NAME" 2>/dev/null; then
+          echo "Stack $STACK_NAME not found. Skipping."
+          exit 0
+        fi
+
+        # Retry the destroy a few times. Two transient failure modes strand a
+        # stack's ALB otherwise:
+        #   1. A CI runner killed mid-deploy (e.g. when the account hit the ALB
+        #      quota) leaves a Pulumi state lock, so `pulumi destroy` fails
+        #      instantly. `pulumi cancel` clears a stale lock before each try;
+        #      on a healthy stack it is a no-op.
+        #   2. The Aurora cluster and its instance delete in parallel, so
+        #      DeleteDBCluster can fire while the instance is still present
+        #      (InvalidDBClusterStateFault). A later pass finds the instance
+        #      already gone and the cluster deletes cleanly.
+        destroyed=false
+        for attempt in 1 2 3; do
+          echo "Destroy attempt $attempt for $STACK_NAME"
+          pulumi cancel --yes || true
+          if pulumi destroy --yes --skip-preview; then
+            destroyed=true
+            break
+          fi
+          echo "Attempt $attempt failed; waiting before retry"
+          sleep 60
+        done
+
+        if [ "$destroyed" != true ]; then
+          echo "Failed to destroy $STACK_NAME after 3 attempts"
+          exit 1
+        fi
+
+        # This log group is created by ECS automatically and needs to be
+        # deleted manually.
+        aws logs delete-log-group \
+          --log-group-name "/aws/ecs/containerinsights/gp-pr-${STACK_NAME#gp-api-pr-}-fargateCluster/performance" \
+          || true
+
+        pulumi stack rm --yes
+        echo "Stack $STACK_NAME destroyed successfully"

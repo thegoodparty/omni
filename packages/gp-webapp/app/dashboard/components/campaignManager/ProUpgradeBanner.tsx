@@ -5,19 +5,16 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Button, Card, ProBadge } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-// Dashboard entry point into the Pro upgrade wizard. Shown only to the
-// pro-upgrade3 cohort (off cohort sees the unchanged dashboard) and hidden once
-// the candidate is Pro. "Get Pro" routes into the wizard (value-prop step).
+// Dashboard entry point into the Pro upgrade wizard. Hidden once the candidate
+// is Pro. "Get Pro" routes into the wizard (value-prop step).
 export default function ProUpgradeBanner(): React.JSX.Element | null {
   const router = useRouter()
-  const { ready, enabled } = useProUpgrade3Flag()
   const [campaign] = useCampaign()
   const isPro = campaign?.isPro ?? false
 
-  const show = ready && enabled && !isPro
+  const show = !isPro
 
   useEffect(() => {
     if (show) {

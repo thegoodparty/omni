@@ -14,11 +14,13 @@ import { reportErrorToSentry } from '@shared/sentry'
 import type {
   DashboardCard,
   DashboardCardBucket,
+  OnboardingCard,
+  OnboardingCardKey,
   SupportEstimate,
 } from './contracts'
 
 export const dashboardApi = {
-  async getSupportEstimate(): Promise<SupportEstimate> {
+  async getSupportEstimate(): Promise<SupportEstimate | null> {
     const { data } = await clientRequest(
       'GET /v1/elected-office/support-estimate',
       {},
@@ -39,6 +41,29 @@ export const dashboardApi = {
         surface: 'chief-of-staff-dashboard',
         phase: 'dismiss-card',
         cardId: id,
+      })
+      throw err
+    }
+  },
+
+  async getOnboardingCards(): Promise<OnboardingCard[]> {
+    const { data } = await clientRequest(
+      'GET /v1/dashboard/onboarding-cards',
+      {},
+    )
+    return data.cards
+  },
+
+  async skipOnboardingCard(key: OnboardingCardKey): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/onboarding-cards/:key/skip', {
+        key,
+      })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'skip-onboarding-card',
+        cardKey: key,
       })
       throw err
     }

@@ -77,6 +77,10 @@ export const apiRoutes = {
       path: '/elected-office/current',
       method: 'GET',
     },
+    mine: {
+      path: '/elected-office/mine',
+      method: 'GET',
+    },
   },
   homepage: {
     subscribeEmail: {
@@ -541,28 +545,6 @@ export const apiRoutes = {
     list: {
       path: '/text-campaigns',
       method: 'GET',
-    },
-  },
-  issues: {
-    get: {
-      path: '/community-issues/:uuid',
-      method: 'GET',
-    },
-    getStatusHistory: {
-      path: '/community-issues/:uuid/status-history',
-      method: 'GET',
-    },
-    list: {
-      path: '/community-issues',
-      method: 'GET',
-    },
-    create: {
-      path: '/community-issues',
-      method: 'POST',
-    },
-    update: {
-      path: '/community-issues/:uuid',
-      method: 'PUT',
     },
   },
   outreach: {
