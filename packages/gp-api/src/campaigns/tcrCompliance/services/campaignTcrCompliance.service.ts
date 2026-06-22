@@ -27,11 +27,15 @@ import {
 } from '../../../queue/queue.types'
 import { getUserFullName } from '../../../users/util/users.util'
 import {
+  PeerlyCvVerificationStatus,
   PeerlyIdentityProfile,
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCase,
 } from '../../../vendors/peerly/peerly.types'
-import { PEERLY_USECASE } from '../../../vendors/peerly/services/peerly.const'
+import {
+  PEERLY_PROFILE_STATUS_PENDING,
+  PEERLY_USECASE,
+} from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { WebsitesService } from '../../../websites/services/websites.service'
 import {
@@ -58,6 +62,11 @@ const AGENTIC_KICKOFF_SWEEP_INTERVAL = process.env
   : 10 * 60
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
+
+const UNSUBMITTED_USECASE_SWEEP_INTERVAL = process.env
+  .UNSUBMITTED_USECASE_SWEEP_INTERVAL
+  ? parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL)
+  : 60 * 60 // Defaults to hourly
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -163,6 +172,99 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
       }
     }
+  }
+
+  // The POLITICAL usecase is what finalizes a TCR registration, and it is only
+  // submitted by approve10DLCBrand — which today fires solely from the in-app
+  // PIN flow (submit-cv-pin). When Campaign Verify completes without that step
+  // running (the CV authority approved the candidate directly, or the in-app
+  // approve threw), the usecase is never submitted and the identity strands
+  // "loading" in Peerly. This sweep submits the usecase for any verified record
+  // that's missing one, healing both existing stranded records and any future
+  // stragglers. Only `submitted` records are candidates — `pending` means the
+  // usecase was already submitted (status is advanced after approve).
+  @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
+  private async sweepUnsubmittedUsecases() {
+    const candidates = await this.model.findMany({
+      where: {
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: { not: null },
+      },
+    })
+
+    for (const record of candidates) {
+      try {
+        await this.submitUsecaseIfVerified(record)
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[TCR Compliance] Failed to submit usecase for verified record',
+        )
+      }
+    }
+  }
+
+  private async submitUsecaseIfVerified(tcrCompliance: TcrCompliance) {
+    const { peerlyIdentityId } = tcrCompliance
+    if (!peerlyIdentityId) {
+      return
+    }
+
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: tcrCompliance.campaignId },
+    })
+    if (!campaign) {
+      return
+    }
+
+    // Idempotency guard. approve10DLCBrand advances the Peerly profile from
+    // `pending` to `waiting_to_finalize` (then `finalized`), so a non-`pending`
+    // profile already has its usecase submitted. get_usecases can't serve as
+    // this guard — it stays empty until `finalized`, so it would let an
+    // in-flight (`waiting_to_finalize`) record be re-submitted.
+    const profileResponse = await this.peerlyIdentityService.getIdentityProfile(
+      peerlyIdentityId,
+      campaign,
+    )
+    if (profileResponse?.profile?.status !== PEERLY_PROFILE_STATUS_PENDING) {
+      return
+    }
+
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+
+    // Two Campaign Verify completion paths both warrant submitting the usecase:
+    //  - VERIFIED: the candidate proved control of their contact info via PIN.
+    //    Mint a CV token, then approve with it.
+    //  - APPROVED: the CV authority approved the candidate directly, with no
+    //    candidate PIN (e.g. postal / expedited). create_cv_token 400s in this
+    //    state, but approve accepts an empty token.
+    // Any other status (REQUESTED / IN_REVIEW / REJECTED / WITHDRAWN) is not yet
+    // verifiable or is terminal — skip, which also keeps the sweep from
+    // 400-spamming Peerly (and the 10DLC Slack channel) for those records.
+    let campaignVerifyToken = ''
+    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
+      const token = await this.peerlyIdentityService.createCampaignVerifyToken(
+        peerlyIdentityId,
+        campaign,
+      )
+      if (!token) {
+        return
+      }
+      campaignVerifyToken = token
+    } else if (cvStatus !== PeerlyCvVerificationStatus.APPROVED) {
+      return
+    }
+
+    await this.submitCampaignVerifyToken(tcrCompliance, campaignVerifyToken)
+
+    await this.model.update({
+      where: { id: tcrCompliance.id },
+      data: { status: TcrComplianceStatus.pending },
+    })
   }
 
   @Interval(TCR_COMPLIANCE_CHECK_INTERVAL * 1000) // This will run based on the environment variable
