@@ -92,6 +92,7 @@ The digest sends **Monday, regardless** (the Friday/Sunday-to-Monday gap lets a 
 
 - **Static tasks (launch/pre-launch):** generated at first start, **gated by story + plan completion**. This materializes the campaign's `campaign_tracker_tasks` rows and puts it "on the new tracker." Only new users; existing users are not switched.
 - **Events + dynamic tasks:** the CAP experiment first runs at **campaign-plan generation** (it needs the plan + story), then weekly (Sunday). Events appear once the plan is generated and show consistently in the plan, onboarding, and tracker. This replaces the earlier office-submission events pre-warm.
+- **Visibility vs download gating:** the **campaign strategy / tracker is visible as soon as the static tasks are materialized** — the candidate can start working immediately. The **plan PDF download stays gated until all tasks are generated** (the dynamic + event CAP run completes, i.e. `trackerRefreshedAt` is set).
 
 ## API surface
 
@@ -111,6 +112,7 @@ New endpoints, but the service logic is reused from the legacy tasks paths again
 - **Drop `catalog_id` and `priority`;** order by the existing `week`/`date`. The weekly run wholesale-replaces dynamic + event rows; static rows persist.
 - **Generation Sunday; digest Monday.** No batching; default dispatch priority (high for user-waiting UI). Ships disabled behind a flag; manual dev run + 50-campaign cost batch (Bryan) before full launch.
 - **Eligibility (Option 2):** all campaigns with story + plan completed and launch/pre-launch tasks.
+- **Strategy shows on static-task creation; plan download waits for full generation** (dynamic + events done).
 - Events reuse `flowType = events`; the `community_events` JSON column is deprecated. Active is **not** locked; deterministic gates/caps stay in gp-api/webapp.
 
 ## Alternatives Considered
@@ -131,6 +133,7 @@ Resolved during review:
 - **Coexistence:** no hard switch; existing users stay on legacy; new users on the new table after story + plan + launch/pre-launch.
 - **Eligibility = Option 2** (all who completed story + plan and have launch/pre-launch).
 - **First-start:** trigger launch/pre-launch generation, gated by story/plan.
+- **Visibility vs download:** strategy/tracker visible as soon as static tasks are materialized; the plan PDF download is gated until full generation (dynamic + events) completes.
 - **Cadence:** generate Sunday, send the digest Monday (revisit with Joe).
 - **Phase** lives on the new table (the only schema delta).
 - **Prompt-quality:** adopt the PMF QA gate (in-run evals, observe-by-default / blocking opt-in); see Implementation Notes → Testing.
