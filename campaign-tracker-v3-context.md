@@ -10,12 +10,17 @@ generation (the `weeklyTasksDigest` service) and how it relates to the runbooks
 > ClickUp (Eng Docs → Win Docs → Technical Design Docs). Several sections below
 > predate review reversals; where they conflict, **the TDD wins.** Key changes:
 > **one** CAP experiment (find up to 3 events, then prioritize the top 12 tasks
-> with events among them), **not two**; events and all tasks are **`campaign_task`
-> rows** (`flowType = events`), **not** `campaign_strategy.community_events` JSON;
-> the initial run is at **campaign-plan generation** (it needs plan + story),
-> **not** an office-submission pre-warm; **no `catalog_id` / `priority` columns**;
-> **no CAP batching**; the cron ships **disabled behind a flag** (manual dev run →
-> 50-campaign cost batch → Bryan approval). The weekly digest is in scope.
+> with events among them), **not two**; events and all tasks live in a **new
+> `campaign_tracker_tasks` table** (schema = `campaign_task` + a `phase` column,
+> so we reuse the completion/CTA/digest logic), **not** the legacy `campaign_task`
+> itself and **not** `campaign_strategy.community_events` JSON; **existing users
+> stay on legacy `campaign_task` (no hard switch)**, new users go on the new
+> tracker after story + plan + launch/pre-launch; the initial run is at
+> **campaign-plan generation** (it needs plan + story), **not** an
+> office-submission pre-warm; **drop `catalog_id` / `priority`**; **no CAP
+> batching**; **generate Sunday, send the digest Monday**; the cron ships
+> **disabled behind a flag** (manual dev run → 50-campaign cost batch → Bryan
+> approval). The weekly digest is in scope.
 
 ## Sources
 
