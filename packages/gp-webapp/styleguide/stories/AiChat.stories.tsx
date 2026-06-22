@@ -611,7 +611,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
 ]
 
 const TIMELINE_API = makeSeededApi([
-  { role: 'user', content: 'Walk me through the history of Chapter 18' },
+  { role: 'user', content: 'What are the steps to run for city council?' },
   { role: 'assistant', content: TIMELINE_MARKER },
 ])
 

@@ -1,19 +1,24 @@
-import type { LucideIcon } from 'lucide-react'
+import React from 'react'
 import { Badge } from '@styleguide/components/ui/badge'
 
 export type TimelineStatus = 'done' | 'active' | 'upcoming'
 export type TimelineVariant = 'steps' | 'timeline'
 
+type IconComponent = React.ComponentType<{ className?: string }>
+
 export type TimelineItem = {
   label: string
   title: string
-  status?: TimelineStatus
-  icon?: LucideIcon
-  badge?: string
   description?: string
   items?: string[]
   link?: { label: string; href: string }
   source?: string
+  /** Only used in `variant="steps"` */
+  status?: TimelineStatus
+  /** Only used in `variant="steps"` */
+  icon?: IconComponent
+  /** Only used in `variant="steps"` */
+  badge?: string
 }
 
 const bulletColorClass: Record<TimelineStatus, string> = {
@@ -29,6 +34,10 @@ const connectorClass: Record<TimelineStatus, string> = {
   upcoming: 'bg-muted-foreground/30',
 }
 
+function isSafeHref(href: string): boolean {
+  return href === '#' || /^https?:\/\//i.test(href)
+}
+
 export default function ChatTimeline({
   items,
   variant = 'steps',
@@ -39,14 +48,14 @@ export default function ChatTimeline({
   const isTimeline = variant === 'timeline'
 
   return (
-    <div className="flex flex-col">
-      {items.map((item, i) => {
+    <div className="flex flex-col" role="list">
+      {items.map((item) => {
         const status = item.status ?? 'done'
-        const isLast = i === items.length - 1
+        const isLast = items[items.length - 1] === item
         const Icon = !isTimeline ? item.icon : undefined
 
         return (
-          <div key={i} className="relative flex gap-3">
+          <div key={`${item.label}-${item.title}`} className="relative flex gap-3" role="listitem">
             <div className="flex flex-col items-center">
               {isTimeline ? (
                 <div className="mt-1 size-2.5 shrink-0 rounded-full bg-primary" />
@@ -77,8 +86,8 @@ export default function ChatTimeline({
 
               {item.items && item.items.length > 0 && (
                 <ul className="flex flex-col gap-0.5 pl-3">
-                  {item.items.map((it, j) => (
-                    <li key={j} className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                  {item.items.map((it) => (
+                    <li key={it} className="flex items-start gap-1.5 text-sm text-muted-foreground">
                       <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
                       {it}
                     </li>
@@ -86,7 +95,7 @@ export default function ChatTimeline({
                 </ul>
               )}
 
-              {item.link && (
+              {item.link && isSafeHref(item.link.href) && (
                 <a
                   href={item.link.href}
                   target="_blank"
