@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
+import { Drawer, DrawerContent, DrawerHandle, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import AiChatBody from './AiChatBody'
 import { CHAT_MAX_W } from './constants'
@@ -45,6 +45,7 @@ export default function AiChatSurface({
         className="flex h-[90vh] flex-col p-0"
         aria-describedby={undefined}
       >
+        <DrawerHandle />
         <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <SparklesIcon className="size-5" aria-hidden />
