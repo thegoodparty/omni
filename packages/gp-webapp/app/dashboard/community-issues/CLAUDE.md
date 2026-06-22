@@ -12,13 +12,14 @@ elected-official (Serve) users; access is gated by `serveAccess()`.
 
 ## Key components
 
-| Component            | Purpose                                                                                                                                        |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IssueFeedList`      | Tabbed list view — top-community tab + trending tab; shows refresh status                                                                      |
-| `IssueDetail`        | Full detail view — detail sections (overview, history, legislation, research, quotes) with inline source pills and a collapsible sources panel |
-| `PrioritizeButton`   | Calls `POST /v1/community-issues/:id/prioritize`; adds issue to the org's Priorities list                                                      |
-| `AskAiButton`        | Opens the CoS chat pre-anchored to the issue context                                                                                           |
-| `IssueDetailActions` | Action row: Prioritize + Ask AI + "Run a poll" link to `/dashboard/polls/create?issue=:id`                                                     |
+| Component              | Purpose                                                                                                                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IssueFeedList`        | Tabbed list view — top-community tab + trending tab; shows refresh status                                                                                                                                                                                      |
+| `IssueDetail`          | Full detail view — detail sections (overview, history, legislation, research, quotes) with inline source pills and a collapsible sources panel                                                                                                                 |
+| `PrioritizeButton`     | Calls `POST /v1/community-issues/:id/prioritize`; adds issue to the org's Priorities list                                                                                                                                                                      |
+| `AskAiButton`          | Opens the CoS chat pre-anchored to the issue context                                                                                                                                                                                                           |
+| `IssueDetailActions`   | Action row: Prioritize + Ask AI + "Run a poll" link to `/dashboard/polls/create?issue=:id`                                                                                                                                                                     |
+| `StaffDispatchButtons` | Staff-only (`@goodparty.org` email) buttons on the list page that manually dispatch the two agent jobs for the caller's own org via `POST /v1/community-issues/self-dispatch`. Renders `null` for everyone else. The endpoint re-checks the email server-side. |
 
 ## Citation reuse
 
