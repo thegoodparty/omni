@@ -21,7 +21,6 @@ runbooks/
 │   ├── .env.example     # Secrets and credentials for script execution
 │   ├── .env             # AI agents MUST NOT read this
 │   ├── python/          # Python scripts — managed by uv (pyproject.toml)
-│   ├── node/            # Node scripts — managed by nvm + npm (package.json, .nvmrc)
 │   └── shell/           # Shell scripts — no runtime manager
 ├── install.sh           # Symlinks (or copies) commands/*.md into a Claude Code commands dir
 └── CLAUDE.md
@@ -94,9 +93,8 @@ Commands are markdown procedures in `commands/` that _also_ register as Claude C
 - When adding or removing scripts, update `scripts/INDEX.md`
 - Scripts are organized by language, each with its own runtime and dependency management:
   - `scripts/python/` — use `uv` (`uv sync` to install, `uv run` to execute)
-  - `scripts/node/` — use `nvm` for Node version (`.nvmrc`), `npm` for packages
   - `scripts/shell/` — plain bash, list required tools at the top of each script
-- Add new dependencies to the appropriate `pyproject.toml` or `package.json`
+- Add new Python dependencies to `scripts/python/pyproject.toml`
 - Never install packages globally — always use the language-specific manager
 
 ### Environment Variables
