@@ -3,11 +3,13 @@ import Script from 'next/script'
 
 // VWO smart code. Injected via next/script (not a raw <script>): React 19 will
 // not run an inline <script> rendered in a component and errors on it. Uses
-// afterInteractive (same as the layout's GTM script), which adds the script via
-// an effect rather than rendering a <script> element React rejects.
+// beforeInteractive — VWO's anti-flicker hides <body> only when the snippet runs
+// as a synchronous, parser-inserted script; beforeInteractive (supported because
+// this renders in the root app/layout.tsx) preserves that path, whereas
+// afterInteractive injects async post-hydration and the body-hide never fires.
 export default function VwoScript(): React.JSX.Element {
   return (
-    <Script id="vwoCode" strategy="afterInteractive">
+    <Script id="vwoCode" strategy="beforeInteractive">
       {`
         window._vwo_code || (function() {
           var account_id=757033,
