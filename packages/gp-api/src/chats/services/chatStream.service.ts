@@ -356,6 +356,9 @@ export class ChatStreamService {
     // Persisted only if the turn used a tool (see persistAssistantText).
     const segments: PersistedSegment[] = []
     const pushTextDelta = (delta: string): void => {
+      // Skip empty deltas (the OpenAI SDK can terminate a stream with delta:'')
+      // so we never open a blank text segment that renders as a phantom bubble.
+      if (!delta) return
       const last = segments[segments.length - 1]
       if (last && last.kind === ChatMessageSegmentKind.text) {
         last.text = (last.text ?? '') + delta
@@ -419,7 +422,14 @@ export class ChatStreamService {
             ? textBuffer.join('')
             : CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
         try {
-          await this.persistAssistantText(args.conversationId, fallbackText)
+          // Carry the segments here too — the turn may have emitted tool calls
+          // before the primary persist failed/returned early; without this the
+          // fallback would store flat text and lose the tool/text ordering.
+          await this.persistAssistantText(
+            args.conversationId,
+            fallbackText,
+            segments,
+          )
         } catch (err) {
           this.logger.error(
             { err, conversationId: args.conversationId },

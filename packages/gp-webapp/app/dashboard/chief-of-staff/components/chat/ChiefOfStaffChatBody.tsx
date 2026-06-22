@@ -420,6 +420,7 @@ export default function ChiefOfStaffChatBody({
         // turn renders the same interleaving as a reloaded one.
         const committedSegs: ChatMessageSegment[] = []
         const pushCommittedText = (delta: string): void => {
+          if (!delta) return
           const last = committedSegs[committedSegs.length - 1]
           if (last && last.kind === 'text') {
             last.text = (last.text ?? '') + delta
