@@ -941,6 +941,9 @@ export type ElectedOffice = {
   // onboarding flow (vs a sales/BallotReady prefill). Drives deterministic
   // resume branch classification.
   selfReported: boolean
+  // Resume checkpoint: the furthest serve-onboarding step the holder reached,
+  // written on every "Continue". Null when no checkpoint has been recorded.
+  onboardingStep: string | null
 }
 
 export type ElectedOfficeInput = {
@@ -952,6 +955,7 @@ export type ElectedOfficeInput = {
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
   selfReported?: boolean
+  onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
   overrideDistrictId?: string | null

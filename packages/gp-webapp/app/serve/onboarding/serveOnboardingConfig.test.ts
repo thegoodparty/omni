@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   computeServeResumeStep,
   resolveServeBranch,
+  resolveServeResumeStep,
+  shouldSeedInOfficeOnResume,
 } from './serveOnboardingConfig'
 
 describe('computeServeResumeStep', () => {
@@ -102,6 +104,100 @@ describe('computeServeResumeStep', () => {
         }
       }
     }
+  })
+})
+
+describe('resolveServeResumeStep', () => {
+  const allSaved = { hasParty: true, hasOffice: true, hasDates: true }
+
+  it('falls back to the data-derived step when there is no checkpoint', () => {
+    expect(
+      resolveServeResumeStep('net-new', null, {
+        hasParty: true,
+        hasOffice: false,
+        hasDates: false,
+      }),
+    ).toBe('office')
+    expect(
+      resolveServeResumeStep('net-new', undefined, {
+        hasParty: false,
+        hasOffice: false,
+        hasDates: false,
+      }),
+    ).toBe('welcome')
+  })
+
+  it('routes to a no-data-field checkpoint the data-derived step cannot pinpoint', () => {
+    // inOffice has no persisted data, so computeServeResumeStep can only ever
+    // say "welcome" here — the checkpoint is the only way to land back on it.
+    expect(
+      resolveServeResumeStep('net-new', 'inOffice', {
+        hasParty: false,
+        hasOffice: false,
+        hasDates: false,
+      }),
+    ).toBe('inOffice')
+    // constituents likewise carries no data field; with all data saved the
+    // checkpoint keeps the user there instead of falling back.
+    expect(resolveServeResumeStep('net-new', 'constituents', allSaved)).toBe(
+      'constituents',
+    )
+  })
+
+  it('honors a normal checkpoint that matches the persisted data', () => {
+    expect(
+      resolveServeResumeStep('net-new', 'term-dates', {
+        hasParty: true,
+        hasOffice: true,
+        hasDates: false,
+      }),
+    ).toBe('term-dates')
+    expect(
+      resolveServeResumeStep('prefill', 'confirm', {
+        hasParty: true,
+        hasOffice: true,
+        hasDates: false,
+      }),
+    ).toBe('confirm')
+  })
+
+  it('clamps a checkpoint that outruns the persisted data (a save that later failed)', () => {
+    // Checkpoint says constituents, but office/dates never persisted — resume at
+    // the first step whose answer is actually missing rather than skipping it.
+    expect(
+      resolveServeResumeStep('net-new', 'constituents', {
+        hasParty: true,
+        hasOffice: false,
+        hasDates: false,
+      }),
+    ).toBe('office')
+    // Checkpoint past party but party never saved → clamp back to party.
+    expect(
+      resolveServeResumeStep('net-new', 'office', {
+        hasParty: false,
+        hasOffice: false,
+        hasDates: false,
+      }),
+    ).toBe('party')
+  })
+
+  it('ignores a checkpoint that is not a step in the resolved branch', () => {
+    // `office` is a net-new-only step; a prefill record carrying it (e.g. a
+    // branch flip between sessions) falls back to the data-derived step.
+    expect(resolveServeResumeStep('prefill', 'office', allSaved)).toBe(
+      'constituents',
+    )
+  })
+})
+
+describe('shouldSeedInOfficeOnResume', () => {
+  it('seeds in-office for any step past the intro screens', () => {
+    expect(shouldSeedInOfficeOnResume('welcome')).toBe(false)
+    expect(shouldSeedInOfficeOnResume('inOffice')).toBe(false)
+    expect(shouldSeedInOfficeOnResume('party')).toBe(true)
+    expect(shouldSeedInOfficeOnResume('office')).toBe(true)
+    expect(shouldSeedInOfficeOnResume('confirm')).toBe(true)
+    expect(shouldSeedInOfficeOnResume('constituents')).toBe(true)
   })
 })
 

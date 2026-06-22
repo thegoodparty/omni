@@ -230,6 +230,16 @@ export class ElectedOfficeController {
         'selfReported cannot be set via M2M; it is set by the authenticated onboarding flow',
       )
     }
+
+    // onboardingStep is the resume checkpoint written on every "Continue" by the
+    // authenticated onboarding flow. An M2M token carries no user session, so it
+    // has no business moving another user's resume pointer (which would drop a
+    // returning holder onto the wrong step). Provisioning never sets it.
+    if (req.m2mToken && body.onboardingStep !== undefined) {
+      throw new ForbiddenException(
+        'onboardingStep cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
     // Monotonic, one-way marker: once set, downgrading it back to false would
     // silently reclassify a net-new record as a prefill on resume (misleading
     // "pulled from public records" confirm hub) and fire the BR snapshot against
@@ -310,6 +320,7 @@ export class ElectedOfficeController {
       pledgedAt: body.pledgedAt,
       onboardingCompletedAt: body.onboardingCompletedAt,
       selfReported: body.selfReported,
+      onboardingStep: body.onboardingStep,
     }
     const updated = await this.electedOfficeService.update({
       where: { id },

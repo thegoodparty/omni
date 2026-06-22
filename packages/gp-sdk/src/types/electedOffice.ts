@@ -15,6 +15,8 @@ export type ElectedOffice = {
   // True when the holder self-reported their office/term via the net-new serve
   // onboarding flow (vs a sales/BallotReady prefill).
   selfReported: boolean
+  // Resume checkpoint: the furthest serve-onboarding step the holder reached.
+  onboardingStep: string | null
   userId: number
   campaignId: number | null
   createdAt: string
@@ -37,6 +39,7 @@ export type UpdateElectedOfficeInput = {
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
   selfReported?: boolean
+  onboardingStep?: string | null
 }
 
 export type CreateElectedOfficeInput = UpdateElectedOfficeInput & {

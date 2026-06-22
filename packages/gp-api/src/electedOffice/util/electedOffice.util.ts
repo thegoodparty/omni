@@ -50,6 +50,7 @@ export const electedOfficeToApi = (
   pledgedAt: record.pledgedAt?.toISOString() ?? null,
   onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
   selfReported: record.selfReported,
+  onboardingStep: record.onboardingStep,
   userId: record.userId,
   campaignId: record.campaignId ?? null,
   createdAt: record.createdAt.toISOString(),

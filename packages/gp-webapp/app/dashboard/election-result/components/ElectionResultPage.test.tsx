@@ -108,6 +108,7 @@ describe('ElectionResultPage', () => {
           pledgedAt: null,
           onboardingCompletedAt: null,
           selfReported: false,
+          onboardingStep: null,
         },
       }
     })
@@ -141,6 +142,7 @@ describe('ElectionResultPage', () => {
           pledgedAt: null,
           onboardingCompletedAt: null,
           selfReported: false,
+          onboardingStep: null,
         },
       }
     })

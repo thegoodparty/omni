@@ -332,6 +332,25 @@ describe('ElectedOfficeController', () => {
       expect(electedOffice?.selfReported).toBe(true)
     })
 
+    it('persists onboardingStep through the create / placeholder-adoption path', async () => {
+      // create-on-first-answer POSTs a bare stub (no checkpoint), then the
+      // completion POST adopts that placeholder carrying the final checkpoint —
+      // assert it survives the create() update path.
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+      expect(placeholder.data.onboardingStep).toBeNull()
+
+      const completed = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+        onboardingStep: 'pledge',
+      })
+
+      expect(completed.status).toBe(200)
+      expect(completed.data.id).toBe(placeholder.data.id)
+      expect(completed.data.onboardingStep).toBe('pledge')
+    })
+
     it('creates elected office when user has a campaign', async () => {
       const result = await createElectedOffice({
         swornInDate: '2024-01-15',
@@ -683,6 +702,36 @@ describe('ElectedOfficeController', () => {
       expect(result.data.party).toBe('independent')
     })
 
+    it('persists the onboardingStep checkpoint via a partial PUT', async () => {
+      // Each "Continue" writes the furthest step reached so resume routes back
+      // to it, even for steps with no other persisted data.
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+      expect(created.data.onboardingStep).toBeNull()
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingStep: 'constituents' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.onboardingStep).toBe('constituents')
+    })
+
+    it('rejects an unknown onboardingStep value', async () => {
+      // The column is validated against the known step set, so a typo or stale
+      // client can't poison the resume pointer.
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingStep: 'not-a-real-step' },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
     it('rejects downgrading selfReported from true to false', async () => {
       // selfReported is a one-way marker; downgrading it would reclassify a
       // net-new record as a prefill on resume. Setting it true is fine, but
@@ -852,6 +901,25 @@ describe('ElectedOfficeController', () => {
         controller.update(
           created.data.id,
           { selfReported: true } as never,
+          m2mRequest(),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('rejects an M2M update that sets onboardingStep', async () => {
+      // onboardingStep is the resume pointer written by the authenticated
+      // onboarding flow; an M2M token (no user session) must not move it.
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.update(
+          created.data.id,
+          { onboardingStep: 'party' } as never,
           m2mRequest(),
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)

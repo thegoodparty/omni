@@ -30,6 +30,7 @@ const buildEO = (overrides: Partial<ElectedOffice> = {}): ElectedOffice => ({
   pledgedAt: null,
   onboardingCompletedAt: null,
   selfReported: false,
+  onboardingStep: null,
   ...overrides,
 })
 
@@ -145,11 +146,15 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The partial PUT carries party plus the net-new `selfReported` marker (the
-    // record started net-new, so the first user-driven write stamps it), and no
-    // onboardingCompletedAt — the completion guard stays untouched. Then it
-    // advances to the office step.
+    // record started net-new, so the first user-driven write stamps it) and the
+    // `office` step checkpoint, and no onboardingCompletedAt — the completion
+    // guard stays untouched. Then it advances to the office step.
     await waitFor(() => expect(putBody).toBeDefined())
-    expect(putBody).toEqual({ party: 'independent', selfReported: true })
+    expect(putBody).toEqual({
+      party: 'independent',
+      selfReported: true,
+      onboardingStep: 'office',
+    })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
       await screen.findByText('What office do you currently hold?'),
@@ -218,6 +223,7 @@ describe('ServeOnboardingFlow', () => {
     expect(putBody).toEqual({
       termStartDate: '2026-01-01',
       termEndDate: '2030-01-01',
+      onboardingStep: 'constituents',
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
@@ -329,7 +335,9 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(putBody).toBeDefined())
-    expect(putBody).toEqual({ party: 'independent' })
+    // Prefill party PUT carries the party + the confirm-hub checkpoint, but NOT
+    // the selfReported marker (the record stays classified as a prefill).
+    expect(putBody).toEqual({ party: 'independent', onboardingStep: 'confirm' })
     expect(putBody).not.toHaveProperty('selfReported')
   })
 
@@ -355,6 +363,11 @@ describe('ServeOnboardingFlow', () => {
       patchRequests.push(req)
       return { status: 200, data: buildOrg() }
     })
+    // The confirm → constituents Continue still writes the step checkpoint.
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
 
     const user = userEvent.setup()
     renderFlow()
@@ -373,22 +386,27 @@ describe('ServeOnboardingFlow', () => {
     expect(patchRequests).toHaveLength(0)
   })
 
-  it('POSTs a new EO with selfReported when a net-new user with no prior record completes', async () => {
+  it('create-on-first-answer: a net-new user with no EO is created on the first Continue, then checkpoints + completes via PUT', async () => {
     // No existing EO: `/current` 404s and `/mine` is empty, so `currentEO`
-    // stays null and persist() takes the POST branch. The party-step
-    // incremental save is a no-op (nothing to attach to), so the completion
-    // POST is the only place selfReported is recorded for this user — it must
-    // carry the marker so resume never misclassifies them as a prefill.
+    // starts null. The FIRST Continue must mint the EO (one POST) so every
+    // subsequent step has an id to PUT against — including the no-data-field
+    // intro steps. Completion is then a PUT (not a duplicate POST) carrying the
+    // selfReported marker + onboardingCompletedAt.
+    let postCount = 0
     let postBody: Record<string, unknown> | undefined
+    const putBodies: Record<string, unknown>[] = []
     api.mock('GET /v1/elected-office/current', { status: 404, data: {} })
     api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
     api.mock('POST /v1/elected-office', (req) => {
+      postCount += 1
       postBody = req.body as unknown as Record<string, unknown>
-      return {
-        status: 200,
-        data: buildEO({ id: 'eo-new', selfReported: true }),
-      }
+      return { status: 200, data: buildEO({ id: 'eo-new' }) }
     })
+    api.mock('PUT /v1/elected-office/:id', (req) => {
+      putBodies.push(req.body as unknown as Record<string, unknown>)
+      return { status: 200, data: buildEO({ id: 'eo-new' }) }
+    })
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
 
     // The office picker fetches positions through the legacy clientFetch path,
     // which only resolves in this fresh-navigate (no-EO) harness when its
@@ -407,8 +425,10 @@ describe('ServeOnboardingFlow', () => {
       const user = userEvent.setup()
       renderFlow()
 
+      // First Continue (welcome → inOffice) creates the EO and checkpoints.
       await screen.findByText('Meet your virtual chief of staff in 5 minutes')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() => expect(postCount).toBe(1))
       await user.click(
         await screen.findByRole('button', { name: /I'm an elected official/ }),
       )
@@ -444,14 +464,73 @@ describe('ServeOnboardingFlow', () => {
       await screen.findByText('Take our pledge to get your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
-      await waitFor(() => expect(postBody).toBeDefined())
-      expect(postBody).toMatchObject({ selfReported: true })
-      // Completion still stamps onboardingCompletedAt (the existing guard), and
-      // the marker rides alongside it.
-      expect(postBody).toHaveProperty('onboardingCompletedAt')
+      // Exactly one create across the whole flow (no duplicate at completion).
+      await waitFor(() => expect(putBodies.length).toBeGreaterThan(0))
+      expect(postCount).toBe(1)
+      // The create-on-first-answer POST is a bare stub (no completion fields).
+      expect(postBody).not.toHaveProperty('onboardingCompletedAt')
+
+      // Every Continue wrote a step checkpoint; the intro steps are covered.
+      const steps = putBodies.map((b) => b.onboardingStep)
+      expect(steps).toContain('inOffice')
+      expect(steps).toContain('party')
+
+      // Completion is a PUT carrying the marker + onboardingCompletedAt so a
+      // net-new user is never misclassified as a prefill on resume.
+      const completion = putBodies.find((b) => 'onboardingCompletedAt' in b)
+      expect(completion).toBeDefined()
+      expect(completion).toMatchObject({
+        selfReported: true,
+        onboardingStep: 'pledge',
+      })
     } finally {
       testQueryClient.removeQueries({ queryKey: positionsKey })
     }
+  })
+
+  it('full restart: a returning user resumes at the persisted step checkpoint, even a no-data-field step', async () => {
+    // Simulates a fresh navigation after a full restart: GET /current returns
+    // the saved record whose onboardingStep checkpoint is `constituents` — a
+    // step with no data field that the data-derived resume could only reach by
+    // inferring from term dates. The checkpoint drives routing straight there.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'constituents',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    renderFlow()
+
+    expect(
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('When does your term run?'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('full restart: resumes on the inOffice step when that was the last checkpoint', async () => {
+    // The user left right after the intro (checkpoint `inOffice`) with nothing
+    // else saved. Pure data-derived resume can only ever say `welcome` here, so
+    // this proves the persisted checkpoint — not the data — drives routing.
+    mockLoad(buildEO({ onboardingStep: 'inOffice' }), buildOrg())
+    renderFlow()
+
+    expect(
+      await screen.findByText('Are you already in office?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+    ).not.toBeInTheDocument()
   })
 
   it('advances even when the incremental save fails (best-effort, non-blocking)', async () => {

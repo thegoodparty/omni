@@ -156,6 +156,65 @@ export const computeServeResumeStep = (
 }
 
 /**
+ * The furthest step the persisted DATA can safely support landing on, used to
+ * clamp the step checkpoint. `welcome`, `inOffice`, and `party` collect no
+ * gated persisted data (party is entered AT the party step), so the floor is
+ * `party` until the user has actually saved an answer; beyond that each step
+ * requires its predecessor's data to have been persisted. This is the guardrail
+ * that stops a checkpoint written after a best-effort save that later failed
+ * from skipping a step whose answer never reached the database.
+ */
+const maxDataSufficientStep = (
+  branch: ServeBranch,
+  { hasParty, hasOffice, hasDates }: ServeResumeState,
+): ServeStepId => {
+  if (!hasParty) return 'party'
+  if (branch === 'prefill') return hasOffice && hasDates ? 'pledge' : 'confirm'
+  if (!hasOffice) return 'office'
+  if (!hasDates) return 'term-dates'
+  return 'pledge'
+}
+
+/**
+ * Resume target that honors the persisted step checkpoint (written on every
+ * "Continue") so a returning user lands on the EXACT most recent step — even
+ * steps with no data field (`inOffice`, `constituents`) that the data-derived
+ * `computeServeResumeStep` cannot pinpoint.
+ *
+ *  - No checkpoint (legacy rows / sales prefills provisioned before this
+ *    existed) → fall back to the data-derived step, preserving prior behavior.
+ *  - A checkpoint that isn't a real step for the resolved branch is ignored
+ *    (defensive against a branch flip between sessions).
+ *  - The checkpoint is clamped to `maxDataSufficientStep` so it can never route
+ *    PAST a step whose required answer was never persisted (a save that
+ *    degraded gracefully), in which case we resume at that missing-data step.
+ */
+export const resolveServeResumeStep = (
+  branch: ServeBranch,
+  checkpoint: ServeStepId | null | undefined,
+  dataState: ServeResumeState,
+): ServeStepId => {
+  if (!checkpoint) return computeServeResumeStep(branch, dataState)
+  const steps = getServeBranchSteps(branch)
+  if (!steps.includes(checkpoint)) {
+    return computeServeResumeStep(branch, dataState)
+  }
+  const furthestSafe = maxDataSufficientStep(branch, dataState)
+  return steps.indexOf(checkpoint) > steps.indexOf(furthestSafe)
+    ? furthestSafe
+    : checkpoint
+}
+
+/**
+ * Whether the resolved resume step is past the intro screens (`welcome` /
+ * `inOffice`), in which case the UX-only `inOffice` answer should be seeded so
+ * backing up to the inOffice step isn't a dead end (its Continue gate needs a
+ * selection). Resuming AT `welcome`/`inOffice` leaves it for the user to pick.
+ */
+export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
+  step !== 'welcome' && step !== 'inOffice'
+
+/**
  * Resolve the active step's 1-based position and the branch's total count for
  * the "Step X of N" label + segmented bar. Detour steps (`office`/`term-dates`
  * in the prefill branch) map back onto `confirm` so the bar doesn't jump.

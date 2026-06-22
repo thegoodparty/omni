@@ -34,6 +34,7 @@ export type CreateElectedOfficeArgs = {
   pledgedAt?: Date | null
   onboardingCompletedAt?: Date | null
   selfReported?: boolean
+  onboardingStep?: string | null
   userId: number
   campaignId?: number
   orgData?: {
@@ -192,6 +193,7 @@ export class ElectedOfficeService extends createPrismaBase(
             // undefined leaves the placeholder's existing value untouched, so a
             // prefill completion never clobbers it; a net-new completion sets it.
             selfReported: args.selfReported,
+            onboardingStep: args.onboardingStep,
           },
         })
       }
@@ -253,6 +255,7 @@ export class ElectedOfficeService extends createPrismaBase(
           pledgedAt: args.pledgedAt,
           onboardingCompletedAt: args.onboardingCompletedAt,
           selfReported: args.selfReported ?? false,
+          onboardingStep: args.onboardingStep ?? null,
           userId: args.userId,
           campaignId: args.campaignId,
           organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),

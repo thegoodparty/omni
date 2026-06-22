@@ -41,8 +41,9 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
-  computeServeResumeStep,
   resolveServeBranch,
+  resolveServeResumeStep,
+  shouldSeedInOfficeOnResume,
   getServeProgress,
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
@@ -71,6 +72,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [switchToCampaign, setSwitchToCampaign] = useState(false)
 
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
+  // Mirror of `currentEO` for synchronous reads inside async save handlers, so
+  // create-on-first-answer is single-flight: the EO id created by one Continue
+  // is visible to the next save call before React has re-rendered the state.
+  const currentEORef = useRef<ElectedOffice | null>(null)
   const [otherRanges, setOtherRanges] = useState<DisabledRange[]>([])
 
   // UX-only: drives the onboarding branch (e.g. `campaigning` hands off to the
@@ -131,6 +136,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           mine[0] ??
           null
         setCurrentEO(eo)
+        currentEORef.current = eo
 
         let officePrefilled = false
         let prefillPositionId: string | undefined = undefined
@@ -143,13 +149,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           // candidate org — not just at persist().
           setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
           setParty(eo.party ?? null)
-          // A persisted party answer means the user already cleared the
-          // `inOffice` step as an in-office official (only `campaigning` leaves
-          // serve; `party` is collected after `inOffice`). Seed it so a resume
-          // that lands past `inOffice` doesn't strand a backward navigation on
-          // a step with `canContinue === false` — or let a mis-click on
-          // "still campaigning" eject a resumed official into the Win flow.
-          if (eo.party) setInOffice('in-office')
           setTermStartDate(toDate(eo.termStartDate))
           setTermEndDate(toDate(eo.termEndDate))
 
@@ -224,15 +223,23 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         )
         setBranch(resolvedBranch)
 
-        // Resume at the first step whose answer isn't yet saved; an un-started
-        // lead (no party) still runs the full intro from `welcome`.
-        setStep(
-          computeServeResumeStep(resolvedBranch, {
-            hasParty,
-            hasOffice: officePrefilled,
-            hasDates,
-          }),
+        // Route to the persisted step checkpoint (the exact most recent step,
+        // written on every Continue) when present, clamped so it can't outrun
+        // the persisted data; otherwise fall back to the data-derived first
+        // unanswered step (legacy rows / prefills provisioned before the
+        // checkpoint existed still run the intro from `welcome` when un-started).
+        const resumeStep = resolveServeResumeStep(
+          resolvedBranch,
+          eo?.onboardingStep as ServeStepId | null | undefined,
+          { hasParty, hasOffice: officePrefilled, hasDates },
         )
+        // Seed the UX-only `inOffice` answer whenever we resume past the intro,
+        // so backing up to the inOffice step isn't a dead end (its Continue gate
+        // needs a selection) and a mis-click on "still campaigning" can't eject
+        // a resumed official into the Win flow. Resuming AT welcome/inOffice
+        // leaves it unset for the user to choose.
+        if (shouldSeedInOfficeOnResume(resumeStep)) setInOffice('in-office')
+        setStep(resumeStep)
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
@@ -302,92 +309,108 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // back-and-forth through the constituents step doesn't re-PATCH needlessly.
   const patchedOfficeRef = useRef<string | undefined>(undefined)
 
-  // Persist the chosen office onto the EO org as the user advances, so a
-  // drop-off resumes with it set. Also points the EO org at the position
-  // BEFORE the constituents step so the org-derived voter-issues /
-  // contacts-stats endpoints have a district to resolve. persist() re-writes
-  // the same pointer at the end; this just brings it forward. Idempotent via
-  // patchedOfficeRef so repeated advances don't re-PATCH the same value, and a
-  // no-op when the office is already on the org (prefill, never re-picked).
-  const persistOfficeProgress = async (): Promise<void> => {
-    if (!currentEO) return
+  // Create-on-first-answer: a truly net-new user has no ElectedOffice to write
+  // to, so the incremental saves used to silently no-op and nothing reached the
+  // DB until the final completion POST. Instead, lazily create the EO the first
+  // time we need an id (the first Continue), then PUT/PATCH against it on every
+  // subsequent step. The backend create() is idempotent per user (advisory lock
+  // + placeholder adoption), so a sales/magic-link stub is reused rather than
+  // duplicated, and a double create returns the same record. Returns null only
+  // when creation fails, in which case the caller degrades gracefully (the
+  // session keeps answers in state and the completion POST is the safety net).
+  const ensureElectedOffice = async (): Promise<ElectedOffice | null> => {
+    if (currentEORef.current) return currentEORef.current
+    const created = await clientRequest('POST /v1/elected-office', {})
+    if (!created.ok || !created.data) return null
+    const eo = created.data as ElectedOffice
+    currentEORef.current = eo
+    setCurrentEO(eo)
+    // Pin the EO org so subsequent in-flow requests (and the office PATCH below)
+    // resolve against `eo-<id>` rather than a stale candidate org.
+    setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
+    return eo
+  }
+
+  // The office PATCH payload for the chosen office, or undefined when no office
+  // is chosen this session (e.g. a prefill the user never re-picked) so no
+  // needless PATCH fires.
+  const officePayload = ():
+    | {
+        ballotReadyPositionId: string | null
+        customPositionName: string | null
+      }
+    | undefined => {
     const positionId = office?.positionId
     const custom = customOfficeName.trim()
-    if (!positionId && !custom) return
-    const patchKey = positionId ?? `custom:${custom}`
-    if (patchedOfficeRef.current === patchKey) return
-    await clientRequest('PATCH /v1/organizations/:slug', {
-      slug: `eo-${currentEO.id}`,
+    if (!positionId && !custom) return undefined
+    return {
       ballotReadyPositionId: positionId ?? null,
       customPositionName: custom || null,
-    })
-    patchedOfficeRef.current = patchKey
+    }
   }
 
-  // Persist the party answer as soon as the user leaves the party step. A
-  // partial PUT only touches `party` (every other field stays as-is and
-  // onboardingCompletedAt is never sent), so progress is saved without
-  // completing onboarding.
-  //
-  // In the net-new branch this is also the first user-driven write, so it stamps
-  // the `selfReported` marker: the office the user is about to pick lands on the
-  // org indistinguishably from a prefill, so we record HERE — before that — that
-  // this record is the user's own net-new entry. A prefill-branch party answer
-  // leaves the marker untouched (false) so the record stays classified prefill.
-  const persistPartyProgress = async (): Promise<void> => {
-    if (!currentEO || !party) return
+  // Single incremental write for a Continue: ensure the EO exists, optionally
+  // PATCH the chosen office onto its org (idempotent via patchedOfficeRef), then
+  // PUT the step's data fields together with the `onboardingStep` checkpoint.
+  // Folding the checkpoint into the data PUT keeps them atomic — a failed write
+  // leaves neither the answer nor a checkpoint that outruns it. onboardingCompletedAt
+  // is never sent here, so the completion guard stays untouched.
+  const saveProgress = async ({
+    targetStep,
+    eoFields,
+    office: officeToPatch,
+  }: {
+    targetStep: ServeStepId
+    eoFields?: {
+      party?: string
+      termStartDate?: string | null
+      termEndDate?: string | null
+      selfReported?: boolean
+    }
+    office?: {
+      ballotReadyPositionId: string | null
+      customPositionName: string | null
+    }
+  }): Promise<void> => {
+    const eo = await ensureElectedOffice()
+    if (!eo) return
+    if (officeToPatch) {
+      const patchKey =
+        officeToPatch.ballotReadyPositionId ??
+        `custom:${officeToPatch.customPositionName ?? ''}`
+      if (patchedOfficeRef.current !== patchKey) {
+        await clientRequest('PATCH /v1/organizations/:slug', {
+          slug: `eo-${eo.id}`,
+          ballotReadyPositionId: officeToPatch.ballotReadyPositionId,
+          customPositionName: officeToPatch.customPositionName,
+        })
+        patchedOfficeRef.current = patchKey
+      }
+    }
     await clientRequest('PUT /v1/elected-office/:id', {
-      id: currentEO.id,
-      party,
-      ...(branch === 'net-new' ? { selfReported: true } : {}),
-    })
-  }
-
-  // Persist the term dates once both bounds are valid (the term-dates / confirm
-  // steps gate Continue on datesValid, so we never PUT a half-range). The
-  // backend re-checks end > start and the no-overlap invariant.
-  const persistTermDatesProgress = async (): Promise<void> => {
-    if (!currentEO || !termStartDate || !termEndDate) return
-    await clientRequest('PUT /v1/elected-office/:id', {
-      id: currentEO.id,
-      termStartDate: toApiDate(termStartDate),
-      termEndDate: toApiDate(termEndDate),
+      id: eo.id,
+      ...eoFields,
+      onboardingStep: targetStep,
     })
   }
 
   // Run a best-effort incremental save, then advance. A failed save logs to
   // Sentry but never blocks navigation — the session keeps the answer in state
   // and the final persist() rewrites everything at completion, so resume just
-  // misses that one answer rather than trapping the user.
-  const saveThenAdvance = async (
-    save: () => Promise<void>,
-    next: () => void,
+  // misses that one checkpoint rather than trapping the user.
+  const persistAndAdvance = async (
+    args: Parameters<typeof saveProgress>[0],
+    applyNav: () => void,
     context: string,
   ): Promise<void> => {
     setSaving(true)
     try {
-      await save()
+      await saveProgress(args)
     } catch (err) {
       reportErrorToSentry(err, { context })
     } finally {
       setSaving(false)
-    }
-    next()
-  }
-
-  const goToConstituents = async (): Promise<void> => {
-    setSaving(true)
-    try {
-      await persistOfficeProgress()
-    } catch (err) {
-      // Degrade gracefully: the constituents step still renders, the
-      // org-derived sections just stay empty if the pointer didn't land.
-      reportErrorToSentry(err, {
-        context: 'serveOnboarding.persistOfficeProgress',
-      })
-    } finally {
-      setSaving(false)
-      setStep('constituents')
+      applyNav()
     }
   }
 
@@ -400,11 +423,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       party,
       pledgedAt: nowIso,
       onboardingCompletedAt: nowIso,
-      // Stamp the marker at completion too, so a net-new user who had no EO to
-      // attach incremental saves to (POST path, persistPartyProgress was a
-      // no-op) still records it. Omitted in the prefill branch so the record
-      // stays classified as a prefill.
+      // Stamp the marker at completion too, so a net-new user whose incremental
+      // saves never landed (creation failed throughout → POST fallback below)
+      // still records it. Omitted in the prefill branch so the record stays
+      // classified as a prefill.
       ...(branch === 'net-new' ? { selfReported: true } : {}),
+      onboardingStep: 'pledge' as const,
       ...(office?.positionId
         ? { ballotReadyPositionId: office.positionId }
         : {}),
@@ -414,18 +438,24 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
 
     try {
-      let electedOfficeId = currentEO?.id
+      // The EO was almost always created earlier (create-on-first-answer), so
+      // completion is a PUT. ensureElectedOffice covers the rare case where
+      // every prior create failed: it makes one last attempt, and only if THAT
+      // also fails do we fall back to a completion POST (which carries the full
+      // body, so nothing is lost).
+      const eo = await ensureElectedOffice()
+      let electedOfficeId = eo?.id
 
-      if (currentEO) {
+      if (eo) {
         if (office?.positionId || customOfficeName.trim()) {
           await clientRequest('PATCH /v1/organizations/:slug', {
-            slug: `eo-${currentEO.id}`,
+            slug: `eo-${eo.id}`,
             ballotReadyPositionId: office?.positionId ?? null,
             customPositionName: customOfficeName.trim() || null,
           })
         }
         await clientRequest('PUT /v1/elected-office/:id', {
-          id: currentEO.id,
+          id: eo.id,
           ...body,
         })
       } else {
@@ -495,53 +525,93 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const handleContinue = () => {
     switch (step) {
       case 'welcome':
-        setStep('inOffice')
+        // First Continue: create-on-first-answer mints the EO (for net-new
+        // users with none) and checkpoints `inOffice`, so even leaving on the
+        // inOffice step resumes there.
+        void persistAndAdvance(
+          { targetStep: 'inOffice' },
+          () => setStep('inOffice'),
+          'serveOnboarding.checkpoint.welcome',
+        )
         return
       case 'inOffice':
         if (inOffice === 'campaigning') {
           setSwitchToCampaign(true)
           return
         }
-        setStep('party')
+        void persistAndAdvance(
+          { targetStep: 'party' },
+          () => setStep('party'),
+          'serveOnboarding.checkpoint.inOffice',
+        )
         return
-      case 'party':
-        void saveThenAdvance(
-          persistPartyProgress,
-          () => setStep(branch === 'prefill' ? 'confirm' : 'office'),
+      case 'party': {
+        // The party PUT also stamps the net-new `selfReported` marker (the
+        // record's first user-driven write): the office the user picks next
+        // lands on the org indistinguishably from a prefill, so we record HERE
+        // that this is the user's own net-new entry. Prefill leaves it untouched.
+        const target = branch === 'prefill' ? 'confirm' : 'office'
+        void persistAndAdvance(
+          {
+            targetStep: target,
+            eoFields: {
+              party: party ?? undefined,
+              ...(branch === 'net-new' ? { selfReported: true } : {}),
+            },
+          },
+          () => setStep(target),
           'serveOnboarding.persistPartyProgress',
         )
         return
-      case 'office':
-        void saveThenAdvance(
-          persistOfficeProgress,
+      }
+      case 'office': {
+        const target = returnToConfirm ? 'confirm' : 'term-dates'
+        void persistAndAdvance(
+          { targetStep: target, office: officePayload() },
           () => {
-            const target = returnToConfirm ? 'confirm' : 'term-dates'
             setReturnToConfirm(false)
             setStep(target)
           },
           'serveOnboarding.persistOfficeProgress',
         )
         return
-      case 'term-dates':
-        void saveThenAdvance(
-          persistTermDatesProgress,
+      }
+      case 'term-dates': {
+        const target = returnToConfirm ? 'confirm' : 'constituents'
+        void persistAndAdvance(
+          {
+            targetStep: target,
+            eoFields: {
+              termStartDate: toApiDate(termStartDate),
+              termEndDate: toApiDate(termEndDate),
+            },
+            // Carry the office pointer forward to the EO org before the
+            // constituents step (idempotent if already patched) so its
+            // org-derived voter sections can resolve a district. Skipped on the
+            // confirm detour, which only edits dates.
+            ...(target === 'constituents' ? { office: officePayload() } : {}),
+          },
           () => {
-            if (returnToConfirm) {
-              setReturnToConfirm(false)
-              setStep('confirm')
-            } else {
-              setReturnToConfirm(false)
-              void goToConstituents()
-            }
+            setReturnToConfirm(false)
+            setStep(target)
           },
           'serveOnboarding.persistTermDatesProgress',
         )
         return
+      }
       case 'confirm':
-        void goToConstituents()
+        void persistAndAdvance(
+          { targetStep: 'constituents', office: officePayload() },
+          () => setStep('constituents'),
+          'serveOnboarding.persistOfficeProgress',
+        )
         return
       case 'constituents':
-        setStep('pledge')
+        void persistAndAdvance(
+          { targetStep: 'pledge' },
+          () => setStep('pledge'),
+          'serveOnboarding.checkpoint.constituents',
+        )
         return
       case 'pledge':
         void persist()

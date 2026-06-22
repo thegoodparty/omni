@@ -56,6 +56,7 @@ describe('electedOfficeToApi', () => {
     pledgedAt: new Date('2026-02-01T00:00:00.000Z'),
     onboardingCompletedAt: null,
     selfReported: false,
+    onboardingStep: null,
     userId: 7,
     campaignId: null,
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
@@ -72,6 +73,12 @@ describe('electedOfficeToApi', () => {
     expect(
       electedOfficeToApi({ ...base, selfReported: true }, now).selfReported,
     ).toBe(true)
+    // The resume checkpoint passes straight through to the API shape.
+    expect(api.onboardingStep).toBeNull()
+    expect(
+      electedOfficeToApi({ ...base, onboardingStep: 'term-dates' }, now)
+        .onboardingStep,
+    ).toBe('term-dates')
     expect(api.termStartDate).toBe('2025-01-01')
     expect(api.termEndDate).toBe('2029-01-01')
   })
