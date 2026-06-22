@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -1809,6 +1813,19 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
     expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
+    mockPeerly.getIdentityProfile.mockRejectedValueOnce(
+      new NotFoundException('identity not found'),
+    )
+
+    await expect(
+      submitUsecaseIfVerified(service, stuckRecord),
+    ).resolves.toBeUndefined()
+
+    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 

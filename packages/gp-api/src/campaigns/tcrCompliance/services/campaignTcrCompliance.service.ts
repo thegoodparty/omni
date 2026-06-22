@@ -53,21 +53,19 @@ import { ExperimentRunsService } from '../../../agentExperiments/services/experi
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 
-const TCR_COMPLIANCE_CHECK_INTERVAL = process.env.TCR_COMPLIANCE_CHECK_INTERVAL
-  ? parseInt(process.env.TCR_COMPLIANCE_CHECK_INTERVAL)
-  : 12 * 60 * 60 // Defaults to 12 hrs
+// `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
+// env value yields NaN and falls back to the default rather than reaching
+// setInterval, which coerces NaN to ~1ms and hot-loops the sweep.
+const TCR_COMPLIANCE_CHECK_INTERVAL =
+  parseInt(process.env.TCR_COMPLIANCE_CHECK_INTERVAL ?? '') || 12 * 60 * 60 // 12 hrs
 
-const AGENTIC_KICKOFF_SWEEP_INTERVAL = process.env
-  .AGENTIC_KICKOFF_SWEEP_INTERVAL
-  ? parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL)
-  : 10 * 60
+const AGENTIC_KICKOFF_SWEEP_INTERVAL =
+  parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL ?? '') || 10 * 60
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
-const UNSUBMITTED_USECASE_SWEEP_INTERVAL = process.env
-  .UNSUBMITTED_USECASE_SWEEP_INTERVAL
-  ? parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL)
-  : 60 * 60 // Defaults to hourly
+const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
+  parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -223,10 +221,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // profile already has its usecase submitted. get_usecases can't serve as
     // this guard — it stays empty until `finalized`, so it would let an
     // in-flight (`waiting_to_finalize`) record be re-submitted.
-    const profileResponse = await this.peerlyIdentityService.getIdentityProfile(
-      peerlyIdentityId,
-      campaign,
-    )
+    let profileResponse: PeerlyIdentityProfileResponseBody | null
+    try {
+      profileResponse = await this.peerlyIdentityService.getIdentityProfile(
+        peerlyIdentityId,
+        campaign,
+      )
+    } catch (err) {
+      // A deleted/orphaned Peerly identity 404s here; skip rather than letting
+      // it propagate and have the sweep re-select it every tick.
+      if (err instanceof NotFoundException) {
+        return
+      }
+      throw err
+    }
     if (profileResponse?.profile?.status !== PEERLY_PROFILE_STATUS_PENDING) {
       return
     }
