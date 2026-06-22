@@ -144,6 +144,7 @@ type PlaygroundArgs = {
   subtitle: string
   extraBarAlign: 'start' | 'center' | 'end'
   showExtraBar: boolean
+  timelineVariant: 'none' | 'steps' | 'timeline'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -153,6 +154,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     subtitle: 'Your personal campaign strategist',
     extraBarAlign: 'center',
     showExtraBar: false,
+    timelineVariant: 'none',
   },
   argTypes: {
     open: {
@@ -176,8 +178,13 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: 'boolean',
       description: 'Renders a Download button in the extraBar slot.',
     },
+    timelineVariant: {
+      control: 'inline-radio',
+      options: ['none', 'steps', 'timeline'],
+      description: 'Show a ChatTimeline in the assistant reply. "steps" shows progress with icons and status; "timeline" shows simple equal-weight dots.',
+    },
   },
-  render: ({ open, firstName, subtitle, extraBarAlign, showExtraBar }) => {
+  render: ({ open, firstName, subtitle, extraBarAlign, showExtraBar, timelineVariant }) => {
     const [, updateArgs] = useArgs()
     const config = { ...DEFAULT_CONFIG, subtitle }
     const extraBar = showExtraBar ? (
@@ -191,6 +198,14 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       </Button>
     ) : undefined
 
+    const chatApi = timelineVariant === 'steps'
+      ? TIMELINE_API
+      : timelineVariant === 'timeline'
+        ? HISTORY_API
+        : mockChatApi
+
+    const renderer = timelineVariant !== 'none' ? timelineRenderer : undefined
+
     return (
       <AiChatDemo
         open={open}
@@ -199,6 +214,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         firstName={firstName}
         extraBar={extraBar}
         extraBarAlign={extraBarAlign}
+        chatApi={chatApi}
+        messageRenderer={renderer}
       />
     )
   },
