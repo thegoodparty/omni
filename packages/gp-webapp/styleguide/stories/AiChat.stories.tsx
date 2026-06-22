@@ -11,7 +11,6 @@ import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import {
   ArrowRightIcon,
   CheckIcon,
-  ClockIcon,
   DownloadIcon,
   ShareIcon,
   SparklesIcon,
@@ -566,7 +565,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 3',
     title: 'Set up your campaign committee',
     status: 'upcoming',
-    icon: ClockIcon,
+    icon: ArrowRightIcon,
     description:
       'Register a committee with the state ethics board before accepting any donations or spending any money.',
     link: { label: 'Register online at ethics.state.gov', href: '#' },
@@ -576,6 +575,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 4',
     title: 'Launch your GoodParty campaign page',
     status: 'upcoming',
+    icon: ArrowRightIcon,
     badge: 'optional',
     description:
       'Activate your free candidate profile so supporters can find you, donate, and volunteer.',
@@ -585,6 +585,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 5',
     title: 'File your first financial disclosure',
     status: 'upcoming',
+    icon: ArrowRightIcon,
     description:
       'Report all donations and expenditures within 30 days of your committee registration.',
     items: [
