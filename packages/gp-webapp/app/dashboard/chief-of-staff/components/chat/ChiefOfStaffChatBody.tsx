@@ -411,6 +411,18 @@ export default function ChiefOfStaffChatBody({
           segs = next
           setSegments(next)
         }
+        // Raw ordered segments mirroring what the backend persists (raw tool
+        // names, not display labels). Committed to history so a just-finished
+        // turn renders the same interleaving as a reloaded one.
+        const committedSegs: ChatMessageSegment[] = []
+        const pushCommittedText = (delta: string): void => {
+          const last = committedSegs[committedSegs.length - 1]
+          if (last && last.kind === 'text') {
+            last.text = (last.text ?? '') + delta
+          } else {
+            committedSegs.push({ kind: 'text', text: delta })
+          }
+        }
         // A tool group stops "running" as soon as any text follows it.
         const resolveRunningTools = (list: LiveSegment[]): LiveSegment[] =>
           list.map((s) =>
@@ -429,6 +441,7 @@ export default function ChiefOfStaffChatBody({
             }
             breakBeforeNextText = false
             assembled += ev.delta
+            pushCommittedText(ev.delta)
             setStreaming(assembled)
             // Segment view: close any running tool group, then extend or open
             // the trailing text block.
@@ -447,6 +460,7 @@ export default function ChiefOfStaffChatBody({
             if (!turnTools.includes(ev.toolName)) {
               turnTools.push(ev.toolName)
             }
+            committedSegs.push({ kind: 'tool', toolName: ev.toolName })
             // Segment view: store the resolved (action-aware) label and group
             // consecutive tool calls into one running block. turnTools keeps the
             // raw names for the committed message (reload has no args).
@@ -494,7 +508,9 @@ export default function ChiefOfStaffChatBody({
               kind: 'assistant',
               id: assistantId ?? `local_assistant_${clientMessageId}`,
               content: assembled,
-              ...(turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+              ...(committedSegs.some((s) => s.kind === 'tool')
+                ? { segments: committedSegs }
+                : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
             },
           ])
           setStreaming(null)
