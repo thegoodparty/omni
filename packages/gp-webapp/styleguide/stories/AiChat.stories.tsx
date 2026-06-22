@@ -12,9 +12,11 @@ import { DownloadIcon, ShareIcon, SparklesIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
+import ChatTimeline from 'app/dashboard/shared/ai-chat/ChatTimeline'
 import { mockChatApi } from 'app/dashboard/shared/ai-chat/mock-chat-api'
 import { CHAT_MAX_W } from 'app/dashboard/shared/ai-chat/constants'
 import type { AiChatClient, AiChatConfig, ChatMessageDto } from 'app/dashboard/shared/ai-chat/types'
+import type { TimelineItem } from 'app/dashboard/shared/ai-chat/ChatTimeline'
 
 const queryClient = new QueryClient()
 
@@ -517,6 +519,74 @@ export const LongConversation: StoryObj = {
           open={open}
           onOpenChange={setOpen}
           initialConversationId={SEEDED_ID}
+        />
+      </div>
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// WithTimeline
+// ---------------------------------------------------------------------------
+
+const TIMELINE_MARKER = '__timeline__'
+
+const TIMELINE_ITEMS: TimelineItem[] = [
+  {
+    label: '1978',
+    title: 'Chapter 18 created',
+    description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
+    quote: {
+      text: 'We want neighborhoods to be stable, not frozen, but the protections came first.',
+      author: 'Councilor Alvarez',
+    },
+    source: 'Maplewood Council minutes, 1978',
+  },
+  {
+    label: '2003',
+    title: 'ADU allowance',
+    description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
+    quote: {
+      text: 'This is the smallest step toward more housing we can take without rewriting the whole code.',
+      author: 'Councilor Kim',
+    },
+    source: 'Maplewood Council minutes, 2003',
+  },
+  {
+    label: '2019',
+    title: 'Last amended',
+    description: 'Owner-occupancy ADU rule repealed. No broader missing-middle reform attempted.',
+    quote: {
+      text: 'We did not have the political room for triplexes. A future council should pick that up.',
+      author: 'Councilor Park',
+    },
+    source: 'Maplewood Council minutes, 2019',
+  },
+]
+
+const TIMELINE_API = makeSeededApi([
+  { role: 'user', content: 'Walk me through the history of Chapter 18' },
+  { role: 'assistant', content: TIMELINE_MARKER },
+])
+
+function timelineRenderer(content: string): React.ReactNode {
+  if (content !== TIMELINE_MARKER) return <p className="text-sm text-foreground">{content}</p>
+  return <ChatTimeline items={TIMELINE_ITEMS} />
+}
+
+export const WithTimeline: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <div className="h-full min-h-[600px] bg-background">
+        <AiChatSurface
+          chatApi={TIMELINE_API}
+          config={DEFAULT_CONFIG}
+          open={open}
+          onOpenChange={setOpen}
+          initialConversationId={SEEDED_ID}
+          messageRenderer={timelineRenderer}
         />
       </div>
     )
