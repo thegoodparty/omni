@@ -1,14 +1,14 @@
-import type { CampaignTaskDefinition } from './campaignStrategy.types'
+import type { CampaignTaskDefinition } from './CampaignTaskCatalog.schema'
 
 // Hand-authored task catalog, transcribed from campaign-tasks-master.xlsx
-// (58 tasks). This is the closed list; the sequencer (buildCampaignStrategy)
-// dates, buckets, and ranks it. Dynamic-task copy renders as authored for now —
-// LLM personalization is a later step. Keep this file dumb data.
+// (58 tasks). This is the closed list: gp-api materializes the static rows,
+// the tracker CAP experiment uses the dynamic subset as its menu, and gp-webapp
+// renders against it. Keep this file dumb data.
 //
 // The 9 progress milestones from the sheet are intentionally NOT here; they
 // belong to the gamified thermometer, not the task cards.
 
-export const TASK_CATALOG: CampaignTaskDefinition[] = [
+export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
   // ----- Pre-launch -----
   {
     id: 'begin-ballot-access',

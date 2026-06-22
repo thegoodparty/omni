@@ -7,8 +7,8 @@ import {
   subDays,
   subWeeks,
 } from 'date-fns'
+import { CAMPAIGN_TASK_CATALOG } from '@goodparty_org/contracts'
 import type { CommunityEvent } from 'gpApi/api-endpoints'
-import { TASK_CATALOG } from './taskCatalog'
 import type {
   CampaignStrategyData,
   CampaignStrategyGroup,
@@ -216,7 +216,7 @@ export const buildCampaignStrategy = (
     def: CampaignTaskDefinition
     task: CampaignStrategyTask
   }[] = []
-  for (const def of TASK_CATALOG) {
+  for (const def of CAMPAIGN_TASK_CATALOG) {
     if (
       def.generatorSource === 'communityEvents' &&
       input.communityEvents.length > 0
