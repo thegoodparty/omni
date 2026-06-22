@@ -1,5 +1,7 @@
 import { type LucideIcon, ClipboardList, Megaphone } from 'lucide-react'
 import { cn } from '@styleguide'
+import StatCard from './StatCard'
+import VoterDemographicsCard from './VoterDemographicsCard'
 
 const FeatureBlock = ({
   icon: Icon,
@@ -10,14 +12,14 @@ const FeatureBlock = ({
   title: string
   description: string
 }) => (
-  <div className="flex max-w-[280px] flex-col gap-1.5">
+  <div className="flex w-[280px] max-w-full flex-col gap-1">
     <Icon
       className="size-6 text-[#0a0a0a]"
       strokeWidth={2}
       aria-hidden="true"
     />
-    <h3 className="text-base font-semibold text-[#0a0a0a]">{title}</h3>
-    <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+    <h3 className="text-base font-bold text-[#0a0a0a]">{title}</h3>
+    <p className="text-base leading-6 text-muted-foreground">{description}</p>
   </div>
 )
 
@@ -25,13 +27,13 @@ export default function MarketingPanel({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'relative overflow-hidden bg-[linear-gradient(135deg,#e6f0ff_0%,#eef1f8_45%,#fcecdd_100%)] px-6 py-12 lg:px-20 lg:py-24',
+        'relative flex flex-col justify-center overflow-hidden bg-[linear-gradient(138deg,#dbeafe_25%,#ffebd8_100%)] px-6 py-12 lg:px-12 lg:py-16 xl:px-20',
         className,
       )}
     >
-      <div className="mx-auto flex max-w-[600px] flex-col gap-10 lg:mx-0">
+      <div className="mx-auto flex w-full max-w-[608px] flex-col gap-10 lg:mx-0">
         <header className="flex flex-col gap-3">
-          <h2 className="text-[32px] leading-[40px] font-bold text-[#0a0a0a] font-outfit">
+          <h2 className="font-outfit text-[32px] leading-[40px] font-bold text-[#0a0a0a]">
             Your Path to Victory. 100% Free.
           </h2>
           <p className="text-sm leading-5 text-muted-foreground">
@@ -39,17 +41,9 @@ export default function MarketingPanel({ className }: { className?: string }) {
           </p>
         </header>
 
-        <div className="flex flex-col gap-8 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8">
-          <div className="flex flex-col gap-6">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/images/sign-up/stat-card.png"
-              alt=""
-              aria-hidden="true"
-              width={302}
-              height={278}
-              className="w-[280px] max-w-full drop-shadow-sm"
-            />
+        <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:gap-10">
+          <div className="flex flex-col gap-4 xl:mt-[72px]">
+            <StatCard />
             <FeatureBlock
               icon={ClipboardList}
               title="Campaign Plan"
@@ -57,16 +51,8 @@ export default function MarketingPanel({ className }: { className?: string }) {
             />
           </div>
 
-          <div className="flex flex-col gap-6 lg:-mt-12">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/images/sign-up/voter-demographics-card.png"
-              alt=""
-              aria-hidden="true"
-              width={303}
-              height={327}
-              className="w-[290px] max-w-full drop-shadow-sm"
-            />
+          <div className="flex flex-col gap-4">
+            <VoterDemographicsCard />
             <FeatureBlock
               icon={Megaphone}
               title="Data + Outreach"

@@ -16,10 +16,12 @@ const openSans = Open_Sans({
 })
 
 // Display font for the marketing design system (e.g. the sign-up page
-// headings). Exposed as a CSS variable and applied only where referenced.
+// headings and stat cards). Exposed as a CSS variable and applied only where
+// referenced. Weights: 500 (demographic labels), 600 (card titles/figures),
+// 700 (hero headings).
 const outfit = Outfit({
   subsets: ['latin'],
-  weight: ['700'],
+  weight: ['500', '600', '700'],
   variable: '--outfit-font',
 })
 
