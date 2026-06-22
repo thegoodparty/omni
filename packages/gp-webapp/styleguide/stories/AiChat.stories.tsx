@@ -266,7 +266,7 @@ export const ExtraBarActions: StoryObj = {
 
 
 export const DrawerOpen: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -280,7 +280,7 @@ export const DrawerOpen: StoryObj = {
 }
 
 export const CustomMessageRenderer: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
     const messageRenderer = (content: string) => (
@@ -387,7 +387,7 @@ const RADIO_API = makeSeededApi([
 ])
 
 export const WithRadioCards: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -410,7 +410,7 @@ export const WithRadioCards: StoryObj = {
 // ---------------------------------------------------------------------------
 
 export const WithProgressBar: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -506,7 +506,7 @@ const LONG_CONV_API = makeSeededApi([
 ])
 
 export const LongConversation: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
