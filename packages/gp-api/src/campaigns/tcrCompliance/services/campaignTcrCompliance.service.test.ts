@@ -1771,6 +1771,26 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     },
   )
 
+  it('marks the record error and rethrows when approve fails (sweep stops re-alerting)', async () => {
+    const approveErr = new Error('Peerly approve rejected')
+    mockPeerly.approve10DLCBrand.mockRejectedValueOnce(approveErr)
+
+    await withEnv('prod', async () => {
+      await expect(submitUsecaseIfVerified(service, stuckRecord)).rejects.toBe(
+        approveErr,
+      )
+    })
+
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.error },
+    })
+    expect(mockModel.update).not.toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.pending },
+    })
+  })
+
   it('does not advance status in non-prod (no real usecase submission)', async () => {
     // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
     // must not be promoted to pending for a usecase that was never submitted.

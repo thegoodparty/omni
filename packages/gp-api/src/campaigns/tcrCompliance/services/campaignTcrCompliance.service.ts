@@ -27,6 +27,7 @@ import {
 } from '../../../queue/queue.types'
 import { getUserFullName } from '../../../users/util/users.util'
 import {
+  BrandApprovalResult,
   PeerlyCvVerificationStatus,
   PeerlyIdentityProfile,
   PeerlyIdentityProfileResponseBody,
@@ -259,14 +260,28 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
+    // On approve failure, mark the record `error` so the sweep's `submitted`
+    // filter stops re-selecting it every hour (each retry re-fires the
+    // bot10DlcCompliance alert from handleApiError). `error` is retryable — a
+    // re-submit through createAgentic resets it.
+    let approveResult: BrandApprovalResult | undefined
+    try {
+      approveResult = await this.submitCampaignVerifyToken(
+        tcrCompliance,
+        campaignVerifyToken,
+      )
+    } catch (err) {
+      await this.model.update({
+        where: { id: tcrCompliance.id },
+        data: { status: TcrComplianceStatus.error },
+      })
+      throw err
+    }
+
     // submitCampaignVerifyToken returns undefined in non-prod (it short-circuits
     // the Peerly approve). Only advance status when the usecase was actually
     // submitted, so a non-prod record isn't promoted to `pending` (and then
     // swept by bootstrapTcrComplianceCheck) for a usecase that doesn't exist.
-    const approveResult = await this.submitCampaignVerifyToken(
-      tcrCompliance,
-      campaignVerifyToken,
-    )
     if (approveResult === undefined) {
       return
     }
