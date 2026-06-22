@@ -28,12 +28,7 @@ export default function ChatTimeline({ items }: { items: TimelineItem[] }) {
             )}
 
             {item.source && (
-              <p className="text-xs text-muted-foreground">
-                {'source: '}
-                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-                  {item.source}
-                </span>
-              </p>
+              <p className="text-xs text-muted-foreground">{item.source}</p>
             )}
           </div>
         </div>
