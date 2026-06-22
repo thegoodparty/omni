@@ -13,6 +13,7 @@ import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
 
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
+  onToggleComplete?: (id: string, completed: boolean) => void
 }
 
 // "Done" is plain green text; the other states are pills.
@@ -43,6 +44,7 @@ const PhaseStatus = ({
 // run edge to edge so dividers and highlights reach the card sides.
 const CampaignStrategyPhase = ({
   phase,
+  onToggleComplete,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
     value={phase.key}
@@ -87,6 +89,7 @@ const CampaignStrategyPhase = ({
                   key={task.id}
                   task={task}
                   index={index + 1}
+                  onToggleComplete={onToggleComplete}
                 />
               ))}
             </ul>

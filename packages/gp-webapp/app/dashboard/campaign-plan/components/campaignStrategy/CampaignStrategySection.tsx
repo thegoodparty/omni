@@ -6,7 +6,10 @@ import { Accordion } from '@styleguide'
 import { useCommunityEvents } from 'app/onboarding/success/hooks/useCommunityEvents'
 import { buildCampaignStrategy } from './buildCampaignStrategy'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
-import { useTrackerTasks } from './useTrackerTasks'
+import {
+  useToggleTrackerTaskComplete,
+  useTrackerTasks,
+} from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 
 // The "Campaign strategy" section on the campaign plan page: the campaign
@@ -19,6 +22,15 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const events = useCommunityEvents()
   const { tasks } = useTrackerTasks()
+  const toggleComplete = useToggleTrackerTaskComplete()
+
+  // Completion only persists for real tracker rows; the catalog fallback has no
+  // backing rows to toggle, so the circle stays a plain status marker there.
+  const onToggleComplete =
+    tasks.length > 0
+      ? (id: string, completed: boolean) =>
+          toggleComplete.mutate({ id, completed })
+      : undefined
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -91,7 +103,11 @@ const CampaignStrategySection = (): React.JSX.Element => {
         className="space-y-4"
       >
         {strategy.phases.map((phase) => (
-          <CampaignStrategyPhase key={phase.key} phase={phase} />
+          <CampaignStrategyPhase
+            key={phase.key}
+            phase={phase}
+            onToggleComplete={onToggleComplete}
+          />
         ))}
       </Accordion>
     </section>

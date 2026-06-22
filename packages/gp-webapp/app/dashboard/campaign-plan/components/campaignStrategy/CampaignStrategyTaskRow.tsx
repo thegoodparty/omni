@@ -24,6 +24,7 @@ import type {
 interface CampaignStrategyTaskRowProps {
   task: CampaignStrategyTask
   index: number
+  onToggleComplete?: (id: string, completed: boolean) => void
 }
 
 const CHANNEL_ICONS: Record<
@@ -48,9 +49,24 @@ const formatTaskDate = (date: string | null): string | null =>
 const CampaignStrategyTaskRow = ({
   task,
   index,
+  onToggleComplete,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const formattedDate = formatTaskDate(task.date)
   const Icon = CHANNEL_ICONS[task.channel]
+
+  const markerClassName = cn(
+    'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
+    task.completed
+      ? 'bg-success text-white'
+      : task.isNext
+        ? 'bg-primary text-white'
+        : 'bg-grayscale-200 text-muted-foreground',
+  )
+  const markerContent = task.completed ? (
+    <CheckIcon className="size-4" />
+  ) : (
+    String(index).padStart(2, '0')
+  )
 
   return (
     <li
@@ -59,22 +75,22 @@ const CampaignStrategyTaskRow = ({
         task.isNext && 'bg-primary/5',
       )}
     >
-      <span
-        className={cn(
-          'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
-          task.completed
-            ? 'bg-success text-white'
-            : task.isNext
-              ? 'bg-primary text-white'
-              : 'bg-grayscale-200 text-muted-foreground',
-        )}
-      >
-        {task.completed ? (
-          <CheckIcon className="size-4" />
-        ) : (
-          String(index).padStart(2, '0')
-        )}
-      </span>
+      {onToggleComplete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => onToggleComplete(task.id, !task.completed)}
+          aria-pressed={task.completed}
+          aria-label={
+            task.completed ? 'Mark task incomplete' : 'Mark task complete'
+          }
+          className={cn(markerClassName, 'p-0 hover:opacity-80')}
+        >
+          {markerContent}
+        </Button>
+      ) : (
+        <span className={markerClassName}>{markerContent}</span>
+      )}
       <div className="flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           {formattedDate && (
