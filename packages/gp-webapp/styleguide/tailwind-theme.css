@@ -58,7 +58,6 @@
   --color-ring: var(--ring, #020817);
   --color-background: var(--background, #ffffff);
   --color-foreground: var(--foreground, #020817);
-  --color-surface-overlay: var(--semantic-surface-overlay, #000000);
   --color-muted: var(--muted, #f8fafc);
   --color-muted-foreground: var(--muted-foreground, #64748b);
   --color-inactive: var(--base-inactive);
