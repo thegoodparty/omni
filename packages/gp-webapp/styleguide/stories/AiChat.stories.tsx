@@ -535,34 +535,52 @@ const TIMELINE_ITEMS: TimelineItem[] = [
   {
     label: 'Step 1',
     title: 'File your candidacy paperwork',
+    status: 'done',
+    badge: 'completed',
     description:
-      'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee. Deadline is 90 days before the primary.',
+      'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
     source: 'County Elections Office — Filing Guide 2024',
   },
   {
     label: 'Step 2',
     title: 'Collect voter signatures',
-    description:
-      'Gather 250 valid signatures from registered voters in your district. Only residents of District 7 qualify. Signatures must be collected in person.',
+    status: 'active',
+    badge: 'in progress',
+    description: 'Gather 250 valid signatures from registered voters in your district.',
+    items: [
+      'Only residents of District 7 qualify',
+      'Signatures must be collected in person',
+      'Use the official petition form from the elections office',
+    ],
   },
   {
     label: 'Step 3',
     title: 'Set up your campaign committee',
+    status: 'upcoming',
     description:
-      'Register a campaign committee with the state ethics board before accepting any donations or spending any money. This can be done online in about 20 minutes.',
+      'Register a committee with the state ethics board before accepting any donations or spending any money.',
+    link: { label: 'Register online at ethics.state.gov', href: '#' },
     source: 'State Ethics Board — Campaign Finance FAQ',
   },
   {
     label: 'Step 4',
     title: 'Launch your GoodParty campaign page',
+    status: 'upcoming',
+    badge: 'optional',
     description:
-      'Activate your free candidate profile so supporters can find you, donate, and volunteer. Your profile goes live immediately after setup.',
+      'Activate your free candidate profile so supporters can find you, donate, and volunteer.',
+    link: { label: 'Set up your profile', href: '#' },
   },
   {
     label: 'Step 5',
     title: 'File your first financial disclosure',
+    status: 'upcoming',
     description:
-      'Report all donations and expenditures within 30 days of your committee registration. Late filings result in a $50/day penalty.',
+      'Report all donations and expenditures within 30 days of your committee registration.',
+    items: [
+      'Late filings result in a $50/day penalty',
+      'Include all in-kind contributions',
+    ],
     source: 'State Ethics Board — Disclosure Calendar',
   },
 ]
