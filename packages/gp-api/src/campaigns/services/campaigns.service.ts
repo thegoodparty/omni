@@ -445,13 +445,21 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // guess — the guard below then refuses to create a campaign with no
       // electionDate (derive-on-read would mark it "past", mislabeling the
       // switcher and leaving canStartCampaign true for unlimited duplicates).
-      const nextElection = sourceOrg.positionId
-        ? await this.elections.getNextElectionForPosition(sourceOrg.positionId)
+      // Elected-office orgs historically stored a BallotReady position id in
+      // positionId; next-election keys on election-api's internal Position id.
+      // Resolve to the internal id (newer orgs already store it and pass
+      // through) before dating the run and before carrying it onto the new
+      // campaign org.
+      const internalPositionId = sourceOrg.positionId
+        ? await this.elections.resolveInternalPositionId(sourceOrg.positionId)
+        : null
+      const nextElection = internalPositionId
+        ? await this.elections.getNextElectionForPosition(internalPositionId)
         : null
 
       return {
         orgPosition: {
-          positionId: sourceOrg.positionId ?? undefined,
+          positionId: internalPositionId ?? undefined,
           overrideDistrictId: sourceOrg.overrideDistrictId ?? undefined,
           customPositionName: sourceOrg.customPositionName ?? undefined,
         },
