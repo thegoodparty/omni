@@ -13,7 +13,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Opportunities and Challenges input params",
     "type": "object",
-    "additionalProperties": false,
+    "additionalProperties": true,
     "required": [
       "race_id",
       "user_email",
