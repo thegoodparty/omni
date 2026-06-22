@@ -9,33 +9,22 @@ interface DownloadVoterListParams {
   outreachType?: string
 }
 
+// Task flows (DownloadStep) pass AudienceState, whose keys already match the
+// underscore filter names the API expects. Outreach actions pass
+// VoterFileFilters, which uses camelCase and must be mapped. AudienceState is
+// always seeded with these keys by CustomVoterAudienceFilters, so their
+// presence reliably distinguishes the two shapes.
+const isAudienceState = (
+  filter: VoterFileFilters | AudienceState,
+): filter is AudienceState =>
+  'audience_superVoters' in filter || 'party_independent' in filter
+
 export const downloadVoterList = async (
   { voterFileFilter = {}, outreachType = '' }: DownloadVoterListParams = {},
   setLoading: (loading: boolean) => void = noop,
   errorSnackbar: (message: string) => void = noop,
 ): Promise<void> => {
   setLoading(true)
-  const resolvedFilter: VoterFileFilters =
-    voterFileFilter && 'audienceSuperVoters' in voterFileFilter
-      ? voterFileFilter
-      : {}
-  const {
-    audienceSuperVoters,
-    audienceLikelyVoters,
-    audienceUnreliableVoters,
-    audienceUnlikelyVoters,
-    audienceFirstTimeVoters,
-    partyIndependent,
-    partyDemocrat,
-    partyRepublican,
-    age18_25,
-    age25_35,
-    age35_50,
-    age50Plus,
-    genderMale,
-    genderFemale,
-    genderUnknown,
-  } = resolvedFilter
 
   // TODO: Fix the keys for the audience values in the CustomVoterAudienceFilters:
   //  https://goodparty.atlassian.net/browse/WEB-4277
@@ -48,23 +37,41 @@ export const downloadVoterList = async (
   const audience: Record<
     Exclude<AudienceFilterKey, 'audience_request'>,
     boolean | undefined
-  > = {
-    audience_superVoters: audienceSuperVoters,
-    audience_likelyVoters: audienceLikelyVoters,
-    audience_unreliableVoters: audienceUnreliableVoters,
-    audience_unlikelyVoters: audienceUnlikelyVoters,
-    audience_firstTimeVoters: audienceFirstTimeVoters,
-    party_independent: partyIndependent,
-    party_democrat: partyDemocrat,
-    party_republican: partyRepublican,
-    age_18_25: age18_25,
-    age_25_35: age25_35,
-    age_35_50: age35_50,
-    age_50_plus: age50Plus,
-    gender_male: genderMale,
-    gender_female: genderFemale,
-    gender_unknown: genderUnknown,
-  }
+  > = isAudienceState(voterFileFilter)
+    ? {
+        audience_superVoters: voterFileFilter.audience_superVoters,
+        audience_likelyVoters: voterFileFilter.audience_likelyVoters,
+        audience_unreliableVoters: voterFileFilter.audience_unreliableVoters,
+        audience_unlikelyVoters: voterFileFilter.audience_unlikelyVoters,
+        audience_firstTimeVoters: voterFileFilter.audience_firstTimeVoters,
+        party_independent: voterFileFilter.party_independent,
+        party_democrat: voterFileFilter.party_democrat,
+        party_republican: voterFileFilter.party_republican,
+        age_18_25: voterFileFilter.age_18_25,
+        age_25_35: voterFileFilter.age_25_35,
+        age_35_50: voterFileFilter.age_35_50,
+        age_50_plus: voterFileFilter.age_50_plus,
+        gender_male: voterFileFilter.gender_male,
+        gender_female: voterFileFilter.gender_female,
+        gender_unknown: voterFileFilter.gender_unknown,
+      }
+    : {
+        audience_superVoters: voterFileFilter.audienceSuperVoters,
+        audience_likelyVoters: voterFileFilter.audienceLikelyVoters,
+        audience_unreliableVoters: voterFileFilter.audienceUnreliableVoters,
+        audience_unlikelyVoters: voterFileFilter.audienceUnlikelyVoters,
+        audience_firstTimeVoters: voterFileFilter.audienceFirstTimeVoters,
+        party_independent: voterFileFilter.partyIndependent,
+        party_democrat: voterFileFilter.partyDemocrat,
+        party_republican: voterFileFilter.partyRepublican,
+        age_18_25: voterFileFilter.age18_25,
+        age_25_35: voterFileFilter.age25_35,
+        age_35_50: voterFileFilter.age35_50,
+        age_50_plus: voterFileFilter.age50Plus,
+        gender_male: voterFileFilter.genderMale,
+        gender_female: voterFileFilter.genderFemale,
+        gender_unknown: voterFileFilter.genderUnknown,
+      }
   const selectedAudience = Object.entries(audience)
     .filter(([, value]) => value === true)
     .map(([key]) => key)
