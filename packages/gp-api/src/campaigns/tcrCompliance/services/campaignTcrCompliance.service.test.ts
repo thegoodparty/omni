@@ -627,6 +627,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     updateMany: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockWebsites: {
+    ensureCompliancePublishableWebsite: ReturnType<typeof vi.fn>
+  }
 
   const kickoff = {
     campaignId: 123,
@@ -668,12 +671,15 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockPrisma = { tcrCompliance: mockModel }
+    mockWebsites = {
+      ensureCompliancePublishableWebsite: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PeerlyIdentityService, useValue: {} },
-        { provide: WebsitesService, useValue: {} },
+        { provide: WebsitesService, useValue: mockWebsites },
         { provide: CampaignsService, useValue: mockCampaigns },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
@@ -693,6 +699,22 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     mockModel.findUnique.mockResolvedValue(tcrRecord)
     mockModel.update.mockResolvedValue(tcrRecord)
     mockModel.updateMany.mockResolvedValue({ count: 1 })
+    mockWebsites.ensureCompliancePublishableWebsite.mockResolvedValue(undefined)
+  })
+
+  it('provisions a publishable website before dispatching the agent', async () => {
+    await service.handleAgenticKickoff(kickoff)
+
+    expect(
+      mockWebsites.ensureCompliancePublishableWebsite,
+    ).toHaveBeenCalledWith(campaignUser, campaign)
+
+    const provisionOrder =
+      mockWebsites.ensureCompliancePublishableWebsite.mock
+        .invocationCallOrder[0]
+    const dispatchOrder =
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    expect(provisionOrder).toBeLessThan(dispatchOrder)
   })
 
   it('claims the dispatch slot atomically before calling dispatchRun', async () => {

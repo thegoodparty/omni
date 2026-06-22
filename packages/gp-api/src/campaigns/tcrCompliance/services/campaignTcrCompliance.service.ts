@@ -968,7 +968,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
     const campaign = await this.campaignsService.findUnique({
       where: { id: campaignId },
-      include: { user: true },
+      include: {
+        user: true,
+        campaignPositions: { include: { topIssue: true } },
+      },
     })
     if (!campaign || !campaign.user) {
       this.logger.warn(
@@ -1005,6 +1008,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       })
       return
     }
+
+    // The agent buys a domain and publishes this campaign's website but can't
+    // create one or author missing copy. Legacy-Pro candidates reach this flow
+    // without the pre-payment candidate-profile step that builds the site, so
+    // guarantee a publishable site before dispatch. Runs before the claim:
+    // same-campaign kickoffs are serialized by the FIFO message group, and a
+    // failure here redelivers cleanly with no claim to roll back.
+    await this.websitesService.ensureCompliancePublishableWebsite(
+      campaign.user,
+      campaign,
+    )
 
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
     // at-least-once SQS delivery (consumer crashes, redelivery, concurrent
