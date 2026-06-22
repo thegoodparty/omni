@@ -47,6 +47,7 @@ model Campaign {
   outreach                 Outreach[]
   communityIssue           CommunityIssue[]
   campaignTasks            CampaignTask[]
+  campaignTrackerTasks     CampaignTrackerTask[]
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
   electedOffices           ElectedOffice[]

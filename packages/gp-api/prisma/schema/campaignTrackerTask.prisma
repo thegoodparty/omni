@@ -1,0 +1,31 @@
+// Campaign Tracker (ENG-10406) tasks. Schema mirrors CampaignTask plus `phase`
+// so the completion / CTA / digest / materialization logic is reused as-is; a
+// separate table keeps the new tracker isolated from existing users' tasks.
+model CampaignTrackerTask {
+  id                  String                 @id @default(cuid())
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  title               String
+  description         String
+  cta                 String?
+  flowType            CampaignTaskType?      @map("flow_type")
+  week                Int
+  date                DateTime
+  link                String?
+  proRequired         Boolean?               @default(false) @map("pro_required")
+  isDefaultTask       Boolean?               @default(false) @map("is_default_task")
+  deadline            Int?
+  defaultAiTemplateId String?                @map("default_ai_template_id")
+  completed           Boolean                @default(false)
+  // preLaunch | launch | active | gotv — drives the 4-phase UI grouping.
+  phase               String?
+  campaign            Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId          Int                    @map("campaign_id")
+  updateHistory       CampaignUpdateHistory? @relation(fields: [updateHistoryId], references: [id], onDelete: SetNull)
+  updateHistoryId     Int?                   @unique @map("update_history_id")
+
+  @@index([campaignId])
+  @@index([campaignId, completed])
+  @@index([date])
+  @@map("campaign_tracker_tasks")
+}
