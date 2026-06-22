@@ -5,6 +5,18 @@ with a focus on what is already built that facilitates task and event
 generation (the `weeklyTasksDigest` service) and how it relates to the runbooks
 / PMF experiments system.
 
+> **Current design (June 22) — read the TDD first.** The authoritative design now
+> lives in the TDD: repo `scratch/campaign-tracker-v3/campaign-tracker-tdd.md` and
+> ClickUp (Eng Docs → Win Docs → Technical Design Docs). Several sections below
+> predate review reversals; where they conflict, **the TDD wins.** Key changes:
+> **one** CAP experiment (find up to 3 events, then prioritize the top 12 tasks
+> with events among them), **not two**; events and all tasks are **`campaign_task`
+> rows** (`flowType = events`), **not** `campaign_strategy.community_events` JSON;
+> the initial run is at **campaign-plan generation** (it needs plan + story),
+> **not** an office-submission pre-warm; **no `catalog_id` / `priority` columns**;
+> **no CAP batching**; the cron ships **disabled behind a flag** (manual dev run →
+> 50-campaign cost batch → Bryan approval). The weekly digest is in scope.
+
 ## Sources
 
 - One-pager (ClickUp doc): Campaign Tracker (v3?) —
@@ -134,16 +146,20 @@ wins. Don't merge to prod until a TDD is reviewed; work can start before.
 ### Three build phases
 
 - **Phase 1 — Static / programmatic (no AI).** The Pre-launch + Launch tasks
-  (the 22 global static tasks) plus the UI and the tracker-experience locking.
+  (the 22 global static tasks) plus the UI and the GOTV time-gating.
   Static now means **global — identical for every candidate, no personalization**
   (the `Type=Static` rows: all Pre-launch, all Launch, and the GOTV ops/close-out).
 - **Phase 2 — Dynamic / CAP.** Active Campaign tasks + Community Events,
-  **personalized per candidate via CAP** (the `Type=Dynamic` rows: Active
-  Campaign + the GOTV sends). First generation triggers when the user finishes
-  their Pre-launch/Launch tasks (and first opens the Campaign Tracker).
-- **Phase 3 — Re-gen / CAP.** A weekly cron regenerates/curates **only the tasks
-  that were generated before** (and community events), folding in what's been
-  completed and any changes.
+  **personalized per candidate via a single CAP experiment** (find up to 3
+  events, then prioritize the top 12 tasks — events can be among them). Both
+  events and tasks persist as `campaign_task` rows (`flowType = events` for
+  events). The initial run is at **campaign-plan generation** (it needs the plan +
+  story), **not** an office-submission pre-warm and not when the candidate first
+  opens the tracker.
+- **Phase 3 — Re-gen / CAP.** A weekly cron re-runs the experiment to
+  re-prioritize the upcoming week, **replacing** the generated (non-static)
+  `campaign_task` rows wholesale and folding in completion + any changes. No
+  batching; default dispatch priority; ships disabled behind a flag.
 
 ### Display rules
 
@@ -151,12 +167,15 @@ wins. Don't merge to prod until a TDD is reviewed; work can start before.
 - **Active Campaign + GOTV:** show **3 and only 3 tasks per week**. Generate up
   to **7 MAX** (prioritized); the UI shows the **top 3**, with **progressive
   reveal** — complete #1 and #4 appears, complete #2 and #5 appears, and so on.
-- **Lock "Active Campaign"** until all Pre-launch/Launch tasks are done.
+- **"Active Campaign" is NOT locked.** (An earlier draft said to lock it until
+  Pre-launch/Launch were done — that was an error, corrected June 19.) Active is
+  always visible and shows its capped weekly set from the start.
 - **"Get out the vote"** tasks are displayed only when it is **≤30 days to the
   election**. Before that, show a **blue informational banner** explaining the
-  GOTV effort and the time until it starts.
-- All sections are **always visible** in the UI (Active locked / GOTV bannered
-  before its window). We do **not** show future weeks' tasks — only the current 3.
+  GOTV effort and the time until it starts (GOTV is the one phase that hides its
+  tasks before its window, since the work isn't relevant yet).
+- All sections are **always visible** in the UI (GOTV bannered before its
+  window). We do **not** show future weeks' tasks beyond the current capped set.
 - Open question: combine "Active Campaign" + "Get out the vote"? For now keep
   them as separate sections; GOTV is gated by the banner + 30-day window.
 
@@ -171,13 +190,15 @@ The UI explains the timeline.
 
 - Pre-launch/Launch (static) exist immediately, programmatically, from the
   candidate's story.
-- The **dynamic** Active Campaign generation triggers when the user finishes
-  Pre-launch/Launch / first opens the tracker. Re-gen only touches
-  previously-generated tasks.
-- CAP inputs: what has been done (completed tasks), all campaign context, the
-  election date, the list of all possible tasks, plus instructions and skills.
-  Skills encode the rules above (3/week, lock Active until setup done, GOTV
-  reframe in the last 30 days, etc.).
+- **Community events and dynamic tasks** come from **one CAP experiment** that
+  first runs at **campaign-plan generation** (it needs the plan + story), then
+  weekly. Events appear once the plan is generated (this replaces the earlier
+  office-submission pre-warm) and are shown consistently in the plan, onboarding,
+  and tracker. After the initial run, the weekly cron re-prioritizes and replaces
+  the generated rows wholesale.
+- CAP inputs: the ~30-task catalog (the menu) + plan, story, created tasks,
+  completed tasks, `today`, `election_date`. The model finds up to 3 events and
+  selects/ranks/personalizes the top 12 tasks; gates and dates stay deterministic.
 - Swain's framing to weigh in the TDD: "maybe generate once, but prioritize
   weekly" — i.e., generate the candidate's set once and have the weekly job
   re-prioritize rather than fully regenerate.
@@ -191,17 +212,53 @@ The UI explains the timeline.
 ### Schema / process
 
 - **Schema change: add a `priority` field** (the priority tier) to the task data.
+  (Update June 19: dropped — we are **not** adding a priority column to
+  `campaign_task`. The static tier resolves from the catalog via `catalogId`, and
+  weekly prioritization rides the existing `week`/`date` fields. See the TDD.)
 - Next steps: high-level technical design (Fri/Mon), then TDD review before
   prod merge. Design must cover the weekly cron, data flow, onboarding, digest
   changes, CAP usage, and the inputs.
 
 ### What this changes in the code already built
 
-The shipped section currently renders every task in each phase, with no weekly
-cap, no Active-Campaign lock, and GOTV always visible. To match the above we
-still need: the 3-per-week (top-7, progressive-reveal) logic for Active + GOTV,
-the Pre-launch/Launch completion gate that unlocks Active, and the 30-day GOTV
-gate with the blue banner. These are follow-ups, pending the TDD.
+Implemented in the shipped section (`buildCampaignStrategy.ts` +
+`CampaignStrategyPhase.tsx`): the 3-per-week cap with progressive reveal for
+Active + GOTV and the 30-day GOTV window with the blue banner. The Active lock
+that was added earlier is being removed — Active is not locked (June 19
+correction). This area (catalog, sequencer, UI gating) is being worked on
+separately; coordinate before editing it.
+
+Still open — **task completion is not persisted.** Every task renders with
+`completed: false` hardcoded, so progressive reveal can never advance in the
+running build. Direction (June 19): rather than invent a new scheme, **reuse the
+existing `campaign_task` table** + `PUT/DELETE /campaigns/tasks/complete/:id`
+completion flow + the existing task CTA/link UI. The static Pre-launch/Launch
+tasks replace the current default-task generator by materializing catalog tasks
+as `campaign_task` rows (CUID ids; the catalog string id rides along as a stable
+key). Dynamic tasks persist the same way. Detailed in the TDD.
+
+### Post-onboarding entry flow (moving off the success page)
+
+We are moving away from the dedicated `/onboarding/success` page and routing the
+candidate directly into the dashboard after onboarding.
+
+- **For now:** after the pledge step, land the candidate on `/dashboard` (not
+  `/onboarding/success`). A separate in-progress feature (the campaign-story page)
+  will ask the candidate a set of questions, and **finishing that page is what
+  triggers campaign-plan generation** — so the generation trigger is moving there,
+  off the current office-submission pre-warm in `OnboardingFlow.tsx`.
+- **`/onboarding/success` stays as-is for now** but is slated for removal once the
+  new flow lands. Cleanup needed later: the success route/component, and the
+  pledge-step branch that routes to it (`OnboardingFlow.tsx:958-970`). Its content
+  already lives at `/dashboard/campaign-plan` via the shared `useCampaignPlanData`
+  hook, so nothing unique is lost.
+- **Generation-timing race (resolved).** `/dashboard/campaign-plan` has a
+  server-side guard (`GET /v1/campaignStrategy/mine/exists`) that redirects to
+  `/dashboard` when no strategy row exists. The campaign-story phase creates the
+  `campaign_strategy` row before the candidate reaches the tracker, so the guard
+  passes. Remaining cross-feature detail: the exact dispatch handoff (what the
+  campaign-story feature calls to kick off generation) and rendering the
+  generating/polling state on the destination page.
 
 ---
 
@@ -589,6 +646,12 @@ the current bug where setup tasks were dated election-relative:
 
 ### Dynamic tasks + community events via CAP (tentative — for review)
 
+> **Superseded (June 22) — see the TDD.** This section described **two**
+> experiments, a `dynamic_tasks` JSON blob, and `catalog_id` / `priority_tier`.
+> The current design is **one** experiment writing `campaign_task` rows (events
+> included as `flowType = events`), no JSON blob, no `catalog_id` / `priority`
+> columns. Kept below for history.
+
 Static tasks render their template copy. Dynamic tasks (and community events) are
 personalized and curated by **CAP** — the Campaign AI Platform / PMF experiment
 engine in `packages/runbooks/experiments/` that already generates the plan's
@@ -679,6 +742,10 @@ Open questions:
   SQS; cost is already tracked per run (`costUsd`).
 
 ### Community events coverage (weekly cron)
+
+> **Superseded (June 22) — see the TDD.** Community events are no longer a
+> separate cron/pipeline: the single tracker experiment finds them and stores them
+> as `campaign_task` event rows. The SQS/Gemini mechanics below are historical.
 
 This is the events-specific detail for the same weekly run described in "Dynamic
 tasks + community events via CAP" above — whether events are curated inside that
