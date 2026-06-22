@@ -588,8 +588,8 @@
   --color-components-input-inactive-focus: var(
     --component-input-inactive-focus
   );
-  --color-components-tooltip-base: #262626;
-  --color-components-tooltip-foreground: #ffffff;
+  --color-components-tooltip-base: var(--component-tooltip-base);
+  --color-components-tooltip-foreground: var(--component-tooltip-foreground);
 
   /* ==========================================================================
    * RADIX COLLAPSIBLE ANIMATIONS
