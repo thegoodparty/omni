@@ -67,7 +67,7 @@ function AiChatDemo({
   return (
     <div
       ref={setContainer}
-      className={`relative overflow-hidden bg-background ${open ? 'h-[90vh]' : 'h-[300px]'}`}
+      className={`relative overflow-clip bg-background ${open ? 'h-[90vh]' : 'h-[300px]'}`}
       style={{ transform: 'translateZ(0)' }}
     >
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -400,7 +400,7 @@ export const WithRadioCards: StoryObj = {
     return (
       <div
         ref={setContainer}
-        className="relative h-[90vh] overflow-hidden bg-background"
+        className="relative h-[90vh] overflow-clip bg-background"
         style={{ transform: 'translateZ(0)' }}
       >
         <AiChatSurface
@@ -429,7 +429,7 @@ export const WithProgressBar: StoryObj = {
     return (
       <div
         ref={setContainer}
-        className="relative h-[90vh] overflow-hidden bg-background"
+        className="relative h-[90vh] overflow-clip bg-background"
         style={{ transform: 'translateZ(0)' }}
       >
         {!open && (
@@ -530,7 +530,7 @@ export const LongConversation: StoryObj = {
     return (
       <div
         ref={setContainer}
-        className="relative h-[90vh] overflow-hidden bg-background"
+        className="relative h-[90vh] overflow-clip bg-background"
         style={{ transform: 'translateZ(0)' }}
       >
         <AiChatSurface
