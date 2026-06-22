@@ -414,6 +414,8 @@
   --muted-foreground: var(--base-muted-foreground);
   --color-muted: var(--base-muted);
   --color-muted-foreground: var(--base-muted-foreground);
+  --color-base-muted: var(--base-muted);
+  --color-base-muted-foreground: var(--base-muted-foreground);
 
   /* Accent */
   --accent: var(--base-accent);

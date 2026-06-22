@@ -585,6 +585,7 @@
   --color-components-input-border: var(--component-input-border);
   --color-components-input-focus: var(--component-input-focus);
   --color-primary-focus: var(--theme-primary-focus);
+  --color-surface-overlay: var(--semantic-surface-overlay, #000000);
   --color-components-input-inactive-focus: var(
     --component-input-inactive-focus
   );
