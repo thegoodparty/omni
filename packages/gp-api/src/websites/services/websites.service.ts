@@ -115,19 +115,17 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       // Prisma include query — TypeScript cannot narrow the included relations at compile time
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       campaign.campaignPositions as PositionWithTopIssue[]
-    // Drop positions with no real data so they don't seed placeholder
-    // ("Issue 1") copy that survives the publish-readiness filter. Seed a
-    // default when none survive so this stays publishable for the direct
-    // POST /websites caller too (which has no fallback after).
+    // Keep only complete positions (real title AND description). Emitting
+    // placeholder copy like "Issue 1" / "Issue 1 description" would survive
+    // the publish-readiness check and ship literally to a candidate's site.
+    // Seed a default when none survive so this stays publishable for the
+    // direct POST /websites caller too (which has no fallback after).
     const realIssues = campaignPositions
-      .filter(
-        (position) =>
-          hasText(position.topIssue?.name) || hasText(position.description),
-      )
-      .map((position, index) => ({
-        title: position.topIssue?.name ?? `Issue ${index + 1}`,
-        description: position.description ?? `Issue ${index + 1} description`,
+      .map((position) => ({
+        title: position.topIssue?.name ?? '',
+        description: position.description ?? '',
       }))
+      .filter((issue) => hasText(issue.title) && hasText(issue.description))
     const issues =
       realIssues.length > 0
         ? realIssues

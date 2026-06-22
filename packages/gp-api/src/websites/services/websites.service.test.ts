@@ -682,15 +682,17 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
-  it('seeds a default issue instead of placeholder copy for empty positions', async () => {
-    const campaignWithEmptyPosition: CampaignWith<'campaignPositions'> = {
+  it('drops incomplete positions and seeds a default instead of placeholder copy', async () => {
+    // A description-only position (no topIssue → empty title) is incomplete;
+    // it must be dropped rather than emitted as "Issue 1: <description>".
+    const campaignWithIncompletePosition: CampaignWith<'campaignPositions'> = {
       ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
       campaignPositions: [
         {
           id: 1,
           createdAt: new Date(),
           updatedAt: new Date(),
-          description: null,
+          description: 'Roads need repair',
           order: 0,
           campaignId: 99,
           positionId: 1,
@@ -709,13 +711,14 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     await service.ensureCompliancePublishableWebsite(
       user,
-      campaignWithEmptyPosition,
+      campaignWithIncompletePosition,
     )
 
     const createArg = mockPrisma.website.create.mock.calls[0][0]
     const issues = createArg.data.content.about.issues
     expect(issues).toHaveLength(1)
     expect(issues[0].title).not.toMatch(/^Issue \d/)
+    expect(issues[0].title?.trim()).toBeTruthy()
     expect(issues[0].description?.trim()).toBeTruthy()
   })
 
