@@ -274,6 +274,15 @@ export class ContactsService {
     id: string,
     organization: Organization,
   ): Promise<PersonOutput> {
+    // Opening a person record is a pro action (the list shows non-pro a blurred
+    // preview and the modal fires on row-click). Gate it like search/segments
+    // so a direct call can't read full person detail without pro.
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Viewing contact details is only available for pro campaigns',
+      )
+    }
+
     const fetchPerson = async (districtParams: { districtId: string }) => {
       try {
         const response = await lastValueFrom(

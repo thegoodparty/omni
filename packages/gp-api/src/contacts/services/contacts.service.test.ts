@@ -620,6 +620,7 @@ describe('ContactsService', () => {
         const org = makeOrganization({
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: true })
 
         mockHttpService.get.mockReturnValue(
           of({
@@ -635,6 +636,18 @@ describe('ContactsService', () => {
             params: { districtId: OVERRIDE_DISTRICT_ID },
           }),
         )
+      })
+
+      it('throws on findPerson when the campaign is not pro', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(service.findPerson('person-1', org)).rejects.toThrow(
+          BadRequestException,
+        )
+        expect(mockHttpService.get).not.toHaveBeenCalled()
       })
 
       it('uses overrideDistrictId for downloadContacts', async () => {
