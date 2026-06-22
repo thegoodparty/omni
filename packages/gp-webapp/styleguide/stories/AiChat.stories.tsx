@@ -157,10 +157,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     timelineVariant: 'none',
   },
   argTypes: {
-    open: {
-      control: 'boolean',
-      description: 'Whether the chat drawer is open.',
-    },
+    open: { table: { disable: true } },
     firstName: {
       control: 'text',
       description: 'Personalizes the bar placeholder greeting.',

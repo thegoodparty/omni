@@ -1,4 +1,3 @@
-import React from 'react'
 import { Badge } from '@styleguide/components/ui/badge'
 
 export type TimelineStatus = 'done' | 'active' | 'upcoming'
@@ -49,9 +48,9 @@ export default function ChatTimeline({
 
   return (
     <div className="flex flex-col" role="list">
-      {items.map((item) => {
+      {items.map((item, i) => {
         const status = item.status ?? 'done'
-        const isLast = items[items.length - 1] === item
+        const isLast = i === items.length - 1
         const Icon = !isTimeline ? item.icon : undefined
 
         return (
