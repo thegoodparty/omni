@@ -84,12 +84,14 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </noscript>
     </body>
 
-    <Script
-      type="text/javascript"
-      id="hs-script-loader"
-      strategy="afterInteractive"
-      src="//js.hs-scripts.com/21589597.js"
-    />
+    {IS_PROD && (
+      <Script
+        type="text/javascript"
+        id="hs-script-loader"
+        strategy="afterInteractive"
+        src="//js.hs-scripts.com/21589597.js"
+      />
+    )}
   </html>
 )
 export default RootLayout
