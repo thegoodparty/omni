@@ -49,7 +49,7 @@ export default function ChatTimeline({
           <div key={i} className="relative flex gap-3">
             <div className="flex flex-col items-center">
               {isTimeline ? (
-                <div className="mt-1 size-2.5 shrink-0 rounded-full border-2 border-primary bg-background" />
+                <div className="mt-1 size-2.5 shrink-0 rounded-full bg-primary" />
               ) : (
                 <div
                   className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${bulletColorClass[status]}`}
