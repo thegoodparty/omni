@@ -655,6 +655,34 @@ describe('ElectedOfficeController', () => {
       expect(result.data.party).toBe('independent')
     })
 
+    it('rejects downgrading selfReported from true to false', async () => {
+      // selfReported is a one-way marker; downgrading it would reclassify a
+      // net-new record as a prefill on resume. Setting it true is fine, but
+      // true→false must be rejected.
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+      const up = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { selfReported: true },
+      )
+      expect(up.status).toBe(200)
+      expect(up.data.selfReported).toBe(true)
+
+      const downgrade = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { selfReported: false },
+      )
+      expect(downgrade.status).toBe(403)
+
+      // Idempotent re-set to true (and leaving it unset) still works.
+      const reset = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { selfReported: true },
+      )
+      expect(reset.status).toBe(200)
+      expect(reset.data.selfReported).toBe(true)
+    })
+
     it('rejects completing onboarding with only a term end date (no start)', async () => {
       // A term with an end but no start isn't a real term; onboarding must not
       // complete against it.

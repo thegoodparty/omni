@@ -215,6 +215,19 @@ export class ElectedOfficeController {
       )
     }
 
+    // selfReported is a monotonic, one-way marker: once the net-new onboarding
+    // flow records that the holder supplied their own office/term, downgrading
+    // it back to false would silently reclassify a net-new record as a prefill
+    // on resume (misleading "pulled from public records" confirm hub) and fire
+    // the BallotReady suggestion-accuracy snapshot against user-entered data.
+    // Reject the true→false downgrade for ALL callers (owner and M2M alike);
+    // setting it to true, or leaving it unset, stays allowed.
+    if (body.selfReported === false && existing.selfReported === true) {
+      throw new ForbiddenException(
+        'selfReported cannot be downgraded from true to false; it is set once by the net-new onboarding flow',
+      )
+    }
+
     // Mirror create()'s no-overlap invariant: term dates are writable via PUT,
     // so an update must not push this office's term into a range another office
     // the same user holds already covers. Use the effective post-update bounds
