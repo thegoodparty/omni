@@ -35,8 +35,8 @@ function Input({ className, type, icon, ...props }: InputProps) {
       data-slot="input"
       className={cn(
         'text-foreground file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground border-components-input-border flex items-center h-10 w-full min-w-0 rounded-md border bg-components-input-base px-3 py-2 text-base transition-[color,box-shadow] outline-none file:inline-flex file:h-full file:items-center file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
-        'focus-visible:border-primary focus-visible:ring-primary-focus focus-visible:ring-[3px]',
-        'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+        'focus:border-components-input-active focus-visible:ring-[3px] focus-visible:ring-components-input-focus',
+        'aria-invalid:border-destructive focus:aria-invalid:border-destructive focus-visible:aria-invalid:ring-destructive-focus',
         className,
       )}
       {...props}
