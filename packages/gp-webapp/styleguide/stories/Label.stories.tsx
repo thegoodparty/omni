@@ -41,7 +41,11 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       <Label htmlFor="playground-input" variant={variant}>
         {text}
       </Label>
-      <Input type="email" id="playground-input" placeholder="Enter your email" />
+      <Input
+        type="email"
+        id="playground-input"
+        placeholder="Enter your email"
+      />
     </div>
   ),
 }
@@ -65,7 +69,11 @@ export const Variants: Story = {
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
           <Checkbox id="v-terms" />
-          <Label htmlFor="v-terms" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="v-terms"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             Accept terms and conditions
           </Label>
         </div>
@@ -73,7 +81,11 @@ export const Variants: Story = {
           <RadioGroup defaultValue="opt-a">
             <div className="flex items-center gap-2">
               <RadioGroupItem value="opt-a" id="v-r1" />
-              <Label htmlFor="v-r1" variant="secondary" className="cursor-pointer">
+              <Label
+                htmlFor="v-r1"
+                variant="secondary"
+                className="cursor-pointer"
+              >
                 Option A
               </Label>
             </div>
@@ -114,19 +126,31 @@ export const WithCheckboxGroup: Story = {
       <div className="mt-1 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Checkbox id="wcg-email" defaultChecked />
-          <Label htmlFor="wcg-email" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="wcg-email"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             Email
           </Label>
         </div>
         <div className="flex items-center gap-2">
           <Checkbox id="wcg-sms" />
-          <Label htmlFor="wcg-sms" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="wcg-sms"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             SMS
           </Label>
         </div>
         <div className="flex items-center gap-2">
           <Checkbox id="wcg-mail" />
-          <Label htmlFor="wcg-mail" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="wcg-mail"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             Mail
           </Label>
         </div>
@@ -172,13 +196,21 @@ export const WithSwitch: Story = {
       <div className="mt-1 flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <Switch id="ws-email" defaultChecked />
-          <Label htmlFor="ws-email" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="ws-email"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             Email me about campaign updates
           </Label>
         </div>
         <div className="flex items-center gap-3">
           <Switch id="ws-sms" />
-          <Label htmlFor="ws-sms" variant="secondary" className="cursor-pointer">
+          <Label
+            htmlFor="ws-sms"
+            variant="secondary"
+            className="cursor-pointer"
+          >
             Send SMS alerts for new donations
           </Label>
         </div>
