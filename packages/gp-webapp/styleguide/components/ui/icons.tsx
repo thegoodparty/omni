@@ -79,4 +79,5 @@ export {
   Gavel as GavelIcon,
   BookOpen as BookOpenIcon,
   WandSparkles as WandSparklesIcon,
+  ListChecks as ListChecksIcon,
 } from 'lucide-react'

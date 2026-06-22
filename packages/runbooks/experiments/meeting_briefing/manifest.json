@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 10,
+  "version": 11,
   "model": "opus",
   "max_turns": 200,
   "timeout_seconds": 3000,
@@ -461,7 +461,7 @@
                 "priority_id": {
                   "type": "string"
                 },
-                "community_issue_feed_id": {
+                "community_issue_id": {
                   "type": "string"
                 }
               }

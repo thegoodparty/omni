@@ -14,6 +14,7 @@ const links = (
     winVoterDataReady = true,
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
+    communityIssuesEnabled = true,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
@@ -21,6 +22,7 @@ const links = (
     winVoterDataReady?: boolean
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
+    communityIssuesEnabled?: boolean
   } = {},
 ) =>
   getDashboardMenuItems(
@@ -33,6 +35,7 @@ const links = (
     winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
+    communityIssuesEnabled,
   )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
@@ -129,10 +132,53 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       true, // winVoterDataReady
       false, // winVoterDataEnabled
       true, // campaignStoryEnabled
+      false, // communityIssuesEnabled
     )
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
 
+    expect(planIdx).toBeGreaterThanOrEqual(0)
+    expect(storyIdx).toBeGreaterThanOrEqual(0)
+    expect(planIdx).toBeLessThan(storyIdx)
+  })
+})
+
+describe('getDashboardMenuItems — Community Issues nav gating', () => {
+  it('shows the Community Issues nav for an elected office when the flag is on', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: true,
+      communityIssuesEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
+  })
+
+  it('hides the Community Issues nav for an elected office when the flag is off', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: true,
+      communityIssuesEnabled: false,
+    })
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
+  })
+
+  it('hides the Community Issues nav for a non-elected-office user even when the flag is on', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: false,
+      communityIssuesEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
+  })
+
+  it('keeps Campaign Plan before Story when the flag hides Community Issues for an elected office', () => {
+    // With Community Issues hidden, the front-of-list offset drops by one;
+    // the campaign-category items must still render in order.
+    const items = links(proCampaign, {
+      isElectedOffice: true,
+      communityIssuesEnabled: false,
+      campaignStoryEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
+    const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
+    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     expect(planIdx).toBeGreaterThanOrEqual(0)
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(planIdx).toBeLessThan(storyIdx)

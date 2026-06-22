@@ -1,0 +1,57 @@
+name: gp-api teardown preview
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  WORKSPACE: packages/gp-api
+
+# Serialize on the preview stack name (shared with the deploy job in gp-api.yml
+# and the cron cleanup destroy in gp-api-cleanup-preview.yml) so a teardown
+# never runs a Pulumi operation against the stack while a deploy or a cron
+# destroy is mid-flight on it.
+concurrency:
+  group: gp-api-preview-gp-api-pr-${{ github.event.number }}
+  cancel-in-progress: false
+
+jobs:
+  teardown:
+    runs-on: ubuntu-latest
+    env:
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Destroy preview stack
+        uses: ./.github/actions/destroy-preview-stack
+        with:
+          stack-name: gp-api-pr-${{ github.event.number }}
+          working-directory: ${{ env.WORKSPACE }}/deploy
+
+      - name: Notify Slack on teardown failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,job
+          text: >-
+            gp-api preview teardown failed for PR #${{ github.event.number }}.
+            Its load balancer may still be holding ELB quota — check the run.

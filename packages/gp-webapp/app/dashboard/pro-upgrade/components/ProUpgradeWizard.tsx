@@ -11,9 +11,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { Button, Stepper } from '@styleguide'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { noop } from '@shared/utils/noop'
-import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   PRO_UPGRADE_BASE_PATH,
@@ -22,10 +20,6 @@ import {
   proUpgradeStepPath,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
-
-// Where the off cohort is sent. The legacy /dashboard/pro-sign-up flow is the
-// pro-upgrade3 = off fallback and is intentionally left untouched.
-const PRO_SIGN_UP_PATH = '/dashboard/pro-sign-up'
 
 // The desktop vertical stepper covers the four collection steps (Figma
 // 7490:18728), but the payment step hides it (Figma 7563:3405) — "Payment"
@@ -132,20 +126,14 @@ interface ProUpgradeWizardProps {
 
 const ProUpgradeWizard = ({
   children,
-}: ProUpgradeWizardProps): React.JSX.Element | null => {
+}: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
-  const { ready, enabled } = useProUpgrade3Flag()
 
   const currentStep = stepFromPathname(pathname)
   const orderIndex = currentStep
     ? PRO_UPGRADE_STEP_ORDER.indexOf(currentStep)
     : -1
-
-  // Off cohort: send the candidate to the legacy pro-sign-up flow unchanged.
-  useEffect(() => {
-    if (ready && !enabled) router.replace(PRO_SIGN_UP_PATH)
-  }, [ready, enabled, router])
 
   // Reset scroll to the top whenever the active step changes (dashboard convention).
   useEffect(() => {
@@ -184,20 +172,6 @@ const ProUpgradeWizard = ({
     () => ({ currentStep, goToStep, goToNextStep, goToPreviousStep }),
     [currentStep, goToStep, goToNextStep, goToPreviousStep],
   )
-
-  // Hold the experience with a spinner only while the flag is resolving.
-  if (!ready) {
-    return (
-      <WizardChrome stepperStep={0}>
-        <LoadingAnimation />
-      </WizardChrome>
-    )
-  }
-
-  // Off cohort: the redirect to pro-sign-up is already scheduled in the effect
-  // above. Render nothing rather than a spinner so a silently-failed
-  // router.replace can't strand the user on a permanent "loading" screen.
-  if (!enabled) return null
 
   const isPayment = currentStep === PRO_UPGRADE_STEP.PAYMENT
   const stepperStep = isPayment

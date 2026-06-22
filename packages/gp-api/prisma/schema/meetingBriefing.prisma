@@ -15,6 +15,7 @@ model MeetingBriefing {
   artifactKey    String @map("artifact_key")
 
   artifactFeedback ArtifactFeedback[]
+  itemLinks        MeetingBriefingItemLink[]
 
   /// [MeetingBriefingArtifact]
   artifact Json? @db.JsonB

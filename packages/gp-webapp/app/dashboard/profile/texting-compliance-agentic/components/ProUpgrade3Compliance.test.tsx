@@ -132,18 +132,22 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
   })
 
   it.each<[TcrComplianceStatus | null]>([['error'], [null]])(
-    'falls back to the neutral holding state for status %s (no enumerated screen)',
+    'offers the election-filing CTA for status %s (no usable record yet)',
     async (status) => {
       mockGetTcrCompliance.mockResolvedValue(
         status === null ? null : tcrWith(status),
       )
       render(<ProUpgrade3Compliance />)
 
-      await waitFor(() => {
-        expect(
-          screen.getByText(/your pro upgrade status will appear here/i),
-        ).toBeInTheDocument()
-      })
+      // A candidate with no usable record gets an actionable entry into the
+      // agentic flow, not a dead-end placeholder (ENG-10473). The CTA must
+      // point at election-filing, which calls createAgentic.
+      const cta = await screen.findByRole('link', { name: 'Get started' })
+      expect(cta).toHaveAttribute(
+        'href',
+        '/dashboard/profile/texting-compliance/election-filing',
+      )
+      expect(screen.getByText('Set up texting compliance')).toBeInTheDocument()
       expect(getPinInput()).toBeNull()
       expect(
         screen.queryByText('Your profile needs updates before sending texts'),
@@ -151,7 +155,7 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
     },
   )
 
-  it('shows the loading skeleton (not the fallback) while the TCR query is pending', () => {
+  it('shows the loading skeleton (not the CTA) while the TCR query is pending', () => {
     // Never-resolving query keeps the component in the isPending branch.
     mockGetTcrCompliance.mockReturnValue(
       new Promise(() => {
@@ -160,11 +164,9 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
     )
     const { container } = render(<ProUpgrade3Compliance />)
 
-    // The skeleton shows animated placeholders, not the neutral fallback copy.
+    // The skeleton shows animated placeholders, not the start-state CTA.
     expect(container.querySelector('.animate-pulse')).not.toBeNull()
-    expect(
-      screen.queryByText(/your pro upgrade status will appear here/i),
-    ).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Get started' })).toBeNull()
     expect(getPinInput()).toBeNull()
   })
 })
