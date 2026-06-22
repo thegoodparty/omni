@@ -71,12 +71,12 @@
   --color-destructive-foreground: var(--destructive-foreground, #f8fafc);
   --color-destructive-dark: var(--theme-destructive-dark);
   --color-destructive-light: var(--theme-destructive-light);
+  --color-destructive-focus: var(--theme-destructive-focus);
 
   --color-primary: var(--theme-primary);
   --color-primary-light: var(--theme-primary-light);
   --color-primary-dark: var(--theme-primary-dark);
   --color-primary-foreground: var(--theme-primary-foreground);
-  --color-primary-focus: var(--theme-primary-focus);
   --color-secondary: var(--theme-secondary);
   --color-secondary-light: var(--theme-secondary-light);
   --color-secondary-dark: var(--theme-secondary-dark);
@@ -85,6 +85,7 @@
   --color-tertiary-foreground: var(--theme-tertiary-foreground);
   --color-tertiary-light: var(--theme-tertiary-light);
   --color-tertiary-dark: var(--theme-tertiary-dark);
+  --color-tertiary-focus: var(--theme-tertiary-focus);
   --color-link: var(--component-link);
 
   /* ==========================================================================
@@ -567,6 +568,8 @@
   --color-data-chart-3: #63d1a0;
   --color-data-chart-4: #ffc523;
   --color-data-chart-5: #ff9364;
+  --color-data-chart-6: #475569;
+  --color-data-chart-7: #818cf8;
 
   /* ==========================================================================
    * FIGMA COMPONENT TOKENS (static values)
@@ -575,12 +578,13 @@
   --color-components-card-base: #ffffff;
   --color-components-card-foreground: #0a0a0a;
   --color-components-card-border: var(--component-card-border);
-  --color-components-input-active: #2563eb;
+  --color-components-input-active: var(--component-input-active);
   --color-components-input-inactive: var(--component-input-inactive);
   --color-components-input-foreground: #ffffff;
-  --color-components-input-base: #ffffff;
-  --color-components-input-border: #d4d4d4;
-  --color-components-input-focus: rgba(37, 99, 235, 0.3);
+  --color-components-input-base: var(--component-input-base);
+  --color-components-input-border: var(--component-input-border);
+  --color-components-input-focus: var(--component-input-focus);
+  --color-primary-focus: var(--theme-primary-focus);
   --color-components-input-inactive-focus: var(
     --component-input-inactive-focus
   );
@@ -670,4 +674,56 @@
   100% {
     transform: translateX(300%);
   }
+}
+
+/* Wave/shimmer swept across text. Two variants: `.text-shimmer` (blue — a chat
+ * tool label while it runs) and `.text-shimmer-muted` (grey→black — a neutral
+ * "Thinking..." state). Self-contained (not Tailwind utilities) because the
+ * effect needs -webkit-text-fill-color: transparent, which `text-transparent`
+ * doesn't set — without it WebKit/Chrome paints solid text and the gradient
+ * never shows. */
+@keyframes text-shimmer {
+  /* Travel a full gradient period (200% — the image is 200% of the box) so the
+   * band exits one side exactly as the identical next band enters. Moving less
+   * than a full period leaves the start/end states misaligned, which snaps when
+   * the loop wraps. Ends of the gradient are both muted, so the tile seam is
+   * seamless. */
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+.text-shimmer,
+.text-shimmer-muted {
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: text-shimmer 1.8s linear infinite;
+}
+
+.text-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-brand-blue-400) 0%,
+    var(--color-brand-blue-400) 40%,
+    var(--color-brand-blue-700) 50%,
+    var(--color-brand-blue-400) 60%,
+    var(--color-brand-blue-400) 100%
+  );
+}
+
+.text-shimmer-muted {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-muted-foreground) 0%,
+    var(--color-muted-foreground) 40%,
+    var(--color-foreground) 50%,
+    var(--color-muted-foreground) 60%,
+    var(--color-muted-foreground) 100%
+  );
 }
