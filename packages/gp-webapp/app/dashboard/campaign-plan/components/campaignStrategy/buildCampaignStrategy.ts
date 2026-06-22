@@ -280,24 +280,17 @@ export const buildCampaignStrategy = (
     if (candidates[0]) candidates[0].isNext = true
   }
 
-  // Pre-launch + Launch show every task. Active Campaign + GOTV are gated and
-  // capped (June 17 rules).
-  const setupComplete = phases
-    .filter((p) => p.key === 'preLaunch' || p.key === 'launch')
-    .every((p) => p.groups.flatMap((g) => g.tasks).every((t) => t.completed))
+  // Pre-launch + Launch show every task. Active Campaign + GOTV are capped to the
+  // weekly set; GOTV is additionally time-gated (June 17 rules). Active is NOT
+  // locked.
   const daysToElection = input.electionDate
     ? differenceInDays(input.electionDate, startOfDay(today))
     : null
 
   for (const phase of phases) {
-    if (phase.key === 'active' && !setupComplete) {
-      phase.gate = {
-        kind: 'locked',
-        message:
-          'Finish your Pre-launch and Launch tasks to unlock your Active Campaign plan.',
-      }
-      phase.groups = []
-    } else if (
+    // GOTV is time-gated: before the final window it shows only a banner, no
+    // tasks (the work isn't relevant yet).
+    if (
       phase.key === 'gotv' &&
       (daysToElection == null || daysToElection > GOTV_WINDOW_DAYS)
     ) {
@@ -311,8 +304,11 @@ export const buildCampaignStrategy = (
             : `Your get-out-the-vote tasks appear here in the final ${GOTV_WINDOW_DAYS} days before election day.`,
       }
       phase.groups = []
-    } else if (phase.key === 'active' || phase.key === 'gotv') {
-      // Surface the weekly top N (completing one reveals the next).
+      continue
+    }
+
+    // Active + GOTV surface the weekly top N (completing one reveals the next).
+    if (phase.key === 'active' || phase.key === 'gotv') {
       const flat = phase.groups.flatMap((g) => g.tasks).sort(compareTasks)
       const completedCount = flat.filter((t) => t.completed).length
       phase.groups = [

@@ -6,7 +6,6 @@ import {
   AccordionTrigger,
   Badge,
   InfoIcon,
-  LockIcon,
   cn,
 } from '@styleguide'
 import type { CampaignStrategyPhase as CampaignStrategyPhaseModel } from './campaignStrategy.types'
@@ -64,12 +63,6 @@ const CampaignStrategyPhase = ({
       </span>
     </AccordionTrigger>
     <AccordionContent>
-      {phase.gate?.kind === 'locked' && (
-        <div className="border-border text-muted-foreground flex items-center gap-3 border-t px-6 py-5 text-sm">
-          <LockIcon className="size-4 shrink-0" />
-          {phase.gate.message}
-        </div>
-      )}
       {phase.gate?.kind === 'window' && (
         <div className="border-border border-t px-6 py-4">
           <div className="bg-primary/10 text-primary flex items-start gap-2 rounded-lg px-4 py-3 text-sm">
