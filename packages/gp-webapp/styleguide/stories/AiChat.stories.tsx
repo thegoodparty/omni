@@ -569,7 +569,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     title: 'Collect voter signatures',
     status: 'active',
     icon: ArrowRightIcon,
-    badge: 'in progress',
     description: 'Gather 250 valid signatures from registered voters in your district.',
     items: [
       'Only residents of District 7 qualify',
@@ -590,7 +589,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 4',
     title: 'Launch your GoodParty campaign page',
     status: 'upcoming',
-    badge: 'optional',
     description:
       'Activate your free candidate profile so supporters can find you, donate, and volunteer.',
     link: { label: 'Set up your profile', href: '#' },
