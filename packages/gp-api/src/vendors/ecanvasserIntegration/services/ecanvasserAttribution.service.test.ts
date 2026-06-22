@@ -253,7 +253,9 @@ describe('EcanvasserAttributionService', () => {
     )
 
     vi.spyOn(contacts, 'findPersonByPhone').mockRejectedValue(
-      new BadRequestException('Search is only available for pro campaigns'),
+      new BadRequestException(
+        'Search and segments are only available for pro campaigns',
+      ),
     )
 
     const result = await attribution.attributeDoorKnocking(
