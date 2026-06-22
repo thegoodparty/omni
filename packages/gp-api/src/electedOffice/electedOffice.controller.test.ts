@@ -809,5 +809,24 @@ describe('ElectedOfficeController', () => {
 
       expect((updated as { party: string | null }).party).toBe('Independent')
     })
+
+    it('rejects an M2M update that sets selfReported', async () => {
+      // selfReported drives serve-onboarding routing; an M2M token (no user
+      // context) must not be able to reclassify a prefilled record as net-new.
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const controller = service.app.get(ElectedOfficeController)
+
+      await expect(
+        controller.update(
+          created.data.id,
+          { selfReported: true } as never,
+          m2mRequest(),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
   })
 })

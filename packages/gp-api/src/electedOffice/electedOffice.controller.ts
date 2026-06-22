@@ -215,13 +215,26 @@ export class ElectedOfficeController {
       )
     }
 
-    // selfReported is a monotonic, one-way marker: once the net-new onboarding
-    // flow records that the holder supplied their own office/term, downgrading
-    // it back to false would silently reclassify a net-new record as a prefill
-    // on resume (misleading "pulled from public records" confirm hub) and fire
-    // the BallotReady suggestion-accuracy snapshot against user-entered data.
-    // Reject the true→false downgrade for ALL callers (owner and M2M alike);
-    // setting it to true, or leaving it unset, stays allowed.
+    // selfReported drives serve-onboarding routing the same way
+    // onboardingCompletedAt does, so it gets the same protections.
+    //
+    // M2M write block: only the authenticated onboarding flow (user session)
+    // may promote a record to selfReported. An M2M token carries no user
+    // context; letting it set this field would let any trusted service
+    // permanently reclassify a sales/BallotReady-prefilled record as net-new,
+    // routing the holder into the net-new branch and suppressing the BR
+    // suggestion-accuracy snapshot. Provisioning never needs this (prefilled
+    // records are, by definition, not self-reported).
+    if (req.m2mToken && body.selfReported !== undefined) {
+      throw new ForbiddenException(
+        'selfReported cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
+    // Monotonic, one-way marker: once set, downgrading it back to false would
+    // silently reclassify a net-new record as a prefill on resume (misleading
+    // "pulled from public records" confirm hub) and fire the BR snapshot against
+    // user-entered data. Reject the true→false downgrade for any caller; setting
+    // it true, or leaving it unset, stays allowed.
     if (body.selfReported === false && existing.selfReported === true) {
       throw new ForbiddenException(
         'selfReported cannot be downgraded from true to false; it is set once by the net-new onboarding flow',
