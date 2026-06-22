@@ -697,6 +697,11 @@ export type APIEndpoints = {
     Request: { id: string }
     Response: Priority
   }
+
+  'POST /v1/community-issues/self-dispatch': {
+    Request: { type: 'top_community_issues' | 'trending_issues' }
+    Response: { dispatched: number; skipped: number }
+  }
 }
 
 export type CommunityIssueCard = {
