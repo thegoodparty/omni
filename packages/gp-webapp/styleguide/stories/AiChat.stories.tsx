@@ -649,7 +649,7 @@ function timelineRenderer(content: string): React.ReactNode {
   return <p className="text-sm text-foreground">{content}</p>
 }
 
-export const TimelineWithSteps: StoryObj = {
+export const TimelineWithStatus: StoryObj = {
   parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
