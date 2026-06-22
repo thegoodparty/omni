@@ -598,9 +598,38 @@ const TIMELINE_API = makeSeededApi([
   { role: 'assistant', content: TIMELINE_MARKER },
 ])
 
+const HISTORY_MARKER = '__history__'
+
+const HISTORY_ITEMS: TimelineItem[] = [
+  {
+    label: '1978',
+    title: 'Chapter 18 created',
+    description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
+    source: 'Maplewood Council minutes, 1978',
+  },
+  {
+    label: '2003',
+    title: 'ADU allowance',
+    description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
+    source: 'Maplewood Council minutes, 2003',
+  },
+  {
+    label: '2019',
+    title: 'Owner-occupancy repealed',
+    description: 'ADU owner-occupancy rule removed. No broader missing-middle reform attempted.',
+    source: 'Maplewood Council minutes, 2019',
+  },
+]
+
+const HISTORY_API = makeSeededApi([
+  { role: 'user', content: 'Walk me through the history of Chapter 18' },
+  { role: 'assistant', content: HISTORY_MARKER },
+])
+
 function timelineRenderer(content: string): React.ReactNode {
-  if (content !== TIMELINE_MARKER) return <p className="text-sm text-foreground">{content}</p>
-  return <ChatTimeline items={TIMELINE_ITEMS} />
+  if (content === TIMELINE_MARKER) return <ChatTimeline items={TIMELINE_ITEMS} variant="steps" />
+  if (content === HISTORY_MARKER) return <ChatTimeline items={HISTORY_ITEMS} variant="timeline" />
+  return <p className="text-sm text-foreground">{content}</p>
 }
 
 export const WithTimeline: StoryObj = {
@@ -611,6 +640,25 @@ export const WithTimeline: StoryObj = {
       <div className="h-full min-h-[600px] bg-background">
         <AiChatSurface
           chatApi={TIMELINE_API}
+          config={DEFAULT_CONFIG}
+          open={open}
+          onOpenChange={setOpen}
+          initialConversationId={SEEDED_ID}
+          messageRenderer={timelineRenderer}
+        />
+      </div>
+    )
+  },
+}
+
+export const WithTimelineHistory: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <div className="h-full min-h-[600px] bg-background">
+        <AiChatSurface
+          chatApi={HISTORY_API}
           config={DEFAULT_CONFIG}
           open={open}
           onOpenChange={setOpen}
