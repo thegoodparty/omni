@@ -42,6 +42,24 @@ export interface MeetingsListItemDto {
 
 export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
 
+/**
+ * A Campaign Tracker task row (campaign_tracker_tasks). Mirrors the gp-api
+ * CampaignTrackerTask model returned by the /campaigns/tracker-tasks endpoints.
+ */
+export type CampaignTrackerTask = {
+  id: string
+  title: string
+  description: string
+  cta: string | null
+  link: string | null
+  flowType: string | null
+  week: number
+  date: string
+  completed: boolean
+  phase: string | null
+  proRequired: boolean | null
+}
+
 /** Request/response shapes for the user-agenda-upload flow. */
 export type UserAgendaSubmitRequest =
   | { source: 'URL'; sourceUrl: string }
@@ -256,6 +274,23 @@ export type APIEndpoints = {
   'GET /v1/campaignStrategy/mine/exists': {
     Request: {}
     Response: { exists: boolean }
+  }
+
+  // Campaign Tracker tasks (campaign_tracker_tasks). The new tracker reads and
+  // completes these; mirrors /campaigns/tracker-tasks in gp-api.
+  'GET /v1/campaigns/tracker-tasks': {
+    Request: {}
+    Response: CampaignTrackerTask[]
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string; type?: string; quantity?: number }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
   }
 
   'GET /v1/elected-office/current': {

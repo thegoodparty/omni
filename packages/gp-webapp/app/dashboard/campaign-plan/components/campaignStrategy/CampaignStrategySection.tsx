@@ -5,6 +5,8 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion } from '@styleguide'
 import { useCommunityEvents } from 'app/onboarding/success/hooks/useCommunityEvents'
 import { buildCampaignStrategy } from './buildCampaignStrategy'
+import { buildTrackerStrategy } from './buildTrackerStrategy'
+import { useTrackerTasks } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 
 // The "Campaign strategy" section on the campaign plan page: the campaign
@@ -16,6 +18,7 @@ import CampaignStrategyPhase from './CampaignStrategyPhase'
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const events = useCommunityEvents()
+  const { tasks } = useTrackerTasks()
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -29,25 +32,31 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // to done — rather than re-pinning to today on every render.
   const campaignStartIso = campaign?.createdAt ?? null
 
-  const strategy = useMemo(
-    () =>
-      buildCampaignStrategy({
-        electionDate: electionDateIso
-          ? new Date(electionDateIso.replace(/-/g, '/'))
-          : null,
-        campaignStart: campaignStartIso ? new Date(campaignStartIso) : null,
-        uniqueCellphones: metrics?.uniqueCellphones ?? null,
-        uniqueLandlines: metrics?.uniqueLandlines ?? null,
-        communityEvents: events.data?.events ?? [],
-      }),
-    [
-      electionDateIso,
-      campaignStartIso,
-      metrics?.uniqueCellphones,
-      metrics?.uniqueLandlines,
-      events.data,
-    ],
-  )
+  // Prefer the persisted tracker rows (the new campaign_tracker_tasks table)
+  // once they exist; fall back to the client-side catalog for campaigns that
+  // aren't on the new tracker yet.
+  const strategy = useMemo(() => {
+    const electionDate = electionDateIso
+      ? new Date(electionDateIso.replace(/-/g, '/'))
+      : null
+    if (tasks.length > 0) {
+      return buildTrackerStrategy(tasks, { electionDate })
+    }
+    return buildCampaignStrategy({
+      electionDate,
+      campaignStart: campaignStartIso ? new Date(campaignStartIso) : null,
+      uniqueCellphones: metrics?.uniqueCellphones ?? null,
+      uniqueLandlines: metrics?.uniqueLandlines ?? null,
+      communityEvents: events.data?.events ?? [],
+    })
+  }, [
+    tasks,
+    electionDateIso,
+    campaignStartIso,
+    metrics?.uniqueCellphones,
+    metrics?.uniqueLandlines,
+    events.data,
+  ])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
   const openPhases = strategy.phases
