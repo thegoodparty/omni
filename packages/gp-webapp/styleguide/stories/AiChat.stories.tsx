@@ -560,7 +560,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     title: 'File your candidacy paperwork',
     status: 'done',
     icon: CheckIcon,
-    badge: 'completed',
     description:
       'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
     source: 'County Elections Office — Filing Guide 2024',
