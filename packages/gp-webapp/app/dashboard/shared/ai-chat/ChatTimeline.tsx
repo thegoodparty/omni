@@ -38,17 +38,19 @@ export default function ChatTimeline({ items }: { items: TimelineItem[] }) {
         return (
           <div key={i} className="relative flex gap-3">
             <div className="flex flex-col items-center">
-              {Icon ? (
-                <div
-                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${bulletColorClass[status]}`}
-                >
-                  <Icon className="size-2.5" />
-                </div>
-              ) : (
-                <div
-                  className={`mt-0.5 size-2.5 shrink-0 rounded-full border-2 ${bulletColorClass[status]}`}
-                />
-              )}
+              <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center">
+                {Icon ? (
+                  <div
+                    className={`flex size-5 items-center justify-center rounded-full border-2 ${bulletColorClass[status]}`}
+                  >
+                    <Icon className="size-2.5" />
+                  </div>
+                ) : (
+                  <div
+                    className={`size-2.5 rounded-full border-2 ${bulletColorClass[status]}`}
+                  />
+                )}
+              </div>
               {!isLast && (
                 <div className={`w-px flex-1 ${connectorClass[status]}`} />
               )}
