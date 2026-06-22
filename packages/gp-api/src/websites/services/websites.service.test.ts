@@ -535,6 +535,56 @@ describe('applyCompliancePublishFallbacks', () => {
 
     expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
+
+  it('falls back to a placeholder name when the user has no name', () => {
+    const namelessUser = createMockUser({ firstName: null, name: null })
+
+    const patched = applyCompliancePublishFallbacks({}, namelessUser, campaign)
+
+    expect(patched?.main?.title).toBe('Vote For The Candidate')
+    expect(patched?.about?.bio).toContain('The Candidate')
+    expect(patched?.about?.bio).not.toContain('<p> is')
+  })
+
+  it('replaces issues that have blank title or description', () => {
+    const content = {
+      about: {
+        bio: '<p>Real bio.</p>',
+        issues: [{ title: 'Housing', description: '   ' }],
+      },
+      main: { title: 'Set' },
+      contact: { email: 'x@example.com' },
+    }
+
+    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+
+    const issues = patched?.about?.issues ?? []
+    expect(issues.length).toBeGreaterThan(0)
+    issues.forEach((issue) => {
+      expect(issue.title?.trim()).toBeTruthy()
+      expect(issue.description?.trim()).toBeTruthy()
+    })
+  })
+
+  it('keeps valid issues while dropping malformed ones', () => {
+    const content = {
+      about: {
+        bio: '<p>Real bio.</p>',
+        issues: [
+          { title: 'Housing', description: 'More homes' },
+          { title: 'Roads', description: '' },
+        ],
+      },
+      main: { title: 'Set' },
+      contact: { email: 'x@example.com' },
+    }
+
+    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+
+    expect(patched?.about?.issues).toEqual([
+      { title: 'Housing', description: 'More homes' },
+    ])
+  })
 })
 
 describe('WebsitesService.ensureCompliancePublishableWebsite', () => {

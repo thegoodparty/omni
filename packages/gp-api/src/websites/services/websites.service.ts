@@ -42,6 +42,12 @@ export const applyCompliancePublishFallbacks = (
   user: User,
   campaign: Campaign,
 ): PrismaJson.WebsiteContent | null => {
+  // getUserFullName is '' when firstName and name are both null — a real case
+  // for legacy-Pro candidates who skipped the profile step — so guard against
+  // publishing "Vote For " / "<p> is a candidate…".
+  const fullName = getUserFullName(user)
+  const displayName = hasText(fullName) ? fullName : 'The Candidate'
+
   const about = content.about ?? {}
   const nextAbout = { ...about }
   const main = content.main ?? {}
@@ -51,33 +57,41 @@ export const applyCompliancePublishFallbacks = (
   let changed = false
 
   if (!hasText(main.title)) {
-    nextMain.title = `Vote For ${getUserFullName(user)}`
+    nextMain.title = `Vote For ${displayName}`
     changed = true
   }
 
   if (!hasText(about.bio)) {
-    const name = getUserFullName(user)
     const office = campaign.details.normalizedOffice
     const role = hasText(office) ? `a candidate for ${office}` : 'a candidate'
     const where = hasText(campaign.details.state)
       ? ` in ${campaign.details.state}`
       : ''
     nextAbout.bio =
-      `<p>${name} is ${role}${where}, running on local solutions over ` +
-      'party politics and committed to putting the community first.</p>'
+      `<p>${displayName} is ${role}${where}, running on local solutions ` +
+      'over party politics and committed to putting the community first.</p>'
     changed = true
   }
 
-  if (!about.issues || about.issues.length === 0) {
-    nextAbout.issues = [
-      {
-        title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
-        description:
-          `${getUserFullName(user)} is focused on practical, ` +
-          'community-first leadership and bringing neighbors together to ' +
-          'solve local problems.',
-      },
-    ]
+  // assertReadyToPublish requires every issue to have a non-empty title AND
+  // description, so drop any malformed ones; seed a default only when none
+  // survive. Keeps valid candidate-authored issues intact.
+  const validIssues = (about.issues ?? []).filter(
+    (issue) => hasText(issue.title) && hasText(issue.description),
+  )
+  if (validIssues.length === 0 || validIssues.length !== about.issues?.length) {
+    nextAbout.issues =
+      validIssues.length > 0
+        ? validIssues
+        : [
+            {
+              title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
+              description:
+                `${displayName} is focused on practical, community-first ` +
+                'leadership and bringing neighbors together to solve local ' +
+                'problems.',
+            },
+          ]
     changed = true
   }
 
