@@ -387,7 +387,7 @@ const RADIO_API = makeSeededApi([
 ])
 
 export const WithRadioCards: StoryObj = {
-  parameters: { controls: { disable: true } },
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -410,7 +410,7 @@ export const WithRadioCards: StoryObj = {
 // ---------------------------------------------------------------------------
 
 export const WithProgressBar: StoryObj = {
-  parameters: { controls: { disable: true } },
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -506,7 +506,7 @@ const LONG_CONV_API = makeSeededApi([
 ])
 
 export const LongConversation: StoryObj = {
-  parameters: { controls: { disable: true } },
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
