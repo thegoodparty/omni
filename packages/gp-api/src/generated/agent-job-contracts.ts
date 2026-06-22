@@ -3607,6 +3607,7 @@ export interface OpportunitiesAndChallengesInputParams {
    * Party label, or null. 'Other' means the real value is in other_party.
    */
   user_party_affiliation?: string | null
+  [k: string]: unknown
 }
 export interface OpportunitiesAndChallengesArtifact {
   /**
@@ -3722,6 +3723,7 @@ export interface OppositionResearchInputParams {
    * Party label, or null. 'Other' means the real value is in other_party.
    */
   user_party_affiliation?: string | null
+  [k: string]: unknown
 }
 export interface OppositionResearchArtifact {
   /**
