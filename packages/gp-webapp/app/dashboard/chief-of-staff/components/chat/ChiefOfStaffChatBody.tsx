@@ -64,10 +64,13 @@ type ChatItem =
     }
 
 // Fold the flat persisted segments into render blocks: a text run, or a group
-// of consecutive tool pills (matches the live in-progress layout).
+// of consecutive tool pills (matches the live in-progress layout). Tools are
+// stored as display labels and deduped within a group, so a run of calls that
+// share a label (e.g. several constituent-data queries) shows one pill, not a
+// stack — same as the live builder.
 type RenderBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'tools'; toolNames: string[] }
+  | { kind: 'tools'; labels: string[] }
 
 function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
   const blocks: RenderBlock[] = []
@@ -76,11 +79,12 @@ function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
       blocks.push({ kind: 'text', text: seg.text ?? '' })
       continue
     }
+    const label = toolDisplayName(seg.toolName ?? '')
     const last = blocks[blocks.length - 1]
     if (last && last.kind === 'tools') {
-      last.toolNames.push(seg.toolName ?? '')
+      if (!last.labels.includes(label)) last.labels.push(label)
     } else {
-      blocks.push({ kind: 'tools', toolNames: [seg.toolName ?? ''] })
+      blocks.push({ kind: 'tools', labels: [label] })
     }
   }
   return blocks
@@ -666,13 +670,13 @@ export default function ChiefOfStaffChatBody({
                       </div>
                     ) : (
                       <div key={`b-${i}`} className="flex flex-wrap gap-1.5">
-                        {block.toolNames.map((t, j) => (
+                        {block.labels.map((label) => (
                           <span
-                            key={`${t}-${j}`}
+                            key={label}
                             className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                           >
                             <SearchIcon className="size-3" aria-hidden />
-                            {toolDisplayName(t)}
+                            {label}
                           </span>
                         ))}
                       </div>
