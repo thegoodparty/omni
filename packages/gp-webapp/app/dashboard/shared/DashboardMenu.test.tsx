@@ -89,10 +89,24 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
   })
 
-  it('does not show Contacts for a non-pro Win campaign even with the flag on', () => {
+  it('shows Contacts for a non-pro Win campaign when the flag is on', () => {
+    // ENG-10495: non-pro Win candidates land on the unified Contacts page so
+    // they see the district aggregates + a blurred preview and get upsold there.
     const items = links(freeCampaign, { winVoterDataEnabled: true })
 
+    const contacts = items.find((i) => i.id === 'win-contacts-dashboard')
+    expect(contacts).toBeDefined()
+    expect(contacts?.link).toBe('/dashboard/contacts')
+    expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(false)
+  })
+
+  it('keeps the upgrade placeholder for a non-pro Win campaign when the flag is off', () => {
+    // Flag-off non-pro users have no legacy voter-records access (that page
+    // stays pro-only), so the generic upgrade placeholder holds the slot.
+    const items = links(freeCampaign, { winVoterDataEnabled: false })
+
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/voter-records')).toBe(false)
     expect(items.some((i) => i.id === 'upgrade-pro-dashboard')).toBe(true)
   })
 

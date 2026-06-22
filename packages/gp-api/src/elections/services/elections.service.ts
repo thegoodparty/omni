@@ -203,6 +203,24 @@ export class ElectionsService {
       },
     )
   }
+  // Resolve election-api's internal Position id from a value that may be
+  // either a BallotReady position id — how elected-office orgs historically
+  // stored positionId (admin magic-link prefill) — or an already-internal id.
+  // Falls back to the input when the BallotReady lookup finds nothing, so the
+  // result is safe to hand to getNextElectionForPosition / getPositionById.
+  async resolveInternalPositionId(positionId: string): Promise<string> {
+    try {
+      const position = await this.getPositionByBallotReadyId(positionId)
+      return position?.id ?? positionId
+    } catch (error) {
+      this.logger.warn(
+        { error, positionId },
+        'BallotReady position lookup failed; treating id as internal',
+      )
+      return positionId
+    }
+  }
+
   async getPositionById(
     positionId: string,
     options?: {
