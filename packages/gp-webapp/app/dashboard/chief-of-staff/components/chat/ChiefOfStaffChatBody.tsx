@@ -436,18 +436,21 @@ export default function ChiefOfStaffChatBody({
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
+            // The post-tool paragraph break is applied ONLY to the flat
+            // `assembled` content (the no-tool fallback that renders as one
+            // bubble). Segments — both the live `segs` and the committed ones —
+            // store RAW deltas, matching what the backend persists, so a
+            // freshly-streamed turn and a reloaded one render identically.
+            // Separate text segments are already separate bubbles, so the gap
+            // doesn't need the literal break.
             const needsBreak =
               breakBeforeNextText &&
               assembled.length > 0 &&
               !/\s$/.test(assembled) &&
               !/^\s/.test(ev.delta)
-            // Apply the post-tool paragraph break to the delta itself, so the
-            // flat `assembled` content AND the segment text (live + committed)
-            // all carry the same separator.
-            const text = needsBreak ? `\n\n${ev.delta}` : ev.delta
             breakBeforeNextText = false
-            assembled += text
-            pushCommittedText(text)
+            assembled += needsBreak ? `\n\n${ev.delta}` : ev.delta
+            pushCommittedText(ev.delta)
             setStreaming(assembled)
             // Segment view: close any running tool group, then extend or open
             // the trailing text block.
@@ -457,9 +460,9 @@ export default function ChiefOfStaffChatBody({
               last && last.kind === 'text'
                 ? [
                     ...resolved.slice(0, -1),
-                    { kind: 'text', text: last.text + text },
+                    { kind: 'text', text: last.text + ev.delta },
                   ]
-                : [...resolved, { kind: 'text', text }],
+                : [...resolved, { kind: 'text', text: ev.delta }],
             )
           } else if (ev.type === 'tool_call') {
             if (assembled.length > 0) breakBeforeNextText = true
