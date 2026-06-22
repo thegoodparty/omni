@@ -400,6 +400,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       party,
       pledgedAt: nowIso,
       onboardingCompletedAt: nowIso,
+      // Stamp the marker at completion too, so a net-new user who had no EO to
+      // attach incremental saves to (POST path, persistPartyProgress was a
+      // no-op) still records it. Omitted in the prefill branch so the record
+      // stays classified as a prefill.
+      ...(branch === 'net-new' ? { selfReported: true } : {}),
       ...(office?.positionId
         ? { ballotReadyPositionId: office.positionId }
         : {}),

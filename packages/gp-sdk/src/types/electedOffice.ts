@@ -12,6 +12,9 @@ export type ElectedOffice = {
   party: string | null
   pledgedAt: string | null
   onboardingCompletedAt: string | null
+  // True when the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill).
+  selfReported: boolean
   userId: number
   campaignId: number | null
   createdAt: string
@@ -33,6 +36,7 @@ export type UpdateElectedOfficeInput = {
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
+  selfReported?: boolean
 }
 
 export type CreateElectedOfficeInput = UpdateElectedOfficeInput & {
