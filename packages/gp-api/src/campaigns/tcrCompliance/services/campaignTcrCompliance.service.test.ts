@@ -1771,6 +1771,27 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     },
   )
 
+  it('does not advance status in non-prod (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
+    // must not be promoted to pending for a usecase that was never submitted.
+    await withEnv('dev', async () => {
+      await submitUsecaseIfVerified(service, stuckRecord)
+    })
+
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('skips when CV status is null (no CV request exists for the identity)', async () => {
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
+
+    await submitUsecaseIfVerified(service, stuckRecord)
+
+    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
   it('does nothing when the record has no Peerly identity', async () => {
     await submitUsecaseIfVerified(service, {
       ...stuckRecord,

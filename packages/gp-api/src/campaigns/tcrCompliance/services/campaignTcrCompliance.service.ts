@@ -259,7 +259,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    await this.submitCampaignVerifyToken(tcrCompliance, campaignVerifyToken)
+    // submitCampaignVerifyToken returns undefined in non-prod (it short-circuits
+    // the Peerly approve). Only advance status when the usecase was actually
+    // submitted, so a non-prod record isn't promoted to `pending` (and then
+    // swept by bootstrapTcrComplianceCheck) for a usecase that doesn't exist.
+    const approveResult = await this.submitCampaignVerifyToken(
+      tcrCompliance,
+      campaignVerifyToken,
+    )
+    if (approveResult === undefined) {
+      return
+    }
 
     await this.model.update({
       where: { id: tcrCompliance.id },
