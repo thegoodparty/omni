@@ -18,7 +18,7 @@ export type TimelineItem = {
 const bulletColorClass: Record<TimelineStatus, string> = {
   done: 'border-primary bg-primary text-primary-foreground',
   active: 'border-primary bg-background text-primary',
-  upcoming: 'border-muted-foreground bg-background text-muted-foreground',
+  upcoming: 'border-muted-foreground/40 bg-background text-muted-foreground/40',
 }
 
 const connectorClass: Record<TimelineStatus, string> = {
