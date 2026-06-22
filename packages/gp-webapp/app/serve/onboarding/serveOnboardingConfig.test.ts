@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { computeServeResumeStep } from './serveOnboardingConfig'
+import {
+  computeServeResumeStep,
+  resolveServeBranch,
+} from './serveOnboardingConfig'
 
 describe('computeServeResumeStep', () => {
   describe('un-started leads run the full intro', () => {
@@ -99,5 +102,57 @@ describe('computeServeResumeStep', () => {
         }
       }
     }
+  })
+})
+
+describe('resolveServeBranch', () => {
+  it('is net-new when nothing is present (fresh self-serve lead)', () => {
+    expect(
+      resolveServeBranch({
+        officePresent: false,
+        datesPresent: false,
+        selfReported: false,
+      }),
+    ).toBe('net-new')
+  })
+
+  it('is prefill when office/dates are present without the self-reported marker', () => {
+    // The arming condition for the BR suggestion-accuracy snapshot.
+    expect(
+      resolveServeBranch({
+        officePresent: true,
+        datesPresent: true,
+        selfReported: false,
+      }),
+    ).toBe('prefill')
+  })
+
+  it('treats a PARTIAL prefill (office present, no dates, no marker) as prefill so the snapshot fires', () => {
+    expect(
+      resolveServeBranch({
+        officePresent: true,
+        datesPresent: false,
+        selfReported: false,
+      }),
+    ).toBe('prefill')
+  })
+
+  it('keeps a self-reported record net-new even once its office/dates are present (no snapshot)', () => {
+    // The disambiguation the marker buys: identical field shape to a prefill,
+    // but the user entered it themselves, so it stays net-new.
+    expect(
+      resolveServeBranch({
+        officePresent: true,
+        datesPresent: false,
+        selfReported: true,
+      }),
+    ).toBe('net-new')
+    expect(
+      resolveServeBranch({
+        officePresent: true,
+        datesPresent: true,
+        selfReported: true,
+      }),
+    ).toBe('net-new')
   })
 })

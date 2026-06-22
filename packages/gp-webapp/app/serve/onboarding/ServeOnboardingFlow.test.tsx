@@ -29,6 +29,7 @@ const buildEO = (overrides: Partial<ElectedOffice> = {}): ElectedOffice => ({
   party: null,
   pledgedAt: null,
   onboardingCompletedAt: null,
+  selfReported: false,
   ...overrides,
 })
 
@@ -119,7 +120,7 @@ describe('ServeOnboardingFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('persists the party answer with a partial PUT when leaving the party step', async () => {
+  it('persists the party answer (and stamps selfReported) with a partial PUT when leaving the party step', async () => {
     let putBody: Record<string, unknown> | undefined
     mockLoad(buildEO(), buildOrg())
     api.mock('PUT /v1/elected-office/:id', (req) => {
@@ -143,10 +144,12 @@ describe('ServeOnboardingFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // The partial PUT carries only party (no onboardingCompletedAt, so the
-    // completion guard is untouched) and advances to the office step.
+    // The partial PUT carries party plus the net-new `selfReported` marker (the
+    // record started net-new, so the first user-driven write stamps it), and no
+    // onboardingCompletedAt — the completion guard stays untouched. Then it
+    // advances to the office step.
     await waitFor(() => expect(putBody).toBeDefined())
-    expect(putBody).toEqual({ party: 'independent' })
+    expect(putBody).toEqual({ party: 'independent', selfReported: true })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
       await screen.findByText('What office do you currently hold?'),
@@ -247,13 +250,13 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps a net-new user who saved their office in the net-new branch on resume', async () => {
-    // party answered + office on the org + NO term dates is the net-new
-    // mid-flow signature. It must resume on the net-new term-dates step, not
-    // get reclassified into the prefill confirm hub (whose "pulled from public
-    // records" copy would be wrong for the office the user entered themselves).
+  it('keeps a self-reported net-new user (marker set) in the net-new branch on resume', async () => {
+    // selfReported marks the office as the user's own net-new pick, so even
+    // though it now sits on the org with no term dates, resume stays net-new:
+    // it lands on the term-dates step, NOT the prefill confirm hub (whose
+    // "pulled from public records" copy would be wrong for self-entered data).
     mockLoad(
-      buildEO({ party: 'independent' }),
+      buildEO({ party: 'independent', selfReported: true }),
       buildOrg({
         positionName: 'Mayor',
         position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
@@ -265,6 +268,69 @@ describe('ServeOnboardingFlow', () => {
       await screen.findByText('When does your term run?'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
+  })
+
+  it('treats a partial prefill (office present, no marker, no dates) as prefill so the snapshot fires', async () => {
+    // Same field shape as the net-new case above — office on the org, party
+    // answered, no term dates — but WITHOUT the selfReported marker. This is a
+    // genuine sales/BR prefill, so it must resume on the confirm hub (prefill
+    // branch), which is exactly the path that arms the BR suggestion-accuracy
+    // snapshot. Previously this shape was forced to net-new and the snapshot
+    // was silently dropped.
+    mockLoad(
+      buildEO({ party: 'independent', selfReported: false }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    renderFlow()
+
+    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    expect(
+      screen.queryByText('When does your term run?'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not stamp selfReported when answering party in the prefill branch', async () => {
+    // A prefill lead (office + dates present, party not yet answered) starts at
+    // welcome and reaches the party step in the prefill branch. Its party PUT
+    // must NOT carry selfReported, so the record stays classified as prefill.
+    let putBody: Record<string, unknown> | undefined
+    mockLoad(
+      buildEO({
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', (req) => {
+      putBody = req.body as unknown as Record<string, unknown>
+      return { status: 200, data: buildEO({ party: 'independent' }) }
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm an elected official/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Independent \/ Non-major party/,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(putBody).toBeDefined())
+    expect(putBody).toEqual({ party: 'independent' })
+    expect(putBody).not.toHaveProperty('selfReported')
   })
 
   it('advances from the prefill confirm hub to constituents without re-patching the org', async () => {

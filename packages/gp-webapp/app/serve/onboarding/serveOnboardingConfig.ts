@@ -90,6 +90,45 @@ export interface ServeResumeState {
 }
 
 /**
+ * Inputs to the branch decision made once at load from the persisted record.
+ *
+ *  - `officePresent` / `datesPresent` — the EO org carries a position, and/or
+ *    the EO record carries (any) term date. Together they mean "office/term
+ *    data already exists on this record".
+ *  - `selfReported` — the explicit marker set when the user themselves began the
+ *    net-new collect path (answering the party step in the net-new branch). It
+ *    is the source of truth that disambiguates an office the USER picked from one
+ *    a sales/BallotReady prefill provisioned: both end up as a position on the
+ *    org, so the populated fields alone cannot tell them apart on resume.
+ */
+export interface ServeBranchInputs {
+  officePresent: boolean
+  datesPresent: boolean
+  selfReported: boolean
+}
+
+/**
+ * Decide the onboarding branch from the persisted record.
+ *
+ * A record is a `prefill` when it arrived with office/term data that the user
+ * did NOT enter themselves — i.e. office/dates are present AND the self-reported
+ * marker is absent. This is the same condition that arms the BallotReady
+ * suggestion-accuracy snapshot, so a partial prefill (office present, no dates,
+ * marker absent) is correctly classified `prefill` and its snapshot fires.
+ *
+ * Once the user self-reports (marker set), the record is deterministically
+ * `net-new` even after their own office lands on the org — so they resume in the
+ * net-new branch (no misleading "pulled from public records" confirm hub) and
+ * no snapshot is emitted for data they supplied.
+ */
+export const resolveServeBranch = ({
+  officePresent,
+  datesPresent,
+  selfReported,
+}: ServeBranchInputs): ServeBranch =>
+  (officePresent || datesPresent) && !selfReported ? 'prefill' : 'net-new'
+
+/**
  * Resume target for a returning user so we don't re-ask answered questions.
  *
  *  - Until the user has answered `party`, restart at `welcome` and run the full

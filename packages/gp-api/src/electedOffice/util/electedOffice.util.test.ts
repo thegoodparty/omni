@@ -55,6 +55,7 @@ describe('electedOfficeToApi', () => {
     party: 'Independent',
     pledgedAt: new Date('2026-02-01T00:00:00.000Z'),
     onboardingCompletedAt: null,
+    selfReported: false,
     userId: 7,
     campaignId: null,
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
@@ -67,6 +68,10 @@ describe('electedOfficeToApi', () => {
 
     expect(api.isActive).toBe(true)
     expect(api.termLengthDays).toBe(1461)
+    expect(api.selfReported).toBe(false)
+    expect(
+      electedOfficeToApi({ ...base, selfReported: true }, now).selfReported,
+    ).toBe(true)
     expect(api.termStartDate).toBe('2025-01-01')
     expect(api.termEndDate).toBe('2029-01-01')
   })

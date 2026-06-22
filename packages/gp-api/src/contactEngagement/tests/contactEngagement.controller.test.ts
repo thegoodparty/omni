@@ -23,6 +23,7 @@ describe('ContactEngagementController', () => {
     party: null,
     pledgedAt: null,
     onboardingCompletedAt: null,
+    selfReported: false,
     createdAt: new Date(),
     updatedAt: new Date(),
   }
@@ -109,6 +110,7 @@ describe('ContactEngagementController', () => {
         party: null,
         pledgedAt: null,
         onboardingCompletedAt: null,
+        selfReported: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       }

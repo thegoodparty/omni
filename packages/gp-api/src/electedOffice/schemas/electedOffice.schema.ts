@@ -18,6 +18,10 @@ const electedOfficeWritableFields = {
   party: z.string().nullable().optional(),
   pledgedAt: ZDateTimeNullOptional,
   onboardingCompletedAt: ZDateTimeNullOptional,
+  // Marks that the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill). Used by resume to keep a
+  // net-new lead in the net-new branch deterministically; see electedOffice.prisma.
+  selfReported: z.boolean().optional(),
 }
 
 /**

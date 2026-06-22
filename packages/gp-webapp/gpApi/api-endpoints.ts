@@ -926,6 +926,10 @@ export type ElectedOffice = {
   party: string | null
   pledgedAt: string | null
   onboardingCompletedAt: string | null
+  // True when the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill). Drives deterministic
+  // resume branch classification.
+  selfReported: boolean
 }
 
 export type ElectedOfficeInput = {
@@ -936,6 +940,7 @@ export type ElectedOfficeInput = {
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
+  selfReported?: boolean
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
   overrideDistrictId?: string | null

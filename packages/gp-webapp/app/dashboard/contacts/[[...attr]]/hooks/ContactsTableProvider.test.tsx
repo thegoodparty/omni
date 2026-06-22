@@ -22,6 +22,7 @@ const electedOfficeFixture: ElectedOffice = {
   party: null,
   pledgedAt: null,
   onboardingCompletedAt: null,
+  selfReported: false,
 }
 
 // The provider reads all four navigation hooks; the global setup only mocks

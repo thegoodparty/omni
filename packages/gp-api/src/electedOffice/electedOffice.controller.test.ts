@@ -638,6 +638,23 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
     })
 
+    it('persists the selfReported marker via a partial PUT (defaults to false)', async () => {
+      // The net-new serve onboarding flow stamps this on the party-step PUT to
+      // mark the office as the user's own pick (vs a sales/BR prefill).
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+      expect(created.data.selfReported).toBe(false)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { party: 'independent', selfReported: true },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.selfReported).toBe(true)
+      expect(result.data.party).toBe('independent')
+    })
+
     it('rejects completing onboarding with only a term end date (no start)', async () => {
       // A term with an end but no start isn't a real term; onboarding must not
       // complete against it.

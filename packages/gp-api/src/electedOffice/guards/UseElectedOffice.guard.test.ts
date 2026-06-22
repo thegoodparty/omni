@@ -19,6 +19,7 @@ const mockEO: ElectedOffice = {
   party: null,
   pledgedAt: null,
   onboardingCompletedAt: null,
+  selfReported: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

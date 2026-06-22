@@ -283,6 +283,7 @@ export class ElectedOfficeController {
       party: body.party,
       pledgedAt: body.pledgedAt,
       onboardingCompletedAt: body.onboardingCompletedAt,
+      selfReported: body.selfReported,
     }
     const updated = await this.electedOfficeService.update({
       where: { id },

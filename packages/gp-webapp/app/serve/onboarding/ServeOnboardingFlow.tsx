@@ -41,6 +41,7 @@ import {
 } from './serveOnboardingAnalytics'
 import {
   computeServeResumeStep,
+  resolveServeBranch,
   getServeProgress,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
@@ -185,23 +186,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         const hasParty = !!eo?.party
         const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
 
-        // A net-new user who saved their office mid-flow (party answered, office
-        // now on the org, but term dates not yet entered) must NOT be
-        // reclassified into the prefill branch on resume — that would route
-        // them through the confirm hub ("We pulled this from public records")
-        // for data they entered themselves, and resume them at `confirm`
-        // instead of `term-dates`. The net-new term-dates step always writes
-        // BOTH bounds together (or neither), so a record carrying ANY term date
-        // (`termPrefilled`) is a genuine sales/BR prefill — even a partial one
-        // with only a start date — and must stay in the prefill branch. Only an
-        // office-present + party-answered + no-term-date-at-all record is unique
-        // to net-new mid-flow; keep that net-new (and emit no BR-prefill
-        // snapshot, so the suggestion-accuracy metric isn't polluted with the
-        // user's own pick).
-        const looksNetNewInProgress =
-          hasParty && officePrefilled && !hasDates && !termPrefilled
+        // Branch off the explicit `selfReported` marker rather than inferring
+        // from which fields happen to be populated. A net-new user who picked
+        // their own office and a sales/BR prefill BOTH end up with a position on
+        // the org, so populated fields can't tell them apart — the marker can.
+        // `resolveServeBranch` keeps a self-reported record net-new (no
+        // misleading confirm hub, no snapshot for the user's own pick) while a
+        // prefill (marker absent) with any office/term data stays prefill, so
+        // its BR suggestion-accuracy snapshot still fires — even a partial one.
         const isPrefill =
-          (officePrefilled || termPrefilled) && !looksNetNewInProgress
+          resolveServeBranch({
+            officePresent: officePrefilled,
+            datesPresent: termPrefilled,
+            selfReported: !!eo?.selfReported,
+          }) === 'prefill'
         const resolvedBranch: ServeBranch = isPrefill ? 'prefill' : 'net-new'
         // Freeze the BR suggestion now, before any edits, normalizing the term
         // dates through the same yyyy-MM-dd round-trip the final pick uses so
@@ -306,11 +304,18 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // partial PUT only touches `party` (every other field stays as-is and
   // onboardingCompletedAt is never sent), so progress is saved without
   // completing onboarding.
+  //
+  // In the net-new branch this is also the first user-driven write, so it stamps
+  // the `selfReported` marker: the office the user is about to pick lands on the
+  // org indistinguishably from a prefill, so we record HERE — before that — that
+  // this record is the user's own net-new entry. A prefill-branch party answer
+  // leaves the marker untouched (false) so the record stays classified prefill.
   const persistPartyProgress = async (): Promise<void> => {
     if (!currentEO || !party) return
     await clientRequest('PUT /v1/elected-office/:id', {
       id: currentEO.id,
       party,
+      ...(branch === 'net-new' ? { selfReported: true } : {}),
     })
   }
 

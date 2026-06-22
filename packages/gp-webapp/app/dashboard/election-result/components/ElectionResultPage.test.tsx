@@ -107,6 +107,7 @@ describe('ElectionResultPage', () => {
           party: null,
           pledgedAt: null,
           onboardingCompletedAt: null,
+          selfReported: false,
         },
       }
     })
@@ -139,6 +140,7 @@ describe('ElectionResultPage', () => {
           party: null,
           pledgedAt: null,
           onboardingCompletedAt: null,
+          selfReported: false,
         },
       }
     })
