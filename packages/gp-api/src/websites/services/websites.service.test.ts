@@ -682,7 +682,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
-  it('drops positions with no real data instead of seeding placeholder issues', async () => {
+  it('seeds a default issue instead of placeholder copy for empty positions', async () => {
     const campaignWithEmptyPosition: CampaignWith<'campaignPositions'> = {
       ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
       campaignPositions: [
@@ -713,7 +713,10 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     )
 
     const createArg = mockPrisma.website.create.mock.calls[0][0]
-    expect(createArg.data.content.about.issues).toEqual([])
+    const issues = createArg.data.content.about.issues
+    expect(issues).toHaveLength(1)
+    expect(issues[0].title).not.toMatch(/^Issue \d/)
+    expect(issues[0].description?.trim()).toBeTruthy()
   })
 
   it('backfills an existing website with gaps without creating a new one', async () => {

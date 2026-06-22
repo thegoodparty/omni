@@ -37,6 +37,13 @@ const getDisplayName = (user: User): string => {
   return hasText(fullName) ? fullName : 'The Candidate'
 }
 
+const buildDefaultComplianceIssue = (displayName: string) => ({
+  title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
+  description:
+    `${displayName} is focused on practical, community-first leadership ` +
+    'and bringing neighbors together to solve local problems.',
+})
+
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
@@ -87,15 +94,7 @@ export const applyCompliancePublishFallbacks = (
     nextAbout.issues =
       validIssues.length > 0
         ? validIssues
-        : [
-            {
-              title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
-              description:
-                `${displayName} is focused on practical, community-first ` +
-                'leadership and bringing neighbors together to solve local ' +
-                'problems.',
-            },
-          ]
+        : [buildDefaultComplianceIssue(displayName)]
     changed = true
   }
 
@@ -117,9 +116,10 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       campaign.campaignPositions as PositionWithTopIssue[]
     // Drop positions with no real data so they don't seed placeholder
-    // ("Issue 1") copy that survives the publish-readiness filter; an
-    // all-placeholder website then falls through to compliance defaults.
-    const issues = campaignPositions
+    // ("Issue 1") copy that survives the publish-readiness filter. Seed a
+    // default when none survive so this stays publishable for the direct
+    // POST /websites caller too (which has no fallback after).
+    const realIssues = campaignPositions
       .filter(
         (position) =>
           hasText(position.topIssue?.name) || hasText(position.description),
@@ -128,6 +128,10 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         title: position.topIssue?.name ?? `Issue ${index + 1}`,
         description: position.description ?? `Issue ${index + 1} description`,
       }))
+    const issues =
+      realIssues.length > 0
+        ? realIssues
+        : [buildDefaultComplianceIssue(getDisplayName(user))]
 
     // NOTE: this is in a WIP state, better default content generation TBD
     // TODO: generate AI content here for any missing fields
