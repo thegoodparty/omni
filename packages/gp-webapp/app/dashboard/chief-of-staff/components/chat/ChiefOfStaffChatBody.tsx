@@ -436,17 +436,18 @@ export default function ChiefOfStaffChatBody({
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
-            if (
+            const needsBreak =
               breakBeforeNextText &&
               assembled.length > 0 &&
               !/\s$/.test(assembled) &&
               !/^\s/.test(ev.delta)
-            ) {
-              assembled += '\n\n'
-            }
+            // Apply the post-tool paragraph break to the delta itself, so the
+            // flat `assembled` content AND the segment text (live + committed)
+            // all carry the same separator.
+            const text = needsBreak ? `\n\n${ev.delta}` : ev.delta
             breakBeforeNextText = false
-            assembled += ev.delta
-            pushCommittedText(ev.delta)
+            assembled += text
+            pushCommittedText(text)
             setStreaming(assembled)
             // Segment view: close any running tool group, then extend or open
             // the trailing text block.
@@ -456,9 +457,9 @@ export default function ChiefOfStaffChatBody({
               last && last.kind === 'text'
                 ? [
                     ...resolved.slice(0, -1),
-                    { kind: 'text', text: last.text + ev.delta },
+                    { kind: 'text', text: last.text + text },
                   ]
-                : [...resolved, { kind: 'text', text: ev.delta }],
+                : [...resolved, { kind: 'text', text }],
             )
           } else if (ev.type === 'tool_call') {
             if (assembled.length > 0) breakBeforeNextText = true
