@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react'
 import { Badge } from '@styleguide/components/ui/badge'
 
 export type TimelineStatus = 'done' | 'active' | 'upcoming'
@@ -6,6 +7,7 @@ export type TimelineItem = {
   label: string
   title: string
   status?: TimelineStatus
+  icon?: LucideIcon
   badge?: string
   description?: string
   items?: string[]
@@ -13,10 +15,10 @@ export type TimelineItem = {
   source?: string
 }
 
-const bulletClass: Record<TimelineStatus, string> = {
-  done: 'border-primary bg-primary',
-  active: 'border-primary bg-background',
-  upcoming: 'border-muted-foreground bg-background',
+const bulletColorClass: Record<TimelineStatus, string> = {
+  done: 'border-primary bg-primary text-primary-foreground',
+  active: 'border-primary bg-background text-primary',
+  upcoming: 'border-muted-foreground bg-background text-muted-foreground',
 }
 
 const connectorClass: Record<TimelineStatus, string> = {
@@ -31,18 +33,28 @@ export default function ChatTimeline({ items }: { items: TimelineItem[] }) {
       {items.map((item, i) => {
         const status = item.status ?? 'done'
         const isLast = i === items.length - 1
+        const Icon = item.icon
+
         return (
           <div key={i} className="relative flex gap-3">
             <div className="flex flex-col items-center">
-              <div
-                className={`mt-0.5 size-2.5 shrink-0 rounded-full border-2 ${bulletClass[status]}`}
-              />
+              {Icon ? (
+                <div
+                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${bulletColorClass[status]}`}
+                >
+                  <Icon className="size-2.5" />
+                </div>
+              ) : (
+                <div
+                  className={`mt-0.5 size-2.5 shrink-0 rounded-full border-2 ${bulletColorClass[status]}`}
+                />
+              )}
               {!isLast && (
                 <div className={`w-px flex-1 ${connectorClass[status]}`} />
               )}
             </div>
 
-            <div className={`flex flex-col gap-1 min-w-0 ${isLast ? '' : 'pb-5'}`}>
+            <div className={`flex flex-col gap-1 min-w-0 ${isLast ? '' : Icon ? 'pb-5' : 'pb-5'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-foreground">{item.label}</span>
                 <span className="text-sm text-foreground">{item.title}</span>

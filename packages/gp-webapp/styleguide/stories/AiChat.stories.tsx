@@ -8,7 +8,15 @@ import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
-import { DownloadIcon, ShareIcon, SparklesIcon } from '../components/ui/icons'
+import {
+  CheckIcon,
+  ClockIcon,
+  DownloadIcon,
+  FileTextIcon,
+  ListChecksIcon,
+  ShareIcon,
+  SparklesIcon,
+} from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
@@ -536,6 +544,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 1',
     title: 'File your candidacy paperwork',
     status: 'done',
+    icon: CheckIcon,
     badge: 'completed',
     description:
       'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
@@ -545,6 +554,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 2',
     title: 'Collect voter signatures',
     status: 'active',
+    icon: ListChecksIcon,
     badge: 'in progress',
     description: 'Gather 250 valid signatures from registered voters in your district.',
     items: [
@@ -557,6 +567,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 3',
     title: 'Set up your campaign committee',
     status: 'upcoming',
+    icon: FileTextIcon,
     description:
       'Register a committee with the state ethics board before accepting any donations or spending any money.',
     link: { label: 'Register online at ethics.state.gov', href: '#' },
@@ -575,6 +586,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 5',
     title: 'File your first financial disclosure',
     status: 'upcoming',
+    icon: ClockIcon,
     description:
       'Report all donations and expenditures within 30 days of your committee registration.',
     items: [
