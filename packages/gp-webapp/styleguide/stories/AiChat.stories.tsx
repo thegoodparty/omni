@@ -9,6 +9,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import {
+  ArrowRightIcon,
   CheckIcon,
   DownloadIcon,
   ShareIcon,
@@ -551,6 +552,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 2',
     title: 'Collect voter signatures',
     status: 'active',
+    icon: ArrowRightIcon,
     badge: 'in progress',
     description: 'Gather 250 valid signatures from registered voters in your district.',
     items: [
