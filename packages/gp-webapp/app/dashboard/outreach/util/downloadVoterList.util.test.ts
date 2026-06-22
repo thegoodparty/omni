@@ -30,6 +30,20 @@ describe('downloadVoterList', () => {
     })
   })
 
+  it('applies AudienceState with only age/gender keys (no audience_/party_ sentinel)', async () => {
+    await downloadVoterList({
+      voterFileFilter: {
+        age_18_25: true,
+        gender_female: true,
+      },
+      outreachType: 'doorKnocking',
+    })
+
+    expect(voterFileDownloadMock).toHaveBeenCalledWith('doorKnocking', {
+      filters: ['age_18_25', 'gender_female'],
+    })
+  })
+
   it('applies VoterFileFilters (camelCase) filters from outreach actions', async () => {
     await downloadVoterList({
       voterFileFilter: {
