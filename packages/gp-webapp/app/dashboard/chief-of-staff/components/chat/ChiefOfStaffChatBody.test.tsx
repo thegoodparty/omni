@@ -152,6 +152,32 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
   })
 
+  it('replays persisted tool segments in order on reload', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_seg',
+        role: 'assistant',
+        content: 'Looking... Found it.',
+        createdAt: '2026-06-20T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'Looking...' },
+          { kind: 'tool', toolName: 'web_search' },
+          { kind: 'text', text: 'Found it.' },
+        ],
+      },
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_seg" />)
+
+    await waitFor(() =>
+      expect(screen.getByText('Looking...')).toBeInTheDocument(),
+    )
+    // Tool pill rendered between the two text blocks (base label, no args).
+    expect(screen.getByText('Searching the web')).toBeInTheDocument()
+    expect(screen.getByText('Found it.')).toBeInTheDocument()
+  })
+
   it('surfaces a retryable error when the stream errors', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
