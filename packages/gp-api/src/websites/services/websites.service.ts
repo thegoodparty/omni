@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { Prisma, User } from '../../generated/prisma'
+import { Campaign, Prisma, User } from '../../generated/prisma'
 import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import { promisify } from 'node:util'
@@ -23,6 +23,56 @@ const dnsLookup = promisify(dns.lookup)
 type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
 }>
+
+const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
+
+const hasText = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().length > 0
+
+// The compliance_setup agent publishes an existing website but cannot author
+// missing copy. Legacy-Pro candidates reach the agentic flow without the
+// pre-payment candidate-profile step that creates the site, so the agent's
+// publish call would 400 on the empty publish-gated fields. Backfill
+// `about.bio` and `about.issues` with templated defaults, but never overwrite
+// candidate-authored content. Returns patched content, or null when nothing
+// needed filling.
+export const applyCompliancePublishFallbacks = (
+  content: PrismaJson.WebsiteContent,
+  user: User,
+  campaign: Campaign,
+): PrismaJson.WebsiteContent | null => {
+  const about = content.about ?? {}
+  const nextAbout = { ...about }
+  let changed = false
+
+  if (!hasText(about.bio)) {
+    const name = getUserFullName(user)
+    const office = campaign.details.normalizedOffice
+    const role = hasText(office) ? `a candidate for ${office}` : 'a candidate'
+    const where = hasText(campaign.details.state)
+      ? ` in ${campaign.details.state}`
+      : ''
+    nextAbout.bio =
+      `<p>${name} is ${role}${where}, running on local solutions over ` +
+      'party politics and committed to putting the community first.</p>'
+    changed = true
+  }
+
+  if (!about.issues || about.issues.length === 0) {
+    nextAbout.issues = [
+      {
+        title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
+        description:
+          `${getUserFullName(user)} is focused on practical, ` +
+          'community-first leadership and bringing neighbors together to ' +
+          'solve local problems.',
+      },
+    ]
+    changed = true
+  }
+
+  return changed ? { ...content, about: nextAbout } : null
+}
 
 @Injectable()
 export class WebsitesService extends createPrismaBase(MODELS.Website) {
@@ -62,6 +112,30 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
 
   update(args: Prisma.WebsiteUpdateArgs) {
     return this.model.update(args)
+  }
+
+  // Guarantee the compliance_setup agent's precondition: a publishable website
+  // for the campaign. Creates one if the candidate never built it, then
+  // backfills empty publish-gated fields via applyCompliancePublishFallbacks.
+  async ensureCompliancePublishableWebsite(
+    user: User,
+    campaign: CampaignWith<'campaignPositions'>,
+  ): Promise<void> {
+    const existing = await this.model.findUnique({
+      where: { campaignId: campaign.id },
+    })
+    const website = existing ?? (await this.createByCampaign(user, campaign))
+    const patched = applyCompliancePublishFallbacks(
+      website.content ?? {},
+      user,
+      campaign,
+    )
+    if (patched) {
+      await this.update({
+        where: { campaignId: campaign.id },
+        data: { content: patched },
+      })
+    }
   }
 
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {

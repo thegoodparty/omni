@@ -7,10 +7,16 @@ import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import {
   WebsitesService,
+  applyCompliancePublishFallbacks,
   isPublicAddress,
   ssrfSafeLookup,
 } from './websites.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import {
+  createMockUser,
+  createMockCampaign,
+} from '@/shared/test-utils/mockData.util'
+import { CampaignWith } from 'src/campaigns/campaigns.types'
 
 vi.mock('axios', async (orig) => {
   const real = await orig<typeof import('axios')>()
@@ -459,5 +465,129 @@ describe('ssrfSafeLookup (connection-time defense)', () => {
       { address: '93.184.216.34', family: 4 },
       { address: '93.184.216.35', family: 4 },
     ])
+  })
+})
+
+describe('applyCompliancePublishFallbacks', () => {
+  const user = createMockUser({ firstName: 'Rick', lastName: 'Bennett' })
+  const campaign = createMockCampaign({ details: { state: 'ME' } })
+
+  it('backfills bio and a publishable issue when about is empty', () => {
+    const patched = applyCompliancePublishFallbacks({}, user, campaign)
+
+    expect(patched).not.toBeNull()
+    expect(patched?.about?.bio?.trim()).toBeTruthy()
+    expect(patched?.about?.bio).toContain('Rick Bennett')
+    const issue = patched?.about?.issues?.[0]
+    expect(issue?.title?.trim()).toBeTruthy()
+    expect(issue?.description?.trim()).toBeTruthy()
+  })
+
+  it('returns null when a real bio and issues are already present', () => {
+    const content = {
+      about: {
+        bio: '<p>A candidate-authored biography that the agent must keep.</p>',
+        issues: [{ title: 'Housing', description: 'More affordable homes' }],
+      },
+    }
+
+    expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
+  })
+
+  it('backfills only the bio without clobbering existing issues', () => {
+    const content = {
+      about: { issues: [{ title: 'Housing', description: 'More homes' }] },
+    }
+
+    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+
+    expect(patched?.about?.bio?.trim()).toBeTruthy()
+    expect(patched?.about?.issues).toEqual(content.about.issues)
+  })
+
+  it('backfills only issues without clobbering an existing bio', () => {
+    const content = { about: { bio: '<p>A real candidate bio.</p>' } }
+
+    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+
+    expect(patched?.about?.bio).toBe('<p>A real candidate bio.</p>')
+    expect(patched?.about?.issues?.length).toBeGreaterThan(0)
+  })
+})
+
+describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
+  let service: WebsitesService
+  let mockPrisma: {
+    website: {
+      findUnique: ReturnType<typeof vi.fn>
+      create: ReturnType<typeof vi.fn>
+      update: ReturnType<typeof vi.fn>
+    }
+  }
+  const user = createMockUser({ firstName: 'Rick', lastName: 'Bennett' })
+  const campaign: CampaignWith<'campaignPositions'> = {
+    ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
+    campaignPositions: [],
+  }
+
+  beforeEach(async () => {
+    mockPrisma = {
+      website: {
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WebsitesService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PinoLogger, useValue: createMockLogger() },
+      ],
+    }).compile()
+
+    service = module.get<WebsitesService>(WebsitesService)
+    vi.clearAllMocks()
+  })
+
+  it('creates a website then backfills publishable content when none exists', async () => {
+    mockPrisma.website.findUnique.mockResolvedValue(null)
+    mockPrisma.website.create.mockResolvedValue({
+      id: 5,
+      campaignId: 99,
+      content: {
+        main: { title: 'Vote For Rick Bennett' },
+        about: { issues: [] },
+        contact: { email: 'rick@example.com' },
+      },
+    })
+
+    await service.ensureCompliancePublishableWebsite(user, campaign)
+
+    expect(mockPrisma.website.create).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
+    const updateArg = mockPrisma.website.update.mock.calls[0][0]
+    expect(updateArg.where).toEqual({ campaignId: 99 })
+    expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
+    expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)
+  })
+
+  it('does not create or update when the website is already publishable', async () => {
+    mockPrisma.website.findUnique.mockResolvedValue({
+      id: 5,
+      campaignId: 99,
+      content: {
+        about: {
+          bio: '<p>A real candidate bio that should be left alone.</p>',
+          issues: [{ title: 'Housing', description: 'More homes' }],
+        },
+      },
+    })
+
+    await service.ensureCompliancePublishableWebsite(user, campaign)
+
+    expect(mockPrisma.website.create).not.toHaveBeenCalled()
+    expect(mockPrisma.website.update).not.toHaveBeenCalled()
   })
 })
