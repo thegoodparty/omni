@@ -304,6 +304,34 @@ describe('ElectedOfficeController', () => {
       expect(filled.data.termLengthDays).toBe(1461)
     })
 
+    it('persists selfReported when the completion POST adopts a placeholder', async () => {
+      // A truly net-new user (no prior EO) never reaches the party-step PUT, so
+      // their marker is written only by the final completion POST. That POST
+      // adopts the auto-provisioned placeholder via the create() update path —
+      // assert selfReported survives that path so resume classifies them
+      // net-new (not as a sales/BR prefill).
+      const placeholder = await createElectedOffice()
+      expect(placeholder.status).toBe(200)
+      expect(placeholder.data.selfReported).toBe(false)
+
+      const completed = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+        party: 'independent',
+        onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+        selfReported: true,
+      })
+
+      expect(completed.status).toBe(200)
+      expect(completed.data.id).toBe(placeholder.data.id)
+      expect(completed.data.selfReported).toBe(true)
+
+      const electedOffice = await service.prisma.electedOffice.findFirst({
+        where: { id: completed.data.id },
+      })
+      expect(electedOffice?.selfReported).toBe(true)
+    })
+
     it('creates elected office when user has a campaign', async () => {
       const result = await createElectedOffice({
         swornInDate: '2024-01-15',
