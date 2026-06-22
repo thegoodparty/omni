@@ -29,7 +29,7 @@ interface UseSubmitCvPinResult {
 }
 
 // Shared CampaignVerify PIN submission for both the standalone /enter-pin page
-// and the pro-upgrade3 in-place compliance card, so the endpoint call, error
+// and the Pro-upgrade in-place compliance card, so the endpoint call, error
 // classification, analytics, and cache invalidation can't drift between them.
 export function useSubmitCvPin(
   tcrCompliance: TcrCompliance | null | undefined,

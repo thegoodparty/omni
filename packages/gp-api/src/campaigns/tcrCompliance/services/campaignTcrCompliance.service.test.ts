@@ -58,7 +58,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
   const user = createMockUser({ clerkId: 'user_clerk_abc' })
   // isPro: true — these cases exercise the already-Pro path, where the kickoff
-  // is enqueued immediately on submit (pro-upgrade1, post-payment resubmit).
+  // is enqueued immediately on submit (post-payment resubmit).
   const campaign = createMockCampaign({
     userId: user.id,
     formattedAddress: '123 Main St',

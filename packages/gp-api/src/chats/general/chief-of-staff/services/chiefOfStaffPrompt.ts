@@ -1,5 +1,6 @@
 import { differenceInCalendarMonths } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
 
@@ -52,9 +53,13 @@ const CONSTITUENT_DATA_RULES = `CONSTITUENT DATA RULES (apply whenever you call 
 - Turn the 0-100 modeled scores into vivid, confident language — "a clear majority lean toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
 - Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
 
+const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
+- Use it to fetch the full detail of the anchored issue or any issue the user asks about.
+- Surface the key detail clearly — category, rank, related briefings — without re-reading data already in the anchored_issue block.`
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
-    "manage the user's durable priorities (list/create/update/archive)",
+    'manage the user’s durable priorities (list/create/update/archive)',
   web_search: 'search the public web for current news and factual lookups',
   list_briefings: 'list the user’s upcoming and recent meeting briefings',
   get_briefing: 'read the full briefing for one of the user’s meetings by date',
@@ -62,6 +67,22 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'query aggregate, district-scoped constituent opinion (modeled issue-support scores) and demographics',
   describe_constituent_data:
     'list the recommended constituent breakdown dimensions before querying',
+  read_community_issues: 'fetch full detail for a community issue by id',
+}
+
+const anchoredIssueBlock = (anchor: ChatAnchor): string => {
+  const { title, summary, highlightedText } = anchor.snapshot
+  const lines = [
+    '<anchored_issue>',
+    `Title: ${sanitizeUntrustedContent(title)}`,
+    `Summary: ${sanitizeUntrustedContent(summary)}`,
+    ...(highlightedText
+      ? [`Highlighted: ${sanitizeUntrustedContent(highlightedText)}`]
+      : []),
+    'Note: this is a frozen snapshot and may differ from the latest issue state.',
+    '</anchored_issue>',
+  ]
+  return lines.join('\n')
 }
 
 const optional = (value: string | null | undefined): string => {
@@ -132,6 +153,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ONBOARDING_BLOCK,
     officeContextBlock(ctx),
     prioritiesBlock(ctx.priorities),
+    ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
     toolBlock(toolNames),
     ...(toolNames.includes('crud_priorities') ? [PRIORITIES_RULES] : []),
     ...(toolNames.includes('web_search') ? [WEB_SEARCH_RULES] : []),
@@ -141,6 +163,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('query_constituent_data')
       ? [CONSTITUENT_DATA_RULES]
+      : []),
+    ...(toolNames.includes('read_community_issues')
+      ? [COMMUNITY_ISSUES_RULES]
       : []),
     INSTRUCTIONS_BLOCK,
   ]

@@ -20,6 +20,7 @@ import {
 } from '@shared/organizations/constants'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 import type { ChiefOfStaffChatClient } from './chat-client'
 import type {
   ChatConversationDto,
@@ -128,8 +129,11 @@ async function* parseSseStream(
 }
 
 export const chiefOfStaffChatApi: ChiefOfStaffChatClient = {
-  async createConversation() {
-    const { data } = await clientRequest('POST /v1/chats', { scope: SCOPE })
+  async createConversation(anchor?: ChatAnchor) {
+    const { data } = await clientRequest('POST /v1/chats', {
+      scope: SCOPE,
+      anchor,
+    })
     return { conversationId: data.conversationId }
   },
 

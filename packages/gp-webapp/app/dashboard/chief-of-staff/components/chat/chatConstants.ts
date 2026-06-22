@@ -19,7 +19,7 @@ export const COS_INTRO_MESSAGES: string[] = [
  */
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
-  crud_priorities: 'Reading your priorities',
+  crud_priorities: 'Working on your priorities',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   constituent_data: 'Reviewing district data',
@@ -29,4 +29,26 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 
 export function toolDisplayName(toolName: string): string {
   return TOOL_DISPLAY_NAMES[toolName] ?? toolName
+}
+
+/**
+ * For tools whose verb depends on what they're doing, a per-action label keyed
+ * by the tool's `action` input. Live-only: tool args aren't persisted, so a
+ * reloaded conversation falls back to the base name above.
+ */
+const TOOL_ACTION_LABELS: Record<string, Record<string, string>> = {
+  crud_priorities: {
+    list: 'Reading your priorities',
+    create: 'Saving your priorities',
+    update: 'Updating your priorities',
+    archive: 'Removing a priority',
+  },
+}
+
+export function toolStatusLabel(toolName: string, action?: string): string {
+  if (action) {
+    const label = TOOL_ACTION_LABELS[toolName]?.[action]
+    if (label) return label
+  }
+  return toolDisplayName(toolName)
 }

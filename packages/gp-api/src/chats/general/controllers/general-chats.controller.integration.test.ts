@@ -208,6 +208,53 @@ describe('GeneralChatsController (integration)', () => {
     })
   })
 
+  describe('POST /v1/chats with anchor', () => {
+    it('persists anchor and title from snapshot.title', async () => {
+      const anchor = {
+        resourceType: 'community_issue',
+        resourceId: 'issue-abc',
+        url: 'https://goodparty.org/issues/issue-abc',
+        snapshot: {
+          title: 'Fix the potholes on Main Street',
+          summary: 'Residents have complained about road conditions.',
+        },
+      }
+      const res = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE, anchor },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.created).toBe(true)
+
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: res.data.conversationId as string },
+      })
+      expect(row?.anchor).toMatchObject(anchor)
+      expect(row?.title).toBe('Fix the potholes on Main Street')
+    })
+  })
+
+  describe('POST /v1/chats anchor snapshot field length limits', () => {
+    it('rejects a snapshot.title longer than 500 chars with 400', async () => {
+      const anchor = {
+        resourceType: 'community_issue',
+        resourceId: 'issue-abc',
+        url: 'https://goodparty.org/issues/issue-abc',
+        snapshot: {
+          title: 'a'.repeat(501),
+          summary: 'Short summary.',
+        },
+      }
+      const res = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE, anchor },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
   describe('back-compat: briefing-annotation conversations', () => {
     it('defaults pre-existing conversations to briefing_annotation scope', async () => {
       const legacy = await service.prisma.chatConversation.create({
