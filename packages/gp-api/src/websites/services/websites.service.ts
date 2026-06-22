@@ -32,10 +32,11 @@ const hasText = (value?: string | null): boolean =>
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
-// publish call would 400 on the empty publish-gated fields. Backfill
-// `about.bio` and `about.issues` with templated defaults, but never overwrite
-// candidate-authored content. Returns patched content, or null when nothing
-// needed filling.
+// publish call would 400 on the empty publish-gated fields. Backfill every
+// field assertReadyToPublish requires (main.title, about.bio, about.issues,
+// contact.email) with templated defaults matching createByCampaign, but never
+// overwrite candidate-authored content. Returns patched content, or null when
+// nothing needed filling.
 export const applyCompliancePublishFallbacks = (
   content: PrismaJson.WebsiteContent,
   user: User,
@@ -43,7 +44,16 @@ export const applyCompliancePublishFallbacks = (
 ): PrismaJson.WebsiteContent | null => {
   const about = content.about ?? {}
   const nextAbout = { ...about }
+  const main = content.main ?? {}
+  const nextMain = { ...main }
+  const contact = content.contact ?? {}
+  const nextContact = { ...contact }
   let changed = false
+
+  if (!hasText(main.title)) {
+    nextMain.title = `Vote For ${getUserFullName(user)}`
+    changed = true
+  }
 
   if (!hasText(about.bio)) {
     const name = getUserFullName(user)
@@ -71,7 +81,14 @@ export const applyCompliancePublishFallbacks = (
     changed = true
   }
 
-  return changed ? { ...content, about: nextAbout } : null
+  if (!hasText(contact.email)) {
+    nextContact.email = user.email
+    changed = true
+  }
+
+  return changed
+    ? { ...content, main: nextMain, about: nextAbout, contact: nextContact }
+    : null
 }
 
 @Injectable()

@@ -483,12 +483,14 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(issue?.description?.trim()).toBeTruthy()
   })
 
-  it('returns null when a real bio and issues are already present', () => {
+  it('returns null when all publish-gated fields are already present', () => {
     const content = {
+      main: { title: 'Vote For Rick Bennett' },
       about: {
         bio: '<p>A candidate-authored biography that the agent must keep.</p>',
         issues: [{ title: 'Housing', description: 'More affordable homes' }],
       },
+      contact: { email: 'rick@example.com' },
     }
 
     expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
@@ -512,6 +514,26 @@ describe('applyCompliancePublishFallbacks', () => {
 
     expect(patched?.about?.bio).toBe('<p>A real candidate bio.</p>')
     expect(patched?.about?.issues?.length).toBeGreaterThan(0)
+  })
+
+  it('backfills main.title and contact.email when they are empty', () => {
+    const patched = applyCompliancePublishFallbacks({}, user, campaign)
+
+    expect(patched?.main?.title).toBe('Vote For Rick Bennett')
+    expect(patched?.contact?.email).toBe(user.email)
+  })
+
+  it('keeps an existing main.title and contact.email', () => {
+    const content = {
+      main: { title: 'Rick Bennett for Council' },
+      about: {
+        bio: '<p>Real bio.</p>',
+        issues: [{ title: 'Housing', description: 'More homes' }],
+      },
+      contact: { email: 'custom@example.com' },
+    }
+
+    expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
 })
 
@@ -578,10 +600,12 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
       id: 5,
       campaignId: 99,
       content: {
+        main: { title: 'Vote For Rick Bennett' },
         about: {
           bio: '<p>A real candidate bio that should be left alone.</p>',
           issues: [{ title: 'Housing', description: 'More homes' }],
         },
+        contact: { email: 'rick@example.com' },
       },
     })
 
@@ -589,5 +613,26 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     expect(mockPrisma.website.create).not.toHaveBeenCalled()
     expect(mockPrisma.website.update).not.toHaveBeenCalled()
+  })
+
+  it('backfills an existing website with gaps without creating a new one', async () => {
+    mockPrisma.website.findUnique.mockResolvedValue({
+      id: 7,
+      campaignId: 99,
+      content: {
+        main: { title: 'Vote For Rick Bennett' },
+        about: { issues: [] },
+        contact: { email: 'rick@example.com' },
+      },
+    })
+
+    await service.ensureCompliancePublishableWebsite(user, campaign)
+
+    expect(mockPrisma.website.create).not.toHaveBeenCalled()
+    expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
+    const updateArg = mockPrisma.website.update.mock.calls[0][0]
+    expect(updateArg.where).toEqual({ campaignId: 99 })
+    expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
+    expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)
   })
 })
