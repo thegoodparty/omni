@@ -417,18 +417,20 @@ export class ChatStreamService {
       }
     } finally {
       if (!persisted) {
-        const fallbackText =
-          textBuffer.length > 0
-            ? textBuffer.join('')
-            : CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
+        const hasText = textBuffer.length > 0
+        const fallbackText = hasText
+          ? textBuffer.join('')
+          : CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
         try {
-          // Carry the segments here too — the turn may have emitted tool calls
-          // before the primary persist failed/returned early; without this the
-          // fallback would store flat text and lose the tool/text ordering.
+          // Carry the segments when there's real partial text — the turn may
+          // have emitted tool calls before the primary persist failed. But with
+          // the interrupted sentinel (no text), pass none: tool-only segments
+          // would make the reload render orphaned pills and hide the sentinel's
+          // retry affordance.
           await this.persistAssistantText(
             args.conversationId,
             fallbackText,
-            segments,
+            hasText ? segments : undefined,
           )
         } catch (err) {
           this.logger.error(

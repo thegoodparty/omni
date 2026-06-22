@@ -19,10 +19,7 @@ import {
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
-import type {
-  ChatStoreService,
-  PersistedSegment,
-} from './chatStore.prisma'
+import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 
 const DEFAULT_SYS = 'sys'
