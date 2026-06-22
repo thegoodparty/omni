@@ -536,30 +536,18 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: '1978',
     title: 'Chapter 18 created',
     description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
-    quote: {
-      text: 'We want neighborhoods to be stable, not frozen, but the protections came first.',
-      author: 'Councilor Alvarez',
-    },
     source: 'Maplewood Council minutes, 1978',
   },
   {
     label: '2003',
     title: 'ADU allowance',
     description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
-    quote: {
-      text: 'This is the smallest step toward more housing we can take without rewriting the whole code.',
-      author: 'Councilor Kim',
-    },
     source: 'Maplewood Council minutes, 2003',
   },
   {
     label: '2019',
     title: 'Last amended',
     description: 'Owner-occupancy ADU rule repealed. No broader missing-middle reform attempted.',
-    quote: {
-      text: 'We did not have the political room for triplexes. A future council should pick that up.',
-      author: 'Councilor Park',
-    },
     source: 'Maplewood Council minutes, 2019',
   },
 ]

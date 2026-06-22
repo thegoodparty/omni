@@ -15,7 +15,7 @@ export default function ChatTimeline({ items }: { items: TimelineItem[] }) {
           <div className="flex flex-col items-center">
             <div className="mt-0.5 size-2.5 shrink-0 rounded-full border-2 border-primary bg-background" />
             {i < items.length - 1 && (
-              <div className="w-px flex-1 bg-border" />
+              <div className="w-px flex-1 bg-primary" />
             )}
           </div>
 
