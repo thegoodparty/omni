@@ -11,7 +11,7 @@ import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
-import type { CommunityIssueFeedReadPort } from './services/communityIssueFeedRead.port'
+import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -290,7 +290,7 @@ describe('ChiefOfStaffHandler', () => {
 
   describe('anchor + community issues tool', () => {
     const ANCHOR = {
-      resourceType: 'community_issue_feed' as const,
+      resourceType: 'community_issue' as const,
       resourceId: 'issue-abc',
       url: 'https://goodparty.org/issues/issue-abc',
       snapshot: {
@@ -398,7 +398,7 @@ describe('ChiefOfStaffHandler', () => {
     })
 
     it('registers read_community_issues tool when port is provided', async () => {
-      const communityPort: CommunityIssueFeedReadPort = {
+      const communityPort: CommunityIssueReadPort = {
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(

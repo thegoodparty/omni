@@ -211,7 +211,7 @@ describe('GeneralChatsController (integration)', () => {
   describe('POST /v1/chats with anchor', () => {
     it('persists anchor and title from snapshot.title', async () => {
       const anchor = {
-        resourceType: 'community_issue_feed',
+        resourceType: 'community_issue',
         resourceId: 'issue-abc',
         url: 'https://goodparty.org/issues/issue-abc',
         snapshot: {
@@ -238,7 +238,7 @@ describe('GeneralChatsController (integration)', () => {
   describe('POST /v1/chats anchor snapshot field length limits', () => {
     it('rejects a snapshot.title longer than 500 chars with 400', async () => {
       const anchor = {
-        resourceType: 'community_issue_feed',
+        resourceType: 'community_issue',
         resourceId: 'issue-abc',
         url: 'https://goodparty.org/issues/issue-abc',
         snapshot: {

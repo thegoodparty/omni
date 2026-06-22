@@ -15,7 +15,6 @@ import {
 } from '@shared/layouts/navigation/NavigationProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaignStatus } from '@shared/hooks/useCampaignStatus'
-import { ExitToDashboardButton } from '@shared/layouts/navigation/ExitToDashboardButton'
 import { Button } from '@styleguide'
 import { User } from 'helpers/types'
 
@@ -69,12 +68,6 @@ const RightSideMobile = (): React.JSX.Element => {
             isOpen ? 'text-white' : ''
           }`}
         >
-          {!isOpen && user && (
-            <>
-              <ExitToDashboardButton />
-              <div></div>
-            </>
-          )}
           <button
             type="button"
             onClick={() => setOpen(!isOpen)}

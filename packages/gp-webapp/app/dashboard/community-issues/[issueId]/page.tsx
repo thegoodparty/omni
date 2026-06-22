@@ -26,7 +26,7 @@ export default async function Page({
 
   let result
   try {
-    result = await serverRequest('GET /v1/community-issue-feed/:id', {
+    result = await serverRequest('GET /v1/community-issues/:id', {
       id: issueId,
     })
   } catch {

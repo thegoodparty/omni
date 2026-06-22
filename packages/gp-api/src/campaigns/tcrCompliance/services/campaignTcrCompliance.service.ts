@@ -106,7 +106,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         peerlyIdentityId: null,
         kickoffSentAt: null,
         createdAt: { lt: cutoff },
-        // Pre-payment (pro-upgrade3) submissions intentionally sit with
+        // Pre-payment submissions intentionally sit with
         // kickoffSentAt null until payment; only sweep campaigns that are
         // already Pro so the agent never runs before the candidate pays.
         campaign: { isPro: true },
@@ -702,9 +702,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       throw err
     }
 
-    // Pre-payment (pro-upgrade3) submissions defer dispatch to the payment
+    // Pre-payment submissions defer dispatch to the payment
     // webhook so the agent never provisions a domain/site for an unpaid
-    // candidate. Already-Pro submissions (pro-upgrade1, post-payment
+    // candidate. Already-Pro submissions (post-payment
     // resubmission) enqueue immediately, as before.
     if (campaign.isPro) {
       try {
@@ -743,9 +743,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
   // Webhook entry point: enqueue the compliance_setup kickoff for a campaign
   // that has already submitted its TCR record but deferred dispatch until
-  // payment (pro-upgrade3). No-ops when no record exists yet (candidate paid
-  // before filing) — the eventual createAgentic submit will enqueue because
-  // the campaign is now Pro.
+  // payment. No-ops when no record exists yet (candidate paid before filing)
+  // — the eventual createAgentic submit will enqueue because the campaign is
+  // now Pro.
   async enqueueAgenticKickoffIfNeeded(campaignId: number) {
     const record = await this.fetchByCampaignId(campaignId)
     if (!record) {

@@ -86,6 +86,8 @@ const seedCampaign = (details: CampaignDetails | null) =>
   ])
 
 // Fill every field a non-federal candidate must provide for a valid submit.
+// Email + phone are always-shown required inputs (Peerly needs both, 86aj5bqvw);
+// the address is optional and left blank here.
 const fillValidNonFederalForm = () => {
   fireEvent.change(screen.getByLabelText('Campaign committee name'), {
     target: { value: 'Friends of Jane' },
@@ -93,13 +95,12 @@ const fillValidNonFederalForm = () => {
   fireEvent.change(screen.getByLabelText('Campaign filing link'), {
     target: { value: 'https://example.com/filing' },
   })
-  fireEvent.change(screen.getByLabelText('Email'), {
+  fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
     target: { value: 'jane@example.com' },
   })
-  fireEvent.change(screen.getByLabelText('Phone'), {
+  fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
     target: { value: '4155551234' },
   })
-  fireEvent.click(screen.getByTestId('select-address'))
 }
 
 describe('ballotLevelToOfficeLevel', () => {
@@ -182,9 +183,16 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByText(/it will take much longer/i)).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign committee name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign filing link')).toBeInTheDocument()
-    expect(screen.getByLabelText('Email')).toBeInTheDocument()
-    expect(screen.getByLabelText('Phone')).toBeInTheDocument()
+    // Email + phone are always-shown required inputs; the address is optional
+    // (86aj5bqvw).
+    expect(screen.getByPlaceholderText('jane@gmail.com')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('(555) 555-5555')).toBeInTheDocument()
     expect(screen.getByTestId('select-address')).toBeInTheDocument()
+  })
+
+  it('marks the filing link required in its helper copy (ENG-10480)', () => {
+    render(<FilingDetailsStep />)
+    expect(screen.getByText(/Required — a link to your/i)).toBeInTheDocument()
   })
 
   it('navigates to the previous step from the footer Back button', () => {
@@ -230,7 +238,9 @@ describe('FilingDetailsStep', () => {
         ein: CLEAN_EIN,
         email: 'jane@example.com',
         phone: '4155551234',
-        address: { formatted_address: '123 Main St', place_id: 'place-123' },
+        // Only the checked channels carry a value; address was left unchecked,
+        // so the payload must report it empty (ENG-10357).
+        address: { formatted_address: '', place_id: '' },
         // Non-federal committees submit as CANDIDATE.
         committeeType: 'CANDIDATE',
       }),
@@ -274,9 +284,54 @@ describe('FilingDetailsStep', () => {
       expect(item).toHaveClass('list-item')
     }
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
-    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+    // Email + phone are required, so the empty form lists both (86aj5bqvw).
+    expect(screen.getByText('Filing Email')).toBeInTheDocument()
+    expect(screen.getByText('Filing Phone')).toBeInTheDocument()
+    // The address is optional, so it must never be listed as failing.
+    expect(screen.queryByText('Filing Address')).not.toBeInTheDocument()
     // `website` has no input in this form and must never be listed.
     expect(screen.queryByText('Website')).not.toBeInTheDocument()
+  })
+
+  it('blocks submit when email or phone is missing (86aj5bqvw)', () => {
+    render(<FilingDetailsStep />)
+    // Committee + filing link + email filled, but phone left blank.
+    fireEvent.change(screen.getByLabelText('Campaign committee name'), {
+      target: { value: 'Friends of Jane' },
+    })
+    fireEvent.change(screen.getByLabelText('Campaign filing link'), {
+      target: { value: 'https://example.com/filing' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
+      target: { value: 'jane@example.com' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
+    // The banner names the missing required contact field (phone), not email.
+    expect(screen.getByText('Filing Phone')).toBeInTheDocument()
+    expect(screen.queryByText('Filing Email')).not.toBeInTheDocument()
+  })
+
+  it('allows submit with email + phone and no address (86aj5bqvw)', async () => {
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
+    const [, payload] = mockSubmit.mock.calls[0]!
+    // Email + phone carry their values; the optional address is left empty.
+    expect(payload).toEqual(
+      expect.objectContaining({
+        email: 'jane@example.com',
+        phone: '4155551234',
+        address: { formatted_address: '', place_id: '' },
+      }),
+    )
+    await waitFor(() => expect(goToNextStep).toHaveBeenCalledTimes(1))
   })
 
   it('redirects to the EIN step instead of rendering when the persisted EIN fails sanity', () => {
@@ -340,13 +395,13 @@ describe('FilingDetailsStep', () => {
     fireEvent.change(screen.getByLabelText('Campaign filing link'), {
       target: { value: 'https://www.fec.gov/data/committee/C00123456' },
     })
-    fireEvent.change(screen.getByLabelText('Email'), {
+    // Email + phone are both required regardless of office level.
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
       target: { value: 'jane@example.com' },
     })
-    fireEvent.change(screen.getByLabelText('Phone'), {
+    fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
       target: { value: '4155551234' },
     })
-    fireEvent.click(screen.getByTestId('select-address'))
     fireEvent.change(screen.getByLabelText('FEC Committee ID'), {
       target: { value: 'C00123456' },
     })

@@ -2,7 +2,6 @@
 import { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
-import AlertSection from '../components/AlertSection'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -33,7 +32,6 @@ const DashboardLayout = ({
   children,
   pathname = '',
   campaign,
-  showAlert = true,
   wrapperClassName = '',
   hideMenu = false,
 }: DashboardLayoutProps): React.JSX.Element | null => {
@@ -97,9 +95,6 @@ const DashboardLayout = ({
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-            {activeCampaign && showAlert && (
-              <AlertSection campaign={activeCampaign} />
-            )}
             <ProUpgradePrompt
               campaign={activeCampaign}
               user={user}

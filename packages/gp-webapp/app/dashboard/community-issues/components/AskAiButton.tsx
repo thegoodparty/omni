@@ -23,7 +23,7 @@ const AskAiButton = ({ issue }: Props): React.JSX.Element => {
     const highlightedText = window.getSelection()?.toString().trim()
 
     const anchor: ChatAnchor = {
-      resourceType: 'community_issue_feed',
+      resourceType: 'community_issue',
       resourceId: issue.id,
       url: `${APP_BASE}/dashboard/community-issues/${issue.id}`,
       snapshot: {
