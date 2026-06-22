@@ -1,3 +1,4 @@
+import * as React from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -7,17 +8,16 @@ const meta: Meta<typeof Input> = {
   title: 'Components/Input',
   component: Input,
   tags: ['autodocs'],
-  argTypes: {
-    type: {
-      control: 'select',
-      options: ['text', 'email', 'password', 'number', 'search', 'file'],
-    },
-    disabled: { control: 'boolean' },
-  },
 }
 
 export default meta
 type Story = StoryObj<typeof Input>
+
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    {children}
+  </p>
+)
 
 type PlaygroundArgs = {
   type: 'text' | 'email' | 'password' | 'number' | 'search' | 'file'
@@ -34,6 +34,11 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     showIcon: false,
   },
   argTypes: {
+    type: {
+      control: 'select',
+      options: ['text', 'email', 'password', 'number', 'search', 'file'],
+    },
+    disabled: { control: 'boolean' },
     showIcon: {
       control: 'boolean',
       description: 'Render a left-aligned SearchIcon inside the input.',
@@ -49,67 +54,91 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   ),
 }
 
-export const WithLabel: Story = {
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="grid w-full max-w-sm items-center gap-1.5">
-      <Label htmlFor="email">Email</Label>
-      <Input type="email" id="email" placeholder="Email" />
+    <div className="flex max-w-sm flex-col gap-6">
+      <div>
+        <SectionLabel>With label</SectionLabel>
+        <div className="grid gap-1.5">
+          <Label htmlFor="v-email">Email address</Label>
+          <Input type="email" id="v-email" placeholder="you@example.com" />
+        </div>
+      </div>
+      <div>
+        <SectionLabel>With icon</SectionLabel>
+        <Input icon={<SearchIcon />} placeholder="Search..." />
+      </div>
+      <div>
+        <SectionLabel>Password</SectionLabel>
+        <Input type="password" placeholder="••••••••" />
+      </div>
+      <div>
+        <SectionLabel>File</SectionLabel>
+        <Input type="file" />
+      </div>
     </div>
   ),
 }
 
-export const WithError: Story = {
+// Active and Focus are interactive pseudo-states (:focus / :focus-visible) that
+// can't be forced statically, so those two rows simulate the component's output
+// with explicit token classes. Active = mouse focus (border only). Focus =
+// keyboard focus (border + ring). The real component applies these via
+// focus:/focus-visible: variants on the same tokens.
+export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <div className="grid w-full max-w-sm items-center gap-1.5">
-      <Label htmlFor="email-error">Email</Label>
-      <Input
-        type="email"
-        id="email-error"
-        placeholder="Email"
-        defaultValue="not-an-email"
-        aria-invalid
-        aria-describedby="email-error-message"
-      />
-      <p id="email-error-message" className="text-sm text-destructive">
-        Please enter a valid email address.
-      </p>
+    <div className="flex max-w-sm flex-col gap-6">
+      <div>
+        <SectionLabel>Default</SectionLabel>
+        <Input placeholder="Placeholder text" />
+      </div>
+      <div>
+        <SectionLabel>Filled</SectionLabel>
+        <Input defaultValue="hello@example.com" />
+      </div>
+      <div>
+        <SectionLabel>Active (mouse)</SectionLabel>
+        <Input
+          defaultValue="hello@example.com"
+          className="border-components-input-active"
+        />
+      </div>
+      <div>
+        <SectionLabel>Focus (keyboard)</SectionLabel>
+        <Input
+          defaultValue="hello@example.com"
+          className="border-components-input-active ring-[3px] ring-components-input-focus"
+        />
+      </div>
+      <div>
+        <SectionLabel>Disabled</SectionLabel>
+        <Input placeholder="Disabled" disabled />
+      </div>
+      <div>
+        <SectionLabel>Error</SectionLabel>
+        <div className="grid gap-1.5">
+          <Input type="email" defaultValue="not-an-email" aria-invalid />
+          <p className="text-sm text-destructive">
+            Please enter a valid email address.
+          </p>
+        </div>
+      </div>
+      <div>
+        <SectionLabel>Error focused (keyboard)</SectionLabel>
+        <div className="grid gap-1.5">
+          <Input
+            type="email"
+            defaultValue="not-an-email"
+            aria-invalid
+            className="ring-[3px] ring-destructive-focus"
+          />
+          <p className="text-sm text-destructive">
+            Please enter a valid email address.
+          </p>
+        </div>
+      </div>
     </div>
   ),
-}
-
-export const ErrorFocused: Story = {
-  render: () => (
-    <div className="grid w-full max-w-sm items-center gap-1.5">
-      <Label htmlFor="email-error-focused">Email</Label>
-      <Input
-        type="email"
-        id="email-error-focused"
-        placeholder="Email"
-        defaultValue="not-an-email"
-        aria-invalid
-        autoFocus
-        aria-describedby="email-error-focused-message"
-      />
-      <p id="email-error-focused-message" className="text-sm text-destructive">
-        Please enter a valid email address.
-      </p>
-    </div>
-  ),
-}
-
-export const Disabled: Story = {
-  args: {
-    placeholder: 'Disabled input',
-    disabled: true,
-  },
-}
-
-export const WithIcon: Story = {
-  render: () => <Input icon={<SearchIcon />} placeholder="Search..." />,
-}
-
-export const File: Story = {
-  args: {
-    type: 'file',
-  },
 }
