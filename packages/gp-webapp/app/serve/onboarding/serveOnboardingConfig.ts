@@ -309,6 +309,18 @@ export const SERVE_PARTY_OPTIONS: ServeOption<string>[] = [
   },
 ]
 
+/**
+ * The major-party `party` values that disqualify a user, mirroring the Win
+ * flow's partisan-party handling: selecting one blocks Continue and surfaces the
+ * shared partisan-block alert. These are the persisted ElectedOffice `party`
+ * values (`democratic`/`republican`), so the EO record contract stays intact.
+ */
+export const SERVE_MAJOR_PARTY_VALUES = ['democratic', 'republican'] as const
+
+export const isServeMajorParty = (value: string | null): boolean =>
+  value !== null &&
+  (SERVE_MAJOR_PARTY_VALUES as readonly string[]).includes(value)
+
 export interface ServePledgeCommitment {
   icon: LucideIcon
   title: string

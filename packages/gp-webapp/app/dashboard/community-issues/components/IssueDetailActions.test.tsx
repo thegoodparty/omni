@@ -5,8 +5,8 @@ import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import IssueDetail from './IssueDetail'
 import type {
-  CommunityIssueFeedDetail,
   CommunityIssueDetail,
+  CommunityIssueContent,
 } from 'gpApi/api-endpoints'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -27,14 +27,14 @@ vi.mock('./AskAiButton', () => ({
   ),
 }))
 
-const makeDetail = (): CommunityIssueDetail => ({
+const makeDetail = (): CommunityIssueContent => ({
   sources: [],
   overview: { summary: 'Overview text', source_ids: [] },
 })
 
 const makeFeedDetail = (
-  overrides: Partial<CommunityIssueFeedDetail> = {},
-): CommunityIssueFeedDetail => ({
+  overrides: Partial<CommunityIssueDetail> = {},
+): CommunityIssueDetail => ({
   id: 'issue-1',
   list: 'top_community',
   category: 'Housing',

@@ -1,10 +1,10 @@
 'use client'
 
 import { Badge, Skeleton } from '@styleguide'
-import type { CommunityIssueFeedCard } from 'gpApi/api-endpoints'
+import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 
-type CommunityIssueFeedListResponse = {
-  issues: CommunityIssueFeedCard[]
+type CommunityIssueListResponse = {
+  issues: CommunityIssueCard[]
   refresh: {
     status: 'running' | 'completed' | 'failed'
     lastCompletedAt: string | null
@@ -12,8 +12,8 @@ type CommunityIssueFeedListResponse = {
 }
 
 type Props = {
-  topCommunity: CommunityIssueFeedListResponse
-  trending: CommunityIssueFeedListResponse
+  topCommunity: CommunityIssueListResponse
+  trending: CommunityIssueListResponse
 }
 
 const priorityVariant = (
@@ -41,7 +41,7 @@ const IssueCard = ({
   issue,
   showRank,
 }: {
-  issue: CommunityIssueFeedCard
+  issue: CommunityIssueCard
   showRank: boolean
 }) => {
   const severity = priorityVariant(issue.priority)
@@ -72,7 +72,7 @@ const FeedSection = ({
   showRank,
 }: {
   title: string
-  feed: CommunityIssueFeedListResponse
+  feed: CommunityIssueListResponse
   showRank: boolean
 }) => {
   const issues = showRank

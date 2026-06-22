@@ -12,7 +12,7 @@ model Organization {
   voterFileFilters   VoterFileFilter[]
   experimentRuns       ExperimentRun[]
   artifactFeedbacks    ArtifactFeedback[]
-  communityIssueFeeds  CommunityIssueFeed[]
+  communityIssues      CommunityIssue[]
 
   @@index([ownerId])
   @@map("organization")

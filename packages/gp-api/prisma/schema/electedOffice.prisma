@@ -38,6 +38,7 @@ model ElectedOffice {
   userAgendaUploads        UserAgendaUpload[]
   priorities               Priority[]
   dashboardCards           DashboardCard[]
+  onboardingCardDismissals OnboardingCardDismissal[]
 
   @@index([userId])
   @@index([campaignId])

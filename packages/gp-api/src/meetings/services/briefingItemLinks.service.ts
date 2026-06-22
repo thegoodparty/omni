@@ -5,7 +5,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 type LinkRow = {
   briefingItemId: string
   priorityId: string | null
-  communityIssueFeedId: string | null
+  communityIssueId: string | null
 }
 
 @Injectable()
@@ -53,7 +53,7 @@ export class BriefingItemLinksService extends createPrismaBase(
             meetingBriefingId,
             briefingItemId: c.briefingItemId,
             priorityId: c.priorityId,
-            communityIssueFeedId: c.communityIssueFeedId,
+            communityIssueId: c.communityIssueId,
           },
         }),
       ),
@@ -68,31 +68,28 @@ export class BriefingItemLinksService extends createPrismaBase(
   ): Promise<LinkRow[]> {
     const candidates: LinkRow[] = []
     for (const item of items) {
-      const rawPriorityId = 'priority_id' in item ? item.priority_id : undefined
-      const rawFeedId =
-        'community_issue_feed_id' in item
-          ? item.community_issue_feed_id
-          : undefined
+      const rawPriorityId = item.priority_id
+      const rawCommunityIssueId = item.community_issue_id
 
-      if (!rawPriorityId && !rawFeedId) continue
+      if (!rawPriorityId && !rawCommunityIssueId) continue
 
       const priorityId = await this.validatePriorityId(
         rawPriorityId,
         electedOfficeId,
         { itemId: item.item_id, meetingBriefingId, organizationSlug },
       )
-      const communityIssueFeedId = await this.validateFeedId(
-        rawFeedId,
+      const communityIssueId = await this.validateFeedId(
+        rawCommunityIssueId,
         organizationSlug,
         item.item_id,
         meetingBriefingId,
       )
 
-      if (priorityId || communityIssueFeedId) {
+      if (priorityId || communityIssueId) {
         candidates.push({
           briefingItemId: item.item_id,
           priorityId,
-          communityIssueFeedId,
+          communityIssueId,
         })
       }
     }
@@ -130,7 +127,7 @@ export class BriefingItemLinksService extends createPrismaBase(
     meetingBriefingId: string,
   ): Promise<string | null> {
     if (!rawId) return null
-    const row = await this.client.communityIssueFeed.findFirst({
+    const row = await this.client.communityIssue.findFirst({
       where: { id: rawId, organizationSlug },
       select: { id: true },
     })
@@ -140,9 +137,9 @@ export class BriefingItemLinksService extends createPrismaBase(
           meetingBriefingId,
           organizationSlug,
           itemId,
-          communityIssueFeedId: rawId,
+          communityIssueId: rawId,
         },
-        'briefingItemLinks: community_issue_feed_id failed org validation — dropping',
+        'briefingItemLinks: community_issue_id failed org validation — dropping',
       )
       return null
     }

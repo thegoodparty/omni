@@ -21,7 +21,7 @@ export default async function Page(): Promise<React.JSX.Element> {
   const user = await getServerUser() // can be removed when door knocking app is not for admins only
   const campaign = await fetchUserCampaign()
   if (!campaign?.isPro) {
-    redirect('/dashboard/upgrade-to-pro')
+    redirect('/dashboard/pro-upgrade')
   }
 
   return (

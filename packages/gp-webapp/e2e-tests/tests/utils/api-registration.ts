@@ -20,6 +20,54 @@ if (!CLERK_SECRET_KEY) {
 
 const clerkBackend = createClerkClient({ secretKey: CLERK_SECRET_KEY })
 
+// A cold PR-preview gp-api stack returns gateway 5xx (502/503/504) on its first
+// requests until the ECS target passes health checks, and can refuse the
+// connection outright. These are pre-backend — the request never got a
+// successful response through a healthy task — so re-issuing is safe even for
+// the campaign-creation write (and the users are disposable @test.goodparty.org
+// accounts the sweep deletes). Without this a single cold-start 5xx hard-fails an
+// unrelated test in setup before its scenario even runs.
+const RETRIABLE_GATEWAY_STATUSES = new Set([502, 503, 504])
+
+const isRetriableGatewayError = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error)) return false
+  const status = error.response?.status
+  // No response at all = connection refused/reset against a cold stack.
+  if (status === undefined) return true
+  return RETRIABLE_GATEWAY_STATUSES.has(status)
+}
+
+const GATEWAY_RETRY_ATTEMPTS = 5
+
+const withGatewayRetry = async <T>(
+  label: string,
+  fn: () => Promise<T>,
+): Promise<T> => {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= GATEWAY_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (
+        attempt === GATEWAY_RETRY_ATTEMPTS ||
+        !isRetriableGatewayError(error)
+      ) {
+        throw error
+      }
+      const backoffMs = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
+      if (process.env.DEBUG) {
+        console.log(
+          `[api-registration] ${label} transient gateway error on attempt ` +
+            `${attempt}/${GATEWAY_RETRY_ATTEMPTS}, retrying in ${backoffMs}ms`,
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, backoffMs))
+    }
+  }
+  throw lastError
+}
+
 const apiBaseURL = process.env.API_BASE_URL || baseURL
 const apiURL = `${apiBaseURL}/api`
 
@@ -173,13 +221,17 @@ const bootstrapTestUser = async (
     },
   })
 
-  const { data: apiUser } = await client.get<{
-    id: number
-    firstName: string
-    lastName: string
-    email: string
-    phone: string
-  }>('/v1/users/me')
+  // First authenticated gp-api call — doubles as the cold-stack readiness probe:
+  // retrying it warms the target so the writes below land on a healthy task.
+  const { data: apiUser } = await withGatewayRetry('GET /v1/users/me', () =>
+    client.get<{
+      id: number
+      firstName: string
+      lastName: string
+      email: string
+      phone: string
+    }>('/v1/users/me'),
+  )
 
   const user: AuthenticatedUser = {
     id: apiUser.id,
@@ -207,13 +259,14 @@ const bootstrapTestUser = async (
     return result
   }
 
-  const { data: races } = await client.get<Race[]>(
-    '/v1/elections/races-by-year',
-    {
-      params: {
-        zipcode: zip,
-      },
-    },
+  const { data: races } = await withGatewayRetry(
+    'GET /v1/elections/races-by-year',
+    () =>
+      client.get<Race[]>('/v1/elections/races-by-year', {
+        params: {
+          zipcode: zip,
+        },
+      }),
   )
 
   const desiredRace = options?.race?.office ?? 'Cheyenne City Council - Ward 1'
@@ -229,9 +282,8 @@ const bootstrapTestUser = async (
     throw new Error('No race found for the specific office selector')
   }
 
-  const { data: campaign } = await client.post<{ id: number }>(
-    '/v1/campaigns',
-    {
+  const { data: campaign } = await withGatewayRetry('POST /v1/campaigns', () =>
+    client.post<{ id: number }>('/v1/campaigns', {
       ballotReadyPositionId: race.brPositionId,
       details: {
         // electionId: the /v1/elections/races-by-year response does not include
@@ -250,7 +302,7 @@ const bootstrapTestUser = async (
         filingPeriodsEnd: race.filingPeriods?.[0]?.endOn,
       },
       data: { currentStep: 'onboarding-1' },
-    },
+    }),
   )
 
   if (!campaign?.id) {
@@ -275,11 +327,15 @@ const bootstrapTestUser = async (
   client.defaults.headers.common['x-organization-slug'] =
     `campaign-${campaign.id}`
 
-  await client.put('/v1/campaigns/mine', {
-    data: { currentStep: 'onboarding-complete' },
-    details: { otherParty: 'Independent', pledged: true },
-  })
-  await client.post('/v1/campaigns/launch', {})
+  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
+    client.put('/v1/campaigns/mine', {
+      data: { currentStep: 'onboarding-complete' },
+      details: { otherParty: 'Independent', pledged: true },
+    }),
+  )
+  await withGatewayRetry('POST /v1/campaigns/launch', () =>
+    client.post('/v1/campaigns/launch', {}),
+  )
   return result
 }
 

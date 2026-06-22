@@ -20,7 +20,6 @@ import {
 } from '../../shared/P2PUpgradeModal'
 import { ComplianceModal } from '../../shared/ComplianceModal'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
 import TaskFlow from './flows/TaskFlow'
 import {
   formatTaskDate,
@@ -85,12 +84,6 @@ const TasksList = ({
 }: TasksListProps): React.JSX.Element => {
   const router = useRouter()
   const { p2pUxEnabled } = useP2pUxEnabled()
-  const { ready: proUpgrade3Ready, enabled: proUpgrade3Enabled } =
-    useProUpgrade3Flag()
-  // Match the banner / wizard-layout gate: only treat the cohort as active
-  // once the flag has resolved, so a click during the not-ready window keeps
-  // the legacy behavior instead of routing inconsistently.
-  const proUpgrade3Active = proUpgrade3Ready && proUpgrade3Enabled
   const [tasks, setTasks] = useState<Task[]>(tasksProp)
 
   useEffect(() => {
@@ -438,13 +431,12 @@ const TasksList = ({
     const resolvedFlowType =
       flowType === TASK_TYPES.p2pDisabledText ? TASK_TYPES.text : flowType
 
-    // Pro-upgrade3 cohort: a locked Pro action (Pro-gated task or a
-    // texting/robocall action while not Pro) routes into the upgrade wizard
-    // instead of the legacy upgrade modals. The off cohort keeps the modals.
+    // A locked Pro action (Pro-gated task or a texting/robocall action while
+    // not Pro) routes into the upgrade wizard.
     const opensUpgradeModal =
       (resolvedFlowType === TASK_TYPES.text && !isPro) ||
       Boolean(proRequired && !isPro)
-    if (proUpgrade3Active && opensUpgradeModal) {
+    if (opensUpgradeModal) {
       trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
         type: resolvedFlowType,
       })

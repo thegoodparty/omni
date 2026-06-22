@@ -20,6 +20,7 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
+import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import ServeOfficePicker from './ServeOfficePicker'
 import {
   buildDisabledRanges,
@@ -43,6 +44,7 @@ import {
   computeServeResumeStep,
   resolveServeBranch,
   getServeProgress,
+  isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
   SERVE_PLEDGE_COMMITMENTS,
@@ -239,6 +241,28 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       }
     })()
   }, [])
+
+  // Disqualification event: picking a major party (Democrat/Republican) surfaces
+  // the blocking alert and keeps Continue disabled. Dedupe to once per session
+  // via a ref so toggling between the two doesn't spam the event — mirrors the
+  // Win flow's `PartyDesignationBlocked` tracking. Gated on the party step so a
+  // returning EO whose stored `party` hydrates to a major value on load (via
+  // setParty(eo.party)) doesn't emit the event before the user is actually on
+  // the step — the Win flow's partyAffiliation only ever changes via step UI.
+  const partyBlockedFiredRef = useRef(false)
+  useEffect(() => {
+    if (
+      step === 'party' &&
+      isServeMajorParty(party) &&
+      !partyBlockedFiredRef.current
+    ) {
+      partyBlockedFiredRef.current = true
+      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PartyBlocked, {
+        electedOfficeId: currentEO?.id,
+        party,
+      })
+    }
+  }, [step, party, currentEO?.id])
 
   const officeIsChosen = Boolean(
     office?.positionId ||
@@ -565,7 +589,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'inOffice':
         return inOffice !== null
       case 'party':
-        return party !== null
+        // GoodParty.org doesn't support partisan officials, so a major-party
+        // pick blocks Continue (the user sees the partisan-block alert).
+        return party !== null && !isServeMajorParty(party)
       case 'office':
         return officeIsChosen
       case 'term-dates':
@@ -881,6 +907,11 @@ const PartyStep = ({
   return (
     <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
       <StepHeading title={copy.title} description={copy.description} />
+      {isServeMajorParty(value) && (
+        <div className="mt-8">
+          <MajorPartyBlockedAlert />
+        </div>
+      )}
       <div className="mt-8 space-y-3">
         {SERVE_PARTY_OPTIONS.map((option) => (
           <OptionCard

@@ -280,7 +280,7 @@ export class PaymentEventsService {
     })
     await this.campaignsService.setIsPro(campaignId)
 
-    // Pre-payment (pro-upgrade3) submissions defer the compliance_setup agent
+    // Pre-payment submissions defer the compliance_setup agent
     // kickoff to here. No-ops when the candidate has no TCR record yet or the
     // kickoff was already enqueued. Best-effort: a failure here must not fail
     // the webhook (the stranded-kickoff sweep recovers a rolled-back claim).

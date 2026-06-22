@@ -674,3 +674,55 @@
     transform: translateX(300%);
   }
 }
+
+/* Wave/shimmer swept across text. Two variants: `.text-shimmer` (blue — a chat
+ * tool label while it runs) and `.text-shimmer-muted` (grey→black — a neutral
+ * "Thinking..." state). Self-contained (not Tailwind utilities) because the
+ * effect needs -webkit-text-fill-color: transparent, which `text-transparent`
+ * doesn't set — without it WebKit/Chrome paints solid text and the gradient
+ * never shows. */
+@keyframes text-shimmer {
+  /* Travel a full gradient period (200% — the image is 200% of the box) so the
+   * band exits one side exactly as the identical next band enters. Moving less
+   * than a full period leaves the start/end states misaligned, which snaps when
+   * the loop wraps. Ends of the gradient are both muted, so the tile seam is
+   * seamless. */
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+.text-shimmer,
+.text-shimmer-muted {
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: text-shimmer 1.8s linear infinite;
+}
+
+.text-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-brand-blue-400) 0%,
+    var(--color-brand-blue-400) 40%,
+    var(--color-brand-blue-700) 50%,
+    var(--color-brand-blue-400) 60%,
+    var(--color-brand-blue-400) 100%
+  );
+}
+
+.text-shimmer-muted {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-muted-foreground) 0%,
+    var(--color-muted-foreground) 40%,
+    var(--color-foreground) 50%,
+    var(--color-muted-foreground) 60%,
+    var(--color-muted-foreground) 100%
+  );
+}
