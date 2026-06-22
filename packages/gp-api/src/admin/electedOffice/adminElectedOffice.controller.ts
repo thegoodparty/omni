@@ -5,6 +5,7 @@ import {
   BallotReadyService,
   selectPreferredOfficeHolder,
 } from '@/elections/services/ballotReady.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { parseIsoDateAsUTC, toDateOnlyString } from '@/shared/util/date.util'
 import { UsersService } from '@/users/services/users.service'
@@ -42,6 +43,7 @@ export class AdminElectedOfficeController {
     private readonly usersService: UsersService,
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly ballotReadyService: BallotReadyService,
+    private readonly elections: ElectionsService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
@@ -133,7 +135,13 @@ export class AdminElectedOfficeController {
       termStartDate,
       termEndDate,
       orgData: {
-        positionId: holder.position?.id ?? null,
+        // Store election-api's internal Position id, not the BallotReady id —
+        // consumers (re-election dating, city-slug resolution) key on the
+        // internal id. Falls back to the BR id only when election-api lacks
+        // the position.
+        positionId: holder.position?.id
+          ? await this.elections.resolveInternalPositionId(holder.position.id)
+          : null,
         customPositionName: holder.position?.name ?? null,
         overrideDistrictId: null,
       },

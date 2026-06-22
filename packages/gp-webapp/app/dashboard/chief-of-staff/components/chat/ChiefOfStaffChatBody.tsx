@@ -20,6 +20,7 @@ import { chiefOfStaffChatApi as chatApi } from '../../data/chat-api'
 import type {
   ChatErrorCode,
   ChatMessageDto,
+  ChatMessageSegment,
   ChatStreamEvent,
 } from '../../data/contracts'
 import {
@@ -52,7 +53,42 @@ interface Props {
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
-  | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
+  | {
+      kind: 'assistant'
+      id: string
+      content: string
+      toolsUsed?: string[]
+      // Persisted ordered structure (reloaded turns that used tools). When set,
+      // the assistant message renders these blocks instead of flat content.
+      segments?: ChatMessageSegment[]
+    }
+
+// Fold the flat persisted segments into render blocks: a text run, or a group
+// of consecutive tool pills (matches the live in-progress layout). Tools are
+// stored as display labels and deduped within a group, so a run of calls that
+// share a label (e.g. several constituent-data queries) shows one pill, not a
+// stack — same as the live builder.
+type RenderBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; labels: string[] }
+
+function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  for (const seg of segments) {
+    if (seg.kind === 'text') {
+      blocks.push({ kind: 'text', text: seg.text ?? '' })
+      continue
+    }
+    const label = toolDisplayName(seg.toolName ?? '')
+    const last = blocks[blocks.length - 1]
+    if (last && last.kind === 'tools') {
+      if (!last.labels.includes(label)) last.labels.push(label)
+    } else {
+      blocks.push({ kind: 'tools', labels: [label] })
+    }
+  }
+  return blocks
+}
 
 // The in-progress assistant turn, rendered as ordered blocks (text, tool-group,
 // text, ...) in the order events arrive — so a tool's wait reads as its own
@@ -106,7 +142,14 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
     return { kind: 'user', id: msg.id, content: msg.content }
   }
   if (msg.role === 'assistant') {
-    return { kind: 'assistant', id: msg.id, content: msg.content }
+    return {
+      kind: 'assistant',
+      id: msg.id,
+      content: msg.content,
+      ...(msg.segments && msg.segments.length > 0
+        ? { segments: msg.segments }
+        : {}),
+    }
   }
   return null
 }
@@ -372,6 +415,19 @@ export default function ChiefOfStaffChatBody({
           segs = next
           setSegments(next)
         }
+        // Raw ordered segments mirroring what the backend persists (raw tool
+        // names, not display labels). Committed to history so a just-finished
+        // turn renders the same interleaving as a reloaded one.
+        const committedSegs: ChatMessageSegment[] = []
+        const pushCommittedText = (delta: string): void => {
+          if (!delta) return
+          const last = committedSegs[committedSegs.length - 1]
+          if (last && last.kind === 'text') {
+            last.text = (last.text ?? '') + delta
+          } else {
+            committedSegs.push({ kind: 'text', text: delta })
+          }
+        }
         // A tool group stops "running" as soon as any text follows it.
         const resolveRunningTools = (list: LiveSegment[]): LiveSegment[] =>
           list.map((s) =>
@@ -380,16 +436,21 @@ export default function ChiefOfStaffChatBody({
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
-            if (
+            // The post-tool paragraph break is applied ONLY to the flat
+            // `assembled` content (the no-tool fallback that renders as one
+            // bubble). Segments — both the live `segs` and the committed ones —
+            // store RAW deltas, matching what the backend persists, so a
+            // freshly-streamed turn and a reloaded one render identically.
+            // Separate text segments are already separate bubbles, so the gap
+            // doesn't need the literal break.
+            const needsBreak =
               breakBeforeNextText &&
               assembled.length > 0 &&
               !/\s$/.test(assembled) &&
               !/^\s/.test(ev.delta)
-            ) {
-              assembled += '\n\n'
-            }
             breakBeforeNextText = false
-            assembled += ev.delta
+            assembled += needsBreak ? `\n\n${ev.delta}` : ev.delta
+            pushCommittedText(ev.delta)
             setStreaming(assembled)
             // Segment view: close any running tool group, then extend or open
             // the trailing text block.
@@ -408,6 +469,7 @@ export default function ChiefOfStaffChatBody({
             if (!turnTools.includes(ev.toolName)) {
               turnTools.push(ev.toolName)
             }
+            committedSegs.push({ kind: 'tool', toolName: ev.toolName })
             // Segment view: store the resolved (action-aware) label and group
             // consecutive tool calls into one running block. turnTools keeps the
             // raw names for the committed message (reload has no args).
@@ -455,7 +517,9 @@ export default function ChiefOfStaffChatBody({
               kind: 'assistant',
               id: assistantId ?? `local_assistant_${clientMessageId}`,
               content: assembled,
-              ...(turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+              ...(committedSegs.some((s) => s.kind === 'tool')
+                ? { segments: committedSegs }
+                : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
             },
           ])
           setStreaming(null)
@@ -598,24 +662,52 @@ export default function ChiefOfStaffChatBody({
               <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <SparklesIcon className="size-3.5" aria-hidden />
               </span>
-              <div className={ASSISTANT_BUBBLE}>
-                {item.toolsUsed && item.toolsUsed.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.toolsUsed.map((t) => (
-                      <span
-                        key={t}
-                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                      >
-                        <SearchIcon className="size-3" aria-hidden />
-                        {toolDisplayName(t)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.content}
-                </ReactMarkdown>
-              </div>
+              {item.segments && item.segments.length > 0 ? (
+                // Reloaded turn that used tools: replay the persisted ordered
+                // text/tool blocks, matching the in-progress layout.
+                <div className="flex min-w-0 max-w-full flex-col gap-2">
+                  {groupSegments(item.segments).map((block, i) =>
+                    block.kind === 'text' ? (
+                      <div key={`b-${i}`} className={ASSISTANT_BUBBLE}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {block.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div key={`b-${i}`} className="flex flex-wrap gap-1.5">
+                        {block.labels.map((label) => (
+                          <span
+                            key={label}
+                            className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <SearchIcon className="size-3" aria-hidden />
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <div className={ASSISTANT_BUBBLE}>
+                  {item.toolsUsed && item.toolsUsed.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.toolsUsed.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <SearchIcon className="size-3" aria-hidden />
+                          {toolDisplayName(t)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {item.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           ),
         )}

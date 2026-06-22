@@ -2,8 +2,11 @@ import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
 import {
   Sheet,
+  SheetBody,
+  SheetClose,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -11,7 +14,7 @@ import {
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-import { Textarea } from '../components/ui/textarea'
+import { cn } from '@styleguide/lib/utils'
 
 const meta: Meta<typeof Sheet> = {
   title: 'Components/Sheet',
@@ -20,7 +23,9 @@ const meta: Meta<typeof Sheet> = {
 }
 
 export default meta
-type Story = StoryObj<typeof Sheet>
+
+const sectionLabel =
+  'text-muted-foreground text-xs font-medium uppercase tracking-wide'
 
 type PlaygroundArgs = {
   open: boolean
@@ -40,6 +45,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     side: {
       control: 'select',
       options: ['top', 'right', 'bottom', 'left'],
+      description: 'Side the sheet slides in from.',
     },
   },
   render: ({ open, side }) => {
@@ -57,13 +63,56 @@ export const Playground: StoryObj<PlaygroundArgs> = {
               done.
             </SheetDescription>
           </SheetHeader>
+          <SheetBody>
+            <div className="grid gap-2">
+              <Label htmlFor="playground-name">Name</Label>
+              <Input id="playground-name" defaultValue="Pedro Duarte" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="playground-username">Username</Label>
+              <Input id="playground-username" defaultValue="@peduarte" />
+            </div>
+          </SheetBody>
+          <SheetFooter>
+            <SheetClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </SheetClose>
+            <Button>Save changes</Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     )
   },
 }
 
-export const Default: Story = {
+export const Sides: StoryObj<typeof Sheet> = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-4">
+      <p className={sectionLabel}>Direction</p>
+      <div className="flex gap-4 flex-wrap">
+        {(['right', 'left', 'top', 'bottom'] as const).map((side) => (
+          <Sheet key={side}>
+            <SheetTrigger asChild>
+              <Button variant="outline">Open {side}</Button>
+            </SheetTrigger>
+            <SheetContent side={side}>
+              <SheetHeader>
+                <SheetTitle>Side: {side}</SheetTitle>
+                <SheetDescription>
+                  Sheet sliding in from the {side}.
+                </SheetDescription>
+              </SheetHeader>
+            </SheetContent>
+          </Sheet>
+        ))}
+      </div>
+    </div>
+  ),
+}
+
+export const Overflow: StoryObj<typeof Sheet> = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Sheet>
       <SheetTrigger asChild>
@@ -71,104 +120,62 @@ export const Default: Story = {
       </SheetTrigger>
       <SheetContent>
         <SheetHeader>
-          <SheetTitle>Edit profile</SheetTitle>
+          <SheetTitle>Long content</SheetTitle>
           <SheetDescription>
-            Make changes to your profile here. Click save when you&apos;re done.
+            SheetBody scrolls independently — header and footer stay fixed.
           </SheetDescription>
         </SheetHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="sheet-name" className="text-right">
-              Name
-            </Label>
-            <Input
-              id="sheet-name"
-              defaultValue="Pedro Duarte"
-              className="col-span-3"
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="sheet-username" className="text-right">
-              Username
-            </Label>
-            <Input
-              id="sheet-username"
-              defaultValue="@peduarte"
-              className="col-span-3"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <Button type="submit">Save changes</Button>
-        </div>
+        <SheetBody>
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="grid gap-2">
+              <Label htmlFor={`overflow-field-${i}`}>Field {i + 1}</Label>
+              <Input
+                id={`overflow-field-${i}`}
+                placeholder={`Value ${i + 1}`}
+              />
+            </div>
+          ))}
+        </SheetBody>
+        <SheetFooter>
+          <SheetClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </SheetClose>
+          <Button>Save changes</Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   ),
 }
 
-export const WithForm: Story = {
+export const Anatomy: StoryObj<typeof Sheet> = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Sheet>
+    <Sheet defaultOpen>
       <SheetTrigger asChild>
-        <Button variant="outline">Open Form</Button>
+        <Button variant="outline">Open Sheet</Button>
       </SheetTrigger>
       <SheetContent>
         <SheetHeader>
-          <SheetTitle>Create New Project</SheetTitle>
+          <p className={sectionLabel}>SheetHeader</p>
+          <SheetTitle>SheetTitle</SheetTitle>
           <SheetDescription>
-            Fill in the details to create a new project.
+            SheetDescription — supporting text below the title.
           </SheetDescription>
         </SheetHeader>
-        <form className="grid gap-4 py-4">
+        <SheetBody className="gap-2">
+          <p className={sectionLabel}>Content area</p>
           <div className="grid gap-2">
-            <Label htmlFor="project-name">Project Name</Label>
-            <Input id="project-name" placeholder="Enter project name" />
+            <Label htmlFor="anatomy-name">Name</Label>
+            <Input id="anatomy-name" placeholder="Enter name" />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="project-description">Description</Label>
-            <Textarea
-              id="project-description"
-              placeholder="Enter project description"
-              rows={4}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline">Cancel</Button>
-            <Button type="submit">Create Project</Button>
-          </div>
-        </form>
-      </SheetContent>
-    </Sheet>
-  ),
-}
-
-export const WithCustomWidth: Story = {
-  render: () => (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open Wide Sheet</Button>
-      </SheetTrigger>
-      <SheetContent className="w-[540px] sm:w-[640px]">
-        <SheetHeader>
-          <SheetTitle>Wide Sheet</SheetTitle>
-          <SheetDescription>This sheet has a custom width.</SheetDescription>
-        </SheetHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <h4 className="font-medium">Column 1</h4>
-              <p className="text-sm text-muted-foreground">
-                This is the first column of content.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <h4 className="font-medium">Column 2</h4>
-              <p className="text-sm text-muted-foreground">
-                This is the second column of content.
-              </p>
-            </div>
-          </div>
-        </div>
+        </SheetBody>
+        <p className={cn(sectionLabel, 'px-6')}>SheetFooter</p>
+        <SheetFooter>
+          <SheetClose asChild>
+            <Button variant="outline">SheetClose</Button>
+          </SheetClose>
+          <Button>Primary action</Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   ),

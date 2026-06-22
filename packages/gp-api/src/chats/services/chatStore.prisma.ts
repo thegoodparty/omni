@@ -1,9 +1,26 @@
 import { ConflictException, Injectable } from '@nestjs/common'
-import { ChatMessage, ChatMessageRole, Prisma } from '../../generated/prisma'
+import {
+  ChatMessage,
+  ChatMessageRole,
+  ChatMessageSegment,
+  ChatMessageSegmentKind,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 
 type ChatTxClient = Pick<Prisma.TransactionClient, 'chatMessage'>
+
+// One ordered display block of an assistant turn (see ChatMessageSegment).
+export type PersistedSegment = {
+  kind: ChatMessageSegmentKind
+  text?: string | null
+  toolName?: string | null
+}
+
+export type ChatMessageWithSegments = ChatMessage & {
+  segments: ChatMessageSegment[]
+}
 
 @Injectable()
 export class ChatStoreService extends createPrismaBase(
@@ -15,10 +32,13 @@ export class ChatStoreService extends createPrismaBase(
     })
   }
 
-  listMessagesByConversation(conversationId: string): Promise<ChatMessage[]> {
+  listMessagesByConversation(
+    conversationId: string,
+  ): Promise<ChatMessageWithSegments[]> {
     return this.client.chatMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },
       orderBy: { createdAt: Prisma.SortOrder.asc },
+      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
     })
   }
 
@@ -39,6 +59,7 @@ export class ChatStoreService extends createPrismaBase(
     role: ChatMessageRole
     content: string
     clientMessageId?: string
+    segments?: PersistedSegment[]
   }): Promise<ChatMessage> {
     return appendMessageIdempotent(this.client, args)
   }
@@ -86,12 +107,31 @@ const appendMessageIdempotent = async (
     role: ChatMessageRole
     content: string
     clientMessageId?: string
+    segments?: PersistedSegment[]
   },
 ): Promise<ChatMessage> => {
-  const { conversationId, role, content, clientMessageId } = args
+  const { conversationId, role, content, clientMessageId, segments } = args
+  // Segments only ride on the server-internal (no clientMessageId) assistant
+  // write; user messages never carry them.
   if (clientMessageId === undefined) {
     return db.chatMessage.create({
-      data: { conversationId, role, content },
+      data: {
+        conversationId,
+        role,
+        content,
+        ...(segments && segments.length > 0
+          ? {
+              segments: {
+                create: segments.map((s, i) => ({
+                  ordinal: i,
+                  kind: s.kind,
+                  text: s.text ?? null,
+                  toolName: s.toolName ?? null,
+                })),
+              },
+            }
+          : {}),
+      },
     })
   }
   const existing = await db.chatMessage.findFirst({

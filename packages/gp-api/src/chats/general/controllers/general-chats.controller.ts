@@ -253,6 +253,13 @@ export class GeneralChatsController {
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
+        ...(m.segments.length > 0 && {
+          segments: m.segments.map((s) => ({
+            kind: s.kind,
+            text: s.text,
+            toolName: s.toolName,
+          })),
+        }),
       })),
     }
   }

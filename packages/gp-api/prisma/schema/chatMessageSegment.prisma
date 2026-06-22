@@ -1,0 +1,23 @@
+/// Ordered display structure of an assistant turn: the interleaved text blocks
+/// and tool-call pills as they streamed. Persisted only when a turn actually
+/// used tools — pure-text turns render from ChatMessage.content (backwards
+/// compatible: old messages have no segments and render flat). One row per
+/// segment; consecutive `tool` rows are grouped into one pill row by the UI.
+model ChatMessageSegment {
+  id            String      @id @default(cuid())
+  chatMessageId String      @map("chat_message_id")
+  chatMessage   ChatMessage @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+
+  ordinal  Int
+  kind     ChatMessageSegmentKind
+  text     String? @db.Text
+  toolName String? @map("tool_name")
+
+  @@index([chatMessageId, ordinal])
+  @@map("chat_message_segment")
+}
+
+enum ChatMessageSegmentKind {
+  text
+  tool
+}

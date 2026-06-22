@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,12 +18,13 @@ import {
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
-import { ElectedOffice, Priority } from '../../generated/prisma'
+import { ElectedOffice, Priority, User } from '../../generated/prisma'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 import {
   CommunityIssueDetailSchema,
@@ -31,6 +33,7 @@ import {
   DispatchRequestDto,
   DispatchResponseSchema,
   IssueIdParamDto,
+  SelfDispatchRequestDto,
 } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from '../services/communityIssueDispatch.service'
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
@@ -64,6 +67,24 @@ export class CommunityIssuesController {
   @ResponseSchema(DispatchResponseSchema)
   async dispatchCohort(@Body() body: DispatchRequestDto) {
     return this.dispatch.dispatchForCohort(body.orgSlugs)
+  }
+
+  @Post('self-dispatch')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(DispatchResponseSchema)
+  async selfDispatch(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SelfDispatchRequestDto,
+  ) {
+    if (!user.email.toLowerCase().endsWith('@goodparty.org')) {
+      throw new ForbiddenException()
+    }
+    return this.dispatch.dispatchSelfServe(
+      electedOffice.organizationSlug,
+      body.type,
+    )
   }
 
   @Get()
