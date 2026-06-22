@@ -897,9 +897,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (claim.count === 0) {
       // Idempotency branches intentionally exclude FAILED from the skip path.
       // Per gp-api/CLAUDE.md "Idempotency check breadth", FAILED runs must
-      // remain eligible for re-dispatch — sweepStaleRuns flips RUNNING→FAILED
-      // at 45min, and dispatchRun writes RUNNING then flips to FAILED on
-      // SQS-send failure; including FAILED here would permanently strand both.
+      // remain eligible for re-dispatch — dispatchRun writes RUNNING then
+      // flips to FAILED on SQS-send failure, and a dead Fargate task is
+      // reconciled to FAILED by the gp-ai-projects ECS task-reaper; including
+      // FAILED here would permanently strand both.
       const current = await this.model.findUnique({
         where: { id: tcrComplianceId },
       })
@@ -1025,8 +1026,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Stamp the runId scoped to our claim timestamp. If dispatchRun exceeded
     // the TTL and a re-claimant took over and stamped its own runId, this
     // updateMany matches zero rows — we don't clobber the live claim. The
-    // orphaned experiment_run row this caller created is RUNNING; sweepStaleRuns
-    // in ExperimentRunsService will flip it to FAILED at 45min.
+    // orphaned experiment_run row this caller created is RUNNING; if its
+    // Fargate task dies it is reconciled to FAILED by the gp-ai-projects ECS
+    // task-reaper (there is no time-based stale sweeper in gp-api).
     const stamped = await this.model.updateMany({
       where: {
         id: tcrComplianceId,
@@ -1039,7 +1041,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       this.logger.error(
         { campaignId, tcrComplianceId, runId: run.runId },
         '[TCR Compliance] Claim expired before dispatch completed; ' +
-          'experiment_run is orphaned and will be FAILED by sweepStaleRuns',
+          'experiment_run is orphaned; a dead task is reconciled to FAILED ' +
+          'by the gp-ai-projects ECS task-reaper',
       )
       return
     }

@@ -39,8 +39,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * Called when a new elected office is created. Dispatches one run of each
    * community-issue experiment type for the org. A FAILED-only prior run is
    * not blocking: the first attempt did not succeed and nothing else
-   * re-dispatches it (crons are flagged off at launch; sweepStaleRuns only
-   * marks stale runs FAILED). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
+   * re-dispatches it (crons are flagged off at launch; a dead run is only
+   * marked FAILED by the gp-ai-projects ECS task-reaper, which does not
+   * re-dispatch). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
    * COMPLETED to avoid spawning a duplicate live run.
    */
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {

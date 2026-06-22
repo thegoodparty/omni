@@ -125,7 +125,7 @@ There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies wi
 - `runId` — unique, uuid7, used in SQS messages and by callers
 - `organizationSlug` → `Organization.slug`, `onDelete: Cascade`
 - `experimentType: String` — opaque to this module; callers define the value space
-- `status: ExperimentRunStatus { RUNNING, COMPLETED, FAILED }`
+- `status: ExperimentRunStatus { QUEUED, RUNNING, AWAITING_RESUME, COMPLETED, FAILED }`
 - `params: Json`, `artifactBucket/Key`, `durationSeconds`, `error`
 - `@@index([organizationSlug, experimentType])`
 
