@@ -18,6 +18,8 @@ interface Props {
   extraBar?: React.ReactNode
   /** Horizontal alignment of extraBar content. Default: center. */
   extraBarAlign?: 'start' | 'center' | 'end'
+  /** Extra classes on the fixed container — use to offset for a sidebar, e.g. `lg:left-64`. */
+  className?: string
 }
 
 /**
@@ -33,13 +35,14 @@ export default function AiChatBar({
   onOpenConversation,
   extraBar,
   extraBarAlign = 'center',
+  className,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
     : (config.placeholder ?? 'How can I help?')
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[55] lg:left-64">
+    <div className={`fixed inset-x-0 bottom-0 z-[55]${className ? ` ${className}` : ''}`}>
       {extraBar && (
         <div className="flex h-14 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
           <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
@@ -50,7 +53,7 @@ export default function AiChatBar({
       <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
       <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 py-4 lg:px-6`}>
         <div
-          className="relative w-full rounded-full p-px animate-spin-gradient"
+          className="relative w-full rounded-full p-[1.5px] animate-spin-gradient"
           style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
         >
           <div className="flex min-h-12 w-full items-center gap-1 rounded-full bg-card py-1.5 pl-1.5 pr-1.5">

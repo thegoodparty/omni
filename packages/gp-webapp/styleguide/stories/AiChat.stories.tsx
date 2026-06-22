@@ -8,12 +8,12 @@ import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
-import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { DownloadIcon, ShareIcon, SparklesIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
 import { mockChatApi } from 'app/dashboard/shared/ai-chat/mock-chat-api'
+import { CHAT_MAX_W } from 'app/dashboard/shared/ai-chat/constants'
 import type { AiChatClient, AiChatConfig, ChatMessageDto } from 'app/dashboard/shared/ai-chat/types'
 
 const queryClient = new QueryClient()
@@ -64,7 +64,7 @@ function AiChatDemo({
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId ?? null)
 
   return (
-    <div className="relative h-[300px] overflow-hidden bg-background">
+    <div className="relative h-[300px] bg-background">
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Page content area
       </div>
@@ -264,30 +264,6 @@ export const ExtraBarActions: StoryObj = {
   },
 }
 
-export const ExtraBarNav: StoryObj = {
-  parameters: { controls: { disable: true } },
-  render: () => {
-    const [open, setOpen] = useState(false)
-    const [tab, setTab] = useState('overview')
-    const extraBar = (
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="voters">Voters</TabsTrigger>
-          <TabsTrigger value="finance">Finance</TabsTrigger>
-        </TabsList>
-      </Tabs>
-    )
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        extraBar={extraBar}
-        extraBarAlign="start"
-      />
-    )
-  },
-}
 
 export const DrawerOpen: StoryObj = {
   parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
@@ -415,13 +391,16 @@ export const WithRadioCards: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        chatApi={RADIO_API}
-        initialConversationId={SEEDED_ID}
-        messageRenderer={radioRenderer}
-      />
+      <div className="h-full min-h-[600px] bg-background">
+        <AiChatSurface
+          chatApi={RADIO_API}
+          config={DEFAULT_CONFIG}
+          open={open}
+          onOpenChange={setOpen}
+          initialConversationId={SEEDED_ID}
+          messageRenderer={radioRenderer}
+        />
+      </div>
     )
   },
 }
@@ -435,10 +414,7 @@ export const WithProgressBar: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="relative h-[300px] overflow-hidden bg-background">
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          Page content area
-        </div>
+      <div className="h-full min-h-[600px] bg-background">
         {!open && (
           <AiChatBar
             chatApi={mockChatApi}
@@ -450,8 +426,8 @@ export const WithProgressBar: StoryObj = {
         <Drawer open={open} onOpenChange={setOpen}>
           <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
             <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-4" aria-hidden />
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <SparklesIcon className="size-5" aria-hidden />
               </span>
               <div className="flex flex-col text-left">
                 <DrawerTitle>{DEFAULT_CONFIG.title}</DrawerTitle>
@@ -462,7 +438,7 @@ export const WithProgressBar: StoryObj = {
               chatApi={mockChatApi}
               config={DEFAULT_CONFIG}
               active={open}
-              className="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
+              className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
               bottomSlot={
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -534,10 +510,7 @@ export const LongConversation: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="relative h-[300px] overflow-hidden bg-background">
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          Page content area
-        </div>
+      <div className="h-full min-h-[600px] bg-background">
         <AiChatSurface
           chatApi={LONG_CONV_API}
           config={DEFAULT_CONFIG}

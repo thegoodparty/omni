@@ -636,8 +636,8 @@
 }
 
 :root {
-  --ai-gradient-from: var(--color-brand-red-500);
-  --ai-gradient-to: var(--color-primary);
+  --ai-gradient-from: var(--color-brand-red-400);
+  --ai-gradient-to: var(--color-brand-blue-400);
 }
 
 .dark {
