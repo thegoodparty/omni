@@ -62,9 +62,14 @@ function AiChatDemo({
   messageRenderer?: (content: string) => React.ReactNode
 }) {
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId ?? null)
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
 
   return (
-    <div className="relative h-[300px] bg-background">
+    <div
+      ref={setContainer}
+      className={`relative overflow-hidden bg-background ${open ? 'h-[90vh]' : 'h-[300px]'}`}
+      style={{ transform: 'translateZ(0)' }}
+    >
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Page content area
       </div>
@@ -85,6 +90,7 @@ function AiChatDemo({
       )}
 
       <AiChatSurface
+        container={container}
         chatApi={chatApi}
         config={config}
         open={open}
@@ -387,12 +393,18 @@ const RADIO_API = makeSeededApi([
 ])
 
 export const WithRadioCards: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
     return (
-      <div className="h-full min-h-[600px] bg-background">
+      <div
+        ref={setContainer}
+        className="relative h-[90vh] overflow-hidden bg-background"
+        style={{ transform: 'translateZ(0)' }}
+      >
         <AiChatSurface
+          container={container}
           chatApi={RADIO_API}
           config={DEFAULT_CONFIG}
           open={open}
@@ -410,11 +422,16 @@ export const WithRadioCards: StoryObj = {
 // ---------------------------------------------------------------------------
 
 export const WithProgressBar: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
     return (
-      <div className="h-full min-h-[600px] bg-background">
+      <div
+        ref={setContainer}
+        className="relative h-[90vh] overflow-hidden bg-background"
+        style={{ transform: 'translateZ(0)' }}
+      >
         {!open && (
           <AiChatBar
             chatApi={mockChatApi}
@@ -423,7 +440,7 @@ export const WithProgressBar: StoryObj = {
             onOpenConversation={() => setOpen(true)}
           />
         )}
-        <Drawer open={open} onOpenChange={setOpen}>
+        <Drawer open={open} onOpenChange={setOpen} container={container}>
           <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
             <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -506,12 +523,18 @@ const LONG_CONV_API = makeSeededApi([
 ])
 
 export const LongConversation: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(true)
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
     return (
-      <div className="h-full min-h-[600px] bg-background">
+      <div
+        ref={setContainer}
+        className="relative h-[90vh] overflow-hidden bg-background"
+        style={{ transform: 'translateZ(0)' }}
+      >
         <AiChatSurface
+          container={container}
           chatApi={LONG_CONV_API}
           config={DEFAULT_CONFIG}
           open={open}

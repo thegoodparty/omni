@@ -16,6 +16,8 @@ interface Props {
   initialConversationId?: string | null
   /** Custom renderer for assistant message content. Defaults to ReactMarkdown. */
   messageRenderer?: (content: string) => React.ReactNode
+  /** Portal target for the drawer. Defaults to document.body. */
+  container?: HTMLElement | null
 }
 
 /**
@@ -32,6 +34,7 @@ export default function AiChatSurface({
   onOpenChange,
   initialConversationId,
   messageRenderer,
+  container,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId ?? null)
 
@@ -40,7 +43,7 @@ export default function AiChatSurface({
   }, [open, initialConversationId])
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} container={container}>
       <DrawerContent
         className="flex h-[90vh] flex-col p-0"
         aria-describedby={undefined}
