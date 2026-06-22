@@ -665,6 +665,23 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(mockPrisma.website.update).not.toHaveBeenCalled()
   })
 
+  it('creates a website with a placeholder title when the user has no name', async () => {
+    const namelessUser = createMockUser({ firstName: null, name: null })
+    mockPrisma.website.findUnique.mockResolvedValue(null)
+    mockPrisma.website.create.mockImplementation(
+      ({ data }: { data: { content: PrismaJson.WebsiteContent } }) => ({
+        id: 8,
+        campaignId: 99,
+        content: data.content,
+      }),
+    )
+
+    await service.ensureCompliancePublishableWebsite(namelessUser, campaign)
+
+    const createArg = mockPrisma.website.create.mock.calls[0][0]
+    expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
+  })
+
   it('backfills an existing website with gaps without creating a new one', async () => {
     mockPrisma.website.findUnique.mockResolvedValue({
       id: 7,

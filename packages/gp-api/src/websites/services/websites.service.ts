@@ -29,6 +29,14 @@ const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
 const hasText = (value?: string | null): boolean =>
   typeof value === 'string' && value.trim().length > 0
 
+// getUserFullName is '' when firstName and name are both null — a real case
+// for legacy-Pro candidates who skipped the profile step. Without this the
+// generated copy is "Vote For " / "<p> is a candidate…".
+const getDisplayName = (user: User): string => {
+  const fullName = getUserFullName(user)
+  return hasText(fullName) ? fullName : 'The Candidate'
+}
+
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
@@ -42,11 +50,7 @@ export const applyCompliancePublishFallbacks = (
   user: User,
   campaign: Campaign,
 ): PrismaJson.WebsiteContent | null => {
-  // getUserFullName is '' when firstName and name are both null — a real case
-  // for legacy-Pro candidates who skipped the profile step — so guard against
-  // publishing "Vote For " / "<p> is a candidate…".
-  const fullName = getUserFullName(user)
-  const displayName = hasText(fullName) ? fullName : 'The Candidate'
+  const displayName = getDisplayName(user)
 
   const about = content.about ?? {}
   const nextAbout = { ...about }
@@ -126,7 +130,7 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         content: {
           theme: 'light',
           main: {
-            title: `Vote For ${getUserFullName(user)}`,
+            title: `Vote For ${getDisplayName(user)}`,
             tagline: 'Local Solutions, Not Party Politics',
           },
           about: {
