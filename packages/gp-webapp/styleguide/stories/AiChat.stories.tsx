@@ -9,7 +9,6 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/
 import { Progress } from '../components/ui/progress'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import {
-  ArrowRightIcon,
   CheckIcon,
   DownloadIcon,
   ShareIcon,
@@ -552,7 +551,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 2',
     title: 'Collect voter signatures',
     status: 'active',
-    icon: ArrowRightIcon,
     badge: 'in progress',
     description: 'Gather 250 valid signatures from registered voters in your district.',
     items: [
@@ -565,7 +563,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 3',
     title: 'Set up your campaign committee',
     status: 'upcoming',
-    icon: ArrowRightIcon,
     description:
       'Register a committee with the state ethics board before accepting any donations or spending any money.',
     link: { label: 'Register online at ethics.state.gov', href: '#' },
@@ -575,7 +572,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 4',
     title: 'Launch your GoodParty campaign page',
     status: 'upcoming',
-    icon: ArrowRightIcon,
     badge: 'optional',
     description:
       'Activate your free candidate profile so supporters can find you, donate, and volunteer.',
@@ -585,7 +581,6 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     label: 'Step 5',
     title: 'File your first financial disclosure',
     status: 'upcoming',
-    icon: ArrowRightIcon,
     description:
       'Report all donations and expenditures within 30 days of your committee registration.',
     items: [
