@@ -682,6 +682,40 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
+  it('drops positions with no real data instead of seeding placeholder issues', async () => {
+    const campaignWithEmptyPosition: CampaignWith<'campaignPositions'> = {
+      ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
+      campaignPositions: [
+        {
+          id: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          description: null,
+          order: 0,
+          campaignId: 99,
+          positionId: 1,
+          topIssueId: null,
+        },
+      ],
+    }
+    mockPrisma.website.findUnique.mockResolvedValue(null)
+    mockPrisma.website.create.mockImplementation(
+      ({ data }: { data: { content: PrismaJson.WebsiteContent } }) => ({
+        id: 9,
+        campaignId: 99,
+        content: data.content,
+      }),
+    )
+
+    await service.ensureCompliancePublishableWebsite(
+      user,
+      campaignWithEmptyPosition,
+    )
+
+    const createArg = mockPrisma.website.create.mock.calls[0][0]
+    expect(createArg.data.content.about.issues).toEqual([])
+  })
+
   it('backfills an existing website with gaps without creating a new one', async () => {
     mockPrisma.website.findUnique.mockResolvedValue({
       id: 7,
