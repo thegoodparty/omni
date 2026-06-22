@@ -386,12 +386,13 @@ describe('ServeOnboardingFlow', () => {
     expect(patchRequests).toHaveLength(0)
   })
 
-  it('create-on-first-answer: a net-new user with no EO is created on the first Continue, then checkpoints + completes via PUT', async () => {
+  it('create-on-first-answer: a net-new user with no EO is created on the inOffice Continue, then checkpoints + completes via PUT', async () => {
     // No existing EO: `/current` 404s and `/mine` is empty, so `currentEO`
-    // starts null. The FIRST Continue must mint the EO (one POST) so every
-    // subsequent step has an id to PUT against — including the no-data-field
-    // intro steps. Completion is then a PUT (not a duplicate POST) carrying the
-    // selfReported marker + onboardingCompletedAt.
+    // starts null. The welcome Continue is navigation-only (no EO yet — the user
+    // could still pick "campaigning"); the inOffice Continue is the first real
+    // answer and must mint the EO (one POST) so every subsequent step has an id
+    // to PUT against. Completion is then a PUT (not a duplicate POST) carrying
+    // the selfReported marker + onboardingCompletedAt.
     let postCount = 0
     let postBody: Record<string, unknown> | undefined
     const putBodies: Record<string, unknown>[] = []
@@ -425,14 +426,18 @@ describe('ServeOnboardingFlow', () => {
       const user = userEvent.setup()
       renderFlow()
 
-      // First Continue (welcome → inOffice) creates the EO and checkpoints.
+      // Welcome Continue is navigation-only: no EO is created before the user
+      // commits to the serve flow.
       await screen.findByText('Meet your virtual chief of staff in 5 minutes')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await waitFor(() => expect(postCount).toBe(1))
+      await screen.findByText('Are you already in office?')
+      expect(postCount).toBe(0)
+      // The inOffice Continue is the first real answer — it mints the EO.
       await user.click(
         await screen.findByRole('button', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() => expect(postCount).toBe(1))
       await user.click(
         await screen.findByRole('button', {
           name: /Independent \/ Non-major party/,
@@ -470,10 +475,11 @@ describe('ServeOnboardingFlow', () => {
       // The create-on-first-answer POST is a bare stub (no completion fields).
       expect(postBody).not.toHaveProperty('onboardingCompletedAt')
 
-      // Every Continue wrote a step checkpoint; the intro steps are covered.
+      // Every post-create Continue wrote a step checkpoint, including a
+      // no-data-field step (`constituents`) that data-derived resume can't pinpoint.
       const steps = putBodies.map((b) => b.onboardingStep)
-      expect(steps).toContain('inOffice')
       expect(steps).toContain('party')
+      expect(steps).toContain('constituents')
 
       // Completion is a PUT carrying the marker + onboardingCompletedAt so a
       // net-new user is never misclassified as a prefill on resume.
@@ -518,10 +524,11 @@ describe('ServeOnboardingFlow', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('full restart: resumes on the inOffice step when that was the last checkpoint', async () => {
-    // The user left right after the intro (checkpoint `inOffice`) with nothing
-    // else saved. Pure data-derived resume can only ever say `welcome` here, so
-    // this proves the persisted checkpoint — not the data — drives routing.
+  it('full restart: routes to a persisted inOffice checkpoint when present', async () => {
+    // A record carrying an `inOffice` checkpoint with no other data (e.g. a
+    // legacy/edge record) must still route there: pure data-derived resume can
+    // only ever say `welcome`, so this proves the persisted checkpoint — not the
+    // data — drives routing for a no-data-field step.
     mockLoad(buildEO({ onboardingStep: 'inOffice' }), buildOrg())
     renderFlow()
 

@@ -312,8 +312,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // Create-on-first-answer: a truly net-new user has no ElectedOffice to write
   // to, so the incremental saves used to silently no-op and nothing reached the
   // DB until the final completion POST. Instead, lazily create the EO the first
-  // time we need an id (the first Continue), then PUT/PATCH against it on every
-  // subsequent step. The backend create() is idempotent per user (advisory lock
+  // time we need an id (the inOffice Continue — the user's first real answer,
+  // gated so a Win-flow switcher never mints one), then PUT/PATCH against it on
+  // every subsequent step. The backend create() is idempotent per user (advisory lock
   // + placeholder adoption), so a sales/magic-link stub is reused rather than
   // duplicated, and a double create returns the same record. Returns null only
   // when creation fails, in which case the caller degrades gracefully (the
@@ -525,20 +526,25 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const handleContinue = () => {
     switch (step) {
       case 'welcome':
-        // First Continue: create-on-first-answer mints the EO (for net-new
-        // users with none) and checkpoints `inOffice`, so even leaving on the
-        // inOffice step resumes there.
-        void persistAndAdvance(
-          { targetStep: 'inOffice' },
-          () => setStep('inOffice'),
-          'serveOnboarding.checkpoint.welcome',
-        )
+        // Navigation only — deliberately do NOT create the EO here. Welcome is a
+        // pure intro with no answer, and the very next step lets the user pick
+        // "still campaigning", which hands off to the Win flow. Minting an EO on
+        // this Continue would strand a campaigning user with a dangling
+        // onboardingCompletedAt:null record that the `mine` resume fallback would
+        // later drag them back into serve onboarding with. Create-on-first-answer
+        // is deferred to the inOffice Continue (the first real "I'm in office").
+        setStep('inOffice')
         return
       case 'inOffice':
         if (inOffice === 'campaigning') {
           setSwitchToCampaign(true)
           return
         }
+        // Create-on-first-answer: this non-campaigning Continue is the user's
+        // first real commitment to the serve flow, so it mints the EO (for
+        // net-new users with none) and writes the first `party` checkpoint. A
+        // user who picked "campaigning" above returns before reaching here, so
+        // no EO is ever created for a Win-flow switcher.
         void persistAndAdvance(
           { targetStep: 'party' },
           () => setStep('party'),
