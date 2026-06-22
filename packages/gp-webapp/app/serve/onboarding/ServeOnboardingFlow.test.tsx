@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import { SnackbarProvider } from '@shared/utils/Snackbar'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 
 // Analytics fans out to Segment on a real window; stub it so the flow's
@@ -371,6 +371,87 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
     // Office was already on the org and never re-picked — no PATCH fires.
     expect(patchRequests).toHaveLength(0)
+  })
+
+  it('POSTs a new EO with selfReported when a net-new user with no prior record completes', async () => {
+    // No existing EO: `/current` 404s and `/mine` is empty, so `currentEO`
+    // stays null and persist() takes the POST branch. The party-step
+    // incremental save is a no-op (nothing to attach to), so the completion
+    // POST is the only place selfReported is recorded for this user — it must
+    // carry the marker so resume never misclassifies them as a prefill.
+    let postBody: Record<string, unknown> | undefined
+    api.mock('GET /v1/elected-office/current', { status: 404, data: {} })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+    api.mock('POST /v1/elected-office', (req) => {
+      postBody = req.body as unknown as Record<string, unknown>
+      return {
+        status: 200,
+        data: buildEO({ id: 'eo-new', selfReported: true }),
+      }
+    })
+
+    // The office picker fetches positions through the legacy clientFetch path,
+    // which only resolves in this fresh-navigate (no-EO) harness when its
+    // react-query entry is pre-seeded; seed the result for the ZIP we type so
+    // the picker shows the office synchronously.
+    const positionsKey = ['serve-onboarding-positions', '90001']
+    testQueryClient.setQueryData(positionsKey, [
+      {
+        brPositionId: 'br-pos-1',
+        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+        city: 'Springfield',
+      },
+    ])
+
+    try {
+      const user = userEvent.setup()
+      renderFlow()
+
+      await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', { name: /I'm an elected official/ }),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', {
+          name: /Independent \/ Non-major party/,
+        }),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await screen.findByText('What office do you currently hold?')
+      await user.type(
+        screen.getByPlaceholderText('Enter 5 digit zip code'),
+        '90001',
+      )
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await screen.findByText('When does your term run?')
+      const [startInput, endInput] =
+        screen.getAllByPlaceholderText('mm/dd/yyyy')
+      await user.type(startInput!, '01012026')
+      await user.type(endInput!, '01012030')
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await screen.findByText('Take our pledge to get your chief of staff')
+      await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
+
+      await waitFor(() => expect(postBody).toBeDefined())
+      expect(postBody).toMatchObject({ selfReported: true })
+      // Completion still stamps onboardingCompletedAt (the existing guard), and
+      // the marker rides alongside it.
+      expect(postBody).toHaveProperty('onboardingCompletedAt')
+    } finally {
+      testQueryClient.removeQueries({ queryKey: positionsKey })
+    }
   })
 
   it('advances even when the incremental save fails (best-effort, non-blocking)', async () => {
