@@ -1,8 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { startOfDay } from 'date-fns'
 import { Campaign, Prisma } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { parseIsoDateString } from 'src/shared/util/date.util'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
+import { buildStaticTrackerTaskRows } from './staticTrackerTasks.util'
 
 // Campaign Tracker tasks live in their own table (campaign_tracker_tasks) so the
 // new tracker coexists with existing users' campaign_task rows. The completion
@@ -22,6 +25,30 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         { id: Prisma.SortOrder.asc },
       ],
     })
+  }
+
+  // Create the static (global) launch/pre-launch rows from the catalog so the
+  // tracker can render immediately. Idempotent: a no-op once they exist.
+  async materializeStaticTasks(campaign: Campaign): Promise<number> {
+    const existing = await this.model.count({
+      where: { campaignId: campaign.id, isDefaultTask: true },
+    })
+    if (existing > 0) return 0
+
+    const start = startOfDay(campaign.createdAt)
+    const rows = buildStaticTrackerTaskRows(
+      campaign.id,
+      start,
+      this.resolveElectionDate(campaign),
+    )
+    const { count } = await this.model.createMany({ data: rows })
+    return count
+  }
+
+  private resolveElectionDate(campaign: Campaign): Date | null {
+    const { electionDate, primaryElectionDate } = campaign.details ?? {}
+    const chosen = electionDate ?? primaryElectionDate
+    return chosen ? startOfDay(parseIsoDateString(chosen)) : null
   }
 
   async completeTask(
