@@ -8,7 +8,7 @@ import {
   ChatMessageRole,
   MeetingBriefing,
 } from '../../../generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type {
@@ -251,7 +251,14 @@ describe('BriefingChatsService', () => {
   let chatStream: FakeChatStream
   let svc: BriefingChatsService
 
+  // web_search is gated on the Anthropic key (the chat is Claude-only).
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+  })
+
   beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
     briefingContext = new FakeBriefingContext()
     chatStore = new FakeChatStore()
     chatStream = new FakeChatStream()

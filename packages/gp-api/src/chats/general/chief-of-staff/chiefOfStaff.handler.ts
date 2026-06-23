@@ -181,8 +181,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
     // Web search runs through Anthropic's native tool (the chat is Claude-only)
     // so queries stay within the enterprise agreement rather than going to a
-    // third party. No-op if ANTHROPIC_API_KEY is unset (the LLM service skips it).
-    tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    // third party. Gated on the key here too (not just in the LLM layer) so the
+    // system prompt never advertises a tool that wasn't registered.
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
     // is configured (shared DATABRICKS_* present), the user's district resolved

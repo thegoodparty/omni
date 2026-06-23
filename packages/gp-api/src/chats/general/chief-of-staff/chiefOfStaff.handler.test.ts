@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -50,7 +50,15 @@ describe('ChiefOfStaffHandler', () => {
   let context: ChiefOfStaffContextService
   let port: PrioritiesToolPort
 
+  // The CoS chat is Claude-only and requires this key to run; web_search is
+  // gated on it, so set it for the tool-set assertions.
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+  })
+
   beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
     port = buildPort()
     store = {
       createScopedConversation: vi.fn(),

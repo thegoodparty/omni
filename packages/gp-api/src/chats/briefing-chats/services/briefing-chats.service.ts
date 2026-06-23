@@ -223,8 +223,11 @@ export class BriefingChatsService {
     tools.get_artifacts = buildGetArtifactsTool({ provider: artifactsProvider })
 
     // Web search via Anthropic's native tool (briefing chat is Claude-only), so
-    // queries stay within the enterprise agreement. No-op without ANTHROPIC_API_KEY.
-    tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    // queries stay within the enterprise agreement. Gated on the key here too
+    // so the system prompt never advertises a tool that wasn't registered.
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
 
     if (this.databricks && this.districtResolver) {
       const resolved = await this.districtResolver.resolveByUserId(userId)
