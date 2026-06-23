@@ -325,6 +325,7 @@ If you find yourself wanting to do one of these to make progress, you are wrong 
 Validator-passing JSON can still be misleading. Before declaring success:
 
 - **`stage` matches reality.** If `tcr_submission.peerly_request_id` is set, `stage` must be `"tcr_submitted"`. If `website.verified_live_at` is empty, `stage` cannot be later than `pending_website_live` (unless you exited with a `next_action`).
+- **Never write `stage: "tcr_submitted"` without an actual Peerly submission.** `tcr_submitted` is legitimate only when Step 6 succeeded *this run* (`tcr_submission.peerly_request_id` is non-empty) OR you skipped Step 6 because the read stage was already `tcr_in_review`/`tcr_approved` (then `submit_tcr` is in `skipped_steps`). Reading `awaiting_pin` is **not** "already submitted" — it means *ready to submit*: run Step 6. The validator rejects `tcr_submitted` with an empty `peerly_request_id` and no skipped `submit_tcr`, so do not treat the run as done until you have actually called the submit tool.
 - **`domain` is non-empty iff `stage ≥ domain_purchased`.** Same for `website` and `tcr_submission` at their stages.
 - **`completed_steps[]` reflects what you did**, not what was already done by a prior run. Use `skipped_steps[]` for the latter.
 - **`blockers_encountered[]` is non-empty when `stage == "failed"`.** A `failed` stage with no blocker is a bug.
