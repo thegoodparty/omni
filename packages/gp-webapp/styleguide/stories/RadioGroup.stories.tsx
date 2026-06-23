@@ -161,9 +161,9 @@ export const States: Story = {
               <RadioGroupItem
                 value="foc-off"
                 id="foc-off"
-                className="ring-[3px] ring-primary-focus"
+                className="ring-[3px] ring-components-input-focus"
               />
-              <Label htmlFor="foc-off" className="font-normal text-foreground">
+              <Label htmlFor="foc-off" variant="secondary">
                 Unchecked
               </Label>
             </div>
@@ -173,9 +173,9 @@ export const States: Story = {
               <RadioGroupItem
                 value="foc-on"
                 id="foc-on"
-                className="ring-[3px] ring-primary-focus"
+                className="ring-[3px] ring-components-input-focus"
               />
-              <Label htmlFor="foc-on" className="font-normal text-foreground">
+              <Label htmlFor="foc-on" variant="secondary">
                 Checked
               </Label>
             </div>
@@ -233,7 +233,7 @@ export const States: Story = {
               <RadioGroupItem
                 value="foc-card-off"
                 id="foc-card-off"
-                className="shrink-0 ring-[3px] ring-primary-focus"
+                className="shrink-0 ring-[3px] ring-components-input-focus"
               />
               <div className="flex flex-col gap-px">
                 <span className="text-sm font-normal leading-5 text-foreground">
@@ -253,7 +253,7 @@ export const States: Story = {
               <RadioGroupItem
                 value="foc-card-on"
                 id="foc-card-on"
-                className="shrink-0 ring-[3px] ring-primary-focus"
+                className="shrink-0 ring-[3px] ring-components-input-focus"
               />
               <div className="flex flex-col gap-px">
                 <span className="text-sm font-normal leading-5 text-foreground">

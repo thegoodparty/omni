@@ -304,16 +304,24 @@ export const getDashboardMenuItems = (
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (!isElectedOfficeLoading && winVoterDataReady && campaign?.isPro) {
+  } else if (!isElectedOfficeLoading && winVoterDataReady) {
     // Hold off until BOTH the elected-office query and the win-voter-data flag
     // settle — the same combined guard useWinVoterContext applies elsewhere in
     // this PR. Until then a Serve elected-official reads as not-elected-office,
     // and the flag reads off, so committing here would swap the slot
     // (placeholder → legacy Voter Data → Contacts) as each input resolves.
     // While not ready, the generic upgrade placeholder holds the slot.
-    menuItems[voterDataIndex] = winVoterDataEnabled
-      ? WIN_CONTACTS_MENU_ITEM
-      : VOTER_RECORDS_MENU_ITEM
+    //
+    // With the flag on, pro AND non-pro Win campaigns get the unified Contacts
+    // page — a non-pro candidate sees the district aggregates and a blurred
+    // preview and is upsold there (ENG-10495). The legacy Voter Data page stays
+    // pro-only for the flag-off cohort; non-pro flag-off users keep the upgrade
+    // placeholder.
+    if (winVoterDataEnabled) {
+      menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
+    } else if (campaign?.isPro) {
+      menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
+    }
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
