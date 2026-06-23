@@ -1,7 +1,7 @@
-<!-- v3 — 2026-06-10 -->
+<!-- v4 — 2026-06-22 -->
 # /release-prep
 
-Open the omni monorepo's `develop → qa` PR, wait for its checks, merge it, then open the `qa → master` PR — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
+Open the omni monorepo's `develop → qa` PR with auto-merge enabled, wait for it to merge, then open the `qa → master` PR — the pending production release. Compile and print a `#devs-only` message that groups every included PR under its author so the team can confirm before the actual release.
 
 omni is one monorepo (`develop → qa → master`, mapping to `dev / qa / prod`), so a release prep is a single repo's branch promotion — there is no per-repo loop.
 
@@ -64,7 +64,17 @@ This command takes no arguments — the release target is always the omni monore
    git log origin/qa..origin/develop --oneline --no-merges
    ```
 
-   If output is empty, print `omni: no changes between qa and develop — nothing to release`, and stop here (skip to the step 16 final report). There is nothing to prep.
+   If output is empty, the develop→qa promotion may already have landed during a
+   prior `investigate` / budget-timeout pause (its auto-merge fired on its own),
+   leaving only the `qa → master` PR to open. Before exiting, check the other leg:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   git log origin/master..origin/qa --oneline --no-merges
+   ```
+
+   - **Both empty** → print `omni: no changes between qa and develop — nothing to release` and stop here (skip to the step 16 final report). There is nothing to prep.
+   - **`master..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip Phase 2 entirely and jump to step 8 to open the `qa → master` PR, then continue through Phase 4.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -89,33 +99,98 @@ This command takes no arguments — the release target is always the omni monore
 
    Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the omni repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks.
 
-5. **Wait for the PR's checks to settle:**
+5. **Enable auto-merge on the develop → qa PR.** Every change in this PR already
+   passed the full E2E suite on its way into `develop`, so E2E does not need to
+   re-gate the promotion to `qa`. Instead of blocking on a manual `--watch`, hand
+   the merge to GitHub:
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
-   gh pr checks <pr_number> --watch
+   gh pr merge <pr_number> --auto --merge
    ```
 
-   This blocks until the checks reach a terminal state. If any check is in `FAIL` / `CANCEL` / `TIMEOUT`, pause and present three options:
+   `--auto` queues the PR to merge automatically as soon as the `qa` branch's
+   required status checks pass — E2E re-runs on this PR but should not be a
+   *required* check for the promotion (if it is, relax the `qa` ruleset so the
+   release isn't gated on a suite that already passed into develop). `--merge`
+   (not `--squash`) is intentional — it preserves the included PRs' squash commits
+   on `qa` and `master`, which is what `/release` parses to build the release notes.
 
-   > omni PR #<n>: <which> check(s) failed.
-   >
-   > - **`retry`** — re-trigger CI (re-run failed jobs from the GitHub UI, or push a no-op) and re-watch
-   > - **`merge-anyway`** — flaky test or known-good; merge it despite the red
-   > - **`abort`** — stop the release prep; nothing gets merged
-
-   Record the outcome (`green` / `merge-anyway` / `abort`). For a `merge-anyway`, also record the names of the checks that were in `FAIL` / `CANCEL` / `TIMEOUT` state — the step 16 final report needs them. On `abort`, also record which of three check states was current at abort time — `settled-green`, `settled-failed`, or `still-running` (step 16's abort branch reports each differently) — then stop here and skip the rest of the run — Phase 3 and Phase 4 both assume the merge happened, and Phase 4 in particular would build the `#devs-only` message from stale `master..qa` state. Jump straight to the step 16 final report, which records the left-open develop→qa PR and that check state so it can be merged manually or by re-running the command.
-
-6. **Merge the develop → qa PR with a merge commit** (unless step 5 ended in `abort` — then skip this entire step; the abort guarantee is that nothing gets merged):
+   If the repo doesn't allow auto-merge, `gh pr merge --auto` exits non-zero. Fall
+   back to an immediate direct merge — the checks already passed into develop, so
+   there's nothing to wait for — and record that the fallback was used:
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
    gh pr merge <pr_number> --merge
    ```
 
-   If `gh pr merge` fails (non-zero exit), **stop here** — do not proceed to step 7 or 8. Phase 3 and Phase 4 both assume the develop→qa merge landed; running them against a failed merge opens a `qa → master` PR with no new content. Report the error and point the user to the Troubleshooting table below, then skip to the step 16 final report.
+   If both the auto-merge enable and the direct-merge fallback fail (non-zero
+   exit), **stop here** — do not proceed to Phase 3 or Phase 4, which both assume
+   the develop→qa merge will land. Report the error, point the user at the
+   Troubleshooting table below, and skip to the step 16 final report.
 
-   `--merge` (not `--squash`) is intentional — it preserves the included PRs' squash commits on `qa` and `master`, which is what `/release` parses to build the release notes.
+6. **Wait for the PR to actually merge.** Auto-merge completes on GitHub's side
+   once required checks pass, so poll the PR's state rather than watching
+   individual checks:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh pr view <pr_number> --json state,mergeStateStatus -q '[.state, .mergeStateStatus]'
+   ```
+
+   Re-check on a short interval until it reports `MERGED`, budget **~20 min**.
+   This is the sync point Phase 3 depends on — `qa` only carries the new commits
+   once the merge lands, so opening the `qa → master` PR before this would diff
+   against stale `qa`. Interpret `mergeStateStatus` while polling — `BEHIND` and
+   `UNSTABLE` are not interchangeable:
+
+   - `UNSTABLE` — a *non-required* check is failing; this does **not** block
+     auto-merge, so keep polling.
+   - `BEHIND` — the base branch advanced and branch protection requires the PR be
+     up to date, so auto-merge is stuck until the branch updates. Stop polling,
+     tell the user to run `gh pr update-branch <pr_number>`, then resume polling.
+   - `BLOCKED` with a red required check — auto-merge will never fire on its own.
+     Capture the failing check names first (the poll command above returns status,
+     not names):
+
+     ```bash
+     cd "$RELEASE_OMNI_DIR"
+     gh pr checks <pr_number>
+     ```
+
+     then present two options:
+
+   > omni PR #<n>: auto-merge is armed but a required check is failing, so it
+   > won't merge on its own.
+   >
+   > - **`investigate`** — leave auto-merge armed; fix or re-run the failing check
+   >   in the GitHub UI. It merges by itself once the check goes green. Re-running
+   >   this command afterward is **not** a dead end: step 3 sees `qa..develop`
+   >   empty but `master..qa` non-empty and jumps straight to step 8 to open the
+   >   `qa → master` PR (see step 3's empty-diff branch).
+   > - **`merge-anyway`** — flaky/known-good; override with
+   >   `gh pr merge <pr_number> --merge --admin` (requires admin). Record which
+   >   check(s) were red — the step 16 report needs them.
+
+   If the ~20-min budget elapses with the PR still `OPEN`, not `BLOCKED`, and not
+   `BEHIND` (checks genuinely stuck `PENDING` — a hung CI job or an Actions delay,
+   handled separately from the failing/out-of-date states above), capture the
+   pending check names before handing back:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh pr checks <pr_number>
+   ```
+
+   Then stop polling and hand back to the user — treat it like `investigate`: the
+   PR is left open with auto-merge armed, so it will still merge on its own once
+   those `PENDING` checks finish.
+
+   On `investigate` (or a budget timeout), record that the develop→qa PR is left
+   open with auto-merge armed, then skip to the step 16 final report — Phase 3 and
+   Phase 4 are skipped because `qa` has no new state yet. On `merge-anyway`
+   (override merge) or once the poll reports `MERGED`, continue to step 7.
 
 7. **Re-fetch** so local `qa` is current:
 
@@ -126,7 +201,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 3: qa → master (pending release)
 
-8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if step 5 ended in `abort`, or if step 6's merge failed — in either case nothing was merged, so there is no new state to release). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
+8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if the develop→qa PR has not merged this run — step 5 couldn't merge it at all, or step 6 ended in `investigate` with auto-merge still pending — **exception: if you arrived here via the step 3 shortcut (`master..qa` was already non-empty), do NOT skip — that is exactly the case this step must handle**). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
@@ -151,7 +226,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase and step 15 if Phase 2 was aborted, if step 6's merge failed, or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
+> **Skip this entire phase and step 15 if the develop→qa PR did not merge this run (step 5 couldn't merge it, or step 6 ended in `investigate`), or if there was nothing to merge — unless you arrived here via the step 3 shortcut.** If you arrived via the step 3 shortcut (`master..qa` was already non-empty when step 3 ran), the promotion already landed and `master..qa` holds real commits — do NOT skip; build and print the message. For the normal-flow skip cases: nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
 
 9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
@@ -260,15 +335,12 @@ This command takes no arguments — the release target is always the omni monore
     ```
 
 16. **Final report:**
-    - If merged clean (`green`): develop→qa merged, qa→master PR opened — with the open `qa → master` PR URL
-    - If merged despite red checks (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
+    - If auto-merge landed cleanly: develop→qa merged (note "via auto-merge", or "via direct-merge fallback" if step 5's `--auto` wasn't allowed), qa→master PR opened — with the open `qa → master` PR URL
+    - If merged via admin override (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - If there were no changes between qa and develop: note it and stop (no PRs opened)
-    - If Phase 2 was aborted: nothing was merged, so re-run or merge manually to continue. Note the state of the left-open develop→qa PR:
-      - if its checks had already settled `green` before the abort: list with URL and note "checks already settled — merge manually, or re-run the command (re-watching settled checks is near-instant)"
-      - if checks settled with failures before the abort: list with URL and note "checks failed — do not merge without investigating the failures or applying a fix first"
-      - if its checks were still running when aborted: list with URL and note "CI may still be running — watch before merging"
-    - If the step-6 merge failed (step 5 completed `green`): checks already passed — only the merge command itself failed. List the develop→qa PR with URL and note "merge failed — re-run from step 6 or merge manually, then re-run from step 7"
-    - If the step-6 merge failed (step 5 completed `merge-anyway`): checks did NOT all pass — the merge was attempted anyway and then failed. List the develop→qa PR with URL and note "merge failed — investigate the check failures before retrying, then re-run from step 6 or merge manually, then re-run from step 7"
+    - If step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→master PR (Phase 3)". Name the failing check(s) (from the `gh pr checks` run in step 6).
+    - If step 6 hit the ~20-min budget timeout (checks stuck `PENDING`, never `BLOCKED`): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed but checks haven't finished — it will merge on its own once they pass; re-run this command afterward to open the qa→master PR (Phase 3)". Name the still-`PENDING` check(s), not "failing" ones.
+    - If step 5 couldn't merge at all (both `--auto` and the direct-merge fallback failed): list the develop→qa PR with URL and the error, and note "merge could not be enabled — resolve in the GitHub UI (see Troubleshooting), then re-run from step 5"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
@@ -278,6 +350,7 @@ This command takes no arguments — the release target is always the omni monore
 
 - **One repo: omni.** It's a monorepo — `develop → qa → master`. There is no per-repo loop and no repo-list argument.
 - **Do not commit on the user's behalf.** All merges run through `gh pr merge` (acts on the remote PR). Never `git commit` locally.
+- **Auto-merge the develop→qa PR; don't block on E2E.** Every included change already passed the full E2E suite into `develop`, so the promotion to `qa` is handed to GitHub via `gh pr merge --auto --merge` rather than a blocking `gh pr checks --watch`. The command only waits (poll on PR `state`) for the merge to actually land, since Phase 3 diffs against the updated `qa`.
 - **`--merge`, not `--squash`.** The merge style is load-bearing — `/release` parses the `qa..master` diff to find included ENG-XXXX tags. Squashing would collapse them into the parent PR's commit body, making the lookup more fragile.
 - **Skip silent on empty diff.** If `git log qa..develop` is empty, that's normal — note it in the final report and stop.
 - **Don't merge the qa → master PR.** This command only opens it. The actual release merge is done by `/release` once the team has confirmed.
@@ -288,10 +361,11 @@ This command takes no arguments — the release target is always the omni monore
 | Failure | Fix |
 |---------|-----|
 | `gh pr create` returns "no commits between qa and develop" | Step 3 should have caught this — re-run step 3 to confirm the diff is empty, then stop. |
-| `gh pr checks --watch` hangs | CI may never have started. Check the PR's Checks tab in the GitHub UI. Cancel with Ctrl-C; use `merge-anyway` if you know the build is healthy. |
+| `gh pr merge --auto` fails ("auto-merge is not allowed") | The repo or `qa` branch doesn't permit auto-merge. Step 5's fallback handles this — run `gh pr merge <pr_number> --merge` directly (the checks already passed into develop). |
+| PR sits `OPEN` and never auto-merges | A required check on `qa` is failing or still running. Check the PR's Checks tab. If E2E is the blocker, it's redundant here (it passed into develop) — relax the `qa` ruleset so it isn't required, or override a known-good build with `gh pr merge <pr_number> --merge --admin`. |
 | A PR you expected to have a ticket shows no link | No `ENG-\d+` was found in its title, body, branch name, or any of its commit subjects. Either the ticket was never referenced (add it to the PR/branch and re-run) or it's a genuine no-ticket chore. The link is built from the custom id — there's no API call to fail here. |
 | Ticket link 404s when clicked | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<ENG-XXXX>`. Fix the var; no re-fetch needed. |
 | Two PRs reference the same ENG ticket | Expected (e.g., a gp-webapp and a gp-api package change for the same feature, now in one repo). The dev-only message lists both PRs under their respective authors; the ticket is not deduped here — that's `/release`'s job. |
 | Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
-| `gh pr merge --merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. Resolve in the GitHub UI, then re-run from step 6 — on this cold re-entry treat step 5's outcome as `green` (checks already passed; only the merge was blocked), so step 6's abort guard resolves cleanly. |
+| `gh pr merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. `--auto` may still be armed and will merge once the rule is satisfied. Resolve in the GitHub UI, then re-run from step 5 — the existing PR is reused and step 6's poll picks up the merge once it lands. |
 | `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 9's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |
