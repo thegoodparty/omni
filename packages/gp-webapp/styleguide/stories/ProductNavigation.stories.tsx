@@ -112,7 +112,15 @@ const ACCOUNT_ITEMS = [
 // org/run-for-office dropdown. Visual only — selecting an org doesn't navigate.
 function OrgSwitcher({ mode }: { mode: Mode }) {
   const { orgName, pro } = MODES[mode]
+  // Visual-only selection. Reset it when the Playground switches modes so the
+  // checked org stays in sync with the trigger label (which derives from mode);
+  // a render-phase reset avoids the stale-state flash a useEffect would cause.
   const [selected, setSelected] = useState(orgName)
+  const [prevMode, setPrevMode] = useState(mode)
+  if (prevMode !== mode) {
+    setPrevMode(mode)
+    setSelected(orgName)
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -121,7 +129,7 @@ function OrgSwitcher({ mode }: { mode: Mode }) {
           className="gap-3 data-[state=open]:bg-sidebar-accent"
         >
           <GoodPartyOrgLogo className="!h-[24px] !w-[30px]" />
-          <div className="grid flex-1 text-left leading-tight">
+          <div className="grid min-w-0 flex-1 text-left leading-tight">
             <span className="flex items-center gap-1.5 text-sm">
               GoodParty.org
               {pro && <ProBadge size="small" />}
@@ -300,7 +308,7 @@ function MobileFrame({ mode }: { mode: Mode }) {
     MODES[mode].items.find((i) => i.id === activeId)?.label ??
     'Campaign Manager'
   return (
-    <SidebarProvider>
+    <SidebarProvider className="min-h-0">
       <div className="border-border relative h-[720px] w-[380px] overflow-hidden rounded-xl border shadow-sm">
         {/* base layer: top bar + content */}
         <div className="bg-sidebar text-sidebar-foreground border-sidebar-border flex h-16 items-center justify-between border-b px-4">
