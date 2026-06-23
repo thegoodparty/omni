@@ -155,6 +155,7 @@ describe('VoterDemographicsStep copy overrides', () => {
         showLocalNewsSources={false}
         demographicsHeading="Constituent Demographics"
         totalLabel="Total Constituents"
+        ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
         topIssuesHeading="Top issues for your constituents"
         topIssuesDescription="The issues constituents in your district care about most right now."
       />,
@@ -164,6 +165,11 @@ describe('VoterDemographicsStep copy overrides', () => {
       await screen.findByText('Constituent Demographics'),
     ).toBeInTheDocument()
     expect(screen.getByText('Total Constituents')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones.",
+      ),
+    ).toBeInTheDocument()
     expect(
       await screen.findByText('Top issues for your constituents'),
     ).toBeInTheDocument()
