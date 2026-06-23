@@ -109,7 +109,13 @@ describe('deriveComplianceStage', () => {
     ).toBe(ComplianceStage.awaiting_pin)
   })
 
-  it('returns awaiting_pin when website is live even without peerlyIdentityId', () => {
+  // status='submitted' is written at form submission, before any Peerly call,
+  // so a live site with no peerlyIdentityId was never actually submitted. It
+  // must report pending_website_live (not awaiting_pin) so the agent submits,
+  // rather than treating the candidate as done — the prod bug where a resume
+  // run that found the site newly-live skipped submission and left
+  // peerlyIdentityId null (e.g. campaign 325412).
+  it('returns pending_website_live when website is live but peerlyIdentityId is null', () => {
     expect(
       deriveComplianceStage(
         mockCampaign(),
@@ -117,7 +123,29 @@ describe('deriveComplianceStage', () => {
         mockDomain(),
         mockTcr(),
       ),
-    ).toBe(ComplianceStage.awaiting_pin)
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('returns pending_website_live when status pending but peerlyIdentityId is null', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({ status: TcrComplianceStatus.pending }),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('returns pending_website_live when status approved but peerlyIdentityId is null', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({ status: TcrComplianceStatus.approved }),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
   })
 
   it('returns tcr_in_review when status is pending', () => {
