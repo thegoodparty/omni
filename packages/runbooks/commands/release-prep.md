@@ -175,7 +175,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 3: qa → master (pending release)
 
-8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if the develop→qa PR has not merged this run — step 5 couldn't merge it at all, or step 6 ended in `investigate` with auto-merge still pending — in either case nothing was merged, so there is no new state to release). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
+8. **Open the `qa → master` PR — but do not merge it** (skip this entire step if the develop→qa PR has not merged this run — step 5 couldn't merge it at all, or step 6 ended in `investigate` with auto-merge still pending — **exception: if you arrived here via the step 3 shortcut (`master..qa` was already non-empty), do NOT skip — that is exactly the case this step must handle**). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
@@ -200,7 +200,7 @@ This command takes no arguments — the release target is always the omni monore
 
 ### Phase 4: Build the #devs-only message
 
-> **Skip this entire phase and step 15 if the develop→qa PR did not merge this run (step 5 couldn't merge it, or step 6 ended in `investigate`), or if there was nothing to merge.** Nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
+> **Skip this entire phase and step 15 if the develop→qa PR did not merge this run (step 5 couldn't merge it, or step 6 ended in `investigate`), or if there was nothing to merge — unless you arrived here via the step 3 shortcut.** If you arrived via the step 3 shortcut (`master..qa` was already non-empty when step 3 ran), the promotion already landed and `master..qa` holds real commits — do NOT skip; build and print the message. For the normal-flow skip cases: nothing was merged this run, so there is nothing to announce — `git log origin/master..origin/qa` would only surface stale commits from a prior cycle, and printing an empty announcement message is misleading. Go to the step 16 final report instead.
 
 9. **List the commits being released** — these are the squash commits between `master` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
