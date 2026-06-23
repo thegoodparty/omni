@@ -10,6 +10,7 @@ no stubbing.
 
 import io
 import json
+import shutil
 
 import boto3
 import pytest
@@ -18,6 +19,28 @@ from botocore.response import StreamingBody
 from botocore.stub import Stubber
 
 import publish_experiments as pe
+
+
+@pytest.fixture
+def hermetic_experiment_tree(tmp_path, monkeypatch):
+    """A minimal real experiments tree: the actual meta-schema + ONE real
+    experiment copied into tmp_path, with EXPERIMENTS_DIR/META_SCHEMA_PATH
+    pointed at it. Lets a full publish() run end-to-end (real _experiment_dirs,
+    _validate_all, _build_index, and the upload loop's on-disk manifest/
+    instruction reads) without depending on the whole real roster — a future
+    experiment that fails schema validation can't break this test. Mirrors
+    test_publish_safety.py's real_experiment_tree."""
+    root = tmp_path / "experiments"
+    root.mkdir()
+    shutil.copytree(pe.EXPERIMENTS_DIR / "_schema", root / "_schema")
+    src = sorted(
+        p for p in pe.EXPERIMENTS_DIR.iterdir()
+        if p.is_dir() and (p / "manifest.json").exists() and not p.name.startswith((".", "_"))
+    )[0]
+    shutil.copytree(src, root / src.name)
+    monkeypatch.setattr(pe, "EXPERIMENTS_DIR", root)
+    monkeypatch.setattr(pe, "META_SCHEMA_PATH", root / "_schema" / "manifest.schema.json")
+    return root
 
 
 def _entry(id_: str, version: int = 1) -> dict:
@@ -417,10 +440,12 @@ def test_fetch_live_index_corrupt_json_raises():
         pe._fetch_live_index(s3, "agent-experiment-metadata-dev")
 
 
-def test_publish_warns_on_dropped_live_entries(monkeypatch, capsys):
+def test_publish_warns_on_dropped_live_entries(hermetic_experiment_tree, monkeypatch, capsys):
     """The on_drop wiring in publish(): a drifted live entry must surface as an
     operator-facing stderr warning, not vanish silently. S3 is stubbed out —
-    this exercises the wiring, not the upload path."""
+    this exercises the wiring, not the upload path. The experiments tree is the
+    hermetic single-experiment fixture, so the full-publish path runs for real
+    (validate + build + on-disk reads) without depending on the whole roster."""
     drifted = _entry("sandbox_drifted")
     drifted["manifest_key"] = "ATTACKER/manifest.json"
     uploads: list[str] = []
