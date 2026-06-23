@@ -205,6 +205,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 
     return (
       <AiChatDemo
+        key={timelineVariant}
         open={open}
         onOpenChange={(v) => updateArgs({ open: v })}
         config={config}
@@ -392,7 +393,7 @@ function radioRenderer(content: string): React.ReactNode {
           description="Best for engaging younger voters"
         />
       </RadioGroup>
-      <Button type="button" size="small" className="w-fit">
+      <Button type="button" size="small" className="self-end">
         Confirm choice
       </Button>
     </div>
@@ -463,6 +464,55 @@ export const WithStepper: StoryObj = {
               className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
               bottomSlot={
                 <Stepper currentStep={2} totalSteps={4} />
+              }
+            />
+          </DrawerContent>
+        </Drawer>
+      </div>
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// WithVerticalStepper
+// ---------------------------------------------------------------------------
+
+export const WithVerticalStepper: StoryObj = {
+  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <div className="h-full min-h-[600px] bg-background">
+        {!open && (
+          <AiChatBar
+            chatApi={mockChatApi}
+            config={DEFAULT_CONFIG}
+            onOpen={() => setOpen(true)}
+            onOpenConversation={() => setOpen(true)}
+          />
+        )}
+        <Drawer open={open} onOpenChange={setOpen}>
+          <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
+            <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <SparklesIcon className="size-5" aria-hidden />
+              </span>
+              <div className="flex flex-col text-left">
+                <DrawerTitle>{DEFAULT_CONFIG.title}</DrawerTitle>
+                <span className="text-xs text-muted-foreground">{DEFAULT_CONFIG.subtitle}</span>
+              </div>
+            </DrawerHeader>
+            <AiChatBody
+              chatApi={mockChatApi}
+              config={DEFAULT_CONFIG}
+              active={open}
+              className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
+              bottomSlot={
+                <Stepper
+                  variant="vertical"
+                  currentStep={2}
+                  labels={['Create account', 'Set up campaign', 'Add your story', 'Go live']}
+                />
               }
             />
           </DrawerContent>
@@ -553,7 +603,11 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     icon: CheckIcon,
     description:
       'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
-    source: 'County Elections Office — Filing Guide 2024',
+    source: {
+      organization: 'County Elections Office',
+      title: 'Filing Guide 2024',
+      description: 'Official guide for candidacy filings, fees, and ID requirements.',
+    },
   },
   {
     label: 'Step 2',
@@ -574,7 +628,11 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     description:
       'Register a committee with the state ethics board before accepting any donations or spending any money.',
     link: { label: 'Register online at ethics.state.gov', href: '#' },
-    source: 'State Ethics Board — Campaign Finance FAQ',
+    source: {
+      organization: 'State Ethics Board',
+      title: 'Campaign Finance FAQ',
+      description: 'Requirements for registering a campaign committee and initial reporting.',
+    },
   },
   {
     label: 'Step 4',
@@ -594,7 +652,11 @@ const TIMELINE_ITEMS: TimelineItem[] = [
       'Late filings result in a $50/day penalty',
       'Include all in-kind contributions',
     ],
-    source: 'State Ethics Board — Disclosure Calendar',
+    source: {
+      organization: 'State Ethics Board',
+      title: 'Disclosure Calendar',
+      description: 'Filing deadlines and penalty schedule for financial disclosures.',
+    },
   },
 ]
 
@@ -610,19 +672,19 @@ const HISTORY_ITEMS: TimelineItem[] = [
     label: '1978',
     title: 'Chapter 18 created',
     description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
-    source: 'Maplewood Council minutes, 1978',
+    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 1978', description: 'Council adopts the modern zoning code.' },
   },
   {
     label: '2003',
     title: 'ADU allowance',
     description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
-    source: 'Maplewood Council minutes, 2003',
+    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 2003', description: 'ADU allowance added with owner-occupancy requirement.' },
   },
   {
     label: '2019',
     title: 'Owner-occupancy repealed',
     description: 'ADU owner-occupancy rule removed. No broader missing-middle reform attempted.',
-    source: 'Maplewood Council minutes, 2019',
+    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 2019', description: 'Owner-occupancy rule removed from ADU ordinance.' },
   },
 ]
 

@@ -23,6 +23,8 @@ const ASSISTANT_BUBBLE =
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
   '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
+  '[&_pre]:!block [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-foreground/10 [&_pre]:p-3 [&_pre]:my-1 ' +
+  '[&_pre_code]:!block [&_pre_code]:!bg-transparent [&_pre_code]:!px-0 [&_pre_code]:!py-0 [&_pre_code]:!rounded-none ' +
   '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
   '[&_ul]:space-y-2 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
   '[&_ol]:space-y-2 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +

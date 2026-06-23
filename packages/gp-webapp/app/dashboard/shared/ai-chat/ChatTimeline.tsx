@@ -1,4 +1,5 @@
 import { Badge } from '@styleguide/components/ui/badge'
+import { SourceCitation, type SourceCitationProps } from '@styleguide/components/ui/source-citation'
 
 export type TimelineStatus = 'done' | 'active' | 'upcoming'
 export type TimelineVariant = 'steps' | 'timeline'
@@ -11,7 +12,7 @@ export type TimelineItem = {
   description?: string
   items?: string[]
   link?: { label: string; href: string }
-  source?: string
+  source?: Pick<SourceCitationProps, 'organization' | 'title' | 'description' | 'url' | 'chipLabel'>
   /** Only used in `variant="steps"` */
   status?: TimelineStatus
   /** Only used in `variant="steps"` */
@@ -106,7 +107,7 @@ export default function ChatTimeline({
               )}
 
               {item.source && (
-                <p className="text-xs text-muted-foreground">{item.source}</p>
+                <SourceCitation {...item.source} />
               )}
             </div>
           </div>
