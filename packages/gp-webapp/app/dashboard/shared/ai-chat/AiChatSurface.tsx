@@ -55,9 +55,6 @@ export default function AiChatSurface({
           </span>
           <div className="flex flex-col text-left">
             <DrawerTitle>{config.title}</DrawerTitle>
-            {config.subtitle && (
-              <span className="text-xs text-muted-foreground">{config.subtitle}</span>
-            )}
           </div>
         </DrawerHeader>
 
