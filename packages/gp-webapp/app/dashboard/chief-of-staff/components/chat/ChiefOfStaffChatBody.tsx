@@ -44,6 +44,8 @@ interface Props {
   opener?: string[]
   /** When the parent surface closes, set false to abort the in-flight stream. */
   active?: boolean
+  /** Start dictation automatically when the surface opens (footer mic entry). */
+  autoDictate?: boolean
   /** Fires once the deferred create resolves with the real conversation id. */
   onConversationCreated?: (conversationId: string) => void
   /** Open a past conversation picked from the input pill's history popover. */
@@ -197,6 +199,7 @@ export default function ChiefOfStaffChatBody({
   conversationIdOverride,
   opener,
   active = true,
+  autoDictate = false,
   onConversationCreated,
   onSelectConversation,
   bodyClassName,
@@ -214,6 +217,22 @@ export default function ChiefOfStaffChatBody({
     onChange: setComposer,
     analyticsLabel: 'chief-of-staff-chat',
   })
+  // When opened via the footer mic, start dictation once on open. The body
+  // remounts each time the surface opens, so the ref guard just prevents a
+  // double-start within one open.
+  const startDictation = dictation.start
+  const autoDictateStartedRef = useRef(false)
+  useEffect(() => {
+    // Reset on close so the next open re-triggers (robust whether or not the
+    // surface unmounts the body between opens).
+    if (!active) {
+      autoDictateStartedRef.current = false
+      return
+    }
+    if (!autoDictate || autoDictateStartedRef.current) return
+    autoDictateStartedRef.current = true
+    void startDictation()
+  }, [autoDictate, active, startDictation])
   const [error, setError] = useState<ErrorState | null>(null)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)

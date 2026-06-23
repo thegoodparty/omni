@@ -14,6 +14,8 @@ interface Props {
   opener?: string[]
   /** Identity of the opener — changes remount the body for a fresh chat. */
   openerKey?: string | null
+  /** Start dictation as soon as the chat opens (footer mic entry). */
+  autoDictate?: boolean
 }
 
 /**
@@ -27,6 +29,7 @@ export default function ChiefOfStaffChatSurface({
   initialConversationId,
   opener,
   openerKey,
+  autoDictate,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -62,6 +65,7 @@ export default function ChiefOfStaffChatSurface({
           // state with the right opener.
           key={selectedId ?? openerKey ?? 'new'}
           active={open}
+          autoDictate={autoDictate}
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
           onSelectConversation={setSelectedId}

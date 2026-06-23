@@ -24,22 +24,32 @@ export default function DashboardContent(): React.JSX.Element {
     string | null
   >(null)
   const [openerKey, setOpenerKey] = useState<OnboardingCardKey | null>(null)
+  const [autoDictate, setAutoDictate] = useState(false)
 
   const firstName = user?.firstName || undefined
 
   const openNewChat = () => {
     setOpenerKey(null)
     setInitialConversationId(null)
+    setAutoDictate(false)
+    setChatOpen(true)
+  }
+  const openWithDictation = () => {
+    setOpenerKey(null)
+    setInitialConversationId(null)
+    setAutoDictate(true)
     setChatOpen(true)
   }
   const openConversation = (id: string) => {
     setOpenerKey(null)
     setInitialConversationId(id)
+    setAutoDictate(false)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
     setOpenerKey(key)
     setInitialConversationId(null)
+    setAutoDictate(false)
     setChatOpen(true)
   }
 
@@ -74,6 +84,7 @@ export default function DashboardContent(): React.JSX.Element {
       <FooterChatBar
         firstName={firstName}
         onOpen={openNewChat}
+        onDictate={openWithDictation}
         onOpenConversation={openConversation}
       />
       <ChiefOfStaffChatSurface
@@ -82,6 +93,7 @@ export default function DashboardContent(): React.JSX.Element {
         initialConversationId={initialConversationId}
         opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
         openerKey={openerKey}
+        autoDictate={autoDictate}
       />
     </div>
   )

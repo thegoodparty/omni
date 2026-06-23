@@ -8,6 +8,8 @@ interface Props {
   firstName?: string
   /** Open the chat surface (new conversation). */
   onOpen: () => void
+  /** Open the chat surface and start dictation immediately (the mic button). */
+  onDictate: () => void
   /** Open the chat surface into a past conversation (from the clock popover). */
   onOpenConversation: (conversationId: string) => void
 }
@@ -22,6 +24,7 @@ interface Props {
 export default function FooterChatBar({
   firstName,
   onOpen,
+  onDictate,
   onOpenConversation,
 }: Props): React.JSX.Element {
   const placeholder = firstName
@@ -47,7 +50,7 @@ export default function FooterChatBar({
               variant="ghost"
               aria-label="Dictate a message"
               className="size-10"
-              onClick={onOpen}
+              onClick={onDictate}
             >
               <MicIcon className="size-5" aria-hidden />
             </IconButton>
