@@ -51,12 +51,12 @@ export default function AiChatBar({
         </div>
       )}
       <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
-      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 py-4 lg:px-6`}>
+      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 py-2.5 lg:px-6`}>
         <div
           className="relative w-full rounded-full p-[1.5px] animate-spin-gradient"
           style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
         >
-          <div className="flex min-h-12 w-full items-center gap-1 rounded-full bg-card py-1.5 pl-1.5 pr-1.5">
+          <div className="flex min-h-12 w-full items-center gap-1 rounded-full bg-card py-0.5 pl-1.5 pr-1">
             <AiChatHistoryPopover
               chatApi={chatApi}
               configTitle={config.title}

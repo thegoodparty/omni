@@ -9,6 +9,8 @@ export type TimelineItem = {
   label: string
   title: string
   description?: string
+  quote?: string
+  quoteAttribution?: string
   items?: string[]
   link?: { label: string; href: string }
   source?: string
@@ -70,7 +72,7 @@ export default function ChatTimeline({
               )}
             </div>
 
-            <div className={`flex flex-col gap-1 min-w-0 ${isLast ? '' : 'pb-5'}`}>
+            <div className={`flex flex-col gap-3 min-w-0 ${isLast ? '' : 'pb-8'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-foreground">{item.label}</span>
                 <span className="text-sm text-foreground">{item.title}</span>
@@ -80,14 +82,23 @@ export default function ChatTimeline({
               </div>
 
               {item.description && (
-                <p className="text-sm text-muted-foreground">{item.description}</p>
+                <p className="text-sm leading-normal text-foreground">{item.description}</p>
+              )}
+
+              {item.quote && (
+                <blockquote className="border-l-2 border-border pl-3">
+                  <p className="text-sm italic leading-normal text-foreground">{item.quote}</p>
+                  {item.quoteAttribution && (
+                    <cite className="mt-1 block not-italic text-xs text-foreground">{item.quoteAttribution}</cite>
+                  )}
+                </blockquote>
               )}
 
               {item.items && item.items.length > 0 && (
                 <ul className="flex flex-col gap-0.5 pl-3">
                   {item.items.map((it) => (
-                    <li key={it} className="flex items-start gap-1.5 text-sm text-muted-foreground">
-                      <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                    <li key={it} className="flex items-start gap-1.5 text-sm leading-normal text-foreground">
+                      <span className="mt-2 size-1 shrink-0 rounded-full bg-foreground/40" />
                       {it}
                     </li>
                   ))}
@@ -99,14 +110,14 @@ export default function ChatTimeline({
                   href={item.link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-fit text-xs text-primary underline-offset-4 hover:underline"
+                  className="w-fit text-xs tracking-wide text-primary underline-offset-4 hover:underline"
                 >
                   {item.link.label}
                 </a>
               )}
 
               {item.source && (
-                <p className="text-xs text-muted-foreground">{item.source}</p>
+                <p className="text-xs leading-normal tracking-wide text-foreground"><span className="font-medium">Source:</span> {item.source}</p>
               )}
             </div>
           </div>
