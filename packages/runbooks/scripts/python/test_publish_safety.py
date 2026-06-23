@@ -92,6 +92,15 @@ class _RecordingS3:
     def get_object(self, Bucket, Key):
         raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
 
+    def list_objects_v2(self, Bucket, Prefix):
+        # No objects were really PUT (keys are only recorded, not stored), so
+        # reclamation finds nothing to delete. Present so the QA-gate reclaim
+        # step in publish() doesn't AttributeError on this double.
+        return {}
+
+    def delete_objects(self, Bucket, Delete):
+        return {"Deleted": []}
+
 
 @pytest.fixture
 def real_experiment_tree(tmp_path, monkeypatch):

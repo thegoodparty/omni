@@ -258,14 +258,42 @@ and required `instruction.md` presence. CI runs the same tests on PR.
 
 ## Publishing
 
+Full publish (all experiments). This is what CI runs per branch
+(develop → dev, qa → qa, master → prod):
+
 ```bash
-cd /Users/collinpark/work/runbooks/scripts/python
+cd scripts/python
 AWS_PROFILE=work uv run python publish_experiments.py --env=dev
 ```
 
 The script validates → uploads per-experiment files → writes `index.json`
 LAST as an atomic switch. New dispatches see the new bytes within ~60s
 (Lambda's index.json TTL cache).
+
+### Single-experiment publish (dev only)
+
+To deploy just one experiment without a full publish — iterating on an
+existing one, or standing up a brand-new one — use `--only`:
+
+```bash
+cd scripts/python
+AWS_PROFILE=work uv run python publish_experiments.py --env=dev --only=<experiment_id>
+```
+
+It uploads only that experiment's files and merges its entry into the LIVE
+`index.json` (insert if new, replace if existing), preserving every other
+live entry. `--only` is dev-only; qa/prod always publish the full set via
+branch promotion.
+
+### Sandbox experiments (dev only)
+
+A full dev publish (including CI's `develop` publish) carries forward any live
+`index.json` entry whose id contains `sandbox` instead of dropping it. So a
+personal scratch experiment named e.g. `sandbox_<you>_<thing>`, deployed with
+`--only`, survives CI's develop publishes. Canonical experiments still get
+reset to `develop`; only `sandbox` entries are preserved. qa and prod never
+preserve, so a `sandbox` id cannot leak past dev. Sandbox entries persist in
+the index until removed — clean up stale ones when you are done.
 
 ## See also
 

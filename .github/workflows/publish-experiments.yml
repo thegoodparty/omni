@@ -6,6 +6,7 @@ on:
       - "packages/runbooks/experiments/**"
       - "packages/runbooks/scripts/python/publish_experiments.py"
       - "packages/runbooks/scripts/python/test_experiment_manifests.py"
+      - "packages/runbooks/scripts/python/test_publish_experiments.py"
       - ".github/workflows/publish-experiments.yml"
   # Branch-per-env auto-publish:
   #   push to dev  → publishes to dev  S3 bucket
@@ -44,9 +45,9 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
 
-      - name: Run meta-schema tests (locks the contract)
+      - name: Run meta-schema + publisher tests (locks the contract)
         working-directory: packages/runbooks/scripts/python
-        run: uv run pytest test_experiment_manifests.py -v
+        run: uv run pytest test_experiment_manifests.py test_publish_experiments.py -v
 
   publish:
     # Triggered on push to develop/qa/master, or manual workflow_dispatch from one of

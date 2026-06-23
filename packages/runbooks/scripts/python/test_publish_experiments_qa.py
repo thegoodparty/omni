@@ -14,6 +14,7 @@ Run: cd scripts/python && uv run pytest test_publish_experiments_qa.py -q
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -758,6 +759,22 @@ class FakeS3:
     def put_object(self, Bucket, Key, Body, ContentType=None):
         self.store.setdefault(Bucket, {})[Key] = Body
         self.calls.append(("put", Key))
+
+    def get_object(self, Bucket, Key):
+        # PR #87's merge-aware publisher reads the live index.json before a dev
+        # publish. Mirror real S3: return the stored body, or raise NoSuchKey
+        # ("fresh bucket") when it was never PUT. A "get" call is recorded only
+        # on the hit path so the empty-bucket tests' `calls` sequences are
+        # unchanged.
+        store = self.store.get(Bucket, {})
+        if Key not in store:
+            from botocore.exceptions import ClientError
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "not found"}},
+                "GetObject",
+            )
+        self.calls.append(("get", Key))
+        return {"Body": io.BytesIO(store[Key])}
 
     def list_objects_v2(self, Bucket, Prefix):
         self.calls.append(("list", Prefix))
