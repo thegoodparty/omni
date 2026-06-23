@@ -107,7 +107,7 @@ export default function ChatTimeline({
               )}
 
               {item.source && (
-                <SourceCitation {...item.source} />
+                <SourceCitation {...item.source} className="self-start" />
               )}
             </div>
           </div>
