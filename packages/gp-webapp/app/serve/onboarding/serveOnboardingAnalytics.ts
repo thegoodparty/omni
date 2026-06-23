@@ -28,10 +28,11 @@ type ServeOnboardingEventProperties =
 export const trackServeOnboarding = (
   name: string,
   properties?: ServeOnboardingEventProperties,
-): void => {
+): Promise<void> => {
   // Spread into a fresh object so a typed payload (an interface, which lacks an
   // implicit index signature) is accepted by trackEvent's Record parameter.
-  trackEvent(name, properties ? { ...properties } : undefined)
+  // Return the promise so callers can await the event before a redirect.
+  return trackEvent(name, properties ? { ...properties } : undefined)
 }
 
 /**

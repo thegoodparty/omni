@@ -721,13 +721,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         <FlowHeader />
         <SwitchToCampaignStep
           onBack={() => setSwitchToCampaign(false)}
-          onSwitch={() => {
+          onSwitch={async () => {
             // Drop-off/handoff out of serve: the user confirmed they're still
-            // campaigning and is being handed to the Win onboarding flow. Fire
-            // before navigating so the event isn't lost to the redirect.
-            trackServeOnboarding(SERVE_ONBOARDING_EVENTS.SwitchedToCampaign, {
-              electedOfficeId: currentEO?.id,
-            })
+            // campaigning and is being handed to the Win onboarding flow. Await
+            // the track call so the event isn't lost to the redirect.
+            await trackServeOnboarding(
+              SERVE_ONBOARDING_EVENTS.SwitchedToCampaign,
+              {
+                electedOfficeId: currentEO?.id,
+              },
+            )
             window.location.href = '/onboarding/office-selection'
           }}
         />
@@ -1348,8 +1351,9 @@ const SwitchToCampaignStep = ({
 }: {
   onBack: () => void
   // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-  // The parent tracks the handoff, then routes to the Win flow's entry point.
-  onSwitch: () => void
+  // The parent tracks the handoff (awaiting the event so it survives the
+  // redirect), then routes to the Win flow's entry point.
+  onSwitch: () => void | Promise<void>
 }): React.JSX.Element => {
   return (
     <>

@@ -841,7 +841,7 @@ export const trackEvent = (
     string,
     string[] | string | number | boolean | object | null | undefined
   >,
-): void => {
+): Promise<void> => {
   try {
     const commonProperties = {
       ...getPersistedUtms(),
@@ -849,9 +849,12 @@ export const trackEvent = (
       ...properties,
       impersonation: isImpersonating,
     }
-    segmentTrackEvent(name, commonProperties)
+    // Return the segmentTrackEvent promise so callers that need the event to
+    // flush before a page unload (e.g. a redirect) can await it.
+    return segmentTrackEvent(name, commonProperties)
   } catch (e) {
     console.log('error tracking analytics (Segment) event', e)
+    return Promise.resolve()
   }
 }
 
