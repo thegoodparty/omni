@@ -2,7 +2,7 @@
 
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
@@ -183,6 +183,9 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
   render: ({ open, firstName, subtitle, extraBarAlign, showExtraBar, timelineVariant }) => {
     const [, updateArgs] = useArgs()
+    useEffect(() => {
+      if (timelineVariant !== 'none') updateArgs({ open: true })
+    }, [timelineVariant])
     const config = { ...DEFAULT_CONFIG, subtitle }
     const extraBar = showExtraBar ? (
       <Button
