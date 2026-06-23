@@ -89,6 +89,37 @@ def test_valid_carryforward_rejects_non_dict():
     assert pe._valid_carryforward(None) is False
 
 
+def test_valid_carryforward_accepts_canonical_qa_pair():
+    e = _entry("sandbox_x")
+    e["qa_manifest_key"] = "sandbox_x/qa/manifest.json"
+    e["qa_keys"] = ["sandbox_x/qa/main.py"]
+    assert pe._valid_carryforward(e) is True
+    # A manifest-only qa/ folder publishes an empty qa_keys list — still a pair.
+    e["qa_keys"] = []
+    assert pe._valid_carryforward(e) is True
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        # Only one of the qa fields present is drift: the publisher always emits
+        # them as a matched pair, so an asymmetric entry can't be carried forward.
+        {"qa_manifest_key": "sandbox_x/qa/manifest.json"},
+        {"qa_keys": ["sandbox_x/qa/main.py"]},
+        {"qa_manifest_key": "ATTACKER/qa/manifest.json", "qa_keys": []},
+        {"qa_manifest_key": "sandbox_x/qa/manifest.json", "qa_keys": "notalist"},
+        {
+            "qa_manifest_key": "sandbox_x/qa/manifest.json",
+            "qa_keys": ["sandbox_x/qa/../../etc/passwd"],
+        },
+    ],
+)
+def test_valid_carryforward_rejects_qa_drift(mutate):
+    e = _entry("sandbox_x")
+    e.update(mutate)
+    assert pe._valid_carryforward(e) is False
+
+
 # ---------- _compose_index_entries ----------
 
 

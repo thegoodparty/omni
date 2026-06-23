@@ -159,6 +159,13 @@ def _carryforward_problem(entry: object) -> str | None:
                 or any(ord(c) < 0x20 or ord(c) == 0x7F for c in basename)
             ):
                 return "qa key suffix is not a flat safe filename"
+    # The publisher always emits qa_manifest_key and qa_keys as a matched pair
+    # (both when a qa/ folder exists, neither otherwise). An entry carrying only
+    # one is drift: it would propagate an inconsistent index.json and leave
+    # _reclaim_orphans with an incomplete emitted set. (qa_keys may be an empty
+    # list for a manifest-only qa/ folder — that is still "present", not None.)
+    if (qa_manifest_key is None) != (qa_keys is None):
+        return "qa_manifest_key and qa_keys must both be present or both absent"
     return None
 
 
