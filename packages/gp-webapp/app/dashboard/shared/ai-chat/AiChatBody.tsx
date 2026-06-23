@@ -17,8 +17,8 @@ import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 // Markdown bubble — same override set as Chief of Staff and briefing chat
 // ---------------------------------------------------------------------------
 const ASSISTANT_BUBBLE =
-  'w-full text-sm text-foreground ' +
-  'space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
+  'w-full text-sm leading-relaxed text-foreground ' +
+  'space-y-3 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
   '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
@@ -444,7 +444,7 @@ export default function AiChatBody({
         ref={scrollRef}
         className={
           className ??
-          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`
+          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-4 overflow-y-auto px-4 py-4`
         }
         data-testid="ai-chat-conversation"
       >
