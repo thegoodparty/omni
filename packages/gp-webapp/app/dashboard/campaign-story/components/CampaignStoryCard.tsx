@@ -253,7 +253,7 @@ const CampaignStoryCard = ({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
-      <div className="mt-4 flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <div className="relative">
           <Textarea
             value={value}
