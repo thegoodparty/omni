@@ -1521,7 +1521,11 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
     expect(mockPeerly.submit10DlcBrand).not.toHaveBeenCalled()
-    // Claim taken then rolled back; no final write.
+    // Guard fires inside submitToPeerly, after the claim, so the claim is
+    // taken (updateMany #1) then rolled back (updateMany #2). Asserting this
+    // catches a refactor that moves the guard before the claim and silently
+    // breaks the lock rollback.
+    expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
 })
