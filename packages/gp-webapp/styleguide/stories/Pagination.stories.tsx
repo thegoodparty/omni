@@ -26,7 +26,7 @@ type PlaygroundArgs = {
   size: 'small' | 'medium' | 'large'
 }
 
-function pageList(total: number, current: number): (number | 'ellipsis')[] {
+const pageList = (total: number, current: number): (number | 'ellipsis')[] => {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1)
   }
@@ -55,8 +55,9 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       options: ['small', 'medium', 'large'],
     },
   },
-  render: ({ totalPages, currentPage, size }) => {
-    const [, updateArgs] = useArgs()
+  render: () => {
+    const [{ totalPages, currentPage, size }, updateArgs] =
+      useArgs<PlaygroundArgs>()
     const pages = pageList(totalPages, currentPage)
     const goTo = (page: number) => (event: React.MouseEvent) => {
       event.preventDefault()
@@ -176,27 +177,25 @@ export const WithEllipsis: Story = {
 export const States: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <div className="flex flex-col gap-4">
-      <Pagination>
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious href="#" aria-disabled="true" />
-          </PaginationItem>
-          <PaginationItem>
-            <PaginationLink href="#" aria-disabled="true">
-              1
-            </PaginationLink>
-          </PaginationItem>
-          <PaginationItem>
-            <PaginationLink href="#" isActive aria-disabled="true">
-              2
-            </PaginationLink>
-          </PaginationItem>
-          <PaginationItem>
-            <PaginationNext href="#" aria-disabled="true" />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
-    </div>
+    <Pagination>
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious href="#" aria-disabled="true" />
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationLink href="#" aria-disabled="true">
+            1
+          </PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationLink href="#" isActive aria-disabled="true">
+            2
+          </PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationNext href="#" aria-disabled="true" />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   ),
 }
