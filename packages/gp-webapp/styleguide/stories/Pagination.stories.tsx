@@ -180,20 +180,20 @@ export const States: Story = {
     <Pagination>
       <PaginationContent>
         <PaginationItem>
-          <PaginationPrevious href="#" aria-disabled="true" />
+          <PaginationPrevious href="#" aria-disabled={true} />
         </PaginationItem>
         <PaginationItem>
-          <PaginationLink href="#" aria-disabled="true">
+          <PaginationLink href="#" aria-disabled={true}>
             1
           </PaginationLink>
         </PaginationItem>
         <PaginationItem>
-          <PaginationLink href="#" isActive aria-disabled="true">
+          <PaginationLink href="#" isActive aria-disabled={true}>
             2
           </PaginationLink>
         </PaginationItem>
         <PaginationItem>
-          <PaginationNext href="#" aria-disabled="true" />
+          <PaginationNext href="#" aria-disabled={true} />
         </PaginationItem>
       </PaginationContent>
     </Pagination>
