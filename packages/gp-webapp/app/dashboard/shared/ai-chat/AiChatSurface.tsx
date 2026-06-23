@@ -57,7 +57,7 @@ export default function AiChatSurface({
             <SparklesIcon className="size-3.5" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
-            <DrawerTitle>{config.title}</DrawerTitle>
+            <DrawerTitle className="text-sm font-semibold">{config.title}</DrawerTitle>
           </div>
         </DrawerHeader>
 
