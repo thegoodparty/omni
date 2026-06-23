@@ -58,7 +58,15 @@ This command takes no arguments — the release target is always the omni monore
      git log origin/master..origin/qa --oneline --no-merges
      ```
 
-     - **non-empty** → the promotion already landed but the release PR is missing. Tell the user to run `/release-prep` (its step-3 shortcut opens the `qa → master` PR), then re-run `/release`.
+     - **non-empty** → the promotion already landed but the release PR is missing. Check whether new commits have landed on develop since the auto-merge:
+
+       ```bash
+       cd "$RELEASE_OMNI_DIR"
+       git log origin/qa..origin/develop --oneline --no-merges
+       ```
+
+       - **`qa..develop` empty** → re-run `/release-prep`; its step-3 shortcut detects the non-empty `master..qa` diff and jumps straight to step 8 to open the `qa → master` PR. Then re-run `/release`.
+       - **`qa..develop` non-empty** → new commits landed on develop after the prior auto-merge. Re-running `/release-prep` will start a **new** develop→qa cycle, bundling the already-pending `master..qa` commits with the new work. Confirm with the user before proceeding.
      - **empty** → stop with a message (nothing is pending, or `/release-prep` wasn't run).
    - 1 match → continue
    - 2+ matches → list them and ask the user which to release; if unsure, abort with a message rather than guessing

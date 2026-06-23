@@ -165,16 +165,27 @@ This command takes no arguments — the release target is always the omni monore
    > won't merge on its own.
    >
    > - **`investigate`** — leave auto-merge armed; fix or re-run the failing check
-   >   in the GitHub UI. It merges by itself once the check goes green; re-run this
-   >   command afterward to pick up from Phase 3.
+   >   in the GitHub UI. It merges by itself once the check goes green. Re-running
+   >   this command afterward is **not** a dead end: step 3 sees `qa..develop`
+   >   empty but `master..qa` non-empty and jumps straight to step 8 to open the
+   >   `qa → master` PR (see step 3's empty-diff branch).
    > - **`merge-anyway`** — flaky/known-good; override with
    >   `gh pr merge <pr_number> --merge --admin` (requires admin). Record which
    >   check(s) were red — the step 16 report needs them.
 
-   If the ~20-min budget elapses with the PR still `OPEN` and never `BLOCKED` (a
-   check stuck `PENDING`, a hung CI job, or an Actions delay), stop polling and
-   hand back to the user — treat it like `investigate`: the PR is left open with
-   auto-merge armed, so it will still merge on its own once the checks clear.
+   If the ~20-min budget elapses with the PR still `OPEN`, not `BLOCKED`, and not
+   `BEHIND` (checks genuinely stuck `PENDING` — a hung CI job or an Actions delay,
+   handled separately from the failing/out-of-date states above), capture the
+   pending check names before handing back:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   gh pr checks <pr_number>
+   ```
+
+   Then stop polling and hand back to the user — treat it like `investigate`: the
+   PR is left open with auto-merge armed, so it will still merge on its own once
+   those `PENDING` checks finish.
 
    On `investigate` (or a budget timeout), record that the develop→qa PR is left
    open with auto-merge armed, then skip to the step 16 final report — Phase 3 and
