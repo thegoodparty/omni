@@ -719,6 +719,20 @@
   );
 }
 
+/* In dark mode the base (--color-foreground) is white and brand-blue-300 is a
+ * pale blue, so the wave would be white-on-near-white. Use a darker blue band
+ * so it stays visible against the light text. */
+.dark .text-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-foreground) 0%,
+    var(--color-foreground) 25%,
+    var(--color-brand-blue-500) 50%,
+    var(--color-foreground) 75%,
+    var(--color-foreground) 100%
+  );
+}
+
 .text-shimmer-muted {
   background-image: linear-gradient(
     90deg,
