@@ -12,6 +12,25 @@ model ElectedOffice {
   pledgedAt             DateTime? @map("pledged_at")
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")
 
+  // True once the holder began entering their office/term details themselves
+  // through the net-new serve onboarding path, as opposed to a sales/BallotReady
+  // prefill. Set when the user answers the party step in the net-new branch (the
+  // first user-driven write). Lets resume deterministically keep a net-new lead
+  // in the net-new branch even after their self-picked office lands on the org,
+  // while a prefill (this flag absent) with populated office/term data is still
+  // treated as a prefill — so its BR suggestion-accuracy snapshot fires. Existing
+  // (sales-provisioned) rows default to false, i.e. "prefill".
+  selfReported Boolean @default(false) @map("self_reported")
+
+  // The furthest serve-onboarding step the holder has reached, written on every
+  // "Continue" so a returning user resumes at the exact step they left — even
+  // steps that collect no persisted data (welcome / inOffice / constituents),
+  // which the data-derived resume cannot pinpoint. Null on legacy / never-
+  // onboarded rows, where resume falls back to the data-derived step. Set only
+  // by the authenticated onboarding flow (guarded against M2M like
+  // onboardingCompletedAt / selfReported).
+  onboardingStep String? @map("onboarding_step")
+
   user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int   @map("user_id")
 
