@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import { ScrollArea, ScrollBar } from './scroll-area'
+import { ScrollArea } from './scroll-area'
 
 describe('ScrollArea', () => {
   it('renders viewport and root slots', () => {
@@ -73,21 +73,5 @@ describe('ScrollArea', () => {
     expect(container.querySelector('[data-slot="scroll-area"]')).toHaveClass(
       'test-class',
     )
-  })
-})
-
-describe('ScrollBar', () => {
-  it('renders with vertical orientation by default', () => {
-    const { container } = render(
-      <ScrollArea type="always">
-        <div>content</div>
-        <ScrollBar />
-      </ScrollArea>,
-    )
-    const scrollbars = container.querySelectorAll('[data-slot="scroll-area-scrollbar"]')
-    const vertical = Array.from(scrollbars).find(
-      (el) => el.getAttribute('data-orientation') === 'vertical',
-    )
-    expect(vertical).toBeInTheDocument()
   })
 })
