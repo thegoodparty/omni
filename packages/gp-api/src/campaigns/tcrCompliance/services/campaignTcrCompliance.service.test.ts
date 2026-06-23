@@ -1503,6 +1503,27 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     // Final write never happens on the failure path.
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
+
+  it('fails fast with BadRequestException when the campaign has no placeId', async () => {
+    // No placeId means Peerly's address resolution (getAddressByPlaceId) would
+    // 502, which the agent treats as transient and retries forever (campaign
+    // 325553). Fail fast with a 4xx instead, before any Peerly call.
+    const noAddressCampaign = createMockCampaign({
+      userId: user.id,
+      formattedAddress: '',
+      placeId: '',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, noAddressCampaign, input),
+    ).rejects.toThrow(BadRequestException)
+
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockPeerly.submit10DlcBrand).not.toHaveBeenCalled()
+    // Claim taken then rolled back; no final write.
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
 })
 
 describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
