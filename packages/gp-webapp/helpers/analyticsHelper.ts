@@ -79,6 +79,13 @@ export const EVENTS = {
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     ClickFinishLater: 'Onboarding: Click Finish Later',
+    // Top of the serve (elected-official) magic-link funnel. The recipient
+    // landed on the /serve/welcome redemption page (client-side, fired once on
+    // landing). Its paired top-of-funnel event "Onboarding - Magic Link Sent"
+    // is emitted server-side in gp-api. The `Onboarding -` prefix is
+    // intentional (these two are funnel siblings of the Onboarding group, not
+    // the per-screen `Serve Onboarding -` stages below).
+    MagicLinkClicked: 'Onboarding - Magic Link Clicked',
     OfficeStep: {
       ClickNext: 'Onboarding - Office Step: Click Next',
       ClickBack: 'Onboarding - Office Step: Click Back',
@@ -124,17 +131,28 @@ export const EVENTS = {
     SmsPollSent: 'Serve Onboarding - SMS Poll Sent',
     SuccessPageViewed: 'Serve Onboarding - Success Page Viewed',
     NotEnoughConstituents: 'Serve Onboarding - SMS Poll Creation Failed',
-    // Net-new (sales-sent magic link) elected-official onboarding funnel.
-    LinkActivated: 'Serve Onboarding - Magic Link Activated',
+    // Net-new (sales-sent magic link) elected-official onboarding. Completion +
+    // diagnostic events that aren't per-screen "Viewed"/"Completed" funnel
+    // stages. `NetNewCompleted` is the established completion metric.
     NetNewCompleted: 'Serve Onboarding - Net New Completed',
     BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
     PartyDesignationBlocked: 'Serve Onboarding - Party Designation Blocked',
-    // Per-step funnel stage: fired once when the user lands on each step
-    // (`step` + `branch` properties make it a funnel slice in Amplitude).
-    StepViewed: 'Serve Onboarding - Step Viewed',
-    // Drop-off/handoff: the user answered "still campaigning" and confirmed the
-    // hand-off into the Win (campaign) onboarding flow.
-    SwitchedToCampaign: 'Serve Onboarding - Switched to Campaign',
+    // Per-screen funnel stages, each fired once per view (see
+    // ServeOnboardingFlow). Office Status / Party Designation / Office carry the
+    // user's selected card title; the *Completed events fire on Continue.
+    WelcomeViewed: 'Serve Onboarding - Welcome Viewed',
+    OfficeStatusViewed: 'Serve Onboarding - Office Status Viewed',
+    PartyDesignationViewed: 'Serve Onboarding - Party Designation Viewed',
+    OfficeViewed: 'Serve Onboarding - Office Viewed',
+    OfficeCompleted: 'Serve Onboarding - Office Completed',
+    ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
+    TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
+    KnowYourConstituentsViewed:
+      'Serve Onboarding - Know Your Constituents Viewed',
+    KnowYourConstituentsCompleted:
+      'Serve Onboarding - Know Your Constituents Completed',
+    PledgeViewed: 'Serve Onboarding - Pledge Viewed',
+    PledgeCompleted: 'Serve Onboarding - Pledge Completed',
   },
   Navigation: {
     Top: {

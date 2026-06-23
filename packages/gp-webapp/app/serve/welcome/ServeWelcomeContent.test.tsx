@@ -26,6 +26,17 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
 
+// Stub Segment fan-out; keep the real EVENTS map so the asserted event name
+// stays in lockstep with the registry.
+vi.mock('helpers/analyticsHelper', async (importActual) => {
+  const actual = await importActual<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+
+const trackEventMock = vi.mocked(trackEvent)
+
 const POST_AUTH = `/post-auth-redirect?next=${encodeURIComponent(
   SERVE_ONBOARDING_PATH,
 )}`
@@ -172,5 +183,35 @@ describe('ServeWelcomeContent', () => {
       '/login',
     )
     expect(mockSignInCreate).not.toHaveBeenCalled()
+  })
+
+  it('fires Magic Link Clicked once on landing (top of the serve funnel) with hasTicket', async () => {
+    render(<ServeWelcomeContent />)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.Onboarding.MagicLinkClicked,
+        { hasTicket: true },
+      ),
+    )
+    // Landing-based, fired once on mount regardless of whether the click
+    // eventually redeems the ticket.
+    const clicked = trackEventMock.mock.calls.filter(
+      ([name]) => name === EVENTS.Onboarding.MagicLinkClicked,
+    )
+    expect(clicked).toHaveLength(1)
+  })
+
+  it('reports hasTicket:false when a human lands without a ticket', async () => {
+    mockSearchParams = new URLSearchParams()
+
+    render(<ServeWelcomeContent />)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.Onboarding.MagicLinkClicked,
+        { hasTicket: false },
+      ),
+    )
   })
 })

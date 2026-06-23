@@ -22,11 +22,12 @@ export const EVENTS = {
   },
   Onboarding: {
     UserCreated: 'Onboarding - User Created',
-  },
-  ServeOnboarding: {
-    // Emitted when sales generates a magic link for an elected-official lead.
-    // Keyed to the provisioned user id + email (the EO may not exist yet).
-    MagicLinkSent: 'Serve Onboarding - Magic Link Sent',
+    // Top of the serve (elected-official) magic-link funnel. Emitted when sales
+    // generates a magic link for a lead, keyed to the provisioned user id +
+    // email (the EO may not exist yet). Paired client-side with
+    // 'Onboarding - Magic Link Clicked' (gp-webapp). Prefix is intentionally
+    // `Onboarding -` (renamed from 'Serve Onboarding - Magic Link Sent').
+    MagicLinkSent: 'Onboarding - Magic Link Sent',
   },
   WinOnboarding: {
     // Emitted when sales generates a magic link for a candidate lead. Keyed to

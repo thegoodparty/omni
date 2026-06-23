@@ -1,10 +1,11 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
 import { Button, GoodPartyOrgLogoWordmark } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
 /**
@@ -64,6 +65,19 @@ export default function ServeWelcomeContent() {
   const redeemingRef = useRef(false)
 
   const ticket = searchParams?.get('__clerk_ticket') ?? null
+
+  // Top of the serve onboarding funnel: the recipient clicked the magic link
+  // and landed on this redemption page. Landing-based firing is the most
+  // reliable signal (the redemption itself is button-gated to defeat email
+  // scanners), so fire once on mount — even if the ticket is missing/expired,
+  // a human still arrived here. Replaces the former onboarding-flow-mount
+  // 'Serve Onboarding - Magic Link Activated' event.
+  const magicLinkClickedRef = useRef(false)
+  useEffect(() => {
+    if (magicLinkClickedRef.current) return
+    magicLinkClickedRef.current = true
+    trackEvent(EVENTS.Onboarding.MagicLinkClicked, { hasTicket: !!ticket })
+  }, [ticket])
 
   async function redeem() {
     if (!ticket) {

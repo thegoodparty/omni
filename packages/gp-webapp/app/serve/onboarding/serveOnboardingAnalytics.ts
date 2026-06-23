@@ -7,18 +7,26 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
  * changed, onboarding completed).
  */
 export const SERVE_ONBOARDING_EVENTS = {
-  Activated: EVENTS.ServeOnboarding.LinkActivated,
   SuggestionChanged: EVENTS.ServeOnboarding.BrSuggestionChanged,
   Completed: EVENTS.ServeOnboarding.NetNewCompleted,
   // Disqualification: the user picked a major party (Democrat/Republican) on the
   // party step, mirroring the Win flow's `PartyDesignationBlocked` event.
   PartyBlocked: EVENTS.ServeOnboarding.PartyDesignationBlocked,
-  // Per-step funnel stage, fired once per step the user lands on. Carries the
-  // `step` id and `branch` so each step is a slice of one funnel rather than a
-  // separate event per step.
-  StepViewed: EVENTS.ServeOnboarding.StepViewed,
-  // Drop-off/handoff out of serve into the Win (campaign) onboarding flow.
-  SwitchedToCampaign: EVENTS.ServeOnboarding.SwitchedToCampaign,
+  // Per-screen funnel stages. Each "Viewed" fires once per view; the three
+  // selection screens (Office Status, Party Designation, Office) carry the
+  // user's chosen card title, and the *Completed events fire on Continue.
+  WelcomeViewed: EVENTS.ServeOnboarding.WelcomeViewed,
+  OfficeStatusViewed: EVENTS.ServeOnboarding.OfficeStatusViewed,
+  PartyDesignationViewed: EVENTS.ServeOnboarding.PartyDesignationViewed,
+  OfficeViewed: EVENTS.ServeOnboarding.OfficeViewed,
+  OfficeCompleted: EVENTS.ServeOnboarding.OfficeCompleted,
+  ConfirmViewed: EVENTS.ServeOnboarding.ConfirmViewed,
+  TermDatesViewed: EVENTS.ServeOnboarding.TermDatesViewed,
+  KnowYourConstituentsViewed: EVENTS.ServeOnboarding.KnowYourConstituentsViewed,
+  KnowYourConstituentsCompleted:
+    EVENTS.ServeOnboarding.KnowYourConstituentsCompleted,
+  PledgeViewed: EVENTS.ServeOnboarding.PledgeViewed,
+  PledgeCompleted: EVENTS.ServeOnboarding.PledgeCompleted,
 } as const
 
 type ServeOnboardingEventProperties =
