@@ -65,7 +65,10 @@ export default function ChiefOfStaffChatSurface({
           // state with the right opener.
           key={selectedId ?? openerKey ?? 'new'}
           active={open}
-          autoDictate={autoDictate}
+          // Only auto-dictate into a fresh chat. Picking a past conversation
+          // from the history popover sets selectedId and remounts the body; without
+          // this guard it would re-fire dictation inside that historical chat.
+          autoDictate={selectedId === null ? autoDictate : false}
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
           onSelectConversation={setSelectedId}
