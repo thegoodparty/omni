@@ -18,7 +18,7 @@ import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 // ---------------------------------------------------------------------------
 const ASSISTANT_BUBBLE =
   'w-full text-sm leading-relaxed text-foreground ' +
-  'space-y-8 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
+  'space-y-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
   '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
