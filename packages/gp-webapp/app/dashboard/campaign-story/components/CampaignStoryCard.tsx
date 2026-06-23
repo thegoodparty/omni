@@ -367,7 +367,7 @@ const CampaignStoryCard = ({
           </div>
         </div>
 
-        <Accordion type="single" collapsible>
+        <Accordion type="single" collapsible size="sm" className="-mt-2">
           <AccordionItem value="example">
             <AccordionTrigger>Here&apos;s an example</AccordionTrigger>
             <AccordionContent>
