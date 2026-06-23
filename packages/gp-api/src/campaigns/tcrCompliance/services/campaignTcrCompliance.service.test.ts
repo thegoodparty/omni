@@ -1530,6 +1530,71 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   })
 })
 
+describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
+  let service: CampaignTcrComplianceService
+  let mockPeerly: { getIdentities: ReturnType<typeof vi.fn> }
+  let mockWebsites: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+
+  const user = createMockUser({ clerkId: 'user_clerk_legacy' })
+  // CreateTcrCompliancePayload omits placeId/formattedAddress (they live on the
+  // campaign); the guard reads campaign.placeId, not the payload.
+  const payload = {
+    ein: '12-3456789',
+    committeeName: 'Jane for Springfield',
+    filingUrl: 'https://example.gov/filing/123',
+    email: 'jane@example.com',
+    phone: '5555555555',
+    officeLevel: OfficeLevel.state,
+    fecCommitteeId: undefined,
+    committeeType: CommitteeType.CANDIDATE,
+    websiteDomain: 'vote-jane.site',
+  }
+
+  beforeEach(async () => {
+    mockPeerly = { getIdentities: vi.fn().mockResolvedValue([]) }
+    mockWebsites = {
+      findFirstOrThrow: vi
+        .fn()
+        .mockResolvedValue({ domain: { name: 'vote-jane.site' } }),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: {} } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: mockWebsites },
+        { provide: CampaignsService, useValue: { updateJsonFields: vi.fn() } },
+        { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+        {
+          provide: ComplianceStateService,
+          useValue: { findStateForCampaign: vi.fn() },
+        },
+        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: ExperimentRunsService, useValue: { dispatchRun: vi.fn() } },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('fails fast with BadRequestException when the campaign has no placeId', async () => {
+    const noAddressCampaign = createMockCampaign({
+      userId: user.id,
+      placeId: '',
+      formattedAddress: '',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(
+      service.create(user, noAddressCampaign, payload),
+    ).rejects.toThrow(BadRequestException)
+
+    // Fails inside submitToPeerly before any Peerly call.
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+  })
+})
+
 describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
