@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { ScrollArea, ScrollBar } from '../components/ui/scroll-area'
+import { ScrollArea } from '../components/ui/scroll-area'
 
 const meta: Meta<typeof ScrollArea> = {
   title: 'Components/ScrollArea',
@@ -13,7 +13,7 @@ type Story = StoryObj<typeof ScrollArea>
 
 type PlaygroundArgs = {
   type: 'auto' | 'always' | 'scroll' | 'hover'
-  orientation: 'vertical' | 'horizontal'
+  orientation: 'vertical' | 'horizontal' | 'both'
   height: number
   itemCount: number
 }
@@ -34,8 +34,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     orientation: {
       control: 'select',
-      options: ['vertical', 'horizontal'],
-      description: 'Direction of the scrollbar.',
+      options: ['vertical', 'horizontal', 'both'],
+      description: 'Which scrollbar(s) to render.',
     },
     height: { control: { type: 'number', min: 80, max: 400, step: 8 } },
     itemCount: { control: { type: 'number', min: 1, max: 100, step: 1 } },
@@ -45,6 +45,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     return (
       <ScrollArea
         type={type}
+        orientation={orientation}
         className="rounded-md border p-4"
         style={isHorizontal ? { width: 288 } : { height, width: 192 }}
       >
@@ -65,7 +66,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
             </div>
           ))}
         </div>
-        <ScrollBar orientation={orientation} />
       </ScrollArea>
     )
   },
@@ -79,7 +79,11 @@ export const Anatomy: Story = {
         data-slot=&quot;scroll-area&quot; — Root
       </p>
       <div className="relative">
-        <ScrollArea type="always" className="h-40 w-48 rounded-md border p-4">
+        <ScrollArea
+          type="always"
+          orientation="vertical"
+          className="h-40 w-48 rounded-md border p-4"
+        >
           <p className="text-muted-foreground mb-2 text-xs">
             data-slot=&quot;scroll-area-viewport&quot;
           </p>
@@ -93,7 +97,6 @@ export const Anatomy: Story = {
               </div>
             ))}
           </div>
-          <ScrollBar />
         </ScrollArea>
         <p className="text-muted-foreground mt-1 text-xs">
           data-slot=&quot;scroll-area-scrollbar&quot; +
@@ -111,7 +114,11 @@ export const ScrollbarTypes: Story = {
       {(['auto', 'always', 'scroll', 'hover'] as const).map((type) => (
         <div key={type} className="flex flex-col gap-2">
           <span className="text-muted-foreground text-xs">{type}</span>
-          <ScrollArea type={type} className="h-40 w-36 rounded-md border p-4">
+          <ScrollArea
+            type={type}
+            orientation="vertical"
+            className="h-40 w-36 rounded-md border p-4"
+          >
             <div className="space-y-4">
               {Array.from({ length: 20 }, (_, i) => (
                 <div
@@ -122,7 +129,6 @@ export const ScrollbarTypes: Story = {
                 </div>
               ))}
             </div>
-            <ScrollBar />
           </ScrollArea>
         </div>
       ))}
@@ -133,7 +139,7 @@ export const ScrollbarTypes: Story = {
 export const Horizontal: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <ScrollArea className="w-72 rounded-md border p-4">
+    <ScrollArea orientation="horizontal" className="w-72 rounded-md border p-4">
       <div className="flex gap-4" style={{ width: 800 }}>
         {Array.from({ length: 20 }, (_, i) => (
           <div
@@ -144,7 +150,6 @@ export const Horizontal: Story = {
           </div>
         ))}
       </div>
-      <ScrollBar orientation="horizontal" />
     </ScrollArea>
   ),
 }
@@ -152,7 +157,7 @@ export const Horizontal: Story = {
 export const Both: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <ScrollArea className="h-48 w-72 rounded-md border p-4">
+    <ScrollArea orientation="both" className="h-48 w-72 rounded-md border p-4">
       <div className="space-y-4" style={{ width: 600 }}>
         {Array.from({ length: 20 }, (_, i) => (
           <div
@@ -163,8 +168,6 @@ export const Both: Story = {
           </div>
         ))}
       </div>
-      <ScrollBar orientation="vertical" />
-      <ScrollBar orientation="horizontal" />
     </ScrollArea>
   ),
 }
