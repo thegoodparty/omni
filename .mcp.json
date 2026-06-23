@@ -19,6 +19,10 @@
     "clickup": {
       "type": "http",
       "url": "https://mcp.clickup.com/mcp"
+    },
+    "amplitude": {
+      "type": "http",
+      "url": "https://mcp.amplitude.com/mcp"
     }
   }
 }

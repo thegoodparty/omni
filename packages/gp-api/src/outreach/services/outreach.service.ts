@@ -24,6 +24,7 @@ import {
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
+import { OutreachAttributionService } from './outreachAttribution.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -44,6 +45,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly attributionService: OutreachAttributionService,
   ) {
     super()
   }
@@ -182,12 +184,38 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         createOutreachDto.phoneListId,
       )
       await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
+      await this.tryRecordSegmentAttribution(user, campaign, outreach)
       return outreach
     }
 
     const outreach = await this.createRecord(createOutreachDto, imageUrl)
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
+    await this.tryRecordSegmentAttribution(user, campaign, outreach)
     return outreach
+  }
+
+  // Per-voter attribution for the channels that resolve a segment (p2p, text,
+  // phoneBanking, robocall, socialMedia; see OutreachAttributionService).
+  // Best-effort like tryNotifySuccess: a people-api hiccup or attribution
+  // failure is logged but must not fail the outreach that was already
+  // persisted. Idempotent, so a later retry is safe.
+  private async tryRecordSegmentAttribution(
+    user: User,
+    campaign: Campaign,
+    outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
+  ) {
+    try {
+      await this.attributionService.recordSegmentAttribution(
+        user,
+        campaign,
+        outreach,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'Segment-derived outreach attribution failed',
+      )
+    }
   }
 
   private async tryNotifySuccess(
@@ -203,6 +231,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         outreach,
         audienceRequest: createOutreachDto.audienceRequest,
         campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        textCount: createOutreachDto.textCount,
+        billableTextCount: createOutreachDto.billableTextCount,
       })
     } catch (err) {
       this.logger.error(
@@ -217,9 +247,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
   ) {
+    // campaignPlanDueDate and the text counts are notification-only metadata;
+    // they have no Outreach column, so they must not reach Prisma's create.
+    const outreachData = { ...createOutreachDto }
+    delete outreachData.campaignPlanDueDate
+    delete outreachData.textCount
+    delete outreachData.billableTextCount
     return await this.model.create({
       data: {
-        ...createOutreachDto,
+        ...outreachData,
         ...(imageUrl ? { imageUrl } : {}),
       },
       include: {

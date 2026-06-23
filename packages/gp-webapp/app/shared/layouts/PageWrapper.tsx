@@ -25,6 +25,7 @@ import { cookies } from 'next/headers'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { ReactQueryProvider } from '@shared/query-client'
 import { FeatureFlagsProvider } from '@shared/experiments/FeatureFlagsProvider'
+import { getFlagVariants } from '@shared/experiments/getFlagVariants'
 
 interface PageWrapperProps {
   children: React.ReactNode
@@ -36,19 +37,21 @@ const PageWrapper = async ({
   const { userId } = await auth()
   const isAuthed = !!userId
 
-  const [pathname, campaign, organizations, cookieStore] = await Promise.all([
-    getReqPathname(),
-    isAuthed ? fetchUserCampaign() : Promise.resolve(null),
-    isAuthed ? getCurrentUserOrganizations() : Promise.resolve([]),
-    cookies(),
-  ])
+  const [pathname, campaign, organizations, flagVariants, cookieStore] =
+    await Promise.all([
+      getReqPathname(),
+      isAuthed ? fetchUserCampaign() : Promise.resolve(null),
+      isAuthed ? getCurrentUserOrganizations() : Promise.resolve([]),
+      isAuthed ? getFlagVariants() : Promise.resolve(null),
+      cookies(),
+    ])
   const initialOrgSlug = cookieStore.get(ORG_SLUG_COOKIE)?.value ?? null
 
   return (
     <ClerkProvider>
       <ReactQueryProvider>
         <UserProvider>
-          <FeatureFlagsProvider>
+          <FeatureFlagsProvider initialVariants={flagVariants}>
             <AmplitudeInit />
             <ImpersonatingTracker />
             <GtmButtonClickTracker />

@@ -2,11 +2,13 @@ import { HttpService } from '@nestjs/axios'
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Organization } from '../../generated/prisma'
+import { Organization, User } from '../../generated/prisma'
+import { FeaturesService } from 'src/features/services/features.service'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
 import jwt from 'jsonwebtoken'
@@ -16,8 +18,13 @@ import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
+import { OrganizationsService } from 'src/organizations/services/organizations.service'
+import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
-import { StatsResponse } from '../contacts.types'
+import {
+  StatsResponse,
+  VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+} from '../contacts.types'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -31,6 +38,14 @@ import {
 } from '../utils/voterFileFilter.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
+
+const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
+
+// The default, unfiltered view. It (and the district stats) are visible to any
+// Win campaign with the flag on, pro or not, so a non-pro candidate sees the
+// aggregates and a blurred preview before being upsold. Search, custom/named
+// segments, and download stay pro-only.
+const ALL_CONTACTS_SEGMENT = 'all'
 
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
@@ -48,9 +63,36 @@ export class ContactsService {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
+    private readonly organizations: OrganizationsService,
+    private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
+  }
+
+  // Authz gate for the user-facing Contacts surface. Elected-office (Serve)
+  // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
+  // are reachable when win-voter-data is on for the user — pro and non-pro
+  // alike, so a non-pro candidate lands on the page and sees the district
+  // aggregates and a blurred preview. Pro is NOT gated here; it is enforced
+  // per-action instead (search and named/custom segments in findContacts,
+  // download in downloadContacts) so those surface the upgrade prompt. Ownership
+  // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
+  // consumer) call the service methods directly and are intentionally not gated.
+  async assertContactsAccess(
+    organization: Organization,
+    user: User,
+  ): Promise<void> {
+    if (this.hasElectedOfficeAccess(organization)) return
+
+    const flagEnabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_VOTER_DATA_FLAG_KEY,
+    })
+    if (!flagEnabled) {
+      throw new ForbiddenException('Voter data access is not enabled')
+    }
   }
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
@@ -90,21 +132,53 @@ export class ContactsService {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
     if (!districtId) {
-      throw new BadRequestException(
-        'Organization does not have sufficient data to resolve district',
-      )
+      throw new BadRequestException({
+        message:
+          'Organization does not have sufficient data to resolve district',
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
     }
 
+    await this.assertVoterDataEligibility(org)
+
     return fn({ districtId })
+  }
+
+  // Serve / elected-office orgs keep their existing access untouched. For Win
+  // campaign orgs, mirror the voter-file download gate so a federal/state
+  // office without L2 district data (or the canDownloadFederal override) gets
+  // a clean ineligible 4xx instead of querying People-API with an unusable
+  // district.
+  private async assertVoterDataEligibility(org: Organization): Promise<void> {
+    if (this.hasElectedOfficeAccess(org)) return
+
+    const campaign = await this.campaigns.findFirst({
+      where: { organizationSlug: org.slug },
+    })
+    if (!campaign) return
+
+    const { district, ballotLevel } =
+      await this.organizations.getDistrictAndBallotLevelForOrgSlug(org.slug)
+
+    if (
+      !this.voterFileDownloadAccess.canDownload(campaign, district, ballotLevel)
+    ) {
+      throw new BadRequestException({
+        message: 'Campaign is not eligible for voter data',
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
   }
 
   async findContacts(
     { resultsPerPage, page, search, segment }: ListContactsDTO,
     organization: Organization,
   ) {
-    if (search && !(await this.isProAccess(organization))) {
+    const wantsProOnlyView =
+      !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
+    if (wantsProOnlyView && !(await this.isProAccess(organization))) {
       throw new BadRequestException(
-        'Search is only available for pro campaigns',
+        'Search and segments are only available for pro campaigns',
       )
     }
 
@@ -200,6 +274,15 @@ export class ContactsService {
     id: string,
     organization: Organization,
   ): Promise<PersonOutput> {
+    // Opening a person record is a pro action (the list shows non-pro a blurred
+    // preview and the modal fires on row-click). Gate it like search/segments
+    // so a direct call can't read full person detail without pro.
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Viewing contact details is only available for pro campaigns',
+      )
+    }
+
     const fetchPerson = async (districtParams: { districtId: string }) => {
       try {
         const response = await lastValueFrom(
@@ -440,7 +523,7 @@ export class ContactsService {
     segment: string | undefined,
     organization: Organization,
   ): Promise<FilterObject> {
-    const resolvedSegment = segment || 'all'
+    const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return builtInFilters
 

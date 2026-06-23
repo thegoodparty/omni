@@ -1,3 +1,8 @@
+import type {
+  ExperimentVariantsResponse,
+  Priority,
+  ChatAnchor,
+} from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
   SynthesizeSpeechRequest,
@@ -12,6 +17,10 @@ import {
   CampaignVersions,
   User,
 } from 'helpers/types'
+import type {
+  CampaignStory,
+  CampaignStoryRewrite,
+} from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
 import type {
@@ -22,6 +31,15 @@ import type {
   GetIndividualActivitiesResponse,
 } from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type {
+  ChatConversationListResponse,
+  ChatConversationMessagesResponse,
+  ChatScope,
+  DashboardCardBucket,
+  DashboardCardListResponse,
+  OnboardingCardsResponse,
+  SupportEstimate,
+} from 'app/dashboard/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
 
 export interface MeetingsListItemDto {
@@ -149,6 +167,15 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
+  // current user and returns the full variant map, so the browser never has to
+  // reach Amplitude (which ad blockers / some networks block) to render gated
+  // surfaces. Consumed in PageWrapper to seed FeatureFlagsProvider.
+  'GET /v1/experiment/variants': {
+    Request: {}
+    Response: ExperimentVariantsResponse
+  }
+
   'GET /v1/organizations': {
     Request: {}
     Response: {
@@ -208,6 +235,36 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/plan-version': {
     Request: {}
     Response: CampaignVersions
+  }
+
+  'GET /v1/campaigns/mine/story': {
+    Request: {}
+    Response: CampaignStory
+  }
+
+  // Partial upsert — each Campaign Story field autosaves on blur, so any
+  // subset of why/background/issues may be sent.
+  // At least one field is required (the server's Zod schema rejects an empty
+  // body with 400) — encode that in the type so a call site can't send `{}`.
+  'PUT /v1/campaigns/mine/story': {
+    Request:
+      | { why: string; background?: string; issues?: string }
+      | { why?: string; background: string; issues?: string }
+      | { why?: string; background?: string; issues: string }
+    Response: CampaignStory
+  }
+
+  // AI-suggested rewrite of one Campaign Story field. The server pairs the
+  // submitted text with the candidate's name and a section-specific prompt;
+  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  'POST /v1/campaigns/mine/story/rewrite': {
+    // `field` is single-sourced from the contract so it can't drift from the
+    // stored story shape; the server's Zod enum is the runtime mirror.
+    Request: {
+      field: keyof CampaignStory
+      text: string
+    }
+    Response: CampaignStoryRewrite
   }
 
   // The pro-upgrade filing-instructions screen reads this fresh so it renders
@@ -298,8 +355,18 @@ export type APIEndpoints = {
     Response: ElectedOffice
   }
 
-  'POST /v1/elected-office': {
+  'GET /v1/elected-office/mine': {
     Request: {}
+    Response: ElectedOffice[]
+  }
+
+  'POST /v1/elected-office': {
+    Request: ElectedOfficeInput
+    Response: ElectedOffice
+  }
+
+  'PUT /v1/elected-office/:id': {
+    Request: ElectedOfficeInput
     Response: ElectedOffice
   }
 
@@ -309,6 +376,52 @@ export type APIEndpoints = {
       kind: 'schedule' | 'briefing'
     }
     Response: { dispatched: true; kind: 'schedule' | 'briefing' }
+  }
+
+  'GET /v1/elected-office/support-estimate': {
+    Request: {}
+    // Null until the data team's ETL populates the office's support row.
+    Response: SupportEstimate | null
+  }
+
+  'GET /v1/dashboard/cards': {
+    Request: { bucket: DashboardCardBucket }
+    Response: DashboardCardListResponse
+  }
+
+  'PUT /v1/dashboard/cards/:id/dismiss': {
+    Request: {}
+    Response: void
+  }
+
+  'GET /v1/dashboard/onboarding-cards': {
+    Request: {}
+    Response: OnboardingCardsResponse
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/skip': {
+    Request: {}
+    Response: void
+  }
+
+  'POST /v1/chats': {
+    Request: { scope: ChatScope; anchor?: ChatAnchor }
+    Response: { conversationId: string; created: boolean }
+  }
+
+  'GET /v1/chats': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationListResponse
+  }
+
+  'GET /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: ChatConversationMessagesResponse
+  }
+
+  'DELETE /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: void
   }
 
   'GET /v1/contacts/stats': {
@@ -598,6 +711,84 @@ export type APIEndpoints = {
       redirectUrl?: string
     }
   }
+
+  'GET /v1/community-issues': {
+    Request: { list: 'top_community' | 'trending' }
+    Response: {
+      issues: CommunityIssueCard[]
+      refresh: {
+        status: 'running' | 'completed' | 'failed'
+        lastCompletedAt: string | null
+      }
+    }
+  }
+
+  'GET /v1/community-issues/:id': {
+    Request: { id: string }
+    Response: CommunityIssueDetail
+  }
+
+  'POST /v1/community-issues/:id/prioritize': {
+    Request: { id: string }
+    Response: Priority
+  }
+
+  'POST /v1/community-issues/self-dispatch': {
+    Request: { type: 'top_community_issues' | 'trending_issues' }
+    Response: { dispatched: number; skipped: number }
+  }
+}
+
+export type CommunityIssueCard = {
+  id: string
+  list: string
+  category: string
+  priority: string
+  title: string
+  summary: string
+  rank: number | null
+  prioritized: boolean
+}
+
+export type CommunityIssueSource = {
+  id: string
+  name: string
+  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  url?: string | null
+  publisher?: string | null
+  article_type?: string | null
+  article_date?: string | null
+}
+
+export type CommunityIssueSubsection = {
+  summary: string
+  source_ids: string[]
+}
+
+export type CommunityIssueQuoteItem = {
+  text: string
+  attribution?: string
+  source_id: string
+}
+
+export type CommunityIssueContent = {
+  sources: CommunityIssueSource[]
+  overview: CommunityIssueSubsection
+  history?: CommunityIssueSubsection
+  quotes?: { items: CommunityIssueQuoteItem[] }
+  research?: CommunityIssueSubsection
+  legislation?: CommunityIssueSubsection
+}
+
+export type CommunityIssueDetail = CommunityIssueCard & {
+  archived: boolean
+  detail: CommunityIssueContent | null
+  relatedBriefings: Array<{
+    meetingBriefingId: string
+    briefingItemId: string
+    meetingDate: string
+  }>
+  priorityId: string | null
 }
 
 // Backend (snake_case) annotation types. Mirrors @goodparty_org/contracts
@@ -778,4 +969,34 @@ export type AdminOrganization = Organization & {
 export type ElectedOffice = {
   id: string
   swornInDate: string | null
+  electedDate: string | null
+  termStartDate: string | null
+  termEndDate: string | null
+  termLengthDays: number | null
+  isActive: boolean
+  party: string | null
+  pledgedAt: string | null
+  onboardingCompletedAt: string | null
+  // True when the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill). Drives deterministic
+  // resume branch classification.
+  selfReported: boolean
+  // Resume checkpoint: the furthest serve-onboarding step the holder reached,
+  // written on every "Continue". Null when no checkpoint has been recorded.
+  onboardingStep: string | null
+}
+
+export type ElectedOfficeInput = {
+  swornInDate?: string | null
+  electedDate?: string | null
+  termStartDate?: string | null
+  termEndDate?: string | null
+  party?: string | null
+  pledgedAt?: string | null
+  onboardingCompletedAt?: string | null
+  selfReported?: boolean
+  onboardingStep?: string | null
+  ballotReadyPositionId?: string | null
+  customPositionName?: string | null
+  overrideDistrictId?: string | null
 }

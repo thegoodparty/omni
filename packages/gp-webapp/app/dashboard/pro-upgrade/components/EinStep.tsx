@@ -10,7 +10,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
-import { EinCheckInput } from 'app/dashboard/pro-sign-up/committee-check/components/EinCheckInput'
+import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
 import {
   checkEinSanity,
   einIndicatorState,

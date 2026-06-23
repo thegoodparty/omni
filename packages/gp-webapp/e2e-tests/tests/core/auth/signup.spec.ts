@@ -4,10 +4,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
-import {
-  fillClerkSignUpForm,
-  getClerkContinueButton,
-} from '../../../src/helpers/clerk.helper'
+import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
 
 test.use({ storageState: { cookies: [], origins: [] } })
 
@@ -17,30 +14,20 @@ test.describe('Sign Up Functionality', () => {
     await blockSlowScripts(page)
     await NavigationHelper.navigateToPage(page, '/sign-up')
     await NavigationHelper.dismissOverlays(page)
-    await page.waitForSelector('.cl-signUp-root', { state: 'attached' })
+    await page.waitForSelector('[data-testid=signup-form]', {
+      state: 'attached',
+    })
   })
 
   test('should display sign up form elements', async ({ page }) => {
-    await expect(page.locator('.cl-signUp-root')).toBeVisible()
-    const firstNameVisible = await page
-      .locator('input[name=firstName]')
-      .isVisible()
-    const lastNameVisible = await page
-      .locator('input[name=lastName]')
-      .isVisible()
-    const emailVisible = await page
-      .locator('input[name=emailAddress]')
-      .isVisible()
-    const passwordVisible = await page
-      .locator('input[name=password]')
-      .isVisible()
-    const continueButtonVisible = await getClerkContinueButton(page).isVisible()
+    await expect(page.getByTestId('signup-form')).toBeVisible()
 
-    expect(firstNameVisible).toBeTruthy()
-    expect(lastNameVisible).toBeTruthy()
-    expect(emailVisible).toBeTruthy()
-    expect(passwordVisible).toBeTruthy()
-    expect(continueButtonVisible).toBeTruthy()
+    // The custom form always renders all four fields plus a required password.
+    await expect(page.locator('input[name=firstName]')).toBeVisible()
+    await expect(page.locator('input[name=lastName]')).toBeVisible()
+    await expect(page.locator('input[name=emailAddress]')).toBeVisible()
+    await expect(page.locator('input[name=password]')).toBeVisible()
+    await expect(page.getByTestId('signup-submit')).toBeVisible()
   })
 
   test('should successfully sign up and redirect to onboarding', async ({

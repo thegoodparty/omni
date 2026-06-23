@@ -1,5 +1,6 @@
 import type { PaginatedList } from '@goodparty_org/contracts'
 import type {
+  CreateElectedOfficeInput,
   ElectedOffice,
   ListElectedOfficesOptions,
   SetElectedOfficeDistrictOutput,
@@ -18,6 +19,9 @@ export class ElectedOfficesResource extends BaseResource {
       `${this.resourceBasePath}/list`,
       options,
     )
+
+  create = (input: CreateElectedOfficeInput): Promise<ElectedOffice> =>
+    this.postRequest<ElectedOffice>(this.resourceBasePath, input)
 
   get = (id: string): Promise<ElectedOffice> =>
     this.getRequest<ElectedOffice>(`${this.resourceBasePath}/${id}`)

@@ -774,6 +774,7 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
       type: 'meeting_schedule',
       organizationSlug: orgSlug,
       clerkUserId: service.user.clerkId!,
+      priority: 'HIGH',
       params: {
         elected_office_id: eo.id,
         state: 'MN',

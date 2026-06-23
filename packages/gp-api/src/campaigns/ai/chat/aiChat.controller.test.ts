@@ -5,9 +5,11 @@ import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import type { CampaignChatChunk } from './aiChat.types'
 import type { PromptReplaceCampaign } from 'src/ai/services/promptReplace.service'
 import type { StreamAiChatSchema } from './schemas/StreamAiChat.schema'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 
 const CAMPAIGN = { id: 1, user: { id: 7 } } as unknown as PromptReplaceCampaign
 const BODY = { message: 'hi', initial: true } as StreamAiChatSchema
+const USER = { id: 7 } as never
 
 const gen = (chunks: CampaignChatChunk[]) =>
   (async function* () {
@@ -49,13 +51,15 @@ const makeController = (streamImpl: StreamImpl) => {
     resolveL2DistrictName: vi.fn().mockResolvedValue(null),
   }
   const slack = {}
+  const analytics = { track: vi.fn().mockResolvedValue(undefined) }
   const controller = new AiChatController(
     aiChatService as never,
     campaigns as never,
     slack as never,
+    analytics as never,
     createMockLogger(),
   )
-  return { controller, streamChat, campaigns }
+  return { controller, streamChat, campaigns, analytics }
 }
 
 describe('AiChatController.stream', () => {
@@ -64,7 +68,7 @@ describe('AiChatController.stream', () => {
   })
 
   it('opens the SSE response and forwards every chunk, then ends', async () => {
-    const { controller } = makeController(() =>
+    const { controller, analytics } = makeController(() =>
       gen([
         { type: 'text', delta: 'a' },
         {
@@ -77,7 +81,7 @@ describe('AiChatController.stream', () => {
     const reply = makeReply()
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     expect(reply.raw.writeHead).toHaveBeenCalledWith(
       HttpStatus.OK,
@@ -93,10 +97,15 @@ describe('AiChatController.stream', () => {
       expect.stringContaining('"type":"error"'),
     )
     expect(reply.raw.end).toHaveBeenCalledTimes(1)
+    expect(analytics.track).toHaveBeenCalledWith(
+      7,
+      EVENTS.AiChat.ResponseCompleted,
+      { campaignId: 1 },
+    )
   })
 
   it('writes a non-retryable internal error chunk when the iterator throws', async () => {
-    const { controller } = makeController(() =>
+    const { controller, analytics } = makeController(() =>
       (async function* () {
         yield { type: 'text', delta: 'a' } as CampaignChatChunk
         throw new Error('boom')
@@ -105,7 +114,7 @@ describe('AiChatController.stream', () => {
     const reply = makeReply()
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     expect(reply.raw.write).toHaveBeenCalledWith(
       expect.stringContaining('Chat stream failed'),
@@ -114,6 +123,11 @@ describe('AiChatController.stream', () => {
       expect.stringContaining('"retryable":false'),
     )
     expect(reply.raw.end).toHaveBeenCalledTimes(1)
+    expect(analytics.track).toHaveBeenCalledWith(
+      7,
+      EVENTS.AiChat.ResponseFailed,
+      { campaignId: 1, reason: 'internal' },
+    )
   })
 
   it('aborts the stream signal when the client disconnects, and cleans up the listener', async () => {
@@ -133,7 +147,7 @@ describe('AiChatController.stream', () => {
     const reply = makeReply()
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     expect(req.raw.once).toHaveBeenCalledWith('close', expect.any(Function))
     expect(req.raw.off).toHaveBeenCalledWith('close', expect.any(Function))
@@ -143,7 +157,7 @@ describe('AiChatController.stream', () => {
   })
 
   it('forwards a service-yielded error chunk without writing a duplicate internal chunk', async () => {
-    const { controller } = makeController(() =>
+    const { controller, analytics } = makeController(() =>
       gen([
         { type: 'text', delta: 'a' },
         {
@@ -157,7 +171,7 @@ describe('AiChatController.stream', () => {
     const reply = makeReply()
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     expect(reply.raw.write).toHaveBeenCalledWith(
       expect.stringContaining('Service error.'),
@@ -166,6 +180,11 @@ describe('AiChatController.stream', () => {
       expect.stringContaining('Chat stream failed'),
     )
     expect(reply.raw.end).toHaveBeenCalledTimes(1)
+    expect(analytics.track).toHaveBeenCalledWith(
+      7,
+      EVENTS.AiChat.ResponseFailed,
+      { campaignId: 1, reason: 'upstream_unavailable' },
+    )
   })
 
   it('cleans up the close listener and bails when writeHead throws', async () => {
@@ -178,7 +197,7 @@ describe('AiChatController.stream', () => {
     })
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     expect(req.raw.off).toHaveBeenCalledWith('close', expect.any(Function))
     expect(streamChat).not.toHaveBeenCalled()
@@ -203,7 +222,7 @@ describe('AiChatController.stream', () => {
     const reply = makeReply()
     const req = makeReq()
 
-    await controller.stream(CAMPAIGN, BODY, req as never, reply as never)
+    await controller.stream(USER, CAMPAIGN, BODY, req as never, reply as never)
 
     // streamChat(campaign, body, liveMetrics, l2DistrictName, signal)
     expect(captured[2]).toBeNull()
@@ -229,6 +248,7 @@ describe('AiChatController.stream', () => {
     const req = makeReq()
 
     const pending = controller.stream(
+      USER,
       CAMPAIGN,
       BODY,
       req as never,

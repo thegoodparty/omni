@@ -11,7 +11,7 @@ caller (gp-api service)
    │
    │  ExperimentRunsService.dispatchRun({ type, organizationSlug, params })
    ▼
-DB: INSERT experiment_run (status=RUNNING)      SQS: agent-dispatch-{env}.fifo
+DB: INSERT experiment_run (status=QUEUED)       SQS: agent-dispatch-{env}.fifo
                                                          │
                                                          ▼
                                                 Lambda → Fargate (PMF Engine)
@@ -33,23 +33,27 @@ status RUNNING → COMPLETED | FAILED,  artifactKey/Bucket, durationSeconds, err
 ### Lifecycle
 
 ```
-RUNNING ──► COMPLETED        (result.status = "success")
-        └─► FAILED           (result.status = "failed" or "contract_violation",
-                              or sweeper timeout at 45 min, or SQS dispatch error)
+QUEUED  ──► RUNNING           (result.status = "started" — scheduler launched
+        │                      the Fargate task)
+        │
+RUNNING ──► COMPLETED         (result.status = "success")
+        └─► FAILED            (result.status = "failed" or "contract_violation",
+                              SQS dispatch error, or the ECS task-stopped
+                              reaper in gp-ai-projects on a silent task death)
 ```
 
-Three terminal states only. `contract_violation` at the queue boundary collapses to `FAILED` — the distinction belongs (if anywhere) in the `error` column, not the enum.
+Runs are created `QUEUED` and advance to `RUNNING` only when the scheduler emits the `started` callback. `COMPLETED`/`FAILED` are the two terminal states. `contract_violation` at the queue boundary collapses to `FAILED` — the distinction belongs (if anywhere) in the `error` column, not the enum. There is no time-based stale sweeper: a `RUNNING` run whose Fargate task dies without reporting (OOM/SIGKILL/eviction) is reconciled by an ECS task-state-change reaper in gp-ai-projects, which sends a `failed` callback keyed on the task's `startedBy=run_id`. A run enqueued but never dispatched (`QUEUED` forever — a rare ingest-DLQ / scheduler-drop) is **not** auto-reclaimed; it needs manual cleanup.
 
 ### Callback idempotency
 
-`handleAgentExperimentResult` uses `optimisticLockingUpdate` on `updatedAt` and guards on `status === RUNNING` before patching. A duplicate result for an already-terminal run is logged and dropped.
+`handleAgentExperimentResult` uses `optimisticLockingUpdate` on `updatedAt` and guards on a terminal status (`COMPLETED`/`FAILED`) before patching — so a still-`QUEUED` run can still receive a terminal result (covers a `failed` callback that arrives before the `started` one). A duplicate result for an already-terminal run is logged and dropped — this is what makes the ECS reaper safe: a successful run's `success` callback (sent before the task exits) is FIFO-ordered ahead of the reaper's late `failed`, so the reaper can't overwrite it.
 
 ## Files
 
-| File                                 | Purpose                                                                |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `agentExperiments.module.ts`         | Nest module — exports `ExperimentRunsService`                          |
-| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepStaleRuns()` (`@Cron`), + inherited Prisma CRUD |
+| File                                 | Purpose                                                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `agentExperiments.module.ts`         | Nest module — exports `ExperimentRunsService`                                                      |
+| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepResumableRuns()` (`@Cron`, compliance resume loop), + inherited Prisma CRUD |
 
 No controller, no schemas, no other services. HTTP surface is a caller concern.
 
@@ -108,9 +112,11 @@ Sent to the queue named by `AGENT_DISPATCH_QUEUE_NAME` (e.g. `agent-dispatch-dev
 
 Envelope: `{ type: QueueType.AGENT_EXPERIMENT_RESULT, data: <above> }`.
 
-## Stale-run sweeper
+## Reconciling dead runs
 
-`ExperimentRunsService.sweepStaleRuns` runs on `*/15 * * * *`. Any `RUNNING` run with `createdAt` older than 45 minutes is flipped to `FAILED` with a timeout-error message. Runs on every replica — safe because the `UPDATE` is idempotent.
+There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies without reporting a result (OOM/SIGKILL/eviction) is reconciled by an **ECS task-state-change reaper in gp-ai-projects**: an EventBridge rule on the pmf-engine cluster fires on task `STOPPED`, and a Lambda sends a `failed` callback (keyed on the task's `startedBy=run_id`) when the container didn't exit cleanly. This is precise — it fires exactly when a task dies — and avoids the false-positives a fixed timeout had against legitimately long runs. The only remaining gap, accepted by design, is a run stuck `QUEUED` forever (enqueued but never dispatched — a rare ingest-DLQ / scheduler-drop); it has no automatic reclaim and needs manual cleanup.
+
+`ExperimentRunsService.sweepResumableRuns` (`*/5 * * * *`) is unrelated — it drives the compliance recovery loop (`AWAITING_RESUME` → re-dispatch), not staleness; it excludes meeting briefings/schedules.
 
 ## Data model
 
@@ -119,7 +125,7 @@ Envelope: `{ type: QueueType.AGENT_EXPERIMENT_RESULT, data: <above> }`.
 - `runId` — unique, uuid7, used in SQS messages and by callers
 - `organizationSlug` → `Organization.slug`, `onDelete: Cascade`
 - `experimentType: String` — opaque to this module; callers define the value space
-- `status: ExperimentRunStatus { RUNNING, COMPLETED, FAILED }`
+- `status: ExperimentRunStatus { QUEUED, RUNNING, AWAITING_RESUME, COMPLETED, FAILED }`
 - `params: Json`, `artifactBucket/Key`, `durationSeconds`, `error`
 - `@@index([organizationSlug, experimentType])`
 

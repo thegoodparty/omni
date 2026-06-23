@@ -1,0 +1,278 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "trending_issues",
+  "version": 1,
+  "model": "opus",
+  "max_turns": 150,
+  "timeout_seconds": 3000,
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["organization_slug", "state", "office", "district_descriptor"],
+    "properties": {
+      "organization_slug": {
+        "type": "string",
+        "minLength": 1,
+        "description": "GoodParty organization slug for the elected official."
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "2-letter state code (e.g. NY)."
+      },
+      "office": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Name of the elected official's office (e.g. 'City Council Member')."
+      },
+      "district_descriptor": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Human-readable district description (e.g. 'District 5, Chicago, IL')."
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TrendingIssuesOutput",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "list",
+      "organization_slug",
+      "generated_for_run_id",
+      "issues",
+      "data_quality"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "integer",
+        "const": 1
+      },
+      "list": {
+        "type": "string",
+        "const": "trending"
+      },
+      "organization_slug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "generated_for_run_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "issues": {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+          "$ref": "#/definitions/IssueOutput"
+        }
+      },
+      "sources_used": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "data_quality": {
+        "type": "string",
+        "enum": ["ok", "partial", "insufficient_signal"]
+      },
+      "data_quality_reason": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "string"
+      }
+    },
+    "definitions": {
+      "IssueOutput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "summary",
+          "category",
+          "priority",
+          "rank",
+          "detail"
+        ],
+        "properties": {
+          "existing_issue_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ID of the existing community issue in the feed, if this issue already exists."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "infrastructure_and_transportation",
+              "public_safety",
+              "education",
+              "housing_and_development",
+              "health_and_human_services",
+              "economic_development",
+              "quality_of_life",
+              "government_operations",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "detail": {
+            "$ref": "#/definitions/IssueDetail"
+          }
+        }
+      },
+      "IssueDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sources", "overview"],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/Source"
+            }
+          },
+          "overview": {
+            "$ref": "#/definitions/Subsection"
+          },
+          "history": {
+            "$ref": "#/definitions/Subsection"
+          },
+          "quotes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["items"],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/QuoteItem"
+                }
+              }
+            }
+          },
+          "research": {
+            "$ref": "#/definitions/Subsection"
+          },
+          "legislation": {
+            "$ref": "#/definitions/Subsection"
+          }
+        }
+      },
+      "Subsection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "source_ids"],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "QuoteItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "source_id"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "source_type",
+          "retrieved_at",
+          "retrieved_text_or_snapshot"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_type": {
+            "type": "string",
+            "enum": ["news", "government_website", "research", "poll"]
+          },
+          "url": {
+            "type": ["string", "null"],
+            "pattern": "^https?://"
+          },
+          "publisher": {
+            "type": ["string", "null"]
+          },
+          "article_type": {
+            "type": ["string", "null"],
+            "enum": [
+              "reporting",
+              "opinion",
+              "editorial",
+              "press_release",
+              "government_communication",
+              null
+            ]
+          },
+          "article_date": {
+            "type": ["string", "null"],
+            "format": "date"
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retrieved_text_or_snapshot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          }
+        }
+      }
+    }
+  }
+}

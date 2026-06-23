@@ -8,50 +8,100 @@ import SegmentSection from './segments/SegmentSection'
 import ContactsStatsSection from './ContactsStatsSection'
 import { ContactSearch } from './ContactSearch'
 import { ContactProModalProvider } from '../hooks/ContactProModal'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import H2 from '@shared/typography/H2'
+import Body2 from '@shared/typography/Body2'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 
 export default function ContactsPage() {
   const [campaign] = useCampaign()
   const [showProModal, setShowProModal] = useState(false)
-  const { isCustomSegment, searchTerm, totalSegmentContacts } =
-    useContactsTable()
+  const {
+    isCustomSegment,
+    searchTerm,
+    totalSegmentContacts,
+    isVoterDataUnavailable,
+    isWinContext,
+    isWinContextReady,
+  } = useContactsTable()
+  const labels = getContactsLabels(isWinContext)
+
+  // isWinContext reads false until both the elected-office query and the
+  // win-voter-data flag settle, so firing before then would emit a spurious
+  // serve event followed by a win one on every Win page load. Wait for
+  // isWinContextReady, and latch with a ref so a later isWinContext toggle
+  // (flag re-fetch on identity change, useElectedOffice focus revalidation)
+  // can't re-fire — one Contacts Viewed per mount with the settled context.
+  const hasFiredViewedRef = useRef(false)
+  useEffect(() => {
+    if (!isWinContextReady || hasFiredViewedRef.current) return
+    hasFiredViewedRef.current = true
+    trackEvent(EVENTS.Contacts.Viewed, {
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [isWinContextReady, isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>
         <Paper className="h-full">
-          <div className="flex flex-col">
-            <h1 className="text-3xl font-semibold">Constituents</h1>
-            <p className="text-lg font-normal text-muted-foreground">
-              Manage and filter on your constituent list
-            </p>
-          </div>
-
-          <div className="w-full mt-6 flex items-center space-between">
-            <div className="flex flex-col md:flex-row flex-1 items-center gap-2 mr-4">
-              <SegmentSection />
-              <Download />
+          {/* Wait for the Win/Serve context to settle before naming anything:
+              isWinContext reads false until the elected-office query and the
+              win-voter-data flag resolve, so rendering early would flash the
+              Serve copy ("constituent") to a Win user (ENG-10448). */}
+          {isWinContextReady && (
+            <div className="flex flex-col">
+              <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              <p className="text-lg font-normal text-muted-foreground">
+                {labels.subheading}
+              </p>
             </div>
-            <div className="align-right hidden md:flex md:w-full xl:w-[400px]">
-              <ContactSearch />
+          )}
+
+          {isVoterDataUnavailable ? (
+            <div className="mt-6">
+              <H2>Voter data not available for your district</H2>
+              <Body2 className="mt-2 text-muted-foreground">
+                We don&apos;t have voter data for this office yet. Please
+                contact support at help@goodparty.org so we can update your
+                district information.
+              </Body2>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="w-full mt-6 flex items-center space-between">
+                <div className="flex flex-col md:flex-row flex-1 items-center gap-2 mr-4">
+                  <SegmentSection />
+                  <Download />
+                </div>
+                <div className="align-right hidden md:flex md:w-full xl:w-[400px]">
+                  <ContactSearch />
+                </div>
+              </div>
 
-          <div className="mt-6">
-            <ContactsStatsSection
-              totalVisibleContacts={totalSegmentContacts}
-              onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
-            />
-          </div>
+              {/* Same gate as the heading: the stat cards are labelled
+                  "Voters" (Win) / "Constituents" (Serve), so hold them until
+                  the context settles rather than flash the wrong noun. */}
+              {isWinContextReady && (
+                <div className="mt-6">
+                  <ContactsStatsSection
+                    totalVisibleContacts={totalSegmentContacts}
+                    onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
+                  />
+                </div>
+              )}
 
-          <div className="flex align-right md:hidden sm:w-full">
-            <ContactSearch />
-          </div>
-          <div className="relative mt-6 lg:mt-0">
-            <ContactsTable />
-          </div>
+              <div className="flex align-right md:hidden sm:w-full">
+                <ContactSearch />
+              </div>
+              <div className="relative mt-6 lg:mt-0">
+                <ContactsTable />
+              </div>
+            </>
+          )}
         </Paper>
         <PersonOverlay />
       </DashboardLayout>

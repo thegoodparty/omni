@@ -36,7 +36,11 @@ type SlackBlocksParams = {
   formattedAudience: Array<AudienceSlackBlock>
   audienceRequest?: string
   peerlyJobUrl?: string
+  peerlyJobId?: string
+  peerlyIdentityId?: string
   campaignPlanDueDate?: string
+  textCount?: number
+  billableTextCount?: number
 }
 
 export function buildSlackBlocks({
@@ -54,7 +58,11 @@ export function buildSlackBlocks({
   formattedAudience,
   audienceRequest,
   peerlyJobUrl,
+  peerlyJobId,
+  peerlyIdentityId,
   campaignPlanDueDate,
+  textCount,
+  billableTextCount,
 }: SlackBlocksParams) {
   const blocks = [
     {
@@ -211,6 +219,76 @@ export function buildSlackBlocks({
                 {
                   type: SlackMessageType.TEXT,
                   text: campaignPlanDueDate || 'N/A',
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: '# of Texts: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text:
+                    textCount === undefined
+                      ? 'N/A'
+                      : textCount.toLocaleString('en-US'),
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: '# of Billable Texts: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text:
+                    billableTextCount === undefined
+                      ? 'N/A'
+                      : billableTextCount.toLocaleString('en-US'),
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: 'Peerly Job ID: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text: peerlyJobId || 'N/A',
+                },
+              ],
+            },
+            {
+              type: SlackMessageType.RICH_TEXT_SECTION,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: 'Peerly Identity ID: ',
+                  style: {
+                    bold: true,
+                  },
+                },
+                {
+                  type: SlackMessageType.TEXT,
+                  text: peerlyIdentityId || 'N/A',
                 },
               ],
             },

@@ -88,22 +88,44 @@ Each backend owns its own Postgres database, managed by Prisma with modular
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
 
+### Voter / people data path (unified)
+
+Both products that surface voter data — Serve (elected office) and Win (campaign) —
+now read it from **people-api** through gp-api, via the same `/dashboard/contacts`
+experience in gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the
+voter-file filter endpoints, and the contact-engagement endpoints); gp-api fans out
+to people-api over the S2S JWT. people-api owns the L2 records and runs its own
+queries (mostly raw SQL) against its partitioned `Voter` table — that raw SQL is an
+internal people-api implementation detail, not something gp-webapp talks to.
+
+- **Serve** has been on this People-API path.
+- **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.
+  This replaces the older Win voter-file experience at `dashboard/voter-records/`,
+  which read the pre-People-API `voters.voterFile.*` endpoints. That legacy page is
+  **not removed yet** — it still serves un-migrated Win users until the post-rollout
+  cleanup (ENG-10436). New Win voter work goes through `dashboard/contacts/`.
+
+Adoption of the unified path is measured via the `Contacts` analytics events, which
+carry a `context: 'win' | 'serve'` property. Detail:
+`packages/gp-webapp/app/dashboard/contacts/CLAUDE.md`.
+
 ## External repos (not in omni)
 
 Some systems live outside this monorepo. Consult them when:
 
 - **gp-ai-projects** (`thegoodparty/gp-ai-projects`) — Python AI/ML pipeline:
   campaign-plan generation, civic message analysis, HubSpot-DDHQ matching. Read it
-  when changing how gp-api calls AI generation, or when debugging plan output.
+  when changing how gp-api calls AI generation, or when debugging plan output. It
+  also hosts the **PMF Engine runtime**: gp-api's `agentExperiments` module enqueues
+  an `experiment_run` to SQS, which an ingest Lambda places on a DynamoDB priority
+  queue; a scheduler Lambda launches the single-use Fargate agent, whose only egress
+  is a privileged broker service; results come back on gp-api's `{branch}-Queue.fifo`
+  (consumed in `queue/consumer/`, with `communityIssues` a downstream consumer).
+  The experiment playbooks themselves are in-tree at `packages/runbooks/experiments/`.
+  See `packages/gp-api/src/agentExperiments/CLAUDE.md`.
 - **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
   moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
   officials, not the marketing site. Marketing changes go there, not here.
 - **ops** (`thegoodparty/ops`) — operational scripts and the Delegate agent
   framework. **Relevant to code reviews** — the review automation and agent dispatch
   logic live here, so consult it when changing or debugging review flows.
-- **runbooks** (`thegoodparty/runbooks`) — the agent runbooks that PMF Engine
-  experiment runs execute. gp-api's `agentExperiments` module dispatches an
-  `experiment_run` to SQS, which a Lambda/Fargate worker fulfills by running the
-  matching runbook; results come back on the agent-results queue. Consult it when
-  changing experiment dispatch, the run lifecycle, or the dispatch contracts in
-  `packages/gp-api/src/agentExperiments/CLAUDE.md`. May be folded into omni later.

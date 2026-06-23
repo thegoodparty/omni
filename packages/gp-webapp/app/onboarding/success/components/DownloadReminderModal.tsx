@@ -38,7 +38,7 @@ const TITLE = 'Download your campaign plan?'
 const DESCRIPTION =
   "You haven't downloaded your campaign plan yet. Download a copy now, or continue to your Campaign Manager."
 const PREPARING_TOOLTIP =
-  'Your plan is still being generated. It will be ready in a moment.'
+  'Your plan is still being generated. This usually takes less than 3 minutes.'
 
 const DownloadReminderModal = ({
   open,
@@ -56,7 +56,7 @@ const DownloadReminderModal = ({
       variant="default"
       icon={<Download className="size-5" />}
       loading={downloading || !planReady}
-      loadingText={!planReady && !downloading ? 'Preparing plan…' : undefined}
+      loadingText={!planReady && !downloading ? 'Preparing Plan…' : undefined}
       onClick={onDownloadNow}
       className="w-full"
     >

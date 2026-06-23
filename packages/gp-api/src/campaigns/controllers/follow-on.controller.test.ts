@@ -32,6 +32,14 @@ describe('POST /v1/campaigns/follow-on', () => {
     // tests that need a resolved date or a definitive no-election override it.
     const elections = service.app.get(ElectionsService)
     vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue(null)
+
+    // The held-office positionId is translated to election-api's internal id
+    // via a network lookup that isn't reachable here. Default it to identity so
+    // same-office tests keep their seeded positionId; the translation test
+    // below overrides it.
+    vi.spyOn(elections, 'resolveInternalPositionId').mockImplementation(
+      async (positionId: string) => positionId,
+    )
   })
 
   it('inherits the held office position and carries isPro on a same-office run', async () => {
@@ -63,8 +71,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-source',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
         campaignId: prevCampaign.id,
       },
     })
@@ -102,8 +109,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-term',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -131,6 +137,49 @@ describe('POST /v1/campaigns/follow-on', () => {
     expect(campaignCount).toBe(1)
   })
 
+  it('translates a BallotReady positionId to the internal id before dating and on the new org', async () => {
+    // The held-office org stores a BallotReady position id (admin prefill);
+    // next-election and the new org must use the resolved internal id instead.
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'resolveInternalPositionId').mockResolvedValue(
+      'pos-internal',
+    )
+    const nextElectionSpy = vi
+      .spyOn(elections, 'getNextElectionForPosition')
+      .mockResolvedValue({ electionDate: '2100-11-02' })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'eo-brid',
+        ownerId: service.user.id,
+        positionId: 'br-old',
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: 'eo-brid',
+        userId: service.user.id,
+        termEndDate: null,
+      },
+    })
+
+    const result = await service.client.post('/v1/campaigns/follow-on', {
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-brid',
+    })
+
+    expect(result.status).toBe(201)
+    // next-election was keyed on the resolved internal id, not the BR id.
+    expect(nextElectionSpy).toHaveBeenCalledWith('pos-internal')
+    expect(result.data.details.electionDate).toBe('2100-11-02')
+
+    // The new campaign org carries the internal id, not the BR id.
+    const newOrg = await service.prisma.organization.findUnique({
+      where: { slug: `campaign-${result.data.id}` },
+    })
+    expect(newOrg).toMatchObject({ positionId: 'pos-internal' })
+  })
+
   it('uses the election-api next-election date over the term end on same-office', async () => {
     const elections = service.app.get(ElectionsService)
     vi.spyOn(elections, 'getNextElectionForPosition').mockResolvedValue({
@@ -148,8 +197,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-next',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -184,8 +232,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-definitive',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -221,8 +268,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-injected',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 
@@ -255,8 +301,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-noelection',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 
@@ -285,8 +330,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-repeat',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -335,8 +379,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-source-2',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -477,8 +520,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-created',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
         campaignId: prevCampaign.id,
       },
     })
@@ -517,8 +559,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-grouped',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: new Date('2099-01-05T00:00:00Z'),
+        termEndDate: new Date('2099-01-05T00:00:00Z'),
       },
     })
 
@@ -573,8 +614,7 @@ describe('POST /v1/campaigns/follow-on', () => {
       data: {
         organizationSlug: 'eo-blocked',
         userId: service.user.id,
-        isActive: true,
-        termEndAt: null,
+        termEndDate: null,
       },
     })
 

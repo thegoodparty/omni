@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { Prisma, User } from '../../generated/prisma'
-import axios from 'axios'
+import { Campaign, Prisma, User } from '../../generated/prisma'
+import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import { promisify } from 'node:util'
 import * as http from 'node:http'
@@ -13,13 +13,100 @@ import * as https from 'node:https'
 import ipaddr from 'ipaddr.js'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
 import { getUserFullName } from 'src/users/util/users.util'
-import { VerifyLiveResponse } from '../schemas/VerifyLive.schema'
+import {
+  VerifyLiveReason,
+  VerifyLiveResponse,
+} from '../schemas/VerifyLive.schema'
 
 const dnsLookup = promisify(dns.lookup)
 
 type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
 }>
+
+const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
+
+const hasText = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().length > 0
+
+// getUserFullName is '' when firstName and name are both null — a real case
+// for legacy-Pro candidates who skipped the profile step. Without this the
+// generated copy is "Vote For " / "<p> is a candidate…".
+const getDisplayName = (user: User): string => {
+  const fullName = getUserFullName(user)
+  return hasText(fullName) ? fullName : 'The Candidate'
+}
+
+const buildDefaultComplianceIssue = (displayName: string) => ({
+  title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
+  description:
+    `${displayName} is focused on practical, community-first leadership ` +
+    'and bringing neighbors together to solve local problems.',
+})
+
+// The compliance_setup agent publishes an existing website but cannot author
+// missing copy. Legacy-Pro candidates reach the agentic flow without the
+// pre-payment candidate-profile step that creates the site, so the agent's
+// publish call would 400 on the empty publish-gated fields. Backfill every
+// field assertReadyToPublish requires (main.title, about.bio, about.issues,
+// contact.email) with templated defaults matching createByCampaign, but never
+// overwrite candidate-authored content. Returns patched content, or null when
+// nothing needed filling.
+export const applyCompliancePublishFallbacks = (
+  content: PrismaJson.WebsiteContent,
+  user: User,
+  campaign: Campaign,
+): PrismaJson.WebsiteContent | null => {
+  const displayName = getDisplayName(user)
+
+  const about = content.about ?? {}
+  const nextAbout = { ...about }
+  const main = content.main ?? {}
+  const nextMain = { ...main }
+  const contact = content.contact ?? {}
+  const nextContact = { ...contact }
+  let changed = false
+
+  if (!hasText(main.title)) {
+    nextMain.title = `Vote For ${displayName}`
+    changed = true
+  }
+
+  if (!hasText(about.bio)) {
+    const office = campaign.details.normalizedOffice
+    const role = hasText(office) ? `a candidate for ${office}` : 'a candidate'
+    const where = hasText(campaign.details.state)
+      ? ` in ${campaign.details.state}`
+      : ''
+    nextAbout.bio =
+      `<p>${displayName} is ${role}${where}, running on local solutions ` +
+      'over party politics and committed to putting the community first.</p>'
+    changed = true
+  }
+
+  // assertReadyToPublish requires every issue to have a non-empty title AND
+  // description, so drop any malformed ones; seed a default only when none
+  // survive. Keeps valid candidate-authored issues intact.
+  const validIssues = (about.issues ?? []).filter(
+    (issue) => hasText(issue.title) && hasText(issue.description),
+  )
+  if (validIssues.length === 0 || validIssues.length !== about.issues?.length) {
+    nextAbout.issues =
+      validIssues.length > 0
+        ? validIssues
+        : [buildDefaultComplianceIssue(displayName)]
+    changed = true
+  }
+
+  if (!hasText(contact.email)) {
+    nextContact.email = user.email
+    changed = true
+  }
+
+  return changed
+    ? { ...content, main: nextMain, about: nextAbout, contact: nextContact }
+    : null
+}
 
 @Injectable()
 export class WebsitesService extends createPrismaBase(MODELS.Website) {
@@ -28,10 +115,21 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       // Prisma include query — TypeScript cannot narrow the included relations at compile time
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       campaign.campaignPositions as PositionWithTopIssue[]
-    const issues = campaignPositions.map((position, index) => ({
-      title: position.topIssue?.name ?? `Issue ${index + 1}`,
-      description: position.description ?? `Issue ${index + 1} description`,
-    }))
+    // Keep only complete positions (real title AND description). Emitting
+    // placeholder copy like "Issue 1" / "Issue 1 description" would survive
+    // the publish-readiness check and ship literally to a candidate's site.
+    // Seed a default when none survive so this stays publishable for the
+    // direct POST /websites caller too (which has no fallback after).
+    const realIssues = campaignPositions
+      .map((position) => ({
+        title: position.topIssue?.name ?? '',
+        description: position.description ?? '',
+      }))
+      .filter((issue) => hasText(issue.title) && hasText(issue.description))
+    const issues =
+      realIssues.length > 0
+        ? realIssues
+        : [buildDefaultComplianceIssue(getDisplayName(user))]
 
     // NOTE: this is in a WIP state, better default content generation TBD
     // TODO: generate AI content here for any missing fields
@@ -42,7 +140,7 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         content: {
           theme: 'light',
           main: {
-            title: `Vote For ${getUserFullName(user)}`,
+            title: `Vote For ${getDisplayName(user)}`,
             tagline: 'Local Solutions, Not Party Politics',
           },
           about: {
@@ -59,6 +157,30 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
 
   update(args: Prisma.WebsiteUpdateArgs) {
     return this.model.update(args)
+  }
+
+  // Guarantee the compliance_setup agent's precondition: a publishable website
+  // for the campaign. Creates one if the candidate never built it, then
+  // backfills empty publish-gated fields via applyCompliancePublishFallbacks.
+  async ensureCompliancePublishableWebsite(
+    user: User,
+    campaign: CampaignWith<'campaignPositions'>,
+  ): Promise<void> {
+    const existing = await this.model.findUnique({
+      where: { campaignId: campaign.id },
+    })
+    const website = existing ?? (await this.createByCampaign(user, campaign))
+    const patched = applyCompliancePublishFallbacks(
+      website.content ?? {},
+      user,
+      campaign,
+    )
+    if (patched) {
+      await this.update({
+        where: { campaignId: campaign.id },
+        data: { content: patched },
+      })
+    }
   }
 
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {
@@ -114,6 +236,7 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       return {
         verified: true,
         url,
+        reason: null,
         checks: {
           http_200: true,
           has_privacy_policy: true,
@@ -124,17 +247,34 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     }
 
     await assertPublicHostname(website.domain.name)
-    const html = await fetchLiveHtml(url)
+    const fetched = await fetchLiveHtml(url)
     const user = website.campaign?.user
     const candidateName = user
       ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
       : null
 
-    return scoreLiveHtml(url, html, candidateName)
+    const result = scoreLiveHtml(url, fetched, candidateName)
+    if (!result.verified) {
+      this.logger.warn(
+        {
+          url,
+          reason: result.reason,
+          status: fetched.status,
+          fetchError: fetched.errorCode,
+          checks: result.checks,
+        },
+        'verify-live did not pass',
+      )
+    }
+    return result
   }
 }
 
-type LiveFetchResult = { status: number; body: string | null }
+type LiveFetchResult = {
+  status: number
+  body: string | null
+  errorCode: string | null
+}
 
 export const isPublicAddress = (address: string): boolean => {
   if (ipaddr.IPv6.isValid(address)) {
@@ -187,8 +327,16 @@ export const ssrfSafeLookup: NonNullable<https.AgentOptions['lookup']> = (
         0,
       )
     }
-    const first = addresses[0]
-    callback(null, first.address, first.family)
+    // Node's http/https Agent invokes lookup with `all: true` (its
+    // happy-eyeballs path). In that mode the callback contract is the array
+    // form `(err, LookupAddress[])` — returning the single-address form makes
+    // Node read `.address` off a string and throw ERR_INVALID_IP_ADDRESS,
+    // which silently fails every verify-live fetch in prod. Echo the shape.
+    if (typeof options === 'object' && options?.all) {
+      return callback(null, addresses)
+    }
+    const [{ address, family }] = addresses
+    callback(null, address, family)
   })
 }
 
@@ -204,9 +352,15 @@ const fetchLiveHtml = async (url: string): Promise<LiveFetchResult> => {
       httpsAgent: new https.Agent({ lookup: ssrfSafeLookup }),
     })
     const body = typeof res.data === 'string' ? res.data : null
-    return { status: res.status, body }
-  } catch {
-    return { status: 0, body: null }
+    return { status: res.status, body, errorCode: null }
+  } catch (error) {
+    const errorCode =
+      error instanceof AxiosError
+        ? (error.code ?? error.message)
+        : error instanceof Error
+          ? error.message
+          : 'unknown'
+    return { status: 0, body: null, errorCode }
   }
 }
 
@@ -234,9 +388,25 @@ const scoreLiveHtml = (
   const verified =
     http200 && hasPrivacyPolicy && hasTerms && hasCandidateIdentity
 
+  // A redirect loop lands status 0, but the server IS reachable — it's a
+  // misconfiguration that waiting will never fix, so it gets its own reason the
+  // agent routes to an unrecoverable blocker rather than to wait_dns_propagation
+  // (unreachable) or an indefinite wait_vercel_verify. axios surfaces this via
+  // follow-redirects' code ERR_FR_TOO_MANY_REDIRECTS (not ERR_TOO_MANY_REDIRECTS).
+  const reason = verified
+    ? null
+    : fetched.errorCode === 'ERR_FR_TOO_MANY_REDIRECTS'
+      ? VerifyLiveReason.redirectLoop
+      : fetched.status === 0
+        ? VerifyLiveReason.unreachable
+        : !http200
+          ? VerifyLiveReason.notLive
+          : VerifyLiveReason.contentMissing
+
   return {
     verified,
     url,
+    reason,
     checks: {
       http_200: http200,
       has_privacy_policy: hasPrivacyPolicy,

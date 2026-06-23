@@ -1,18 +1,32 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
+import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
-import { Organization } from '../../generated/prisma'
+import { PinoLogger } from 'nestjs-pino'
+import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
 
 vi.mock('@nestjs/axios', () => ({
   HttpService: vi.fn(),
 }))
 
-const SEARCH_REQUIRES_PRO_MSG = 'Search is only available for pro campaigns'
+const PRO_FEATURE_MSG =
+  'Search and segments are only available for pro campaigns'
 const OVERRIDE_DISTRICT_ID = 'override-district-uuid'
 const POSITION_ID_FIXTURE = 'position-uuid'
 const PEOPLE_V1_PATH = '/v1/people'
+
+// A district that carries L2 location data, so the real download-access rule
+// (VoterFileDownloadAccessService.canDownload) treats the campaign as eligible.
+const ELIGIBLE_DISTRICT = {
+  id: 'eligible-district-uuid',
+  state: 'CA',
+  l2Type: 'City',
+  l2Name: 'Springfield',
+}
 
 const makeOrganization = (
   overrides: Partial<Organization> = {},
@@ -27,6 +41,17 @@ const makeOrganization = (
     updatedAt: new Date(),
     ...overrides,
   }) as Organization
+
+const makeCampaign = (overrides: Partial<Campaign> = {}): Campaign =>
+  ({
+    id: 1,
+    slug: 'test-campaign',
+    organizationSlug: 'campaign-1',
+    isPro: true,
+    canDownloadFederal: false,
+    details: {},
+    ...overrides,
+  }) as Campaign
 
 describe('ContactsService', () => {
   describe('findContacts and downloadContacts', () => {
@@ -44,6 +69,13 @@ describe('ContactsService', () => {
     }
     let mockCampaignsService: {
       findFirst: ReturnType<typeof vi.fn>
+    }
+    let mockOrganizationsService: {
+      getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
+    }
+    let voterFileDownloadAccess: VoterFileDownloadAccessService
+    let mockFeaturesService: {
+      isFeatureEnabled: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {
@@ -63,12 +95,32 @@ describe('ContactsService', () => {
       mockCampaignsService = {
         findFirst: vi.fn().mockResolvedValue(null),
       }
+      mockOrganizationsService = {
+        getDistrictAndBallotLevelForOrgSlug: vi.fn().mockResolvedValue({
+          district: ELIGIBLE_DISTRICT,
+          ballotLevel: null,
+        }),
+      }
+
+      // Drive the real eligibility rule rather than mocking canDownload away,
+      // so the federal/state tests verify the actual download-gate logic.
+      voterFileDownloadAccess = new VoterFileDownloadAccessService({
+        message: vi.fn(),
+      } as never)
+      ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
+        createMockLogger()
+      mockFeaturesService = {
+        isFeatureEnabled: vi.fn().mockResolvedValue(true),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
         mockVoterFileFilterService as never,
         mockElectionsService as never,
         mockCampaignsService as never,
+        mockOrganizationsService as never,
+        voterFileDownloadAccess,
+        mockFeaturesService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -93,7 +145,47 @@ describe('ContactsService', () => {
             { resultsPerPage: 10, page: 1, search: 'smith', segment: 'all' },
             org,
           ),
-        ).rejects.toThrow(SEARCH_REQUIRES_PRO_MSG)
+        ).rejects.toThrow(PRO_FEATURE_MSG)
+      })
+
+      it('throws when a named segment is used and organization is not pro', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'texting' },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'texting' },
+            org,
+          ),
+        ).rejects.toThrow(PRO_FEATURE_MSG)
+      })
+
+      it('allows the default "all" segment when not pro (base preview)', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
       })
 
       it('allows search when organization is an elected office (eo- slug)', async () => {
@@ -528,6 +620,7 @@ describe('ContactsService', () => {
         const org = makeOrganization({
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: true })
 
         mockHttpService.get.mockReturnValue(
           of({
@@ -543,6 +636,18 @@ describe('ContactsService', () => {
             params: { districtId: OVERRIDE_DISTRICT_ID },
           }),
         )
+      })
+
+      it('throws on findPerson when the campaign is not pro', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(service.findPerson('person-1', org)).rejects.toThrow(
+          BadRequestException,
+        )
+        expect(mockHttpService.get).not.toHaveBeenCalled()
       })
 
       it('uses overrideDistrictId for downloadContacts', async () => {
@@ -581,6 +686,105 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('voter-data eligibility (Win federal/state alignment)', () => {
+      const getErrorBody = async (promise: Promise<unknown>) => {
+        try {
+          await promise
+          throw new Error('expected promise to reject')
+        } catch (err) {
+          expect(err).toBeInstanceOf(BadRequestException)
+          return (err as BadRequestException).getResponse() as {
+            errorCode?: string
+          }
+        }
+      }
+
+      it('tags an unresolved district with a stable error code', async () => {
+        const org = makeOrganization()
+
+        const body = await getErrorBody(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        )
+
+        expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
+        expect(VOTER_DATA_UNAVAILABLE_ERROR_CODE).toBe('VOTER_DATA_UNAVAILABLE')
+      })
+
+      it('rejects a FEDERAL campaign without canDownloadFederal or L2 data', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: false,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+        mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+          { district: null, ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        )
+
+        const body = await getErrorBody(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        )
+
+        expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('allows a FEDERAL campaign that has canDownloadFederal', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: true,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+        mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug.mockResolvedValue(
+          { district: null, ballotLevel: BallotReadyPositionLevel.FEDERAL },
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
+        expect(mockHttpService.post).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not gate elected-office orgs on eligibility', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(
+          makeCampaign({
+            canDownloadFederal: false,
+            details: { ballotLevel: BallotReadyPositionLevel.FEDERAL },
+          }),
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
+        expect(
+          mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug,
+        ).not.toHaveBeenCalled()
+      })
+    })
+
     describe('org-only path (no campaign in org)', () => {
       it('findContacts succeeds with org that has no linked campaign', async () => {
         const org = makeOrganization({
@@ -604,6 +808,267 @@ describe('ContactsService', () => {
           }),
           expect.any(Object),
         )
+      })
+    })
+
+    describe('political party exposure (Win vs Serve)', () => {
+      const partySegment = {
+        id: 7,
+        name: 'Democrats',
+        partyDemocrat: true,
+      } as VoterFileFilter
+
+      it('forwards the political-party filter to people-api for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('returns the people-api politicalParty field unchanged for Win', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Republican' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+          org,
+        )
+
+        expect(result.people[0].politicalParty).toBe('Republican')
+      })
+
+      // Regression guard: the backend treats Win and Serve identically — it
+      // forwards the party filter and passes politicalParty through for eo-
+      // (Serve) orgs too. The Win/Serve party-visibility rule is a frontend
+      // display concern (the contacts person overlay's hidePoliticalParty
+      // gate), not duplicated on the backend. This locks that in so a future
+      // change that strips party server-side can't silently break Serve.
+      it('does not strip party or the party filter for Serve (eo-) orgs', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p1', politicalParty: 'Democratic' }],
+              pagination: {},
+            },
+          }),
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              politicalParty: { eq: 'Democratic' },
+            }),
+          }),
+          expect.any(Object),
+        )
+        expect(result.people[0].politicalParty).toBe('Democratic')
+      })
+    })
+
+    // Win channel downloads/counts on people-api (ENG-10424). Each built-in
+    // channel maps to a people-api boolean filter set; the list/count path and
+    // the download path must forward the SAME filters so the count Win sees
+    // matches the downloaded row count (both run people-api's identical
+    // buildVoterWhereSql).
+    describe('Win channel -> people-api filter mapping', () => {
+      const channelFilters: Array<{
+        segment: string
+        filters: Record<string, true>
+      }> = [
+        { segment: 'all', filters: {} },
+        { segment: 'doorKnocking', filters: {} },
+        { segment: 'directMail', filters: {} },
+        { segment: 'texting', filters: { hasCellPhone: true } },
+        { segment: 'digitalAds', filters: { hasCellPhone: true } },
+        { segment: 'phoneBanking', filters: { hasLandline: true } },
+      ]
+
+      const makeDownloadStream = () => ({
+        destroyed: false,
+        pipe: vi.fn(),
+        destroy: vi.fn(),
+        on: vi.fn((event: string, cb: (err?: Error) => void) => {
+          if (event === 'end') setImmediate(() => cb())
+        }),
+      })
+
+      const makeDownloadReply = () => ({
+        raw: {
+          headersSent: false,
+          flushHeaders: vi.fn(),
+          setHeader: vi.fn(),
+          on: vi.fn(),
+        },
+      })
+
+      it.each(channelFilters)(
+        'forwards the $segment channel filters to the people-api list/count query',
+        async ({ segment, filters }) => {
+          const org = makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockHttpService.post.mockReturnValue(
+            of({ data: { people: [], pagination: { totalResults: 0 } } }),
+          )
+
+          await service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment },
+            org,
+          )
+
+          expect(mockHttpService.post).toHaveBeenCalledWith(
+            expect.stringContaining(PEOPLE_V1_PATH),
+            expect.objectContaining({
+              districtId: OVERRIDE_DISTRICT_ID,
+              filters,
+            }),
+            expect.any(Object),
+          )
+        },
+      )
+
+      it.each(channelFilters)(
+        'streams the $segment channel download with CSV headers and the same filters',
+        async ({ segment, filters }) => {
+          const org = makeOrganization({
+            slug: 'eo-office-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          const stream = makeDownloadStream()
+          mockHttpService.post.mockReturnValue(of({ data: stream }))
+          const res = makeDownloadReply()
+
+          await service.downloadContacts({ segment }, res as never, org)
+
+          expect(mockHttpService.post).toHaveBeenCalledWith(
+            expect.stringContaining(`${PEOPLE_V1_PATH}/download`),
+            expect.objectContaining({
+              districtId: OVERRIDE_DISTRICT_ID,
+              filters,
+            }),
+            expect.objectContaining({ responseType: 'stream' }),
+          )
+          expect(res.raw.setHeader).toHaveBeenCalledWith(
+            'Content-Type',
+            'text/csv',
+          )
+          expect(res.raw.setHeader).toHaveBeenCalledWith(
+            'Content-Disposition',
+            'attachment; filename="contacts.csv"',
+          )
+          // No buffering: the upstream pg COPY stream is piped straight to the
+          // client response rather than collected into memory.
+          expect(stream.pipe).toHaveBeenCalledTimes(1)
+        },
+      )
+
+      it('surfaces the people-api total as the channel count', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: { people: [], pagination: { totalResults: 1234 } },
+          }),
+        )
+
+        const result = await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'texting',
+          },
+          org,
+        )
+
+        expect(result.pagination.totalResults).toBe(1234)
+        expect(Number.isInteger(result.pagination.totalResults)).toBe(true)
+      })
+
+      it('sends identical filters on the count and download paths for a channel', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 0 } } }),
+        )
+        await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'texting',
+          },
+          org,
+        )
+        const listBody = mockHttpService.post.mock.calls.find((call) =>
+          String(call[0]).endsWith(PEOPLE_V1_PATH),
+        )?.[1] as { filters: Record<string, true> }
+
+        mockHttpService.post.mockReturnValue(of({ data: makeDownloadStream() }))
+        await service.downloadContacts(
+          { segment: 'texting' },
+          makeDownloadReply() as never,
+          org,
+        )
+        const downloadBody = mockHttpService.post.mock.calls.find((call) =>
+          String(call[0]).endsWith(`${PEOPLE_V1_PATH}/download`),
+        )?.[1] as { filters: Record<string, true> }
+
+        expect(listBody.filters).toEqual({ hasCellPhone: true })
+        expect(downloadBody.filters).toEqual(listBody.filters)
       })
     })
   })

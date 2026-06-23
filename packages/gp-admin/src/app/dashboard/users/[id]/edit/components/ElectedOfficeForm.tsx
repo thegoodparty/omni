@@ -5,7 +5,6 @@ import {
   Text,
   Box,
   Flex,
-  Switch,
   Callout,
   Separator,
 } from '@radix-ui/themes'
@@ -53,8 +52,6 @@ export function ElectedOfficeForm({
 
   const {
     register,
-    watch,
-    setValue,
     getValues,
     reset,
     formState: { isDirty, isValid },
@@ -65,9 +62,8 @@ export function ElectedOfficeForm({
       electedDate: initialData?.electedDate ?? null,
       swornInDate: initialData?.swornInDate ?? null,
       termStartDate: initialData?.termStartDate ?? null,
-      termLengthDays: initialData?.termLengthDays ?? null,
       termEndDate: initialData?.termEndDate ?? null,
-      isActive: initialData?.isActive ?? true,
+      party: initialData?.party ?? null,
     },
   })
 
@@ -154,30 +150,17 @@ export function ElectedOfficeForm({
               </Box>
             </Flex>
 
-            <Box style={{ maxWidth: '200px' }}>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Term Length (Days)
-              </Text>
-              <TextField.Root
-                {...register('termLengthDays')}
-                type={INPUT_TYPE.NUMBER}
-                placeholder="e.g., 1461"
-              />
-            </Box>
-          </Flex>
-        </InfoCard>
-
-        <InfoCard title={ELECTED_OFFICE_FORM_SECTIONS.STATUS}>
-          <Flex justify="between" align="center">
-            <Text as="label" size="2">
-              Active Office Holder
-            </Text>
-            <Switch
-              checked={watch('isActive') ?? false}
-              onCheckedChange={(checked) =>
-                setValue('isActive', checked, { shouldDirty: true })
-              }
-            />
+            <Flex gap="4" wrap="wrap">
+              <Box style={{ maxWidth: '200px' }} flexGrow="1">
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Party
+                </Text>
+                <TextField.Root
+                  {...register('party')}
+                  placeholder="e.g., Independent"
+                />
+              </Box>
+            </Flex>
           </Flex>
         </InfoCard>
 

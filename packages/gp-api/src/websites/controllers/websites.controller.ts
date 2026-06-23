@@ -190,7 +190,7 @@ export class WebsitesController {
 
   @Get('mine')
   @UseCampaign()
-  @ResponseSchema(MyWebsiteResponseSchema)
+  @ResponseSchema(MyWebsiteResponseSchema.nullable())
   @McpTool({
     description:
       "Read the calling campaign's website, including current content " +
@@ -199,14 +199,15 @@ export class WebsitesController {
       'updates so the agent can preserve fields it does not intend to ' +
       'change. Returns the Website row with `domain` populated when ' +
       'a custom domain has been purchased; `domain` is null otherwise. ' +
+      'Returns null when the campaign has no website yet. ' +
       'Read-only; safe to retry.',
   })
   async getMyWebsite(@ReqCampaign() { id: campaignId }: Campaign) {
-    const website = await this.websites.findUniqueOrThrow({
+    const website = await this.websites.findUnique({
       where: { campaignId },
       include: { domain: true },
     })
-    return serializeWebsiteWithDomain(website)
+    return website ? serializeWebsiteWithDomain(website) : null
   }
 
   @Get('mine/contacts')
@@ -411,8 +412,12 @@ export class WebsitesController {
       'retry. If the live URL is not reachable yet (DNS not propagated, ' +
       'site not deployed), `checks.http_200` will be false; the caller ' +
       'is responsible for implementing its own backoff and retry loop. ' +
-      'Returns `{ verified, url, checks: { http_200, has_privacy_policy, ' +
-      'has_terms, has_candidate_identity } }`. Requires an attached ' +
+      'Returns `{ verified, url, reason, checks: { http_200, ' +
+      'has_privacy_policy, has_terms, has_candidate_identity } }`, where ' +
+      '`reason` is null when verified, else `unreachable` (fetch threw), ' +
+      '`not_live` (responded non-200), `redirect_loop` (too many redirects), ' +
+      'or `content_missing` (200 but a required section/identity marker is ' +
+      'absent). Requires an attached ' +
       'custom domain; returns 400 if no domain is attached, or if the ' +
       'domain resolves to a non-public IP address. Call AFTER ' +
       '`PUT /v1/websites/mine` with `status: "published"` has succeeded.',

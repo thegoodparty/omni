@@ -39,6 +39,7 @@ interface ComboboxProps<T> {
   clearable?: boolean
   className?: string
   id?: string
+  'aria-invalid'?: React.ComponentProps<'button'>['aria-invalid']
 }
 
 const Combobox = <T,>({
@@ -60,6 +61,7 @@ const Combobox = <T,>({
   clearable = true,
   className,
   id,
+  'aria-invalid': ariaInvalid,
 }: ComboboxProps<T>) => {
   const [open, setOpen] = React.useState(false)
   const [commandValue, setCommandValue] = React.useState('')
@@ -121,14 +123,15 @@ const Combobox = <T,>({
           role="combobox"
           aria-expanded={open}
           aria-controls={contentId}
+          aria-invalid={ariaInvalid}
           disabled={disabled}
           data-slot="combobox-trigger"
           className={cn(
-            "border-base-border focus-visible:border-ring focus-visible:ring-ring/50 [&_svg:not([class*='text-'])]:text-muted-foreground flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+            "border-components-input-border focus:border-components-input-active focus-visible:ring-components-input-focus [&_svg:not([class*='text-'])]:text-muted-foreground flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-components-input-base px-3 py-2 text-base text-foreground whitespace-nowrap transition-[color,box-shadow] outline-none focus-visible:ring-[3px] aria-invalid:border-destructive focus:aria-invalid:border-destructive focus-visible:aria-invalid:ring-destructive-focus disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 md:text-sm",
             className,
           )}
         >
-          <SearchIcon className="opacity-50" />
+          <SearchIcon />
           <span
             className={cn(
               'flex-1 truncate text-left',
@@ -152,7 +155,7 @@ const Combobox = <T,>({
               <XMarkIcon className="size-4" />
             </span>
           ) : (
-            <ChevronsUpDownIcon className="opacity-50" />
+            <ChevronsUpDownIcon />
           )}
         </button>
       </PopoverTrigger>

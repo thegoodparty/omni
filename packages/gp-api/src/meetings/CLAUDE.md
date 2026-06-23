@@ -178,10 +178,11 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 
 ## Cron jobs
 
-| Cron                         | Service / method                                 | Schedule        |
-| ---------------------------- | ------------------------------------------------ | --------------- |
-| Daily briefing dispatch      | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
-| Stale experiment-run sweeper | `ExperimentRunsService.sweepStaleRuns`           | `*/15 * * * *`  |
+| Cron                    | Service / method                                 | Schedule        |
+| ----------------------- | ------------------------------------------------ | --------------- |
+| Daily briefing dispatch | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
+
+There is no time-based stale-run sweeper: a `RUNNING` experiment_run whose Fargate task dies is reconciled to `FAILED` by the gp-ai-projects ECS task-reaper (a `failed` callback keyed on `startedBy=run_id`), not by a gp-api cron.
 
 In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
 

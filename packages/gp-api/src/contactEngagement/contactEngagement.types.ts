@@ -1,5 +1,11 @@
+import {
+  OutreachType,
+  VoterOutreachAttributionSource,
+} from '../generated/prisma'
+
 export enum ConstituentActivityType {
   POLL_INTERACTIONS = 'POLL_INTERACTIONS',
+  OUTREACH = 'OUTREACH',
 }
 
 export enum ConstituentActivityEventType {
@@ -26,6 +32,24 @@ export type ConstituentActivity = {
 export type GetIndividualActivitiesResponse = {
   nextCursor: string | null
   results: ConstituentActivity[]
+}
+
+// Win campaign outreach, read from VoterOutreachActivity (keyed on the durable
+// lalVoterId). attributionSource lets the timeline label send-time vs
+// per-recipient attribution honestly.
+export type OutreachConstituentActivity = {
+  type: ConstituentActivityType.OUTREACH
+  date: string
+  data: {
+    activityId: number
+    outreachType: OutreachType
+    attributionSource: VoterOutreachAttributionSource
+  }
+}
+
+export type GetCampaignActivitiesResponse = {
+  nextCursor: string | null
+  results: OutreachConstituentActivity[]
 }
 
 export type ConstituentIssue = {

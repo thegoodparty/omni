@@ -13,6 +13,7 @@ import {
   MdWeb,
 } from 'react-icons/md'
 import {
+  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -25,6 +26,7 @@ import {
   LogOut,
   Send,
   Settings,
+  Sparkles,
   UserCog,
   UserRound,
   UsersRound,
@@ -40,7 +42,9 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { Campaign } from 'helpers/types'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
   DropdownMenu,
@@ -60,13 +64,15 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { ScrollTextIcon } from '@styleguide/components/ui/icons'
+import { ListChecksIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
+import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
+import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
   id: string
@@ -90,7 +96,7 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
   icon: <MdFolderShared />,
   v2Icon: UsersRound,
   v2Category: 'campaign',
-  link: '/dashboard/upgrade-to-pro',
+  link: '/dashboard/pro-upgrade',
   id: 'upgrade-pro-dashboard',
 }
 
@@ -166,7 +172,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     ),
     v2Icon: Circle,
     v2Category: null,
-    link: 'https://goodpartyorg.circle.so/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952',
+    link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
     target: '_blank',
     id: 'community-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
@@ -196,11 +202,26 @@ const ECANVASSER_MENU_ITEM: MenuItem = {
 const CONTACTS_MENU_ITEM: MenuItem = {
   id: 'contacts-dashboard',
   label: 'Contacts',
-  v2Name: 'Constituents',
+  v2Name: CONTACTS_DATA_TITLE.serve,
   link: '/dashboard/contacts',
   icon: <MdPeople />,
   v2Icon: UsersRound,
   v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
+}
+
+// Win campaigns reuse the Serve Contacts route/components but are categorized
+// as 'campaign', so they need their own item — the elected-office
+// CONTACTS_MENU_ITEM is filtered out for campaign orgs (see the v2Category
+// filter in NewNavMenu). Win reads "Voter Data", never "Constituents".
+const WIN_CONTACTS_MENU_ITEM: MenuItem = {
+  id: 'win-contacts-dashboard',
+  label: 'Contacts',
+  v2Name: CONTACTS_DATA_TITLE.win,
+  link: '/dashboard/contacts',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
 }
 
@@ -224,6 +245,25 @@ const BRIEFINGS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
 }
 
+const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
+  id: 'community-issues-dashboard',
+  label: 'Community Issues',
+  link: '/dashboard/community-issues',
+  icon: <MdFactCheck />,
+  v2Icon: ListChecksIcon,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
+}
+
+const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
+  id: 'chief-of-staff-dashboard',
+  label: 'Chief of Staff',
+  link: '/dashboard/chief-of-staff',
+  icon: <MdAutoAwesome />,
+  v2Icon: Sparkles,
+  v2Category: 'elected-office',
+}
+
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
   label: 'Campaign Plan',
@@ -234,30 +274,95 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
-const getDashboardMenuItems = (
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Campaign Story',
+  link: '/dashboard/campaign-story',
+  icon: <MdFileOpen />,
+  v2Icon: BookOpen,
+  v2Category: 'campaign',
+}
+
+export const getDashboardMenuItems = (
   campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
+  isElectedOfficeLoading: boolean,
+  chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
+  winVoterDataReady: boolean,
+  winVoterDataEnabled: boolean,
+  campaignStoryEnabled: boolean,
+  communityIssuesEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
+
+  // Community Issues nav is gated behind serve-community-issues-v1 so it can be
+  // dark-launched independently; the page route itself is serve-access gated.
+  const communityIssuesShown = isElectedOffice && communityIssuesEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (campaign?.isPro) {
-    menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
+  } else if (!isElectedOfficeLoading && winVoterDataReady) {
+    // Hold off until BOTH the elected-office query and the win-voter-data flag
+    // settle — the same combined guard useWinVoterContext applies elsewhere in
+    // this PR. Until then a Serve elected-official reads as not-elected-office,
+    // and the flag reads off, so committing here would swap the slot
+    // (placeholder → legacy Voter Data → Contacts) as each input resolves.
+    // While not ready, the generic upgrade placeholder holds the slot.
+    //
+    // With the flag on, pro AND non-pro Win campaigns get the unified Contacts
+    // page — a non-pro candidate sees the district aggregates and a blurred
+    // preview and is upsold there (ENG-10495). The legacy Voter Data page stays
+    // pro-only for the flag-off cohort; non-pro flag-off users keep the upgrade
+    // placeholder.
+    if (winVoterDataEnabled) {
+      menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
+    } else if (campaign?.isPro) {
+      menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
+    }
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
+    if (communityIssuesShown) {
+      menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
+    }
+  }
+
+  // Chief of Staff is the primary Serve tab (Serve home), so it sits above
+  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
+  // chief-of-staff flag so it can ramp to internal staff independently.
+  const chiefOfStaffShown =
+    serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled
+  if (chiefOfStaffShown) {
+    menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
+  }
+
+  // Campaign Manager (dashboard home) is index 0, pushed down by each item
+  // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
+  // its flag is on, then Chief of Staff when shown. Insert campaign items right
+  // after Campaign Manager (and Story before Plan, so the Plan splice lands
+  // first) to render the campaign-category nav as [Campaign Manager, Campaign
+  // Plan, Campaign Story, …].
+  const afterCampaignManager =
+    1 +
+    (isElectedOffice ? 1 : 0) +
+    (communityIssuesShown ? 1 : 0) +
+    (chiefOfStaffShown ? 1 : 0)
+
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
   }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
-  // computed field (see useCampaignStrategyExists).
-  if (campaignStrategyExists) {
-    menuItems.splice(1, 0, CAMPAIGN_PLAN_MENU_ITEM)
+  // computed field (see useCampaignStrategyExists). Campaign-story users see
+  // the tab even before a plan exists: it hosts the "complete your story to
+  // generate a plan" gate.
+  if (campaignStrategyExists || campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
   return menuItems
@@ -268,11 +373,23 @@ export default function DashboardMenu({
 }: DashboardMenuProps): React.JSX.Element {
   const [campaign] = useCampaign()
   const [ecanvasser] = useEcanvasser()
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  const { ready: proUpgradeReady, enabled: proUpgradeEnabled } =
-    useProUpgradeFlag()
+  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
+  // Master gate for the Win voter-data rollout. When on, a pro Win campaign
+  // sees the Contacts item (reusing the Serve route) in place of the legacy
+  // Voter Data item. Read with trackExposure=false — the page is the treatment
+  // surface, not the menu — so the nav read doesn't inflate the exposed
+  // population.
+  const { ready: winVoterDataReady, enabled: winVoterDataEnabled } =
+    useWinVoterDataFlag(false)
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here — mirrors the win-voter-data gate above.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
+  // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
+  const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -280,24 +397,32 @@ export default function DashboardMenu({
       campaign,
       serveAccessEnabled,
       !!electedOffice,
+      isElectedOfficeLoading,
+      chiefOfStaffEnabled,
       campaignStrategyExists,
+      winVoterDataReady,
+      winVoterDataEnabled,
+      campaignStoryEnabled,
+      communityIssuesEnabled,
     )
 
     if (ecanvasser) {
       items.push(ECANVASSER_MENU_ITEM)
     }
 
-    return proUpgradeReady && proUpgradeEnabled
-      ? items.filter((item) => item !== WEBSITE_MENU_ITEM)
-      : items
+    return items
   }, [
     campaign,
     serveAccessEnabled,
     ecanvasser,
     electedOffice,
-    proUpgradeReady,
-    proUpgradeEnabled,
+    isElectedOfficeLoading,
+    chiefOfStaffEnabled,
     campaignStrategyExists,
+    winVoterDataReady,
+    winVoterDataEnabled,
+    campaignStoryEnabled,
+    communityIssuesEnabled,
   ])
 
   useEffect(() => {
@@ -365,7 +490,7 @@ const NewNavMenu = ({
       label: 'Community Forum',
       icon: ExternalLink,
       id: 'nav-dash-community',
-      href: 'https://goodpartyorg.circle.so/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952',
+      href: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
       _target: '_blank',
     },
     logout: {

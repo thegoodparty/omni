@@ -40,6 +40,9 @@ interface PlanViewProps {
   voterInsightsContext: VoterInsightsContext
   // Analytics notification — fires when a download actually starts.
   onDownload: (source: PlanDownloadSource) => void
+  // Analytics notification — fires when the user shares the plan (copy or
+  // email). Caller owns the namespaced event.
+  onShared: (method: 'copy' | 'email') => void
   // The user chose to move on — caller owns tracking and navigation.
   onContinue: (source: PlanContinueSource) => void
   showConfetti?: boolean
@@ -78,6 +81,7 @@ const PlanView = ({
   pressOutletsState,
   voterInsightsContext,
   onDownload,
+  onShared,
   onContinue,
   showConfetti = true,
   bottomBarClassName = 'fixed inset-x-0 bottom-0 z-40',
@@ -160,7 +164,7 @@ const PlanView = ({
   }
 
   const downloadNotReadyTooltip =
-    'Your plan is still being generated. It will be ready in a moment.'
+    'Your plan is still being generated. This usually takes less than 3 minutes.'
 
   return (
     <div
@@ -309,6 +313,7 @@ const PlanView = ({
         onClose={() => setShareOpen(false)}
         candidateName={plan.candidateName}
         getShareUrl={getShareUrl}
+        onShared={onShared}
       />
 
       <DownloadReminderModal

@@ -24,6 +24,7 @@ import type {
   ResolveP2pJobGeographyServices,
 } from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
+import { OutreachAttributionService } from './outreachAttribution.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
 
@@ -36,6 +37,7 @@ const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
+const mockRecordSegmentAttribution = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -95,6 +97,8 @@ describe('OutreachService', () => {
     mockFindVoterFileFilter.mockReset()
     mockFilterAccessCheck.mockReset()
     mockFilterAccessCheck.mockResolvedValue(undefined)
+    mockRecordSegmentAttribution.mockReset()
+    mockRecordSegmentAttribution.mockResolvedValue(undefined)
 
     const mockPrismaService = {
       outreach: {
@@ -133,6 +137,12 @@ describe('OutreachService', () => {
           useValue: {
             findByIdAndOrganizationSlug: mockFindVoterFileFilter,
             filterAccessCheck: mockFilterAccessCheck,
+          },
+        },
+        {
+          provide: OutreachAttributionService,
+          useValue: {
+            recordSegmentAttribution: mockRecordSegmentAttribution,
           },
         },
         OutreachService,
@@ -175,6 +185,43 @@ describe('OutreachService', () => {
       expect(result).toEqual(created)
     })
 
+    it('hands the created outreach to segment attribution', async () => {
+      const created = { id: 7, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+
+      await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
+      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+        created,
+      )
+    })
+
+    it('still returns the outreach when attribution throws', async () => {
+      const created = { id: 8, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+      mockRecordSegmentAttribution.mockRejectedValue(
+        new Error('people api down'),
+      )
+
+      const result = await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
+      expect(result).toEqual(created)
+    })
+
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
@@ -191,6 +238,45 @@ describe('OutreachService', () => {
       expect(mockNotifySuccess).toHaveBeenCalledWith(
         expect.objectContaining({ campaignPlanDueDate: '2026-04-19' }),
       )
+    })
+
+    it('does not persist campaignPlanDueDate (no such Outreach column)', async () => {
+      const dto: CreateOutreachSchema = {
+        ...baseCreateDto,
+        campaignPlanDueDate: '2026-04-19',
+      }
+      mockOutreachCreate.mockResolvedValue({
+        id: 1,
+        ...baseCreateDto,
+        voterFileFilter: null,
+      })
+
+      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+
+      const [createArg] = mockOutreachCreate.mock.calls[0]
+      expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
+    })
+
+    it('forwards text counts into notifySuccess without persisting them', async () => {
+      const dto: CreateOutreachSchema = {
+        ...baseCreateDto,
+        textCount: 5200,
+        billableTextCount: 200,
+      }
+      mockOutreachCreate.mockResolvedValue({
+        id: 1,
+        ...baseCreateDto,
+        voterFileFilter: null,
+      })
+
+      await service.create(mockUser, mockCampaign, dto, undefined, undefined)
+
+      expect(mockNotifySuccess).toHaveBeenCalledWith(
+        expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
+      )
+      const [createArg] = mockOutreachCreate.mock.calls[0]
+      expect(createArg.data).not.toHaveProperty('textCount')
+      expect(createArg.data).not.toHaveProperty('billableTextCount')
     })
 
     it('creates non-P2P outreach without imageUrl when both omitted', async () => {
@@ -277,6 +363,12 @@ describe('OutreachService', () => {
         }),
         include: { voterFileFilter: true },
       })
+      // P2P also records per-voter attribution (the texting/P2P write path).
+      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+        created,
+      )
       expect(result).toEqual(created)
     })
 
