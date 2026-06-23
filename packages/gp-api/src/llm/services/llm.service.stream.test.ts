@@ -282,9 +282,10 @@ describe('LlmService.streamChatCompletion', () => {
       provider: 'anthropic',
       modelId: model,
     }))
-    const anthropicProviderFactory: AnthropicProviderFactory = vi.fn(
-      () => anthropicResolve as never,
-    )
+    const anthropicProviderFactory: AnthropicProviderFactory = vi.fn(() => ({
+      languageModel: anthropicResolve as never,
+      webSearchTool: vi.fn() as never,
+    }))
 
     const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
     const service = new LlmService(
@@ -325,8 +326,10 @@ describe('LlmService.streamChatCompletion', () => {
       }) as unknown as OpenAICompatibleProvider
 
     const anthropicResolve = vi.fn()
-    const anthropicProviderFactory: AnthropicProviderFactory = () =>
-      anthropicResolve as never
+    const anthropicProviderFactory: AnthropicProviderFactory = () => ({
+      languageModel: anthropicResolve as never,
+      webSearchTool: vi.fn() as never,
+    })
 
     const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
     const service = new LlmService(

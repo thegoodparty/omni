@@ -326,7 +326,7 @@ describe('BriefingChatsService', () => {
       expect(chatStream.lastArgs?.systemPrompt).toBe(expected)
     })
 
-    it('passes exactly get_artifacts when no search/databricks/resolver are configured', async () => {
+    it('passes get_artifacts + web_search when no databricks/resolver are configured', async () => {
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
         userId: USER_ID,
@@ -335,7 +335,9 @@ describe('BriefingChatsService', () => {
       await consume(iter)
 
       const tools = chatStream.lastArgs?.tools ?? {}
-      expect(Object.keys(tools).sort()).toEqual(['get_artifacts'])
+      expect(Object.keys(tools).sort()).toEqual(
+        ['get_artifacts', 'web_search'].sort(),
+      )
     })
 
     it('get_artifacts tool returns artifacts derived from the briefing JSON', async () => {
@@ -373,16 +375,12 @@ describe('BriefingChatsService', () => {
       expect(out).toEqual(expected)
     })
 
-    it('adds web_search when a search provider is configured', async () => {
-      const searchProvider = {
-        search: vi.fn(() => Promise.resolve([])),
-      }
+    it('includes web_search (Anthropic native, always on)', async () => {
       svc = new BriefingChatsService(
         briefingContext.asService(),
         chatStore.asService(),
         chatStream.asService(),
         new FakeBriefingNotes().asService(),
-        searchProvider,
       )
 
       const iter = svc.sendMessage({
@@ -420,7 +418,6 @@ describe('BriefingChatsService', () => {
         chatStore.asService(),
         chatStream.asService(),
         new FakeBriefingNotes().asService(),
-        undefined,
         databricks,
         districtResolver as unknown as DistrictResolverService,
       )
@@ -440,7 +437,12 @@ describe('BriefingChatsService', () => {
       })
       const tools = chatStream.lastArgs?.tools ?? {}
       expect(Object.keys(tools).sort()).toEqual(
-        ['district_insights', 'get_artifacts', 'list_district_topics'].sort(),
+        [
+          'district_insights',
+          'get_artifacts',
+          'list_district_topics',
+          'web_search',
+        ].sort(),
       )
     })
 
@@ -457,7 +459,6 @@ describe('BriefingChatsService', () => {
         chatStore.asService(),
         chatStream.asService(),
         new FakeBriefingNotes().asService(),
-        undefined,
         databricks,
         districtResolver as unknown as DistrictResolverService,
       )
@@ -472,7 +473,9 @@ describe('BriefingChatsService', () => {
       expect(districtResolver.resolveByUserId).toHaveBeenCalledWith(USER_ID)
       expect(districtResolver.toMandatoryFilters).not.toHaveBeenCalled()
       const tools = chatStream.lastArgs?.tools ?? {}
-      expect(Object.keys(tools).sort()).toEqual(['get_artifacts'])
+      expect(Object.keys(tools).sort()).toEqual(
+        ['get_artifacts', 'web_search'].sort(),
+      )
     })
 
     it('forwards clientMessageId to chatStream.stream when provided', async () => {

@@ -8,16 +8,11 @@ import { ElectionsModule } from '@/elections/elections.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import {
-  TavilySearchProvider,
-  type SearchProvider,
-} from '@/llm/tools/webSearch.tool'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { Module } from '@nestjs/common'
 import { BriefingChatsController } from './controllers/briefing-chats.controller'
 import {
   BRIEFING_CHATS_DATABRICKS_PROVIDER,
-  BRIEFING_CHATS_SEARCH_PROVIDER,
   BriefingChatsService,
 } from './services/briefing-chats.service'
 import { BriefingArtifactCacheService } from './services/briefingArtifactCache.service'
@@ -36,12 +31,6 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
   })
 }
 
-const searchProviderFactory = (): SearchProvider | null => {
-  const apiKey = process.env.TAVILY_API_KEY
-  if (!apiKey) return null
-  return new TavilySearchProvider({ apiKey })
-}
-
 @Module({
   imports: [ChatsModule, AwsModule, OrganizationsModule, ElectionsModule],
   controllers: [BriefingChatsController],
@@ -55,10 +44,6 @@ const searchProviderFactory = (): SearchProvider | null => {
     {
       provide: BRIEFING_CHATS_DATABRICKS_PROVIDER,
       useFactory: databricksProviderFactory,
-    },
-    {
-      provide: BRIEFING_CHATS_SEARCH_PROVIDER,
-      useFactory: searchProviderFactory,
     },
   ],
   exports: [BriefingChatsService],
