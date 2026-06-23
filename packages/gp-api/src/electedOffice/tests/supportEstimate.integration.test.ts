@@ -3,13 +3,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
-const INTERIM_ESTIMATE = {
-  likelySupport: 1240,
-  districtSize: 5200,
-  percentOfDistrict: 23.8,
-  trendVsLastMonth: 2.1,
-}
-
+// The support estimate is now sourced from election-api over HTTP, so the
+// happy-path mapping is covered hermetically by the unit tests
+// (supportEstimate.service.test.ts + electedOfficeSupportApi.service.test.ts).
+// Here we only assert the route's auth gate, which never reaches election-api.
 describe('GET /v1/elected-office/support-estimate (integration)', () => {
   let orgSlug: string
 
@@ -33,16 +30,6 @@ describe('GET /v1/elected-office/support-estimate (integration)', () => {
         organizationSlug: orgSlug,
       },
     })
-  })
-
-  it('returns the interim estimate for the resolved office', async () => {
-    const result = await service.client.get(
-      '/v1/elected-office/support-estimate',
-      { headers: { 'x-organization-slug': orgSlug } },
-    )
-
-    expect(result.status).toBe(200)
-    expect(result.data).toEqual(INTERIM_ESTIMATE)
   })
 
   it('returns 404 when the org header is missing', async () => {

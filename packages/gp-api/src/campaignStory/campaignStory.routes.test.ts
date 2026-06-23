@@ -1,11 +1,15 @@
 import { useTestService } from '@/test-service'
 import { Campaign } from '../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignStoryRewriteService } from './services/campaignStoryRewrite.service'
+import { CampaignStoryService } from './services/campaignStory.service'
 
 const service = useTestService()
 
 const STORY_URL = '/v1/campaigns/mine/story'
+const REWRITE_URL = '/v1/campaigns/mine/story/rewrite'
 const SAMPLE_WHY = 'Because nobody else would'
+const REWRITE_TEXT = 'i care about schools'
 
 describe('CampaignStory routes', () => {
   let campaign: Campaign
@@ -116,6 +120,103 @@ describe('CampaignStory routes', () => {
       )
 
       expect(result.data.why).toBe('')
+    })
+  })
+
+  // The real rewrite calls Gemini, so the happy path spies on the service to
+  // exercise the full HTTP pipeline (validation, controller name derivation,
+  // ZodResponseInterceptor) without a live LLM call.
+  describe('POST /campaigns/mine/story/rewrite', () => {
+    it('returns the rewritten text on a valid request', async () => {
+      const rewriteService = service.app.get(CampaignStoryRewriteService)
+      const spy = vi
+        .spyOn(rewriteService, 'rewrite')
+        .mockResolvedValue({ rewrite: 'Polished text.' })
+
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: REWRITE_TEXT },
+        { headers },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({ rewrite: 'Polished text.' })
+      expect(spy).toHaveBeenCalledWith(
+        { field: 'why', text: REWRITE_TEXT },
+        'Johnny Goodparty',
+        campaign.id,
+      )
+      spy.mockRestore()
+    })
+
+    it('returns 403 once the lifetime rewrite limit is reached', async () => {
+      await service.prisma.campaignStory.create({
+        data: { campaignId: campaign.id, rewriteCount: 200 },
+      })
+
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: REWRITE_TEXT },
+        { headers },
+      )
+
+      expect(result.status).toBe(403)
+    })
+
+    it('rejects an unknown field', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'slogan', text: 'something' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects a missing field', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { text: 'something' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
+    })
+
+    it('rejects whitespace-only text', async () => {
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: '   ' },
+        { headers },
+      )
+
+      expect(result.status).toBe(400)
+    })
+  })
+
+  // Exercises the real upsert + atomic increment (the rewrite happy path mocks
+  // the service, so this is the only coverage of admitRewriteAttempt's lazy
+  // row-create branch).
+  describe('admitRewriteAttempt', () => {
+    it('creates the story row and counts the first attempt', async () => {
+      const stories = service.app.get(CampaignStoryService)
+
+      const admitted = await stories.admitRewriteAttempt(campaign.id)
+
+      expect(admitted).toBe(true)
+      const row = await service.prisma.campaignStory.findUnique({
+        where: { campaignId: campaign.id },
+      })
+      expect(row?.rewriteCount).toBe(1)
+    })
+
+    it('stops admitting once the lifetime cap is reached', async () => {
+      await service.prisma.campaignStory.create({
+        data: { campaignId: campaign.id, rewriteCount: 200 },
+      })
+      const stories = service.app.get(CampaignStoryService)
+
+      expect(await stories.admitRewriteAttempt(campaign.id)).toBe(false)
     })
   })
 })

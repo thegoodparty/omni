@@ -10,15 +10,19 @@ import { dashboardApi } from './dashboard-api'
 import type {
   DashboardCard,
   DashboardCardBucket,
+  OnboardingCard,
+  OnboardingCardKey,
   SupportEstimate,
 } from './contracts'
 
 const SUPPORT_ESTIMATE_KEY = ['chief-of-staff', 'support-estimate'] as const
 
+const ONBOARDING_CARDS_KEY = ['chief-of-staff', 'onboarding-cards'] as const
+
 const cardsKey = (bucket: DashboardCardBucket) =>
   ['chief-of-staff', 'cards', bucket] as const
 
-export const useSupportEstimate = (): UseQueryResult<SupportEstimate> =>
+export const useSupportEstimate = (): UseQueryResult<SupportEstimate | null> =>
   useQuery({
     queryKey: SUPPORT_ESTIMATE_KEY,
     queryFn: () => dashboardApi.getSupportEstimate(),
@@ -43,6 +47,23 @@ export const useDismissCard = () => {
       void queryClient.invalidateQueries({
         queryKey: ['chief-of-staff', 'cards'],
       })
+    },
+  })
+}
+
+export const useOnboardingCards = (): UseQueryResult<OnboardingCard[]> =>
+  useQuery({
+    queryKey: ONBOARDING_CARDS_KEY,
+    queryFn: () => dashboardApi.getOnboardingCards(),
+  })
+
+export const useSkipOnboardingCard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (key: OnboardingCardKey) =>
+      dashboardApi.skipOnboardingCard(key),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ONBOARDING_CARDS_KEY })
     },
   })
 }

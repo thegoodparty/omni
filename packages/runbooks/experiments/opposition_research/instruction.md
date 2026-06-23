@@ -30,6 +30,7 @@ Every field gp-api provides. Fill in the glossary term for each value where one 
 - `other_party` (string|null): candidate party when affiliation is "Other".
 - `campaign_strategy_context` (object): the GENERAL-election context (fields below). We are focused on the general elections.
 - `campaign_primary_strategy_context` (object|null): the PRIMARY-stage roster only (fields below); null if no primary. Not the campaign we are targeting, but data may be valuable.
+- `campaign_story` (object): the candidate's own story (fields below) — first-person positioning context about the person you write FOR, NOT opponent data. Any field may be null when unwritten.
 
 **`campaign_strategy_context` (general election)**
 - `candidate_count` (int): count of the general roster.
@@ -56,11 +57,17 @@ Every field gp-api provides. Fill in the glossary term for each value where one 
 - `candidate_count` (int): count of the primary roster.
 - `candidates[]`: primary roster, same row shape as the general candidates.
 
+**`campaign_story` (the candidate's own framing — context only)**
+- `why` (string|null): why the candidate is running.
+- `background` (string|null): the candidate's background, career, community ties.
+- `issues` (string|null): the issues the candidate will fight for.
+
 ## CRITICAL RULES
 - **WebSearch is your ONLY outside-world tool, and it is HARD-CAPPED at 2 queries total.** Use it only to catch late filers the roster missed. After 2 searches your opponent list is final. Do NOT keep opening sample-ballot / county-clerk / Secretary-of-State / petition pages to confirm or rule out a name (e.g. whether an incumbent re-filed). Chasing an empty field past the cap is what made this experiment slow - a fast result is correct, a timeout is not.
 - **Do NOT fetch or verify any URL, and do NOT output websites.** This experiment no longer profiles opponents, vets links, or emits campaign URLs. Never use `pmf_runtime.http.head` / `.get` / `.download`, never `WebFetch`. There is nothing to fetch.
 - **Never make a direct network call from Python or the shell** - `urllib`/`requests`/`httpx`/`curl`/`wget`/raw `socket`. The container has NO egress; these do not fail fast, they HANG ~30s+ each and burn the time budget. `WebSearch` is the only way to reach the outside world.
 - **Do NOT call election-api or any other internal API.** The candidate roster is already in `PARAMS.campaign_strategy_context.candidates` (and `campaign_primary_strategy_context.candidates`). You derive the opponent list from those in Step 0.
+- **`campaign_story` describes the CANDIDATE, not opponents.** It is the candidate's own why/background/issues. Use it only as background to recognize and exclude the candidate correctly; never treat it as opponent data, never let it change any opponent's name/party/incumbent status, and never invent opponents or facts from it.
 - **The only PUBLISHED artifact is `/workspace/output/opposition_research.json`.** You may write intermediate files to `/workspace/scratch/` - that directory is never published.
 - **Run `python3 /workspace/validate_output.py` before declaring success.**
 

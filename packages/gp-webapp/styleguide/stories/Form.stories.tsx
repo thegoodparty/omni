@@ -90,6 +90,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const form = useForm<z.infer<typeof emailSchema>>({
@@ -128,6 +129,7 @@ export const Default: Story = {
 }
 
 export const WithValidationError: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const form = useForm<z.infer<typeof emailSchema>>({
@@ -172,6 +174,7 @@ const profileSchema = z.object({
 })
 
 export const MultipleFields: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const form = useForm<z.infer<typeof profileSchema>>({
@@ -233,6 +236,7 @@ export const MultipleFields: Story = {
 }
 
 export const Disabled: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const form = useForm<z.infer<typeof emailSchema>>({

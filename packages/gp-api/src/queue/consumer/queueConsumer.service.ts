@@ -29,6 +29,7 @@ import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
+import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
@@ -132,6 +133,7 @@ export class QueueConsumerService {
     private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly meetingBriefings: MeetingBriefingsService,
+    private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly logger: PinoLogger,
@@ -1028,6 +1030,14 @@ export class QueueConsumerService {
           this.logger.error(
             { err, runId: updatedRun.runId },
             'onExperimentRunCompleted failed after run update',
+          ),
+        )
+      await this.communityIssue
+        .onExperimentRunCompleted(updatedRun)
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, runId: updatedRun.runId },
+            'communityIssue.onExperimentRunCompleted failed after run update',
           ),
         )
     }

@@ -13,7 +13,8 @@ vi.mock('@nestjs/axios', () => ({
   HttpService: vi.fn(),
 }))
 
-const SEARCH_REQUIRES_PRO_MSG = 'Search is only available for pro campaigns'
+const PRO_FEATURE_MSG =
+  'Search and segments are only available for pro campaigns'
 const OVERRIDE_DISTRICT_ID = 'override-district-uuid'
 const POSITION_ID_FIXTURE = 'position-uuid'
 const PEOPLE_V1_PATH = '/v1/people'
@@ -144,7 +145,47 @@ describe('ContactsService', () => {
             { resultsPerPage: 10, page: 1, search: 'smith', segment: 'all' },
             org,
           ),
-        ).rejects.toThrow(SEARCH_REQUIRES_PRO_MSG)
+        ).rejects.toThrow(PRO_FEATURE_MSG)
+      })
+
+      it('throws when a named segment is used and organization is not pro', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'texting' },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'texting' },
+            org,
+          ),
+        ).rejects.toThrow(PRO_FEATURE_MSG)
+      })
+
+      it('allows the default "all" segment when not pro (base preview)', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, segment: 'all' },
+            org,
+          ),
+        ).resolves.toBeDefined()
       })
 
       it('allows search when organization is an elected office (eo- slug)', async () => {
@@ -579,6 +620,7 @@ describe('ContactsService', () => {
         const org = makeOrganization({
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: true })
 
         mockHttpService.get.mockReturnValue(
           of({
@@ -594,6 +636,18 @@ describe('ContactsService', () => {
             params: { districtId: OVERRIDE_DISTRICT_ID },
           }),
         )
+      })
+
+      it('throws on findPerson when the campaign is not pro', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(service.findPerson('person-1', org)).rejects.toThrow(
+          BadRequestException,
+        )
+        expect(mockHttpService.get).not.toHaveBeenCalled()
       })
 
       it('uses overrideDistrictId for downloadContacts', async () => {

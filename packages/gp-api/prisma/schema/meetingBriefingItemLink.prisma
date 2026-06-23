@@ -1,0 +1,15 @@
+model MeetingBriefingItemLink {
+  id              String          @id @default(uuid(7))
+  meetingBriefingId String        @map("meeting_briefing_id")
+  meetingBriefing MeetingBriefing @relation(fields: [meetingBriefingId], references: [id], onDelete: Cascade)
+  briefingItemId  String          @map("briefing_item_id")
+  priorityId      String?         @map("priority_id")
+  priority        Priority?       @relation(fields: [priorityId], references: [id])
+  communityIssueId String?         @map("community_issue_id")
+  communityIssue   CommunityIssue? @relation(fields: [communityIssueId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([meetingBriefingId, briefingItemId])
+  @@map("meeting_briefing_item_link")
+}

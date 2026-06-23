@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ChatConversation, ChatScope, Prisma } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // Scope-aware conversation queries for the general (non-annotation) chat. The
 // shared ChatStoreService owns messages + soft delete; this owns conversation
@@ -13,6 +14,8 @@ export class GeneralChatStoreService extends createPrismaBase(
     ownerUserId: number
     organizationSlug: string | null
     scope: ChatScope
+    anchor?: ChatAnchor
+    title?: string
   }): Promise<ChatConversation> {
     return this.model.create({ data: args })
   }

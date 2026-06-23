@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -58,7 +62,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
   const user = createMockUser({ clerkId: 'user_clerk_abc' })
   // isPro: true — these cases exercise the already-Pro path, where the kickoff
-  // is enqueued immediately on submit (pro-upgrade1, post-payment resubmit).
+  // is enqueued immediately on submit (post-payment resubmit).
   const campaign = createMockCampaign({
     userId: user.id,
     formattedAddress: '123 Main St',
@@ -623,6 +627,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     updateMany: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockWebsites: {
+    ensureCompliancePublishableWebsite: ReturnType<typeof vi.fn>
+  }
 
   const kickoff = {
     campaignId: 123,
@@ -664,12 +671,15 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockPrisma = { tcrCompliance: mockModel }
+    mockWebsites = {
+      ensureCompliancePublishableWebsite: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PeerlyIdentityService, useValue: {} },
-        { provide: WebsitesService, useValue: {} },
+        { provide: WebsitesService, useValue: mockWebsites },
         { provide: CampaignsService, useValue: mockCampaigns },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
@@ -689,6 +699,22 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     mockModel.findUnique.mockResolvedValue(tcrRecord)
     mockModel.update.mockResolvedValue(tcrRecord)
     mockModel.updateMany.mockResolvedValue({ count: 1 })
+    mockWebsites.ensureCompliancePublishableWebsite.mockResolvedValue(undefined)
+  })
+
+  it('provisions a publishable website before dispatching the agent', async () => {
+    await service.handleAgenticKickoff(kickoff)
+
+    expect(
+      mockWebsites.ensureCompliancePublishableWebsite,
+    ).toHaveBeenCalledWith(campaignUser, campaign)
+
+    const provisionOrder =
+      mockWebsites.ensureCompliancePublishableWebsite.mock
+        .invocationCallOrder[0]
+    const dispatchOrder =
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    expect(provisionOrder).toBeLessThan(dispatchOrder)
   })
 
   it('claims the dispatch slot atomically before calling dispatchRun', async () => {
@@ -1615,6 +1641,267 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         tcrCompliance,
         'token',
       )
+    })
+  })
+})
+
+describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
+  let service: CampaignTcrComplianceService
+  let mockPeerly: {
+    getIdentityProfile: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
+    createCampaignVerifyToken: ReturnType<typeof vi.fn>
+    approve10DLCBrand: ReturnType<typeof vi.fn>
+  }
+  let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findMany: ReturnType<typeof vi.fn>
+    update: ReturnType<typeof vi.fn>
+  }
+  let mockPrisma: { tcrCompliance: typeof mockModel }
+
+  const campaign = createMockCampaign({ id: 555 })
+  const stuckRecord = {
+    id: 'tcr-stuck',
+    campaignId: campaign.id,
+    peerlyIdentityId: 'peerly-stuck',
+    committeeName: 'Stuck Committee',
+    status: TcrComplianceStatus.submitted,
+  }
+
+  const submitUsecaseIfVerified = (
+    svc: CampaignTcrComplianceService,
+    rec: unknown,
+  ) =>
+    (
+      svc as unknown as {
+        submitUsecaseIfVerified: (r: unknown) => Promise<void>
+      }
+    ).submitUsecaseIfVerified(rec)
+
+  const sweep = (svc: CampaignTcrComplianceService) =>
+    (
+      svc as unknown as { sweepUnsubmittedUsecases: () => Promise<void> }
+    ).sweepUnsubmittedUsecases()
+
+  const withEnv = async (value: string, body: () => Promise<void>) => {
+    const original = process.env.OTEL_SERVICE_ENVIRONMENT
+    process.env.OTEL_SERVICE_ENVIRONMENT = value
+    try {
+      await body()
+    } finally {
+      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = original
+    }
+  }
+
+  beforeEach(async () => {
+    mockPeerly = {
+      getIdentityProfile: vi
+        .fn()
+        .mockResolvedValue({ profile: { status: 'pending' } }),
+      retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue('VERIFIED'),
+      createCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-1'),
+      approve10DLCBrand: vi.fn().mockResolvedValue({ brand: 'ok' }),
+    }
+    mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
+    mockModel = {
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue(undefined),
+    }
+    mockPrisma = { tcrCompliance: mockModel }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: mockCampaigns },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        {
+          provide: ExperimentRunsService,
+          useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
+        },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('mints a token and submits the usecase when CV is VERIFIED', async () => {
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+
+    await withEnv('prod', async () => {
+      await submitUsecaseIfVerified(service, stuckRecord)
+    })
+
+    expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
+      'peerly-stuck',
+      campaign,
+    )
+    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(
+      stuckRecord,
+      'cv-token-1',
+    )
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.pending },
+    })
+  })
+
+  it('submits the usecase with an empty token (no create_cv_token) when CV is APPROVED', async () => {
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+
+    await withEnv('prod', async () => {
+      await submitUsecaseIfVerified(service, stuckRecord)
+    })
+
+    // create_cv_token 400s for authority-APPROVED CVs, so it must be skipped.
+    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(stuckRecord, '')
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.pending },
+    })
+  })
+
+  it.each(['waiting_to_finalize', 'finalized'])(
+    'skips when the profile is already past pending (status %s)',
+    async (status) => {
+      mockPeerly.getIdentityProfile.mockResolvedValueOnce({
+        profile: { status },
+      })
+
+      await submitUsecaseIfVerified(service, stuckRecord)
+
+      expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['REQUESTED', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'])(
+    'skips (no token, no Slack-spamming approve) when CV is %s',
+    async (status) => {
+      mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(status)
+
+      await submitUsecaseIfVerified(service, stuckRecord)
+
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+      expect(mockModel.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('marks the record error and rethrows when approve fails (sweep stops re-alerting)', async () => {
+    const approveErr = new Error('Peerly approve rejected')
+    mockPeerly.approve10DLCBrand.mockRejectedValueOnce(approveErr)
+
+    await withEnv('prod', async () => {
+      await expect(submitUsecaseIfVerified(service, stuckRecord)).rejects.toBe(
+        approveErr,
+      )
+    })
+
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.error },
+    })
+    expect(mockModel.update).not.toHaveBeenCalledWith({
+      where: { id: 'tcr-stuck' },
+      data: { status: TcrComplianceStatus.pending },
+    })
+  })
+
+  it('does not advance status in non-prod (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
+    // must not be promoted to pending for a usecase that was never submitted.
+    await withEnv('dev', async () => {
+      await submitUsecaseIfVerified(service, stuckRecord)
+    })
+
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('skips when CV status is null (no CV request exists for the identity)', async () => {
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
+
+    await submitUsecaseIfVerified(service, stuckRecord)
+
+    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
+    mockPeerly.getIdentityProfile.mockRejectedValueOnce(
+      new NotFoundException('identity not found'),
+    )
+
+    await expect(
+      submitUsecaseIfVerified(service, stuckRecord),
+    ).resolves.toBeUndefined()
+
+    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the record has no Peerly identity', async () => {
+    await submitUsecaseIfVerified(service, {
+      ...stuckRecord,
+      peerlyIdentityId: null,
+    })
+
+    expect(mockCampaigns.findUnique).not.toHaveBeenCalled()
+    expect(mockPeerly.getIdentityProfile).not.toHaveBeenCalled()
+  })
+
+  it('does not advance status when no CV token could be minted', async () => {
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce(undefined)
+
+    await withEnv('prod', async () => {
+      await submitUsecaseIfVerified(service, stuckRecord)
+    })
+
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('sweeps submitted records that have a Peerly identity', async () => {
+    mockModel.findMany.mockResolvedValueOnce([])
+
+    await sweep(service)
+
+    expect(mockModel.findMany).toHaveBeenCalledWith({
+      where: {
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: { not: null },
+      },
+    })
+  })
+
+  it('continues after one record throws', async () => {
+    const a = { ...stuckRecord, id: 'tcr-a', campaignId: 1 }
+    const b = { ...stuckRecord, id: 'tcr-b', campaignId: 2 }
+    mockModel.findMany.mockResolvedValueOnce([a, b])
+    mockPeerly.getIdentityProfile
+      .mockRejectedValueOnce(new Error('Peerly down'))
+      .mockResolvedValueOnce({ profile: { status: 'pending' } })
+
+    await withEnv('prod', async () => {
+      await sweep(service)
+    })
+
+    expect(mockPeerly.getIdentityProfile).toHaveBeenCalledTimes(2)
+    // The second record still gets its usecase submitted.
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-b' },
+      data: { status: TcrComplianceStatus.pending },
     })
   })
 })

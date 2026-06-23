@@ -20,7 +20,7 @@ interface ProUpgrade3PinEntryProps {
   tcrCompliance: TcrCompliance
 }
 
-// The `submitted` (awaiting-PIN) state of the pro-upgrade3 compliance surface,
+// The `submitted` (awaiting-PIN) state of the Pro-upgrade compliance surface,
 // shared verbatim by both mount points (the dashboard home card and the
 // profile texting-compliance card) so the design can't drift between them.
 // The submit path is shared via useSubmitCvPin: a successful submit invalidates
@@ -35,8 +35,8 @@ export default function ProUpgrade3PinEntry({
     onSuccess: () => setPin(''),
   })
 
-  // Mirror EnterPin's funnel "viewed" signal so the pro-upgrade3 cohort, which
-  // sees PIN entry in-place instead of on /enter-pin, still reports it.
+  // Mirror EnterPin's funnel "viewed" signal so this surface, which sees PIN
+  // entry in-place instead of on /enter-pin, still reports it.
   const viewTrackedRef = useRef(false)
   useEffect(() => {
     if (viewTrackedRef.current) return

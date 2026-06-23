@@ -115,16 +115,17 @@ Some systems live outside this monorepo. Consult them when:
 
 - **gp-ai-projects** (`thegoodparty/gp-ai-projects`) — Python AI/ML pipeline:
   campaign-plan generation, civic message analysis, HubSpot-DDHQ matching. Read it
-  when changing how gp-api calls AI generation, or when debugging plan output.
+  when changing how gp-api calls AI generation, or when debugging plan output. It
+  also hosts the **PMF Engine runtime**: gp-api's `agentExperiments` module enqueues
+  an `experiment_run` to SQS, which an ingest Lambda places on a DynamoDB priority
+  queue; a scheduler Lambda launches the single-use Fargate agent, whose only egress
+  is a privileged broker service; results come back on gp-api's `{branch}-Queue.fifo`
+  (consumed in `queue/consumer/`, with `communityIssues` a downstream consumer).
+  The experiment playbooks themselves are in-tree at `packages/runbooks/experiments/`.
+  See `packages/gp-api/src/agentExperiments/CLAUDE.md`.
 - **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
   moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
   officials, not the marketing site. Marketing changes go there, not here.
 - **ops** (`thegoodparty/ops`) — operational scripts and the Delegate agent
   framework. **Relevant to code reviews** — the review automation and agent dispatch
   logic live here, so consult it when changing or debugging review flows.
-- **runbooks** (`thegoodparty/runbooks`) — the agent runbooks that PMF Engine
-  experiment runs execute. gp-api's `agentExperiments` module dispatches an
-  `experiment_run` to SQS, which a Lambda/Fargate worker fulfills by running the
-  matching runbook; results come back on the agent-results queue. Consult it when
-  changing experiment dispatch, the run lifecycle, or the dispatch contracts in
-  `packages/gp-api/src/agentExperiments/CLAUDE.md`. May be folded into omni later.

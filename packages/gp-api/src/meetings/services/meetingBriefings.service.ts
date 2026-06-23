@@ -1,7 +1,10 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
-import { MeetingSchedule } from '@/generated/agent-job-contracts'
+import {
+  MeetingBriefingFull,
+  MeetingSchedule,
+} from '@/generated/agent-job-contracts'
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
@@ -30,6 +33,7 @@ import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
+import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const parseBriefingArtifact = (
   raw: string,
@@ -157,6 +161,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly braintrust: BraintrustService,
     private readonly cronLock: CronLockService,
     private readonly dashboardCards: DashboardCardsService,
+    private readonly briefingItemLinks: BriefingItemLinksService,
   ) {
     super()
   }
@@ -223,7 +228,8 @@ export class MeetingBriefingsService extends createPrismaBase(
     // when an active or successful schedule run already exists — otherwise a
     // retry spawns a duplicate live run and SQS message. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
-    // re-dispatches it (sweepStaleRuns only marks stale runs FAILED).
+    // re-dispatches it (a dead run is only marked FAILED by the gp-ai-projects
+    // ECS task-reaper, which does not re-dispatch).
     const existingScheduleRun = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug: electedOffice.organizationSlug,
@@ -539,6 +545,11 @@ export class MeetingBriefingsService extends createPrismaBase(
       loaded.electedOffice.id,
       loaded.artifact,
     )
+    await this.syncBriefingItemLinks(
+      loaded.electedOffice.id,
+      run.organizationSlug,
+      loaded.artifact,
+    )
     await this.persistAgendaLocationFromArtifact(
       run,
       loaded.electedOffice.id,
@@ -569,6 +580,43 @@ export class MeetingBriefingsService extends createPrismaBase(
       this.logger.error(
         { err, electedOfficeId, meetingDate: dateString },
         'dashboard card sync failed; continuing without blocking briefing',
+      )
+    }
+  }
+
+  private async syncBriefingItemLinks(
+    electedOfficeId: string,
+    organizationSlug: string,
+    artifact: PrismaJson.MeetingBriefingArtifact,
+  ): Promise<void> {
+    const dateString =
+      typeof artifact.meeting_date === 'string' ? artifact.meeting_date : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return
+
+    try {
+      const briefing = await this.model.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId,
+            meetingDate: parseIsoDateAsUTC(dateString),
+          },
+        },
+        select: { id: true },
+      })
+      if (!briefing) return
+      // MeetingBriefingArtifact is a loose JSONB type; cast to the
+      // generated contract shape that carries executive_summary.items[].
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      const full = artifact as unknown as MeetingBriefingFull
+      await this.briefingItemLinks.syncLinksFromArtifact(
+        briefing.id,
+        organizationSlug,
+        full,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, organizationSlug, meetingDate: dateString },
+        'briefing item link sync failed; continuing without blocking briefing',
       )
     }
   }

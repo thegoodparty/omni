@@ -4,14 +4,14 @@ API client layer. Two systems coexist — the **typed system is canonical**; the
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `api-endpoints.ts` | `APIEndpoints` registry — keys are `'METHOD /path/:param'`, values define `Request` / `Response`. **Cross-repo contract with gp-api — confirm before editing.** |
-| `typed-request.ts` | `clientRequest<Route>(route, payload)` — browser. Throws on non-2xx. |
-| `server-request.ts` | `serverRequest<Route>(route, payload)` — server components / route handlers / `'use server'`. |
-| `unAuthFetch.ts` | Public endpoints. Sends no cookie / no Bearer — keep using for genuinely anonymous calls. |
-| `gpFetch.ts`, `clientFetch.ts`, `serverFetch.ts`, `routes.ts` | Legacy. **Do not use in new code.** |
-| `outreach.api.ts`, `types/outreach.types.ts` | Feature-specific bindings + shared shapes. |
+| File                                                          | Role                                                                                                                                                                  |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api-endpoints.ts`                                            | `APIEndpoints` registry — keys are `'METHOD /path/:param'`, values define `Request` / `Response`. Cross-repo contract with gp-api — keep shapes in sync with the API. |
+| `typed-request.ts`                                            | `clientRequest<Route>(route, payload)` — browser. Throws on non-2xx.                                                                                                  |
+| `server-request.ts`                                           | `serverRequest<Route>(route, payload)` — server components / route handlers / `'use server'`.                                                                         |
+| `unAuthFetch.ts`                                              | Public endpoints. Sends no cookie / no Bearer — keep using for genuinely anonymous calls.                                                                             |
+| `gpFetch.ts`, `clientFetch.ts`, `serverFetch.ts`, `routes.ts` | Legacy. **Do not use in new code.**                                                                                                                                   |
+| `outreach.api.ts`, `types/outreach.types.ts`                  | Feature-specific bindings + shared shapes.                                                                                                                            |
 
 ## Use this for new code
 

@@ -190,7 +190,7 @@ export class WebsitesController {
 
   @Get('mine')
   @UseCampaign()
-  @ResponseSchema(MyWebsiteResponseSchema)
+  @ResponseSchema(MyWebsiteResponseSchema.nullable())
   @McpTool({
     description:
       "Read the calling campaign's website, including current content " +
@@ -199,14 +199,15 @@ export class WebsitesController {
       'updates so the agent can preserve fields it does not intend to ' +
       'change. Returns the Website row with `domain` populated when ' +
       'a custom domain has been purchased; `domain` is null otherwise. ' +
+      'Returns null when the campaign has no website yet. ' +
       'Read-only; safe to retry.',
   })
   async getMyWebsite(@ReqCampaign() { id: campaignId }: Campaign) {
-    const website = await this.websites.findUniqueOrThrow({
+    const website = await this.websites.findUnique({
       where: { campaignId },
       include: { domain: true },
     })
-    return serializeWebsiteWithDomain(website)
+    return website ? serializeWebsiteWithDomain(website) : null
   }
 
   @Get('mine/contacts')

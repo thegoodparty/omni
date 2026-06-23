@@ -1,18 +1,21 @@
 'use client'
 
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { Card } from '@styleguide'
+import { Button, Card } from '@styleguide'
+import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import ComplianceCardArt from './ComplianceCardArt'
 import ProUpgrade3PinEntry from './ProUpgrade3PinEntry'
 import TextingComplianceApproved from './TextingComplianceApproved'
 import TextingComplianceDenied from './TextingComplianceDenied'
 import TextingComplianceInReview from './TextingComplianceInReview'
 
-// Post-payment compliance surface for the pro-upgrade3 cohort. The agent
+// Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
 // card only reflects the TCR record's status, it does not drive the agent.
 export default function ProUpgrade3Compliance(): React.JSX.Element {
@@ -57,14 +60,38 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
     }
   }
 
-  // No TCR record yet (or an `error`/unknown status) — the agent kicks off on
-  // payment, so the record may not exist for a beat. Show a neutral holding
-  // state rather than a blank or stuck card.
+  // No TCR record yet, or a retryable `error`/unknown status. A candidate who
+  // came through the agentic purchase wizard has a record created pre-payment,
+  // so this branch is reached by an already-Pro candidate who never went
+  // through it (e.g. a legacy Pro upgrade) — for them nothing kicks off the
+  // flow. Offer the election-filing form: it calls createAgentic (which kicks
+  // off the agent for an already-Pro campaign and recreates a failed record)
+  // and works without a pre-existing website, so it's the right entry here.
   return (
-    <Card className="mt-4 p-4 md:p-6" id="texting-compliance">
-      <p className="text-sm text-muted-foreground">
-        Your Pro upgrade status will appear here.
-      </p>
+    <Card
+      className="relative mt-4 overflow-hidden p-4 md:p-6"
+      id="texting-compliance"
+    >
+      <div className="relative z-10 flex flex-col items-start gap-3 pr-24">
+        <div className="flex flex-col gap-1">
+          <p className="text-lg font-semibold">Set up texting compliance</p>
+          <p className="text-sm text-muted-foreground">
+            Register your campaign for 10DLC texting compliance so you can send
+            text messages to voters.
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/dashboard/profile/texting-compliance/election-filing">
+            Get started
+          </Link>
+        </Button>
+      </div>
+      <ComplianceCardArt
+        swooshColorClassName="bg-blue-100"
+        icon={
+          <MessageSquareIcon className="h-14 w-14 text-blue-600" aria-hidden />
+        }
+      />
     </Card>
   )
 }

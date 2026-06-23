@@ -28,6 +28,12 @@ export const EVENTS = {
     // Keyed to the provisioned user id + email (the EO may not exist yet).
     MagicLinkSent: 'Serve Onboarding - Magic Link Sent',
   },
+  WinOnboarding: {
+    // Emitted when sales generates a magic link for a candidate lead. Keyed to
+    // the provisioned user id + email (the campaign does not exist yet — the
+    // lead creates it during the office-selection onboarding step).
+    MagicLinkSent: 'Win Onboarding - Magic Link Sent',
+  },
   //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
   // Used in: https://app.hubspot.com/workflows/21589597/platform/flow/1739287110/edit
   CandidateWebsite: {

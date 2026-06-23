@@ -516,7 +516,16 @@ export default function FollowOnFlow({
   }
 
   const goBack = () => {
-    if (previousStep) setActiveStepId(previousStep.id)
+    // Once the campaign exists it can't be un-created; block back-navigation
+    // (mirrors the disabled Button below).
+    if (liveCampaign) return
+    if (previousStep) {
+      setActiveStepId(previousStep.id)
+      return
+    }
+    // The first step has no in-flow predecessor. Exit to the dashboard rather
+    // than trapping the user — this flow is entered from the org switcher.
+    router.push('/dashboard')
   }
 
   if (!ready) {
@@ -642,7 +651,9 @@ export default function FollowOnFlow({
             // Once the campaign exists, going back can't un-create it; block it
             // so the user can't return to the intent step, switch same->new,
             // and finish on a campaign that was created for the other intent.
-            disabled={!previousStep || liveCampaign !== null}
+            // On the first step (no previousStep) Back exits the flow instead
+            // of dead-ending, so it stays enabled there.
+            disabled={liveCampaign !== null}
           >
             Back
           </Button>

@@ -222,6 +222,36 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('resolveInternalPositionId', () => {
+    it('returns the internal id when the value is a BallotReady id', async () => {
+      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+
+      const result = await service.resolveInternalPositionId('br-pos-1')
+
+      expect(result).toBe('pos-1')
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
+        expect.anything(),
+      )
+    })
+
+    it('falls back to the input when the BallotReady lookup throws', async () => {
+      mockHttpGet.mockReturnValue(throwError(() => new Error('not found')))
+
+      const result = await service.resolveInternalPositionId('already-internal')
+
+      expect(result).toBe('already-internal')
+    })
+
+    it('falls back to the input when no position resolves', async () => {
+      mockHttpGet.mockReturnValue(of({ data: null, status: 200 }))
+
+      const result = await service.resolveInternalPositionId('br-nonexistent')
+
+      expect(result).toBe('br-nonexistent')
+    })
+  })
+
   describe('getNextElectionForPosition', () => {
     it('returns the parsed next election for a position', async () => {
       mockHttpGet.mockReturnValue(

@@ -1,4 +1,8 @@
-import type { ExperimentVariantsResponse } from '@goodparty_org/contracts'
+import type {
+  ExperimentVariantsResponse,
+  Priority,
+  ChatAnchor,
+} from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
   SynthesizeSpeechRequest,
@@ -13,7 +17,10 @@ import {
   CampaignVersions,
   User,
 } from 'helpers/types'
-import type { CampaignStory } from '@goodparty_org/contracts'
+import type {
+  CampaignStory,
+  CampaignStoryRewrite,
+} from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
 import type {
@@ -30,6 +37,7 @@ import type {
   ChatScope,
   DashboardCardBucket,
   DashboardCardListResponse,
+  OnboardingCardsResponse,
   SupportEstimate,
 } from 'app/dashboard/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
@@ -228,6 +236,19 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
+  // AI-suggested rewrite of one Campaign Story field. The server pairs the
+  // submitted text with the candidate's name and a section-specific prompt;
+  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  'POST /v1/campaigns/mine/story/rewrite': {
+    // `field` is single-sourced from the contract so it can't drift from the
+    // stored story shape; the server's Zod enum is the runtime mirror.
+    Request: {
+      field: keyof CampaignStory
+      text: string
+    }
+    Response: CampaignStoryRewrite
+  }
+
   // The pro-upgrade filing-instructions screen reads this fresh so it renders
   // the same content the "email this to me" body composes (one server source —
   // page and email can't drift). `filingWindow` is preformatted server-side.
@@ -324,7 +345,8 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/support-estimate': {
     Request: {}
-    Response: SupportEstimate
+    // Null until the data team's ETL populates the office's support row.
+    Response: SupportEstimate | null
   }
 
   'GET /v1/dashboard/cards': {
@@ -337,8 +359,18 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/dashboard/onboarding-cards': {
+    Request: {}
+    Response: OnboardingCardsResponse
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/skip': {
+    Request: {}
+    Response: void
+  }
+
   'POST /v1/chats': {
-    Request: { scope: ChatScope }
+    Request: { scope: ChatScope; anchor?: ChatAnchor }
     Response: { conversationId: string; created: boolean }
   }
 
@@ -644,6 +676,84 @@ export type APIEndpoints = {
       redirectUrl?: string
     }
   }
+
+  'GET /v1/community-issues': {
+    Request: { list: 'top_community' | 'trending' }
+    Response: {
+      issues: CommunityIssueCard[]
+      refresh: {
+        status: 'running' | 'completed' | 'failed'
+        lastCompletedAt: string | null
+      }
+    }
+  }
+
+  'GET /v1/community-issues/:id': {
+    Request: { id: string }
+    Response: CommunityIssueDetail
+  }
+
+  'POST /v1/community-issues/:id/prioritize': {
+    Request: { id: string }
+    Response: Priority
+  }
+
+  'POST /v1/community-issues/self-dispatch': {
+    Request: { type: 'top_community_issues' | 'trending_issues' }
+    Response: { dispatched: number; skipped: number }
+  }
+}
+
+export type CommunityIssueCard = {
+  id: string
+  list: string
+  category: string
+  priority: string
+  title: string
+  summary: string
+  rank: number | null
+  prioritized: boolean
+}
+
+export type CommunityIssueSource = {
+  id: string
+  name: string
+  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  url?: string | null
+  publisher?: string | null
+  article_type?: string | null
+  article_date?: string | null
+}
+
+export type CommunityIssueSubsection = {
+  summary: string
+  source_ids: string[]
+}
+
+export type CommunityIssueQuoteItem = {
+  text: string
+  attribution?: string
+  source_id: string
+}
+
+export type CommunityIssueContent = {
+  sources: CommunityIssueSource[]
+  overview: CommunityIssueSubsection
+  history?: CommunityIssueSubsection
+  quotes?: { items: CommunityIssueQuoteItem[] }
+  research?: CommunityIssueSubsection
+  legislation?: CommunityIssueSubsection
+}
+
+export type CommunityIssueDetail = CommunityIssueCard & {
+  archived: boolean
+  detail: CommunityIssueContent | null
+  relatedBriefings: Array<{
+    meetingBriefingId: string
+    briefingItemId: string
+    meetingDate: string
+  }>
+  priorityId: string | null
 }
 
 // Backend (snake_case) annotation types. Mirrors @goodparty_org/contracts
@@ -832,6 +942,13 @@ export type ElectedOffice = {
   party: string | null
   pledgedAt: string | null
   onboardingCompletedAt: string | null
+  // True when the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill). Drives deterministic
+  // resume branch classification.
+  selfReported: boolean
+  // Resume checkpoint: the furthest serve-onboarding step the holder reached,
+  // written on every "Continue". Null when no checkpoint has been recorded.
+  onboardingStep: string | null
 }
 
 export type ElectedOfficeInput = {
@@ -842,6 +959,8 @@ export type ElectedOfficeInput = {
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
+  selfReported?: boolean
+  onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
   overrideDistrictId?: string | null

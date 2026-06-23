@@ -632,4 +632,41 @@ describe('PeerlyIdentityService', () => {
       expect(lastSubmittedData.email).toBe('info@candidate.com')
     })
   })
+
+  describe('retrieveCampaignVerifyStatus', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    it('returns null (no Slack alert, no throw) when Peerly reports no CV request', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      // Peerly returns 400 with nested status_code 404 when no CV request exists.
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        response: { data: { status_code: 404 } },
+      })
+
+      const result = await service.retrieveCampaignVerifyStatus(
+        'peerly-no-cv',
+        campaign,
+      )
+
+      expect(result).toBeNull()
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('routes other errors through handleApiError', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 500,
+        response: { data: {} },
+      })
+
+      await service.retrieveCampaignVerifyStatus('peerly-500', campaign)
+
+      expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
 })

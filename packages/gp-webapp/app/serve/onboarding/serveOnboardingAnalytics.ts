@@ -10,6 +10,9 @@ export const SERVE_ONBOARDING_EVENTS = {
   Activated: EVENTS.ServeOnboarding.LinkActivated,
   SuggestionChanged: EVENTS.ServeOnboarding.BrSuggestionChanged,
   Completed: EVENTS.ServeOnboarding.NetNewCompleted,
+  // Disqualification: the user picked a major party (Democrat/Republican) on the
+  // party step, mirroring the Win flow's `PartyDesignationBlocked` event.
+  PartyBlocked: EVENTS.ServeOnboarding.PartyDesignationBlocked,
 } as const
 
 type ServeOnboardingEventProperties =
