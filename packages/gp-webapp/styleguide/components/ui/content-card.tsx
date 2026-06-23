@@ -27,11 +27,11 @@ const renderAction = (
   variant: ButtonProps['variant'],
 ) => {
   if (!action) return null
-  const { label, ...buttonProps } = action
+  const { label, className: actionClassName, ...buttonProps } = action
   return (
     <Button
       variant={variant}
-      className="w-full min-[600px]:w-auto"
+      className={cn('w-full min-[600px]:w-auto', actionClassName)}
       {...buttonProps}
     >
       {label}
@@ -63,33 +63,35 @@ function ContentCard({
       )}
       {...props}
     >
-      <div className="flex w-full items-start gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {eyebrow ? (
-            <div
-              className={cn(
-                'flex items-center gap-1 [&_svg]:size-4',
-                eyebrowEmphasis ? 'text-primary' : 'text-card-foreground',
-              )}
-            >
-              {eyebrowIcon}
-              <span className="flex-1 text-xs font-bold uppercase">
-                {eyebrow}
-              </span>
-            </div>
-          ) : null}
-          <div className="text-card-foreground text-lg leading-7 font-semibold">
-            {title}
+      <div className="flex w-full flex-col gap-1">
+        {eyebrow || helper ? (
+          <div className="flex min-h-7 flex-wrap items-center gap-2">
+            {eyebrow ? (
+              <div
+                className={cn(
+                  'flex flex-1 items-center gap-1 [&_svg]:size-4',
+                  eyebrowEmphasis ? 'text-primary' : 'text-card-foreground',
+                )}
+              >
+                {eyebrowIcon}
+                <span className="text-xs font-bold whitespace-nowrap uppercase">
+                  {eyebrow}
+                </span>
+              </div>
+            ) : null}
+            {helper ? (
+              <div className="text-muted-foreground ml-auto flex shrink-0 items-center [&_svg]:size-6">
+                {helper}
+              </div>
+            ) : null}
           </div>
-          {description ? (
-            <div className="text-card-foreground text-base leading-6">
-              {description}
-            </div>
-          ) : null}
+        ) : null}
+        <div className="text-card-foreground text-lg leading-7 font-semibold">
+          {title}
         </div>
-        {helper ? (
-          <div className="text-muted-foreground flex shrink-0 items-center p-0.5 [&_svg]:size-6">
-            {helper}
+        {description ? (
+          <div className="text-card-foreground text-base leading-6">
+            {description}
           </div>
         ) : null}
       </div>
