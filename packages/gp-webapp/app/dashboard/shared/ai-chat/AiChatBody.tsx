@@ -589,7 +589,7 @@ export default function AiChatBody({
           className={`relative mx-auto w-full ${CHAT_MAX_W} p-[1.5px] animate-spin-gradient transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}
           style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
         >
-          <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-0.5 py-0.5 overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
+          <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-1 py-0.5 overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
             {onSelectConversation && (
               <AiChatHistoryPopover
                 chatApi={chatApi}
