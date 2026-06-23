@@ -23,6 +23,7 @@ const section: CampaignStorySection = {
   title: 'Your why',
   description: 'The moment, the people, the breaking point.',
   placeholder: 'Tap to write your why',
+  example: 'A short example why.',
 }
 
 const emptyStory = { why: null, background: null, issues: null }
@@ -199,6 +200,106 @@ describe('CampaignStoryCard', () => {
     await user.tab()
 
     expect(called).toBe(false)
+  })
+
+  describe('Save button', () => {
+    it('is disabled until the text changes, then saves on click', async () => {
+      const user = userEvent.setup()
+      let putBody: { why?: string } | null = null
+      api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+        putBody = body
+        return { status: 200, data: emptyStory }
+      })
+
+      render(<CampaignStoryCard section={section} initialValue={null} />)
+      const save = screen.getByRole('button', { name: 'Save' })
+      expect(save).toBeDisabled()
+
+      await user.type(
+        screen.getByPlaceholderText('Tap to write your why'),
+        'Because of the schools',
+      )
+      expect(save).toBeEnabled()
+
+      await user.click(save)
+
+      await waitFor(() => {
+        expect(putBody).toEqual({ why: 'Because of the schools' })
+      })
+    })
+
+    it('shows "Saving…" and stays disabled while the save is in flight', async () => {
+      const user = userEvent.setup()
+      let releaseSave: () => void = () => undefined
+      const inFlight = new Promise<void>((resolve) => {
+        releaseSave = resolve
+      })
+      api.mock('PUT /v1/campaigns/mine/story', async () => {
+        await inFlight
+        return { status: 200, data: emptyStory }
+      })
+
+      render(<CampaignStoryCard section={section} initialValue={null} />)
+      await user.type(
+        screen.getByPlaceholderText('Tap to write your why'),
+        'Because of the schools',
+      )
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      const saving = await screen.findByRole('button', { name: 'Saving…' })
+      expect(saving).toBeDisabled()
+
+      releaseSave()
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+      })
+    })
+
+    it('shows "Saved" and re-disables once the current text is persisted', async () => {
+      const user = userEvent.setup()
+      api.mock('PUT /v1/campaigns/mine/story', async () => ({
+        status: 200,
+        data: emptyStory,
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="saved why" />)
+      const textarea = screen.getByPlaceholderText('Tap to write your why')
+      await user.type(textarea, ' more')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+      })
+    })
+  })
+
+  describe('Save button stays visible during a rewrite', () => {
+    it('keeps the Save button rendered while a suggestion is showing', async () => {
+      const user = userEvent.setup()
+      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+        status: 200,
+        data: { rewrite: 'A sharper why.' },
+      }))
+
+      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await screen.findByText('A sharper why.')
+
+      expect(screen.getByRole('button', { name: /^Save/ })).toBeInTheDocument()
+    })
+  })
+
+  describe("Here's an example", () => {
+    it('reveals the example text when expanded', async () => {
+      const user = userEvent.setup()
+      render(<CampaignStoryCard section={section} initialValue={null} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /Here's an example/ }),
+      )
+      expect(await screen.findByText('A short example why.')).toBeVisible()
+    })
   })
 
   describe('Help me rewrite', () => {
