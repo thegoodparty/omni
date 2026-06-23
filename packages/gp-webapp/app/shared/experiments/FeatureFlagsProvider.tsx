@@ -169,18 +169,33 @@ export const FeatureFlagsProvider = ({
 
   const value = useMemo<FeatureFlagsContextValue>(() => {
     const client = clientRef.current
+    // `ready` starts true whenever the server seeded variants, but the SDK
+    // client is created in a post-commit effect and is briefly re-cleared while
+    // a changed identity refetches. In those windows the live store is empty, so
+    // reads fall back to the seed — otherwise a ready provider reports every
+    // flag as its default (off) and a route guard bounces a user whose seed said
+    // the flag was on. Falling back keeps the value stable, so the provider
+    // never has to toggle `ready` (which would re-enter the fetch effect).
+    const seed: Record<string, Variant> = initialVariants ?? {}
     return {
       ready,
+      // Delegate to client.variant() when the client exists so automatic
+      // exposure tracking fires; the seed only stands in before init.
       variant: (key: string, fallback?: Variant): Variant =>
         client
           ? client.variant(key, fallback)
-          : (fallback ?? { value: undefined }),
-      all: (): Record<string, Variant> => (client ? client.all() : {}),
+          : (seed[key] ?? fallback ?? { value: undefined }),
+      // client.all() is read lazily (not in the memo body) so the exposing
+      // variant() path above never triggers a non-exposing all() read.
+      all: (): Record<string, Variant> => {
+        const live = client ? client.all() : {}
+        return Object.keys(live).length > 0 ? live : seed
+      },
       exposure: (key: string): void => client?.exposure(key),
       refresh,
       clear: (): void => client?.clear(),
     }
-  }, [ready, refresh, rev])
+  }, [ready, refresh, rev, initialVariants])
 
   return (
     <FeatureFlagsContext.Provider value={value}>

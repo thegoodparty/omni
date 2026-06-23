@@ -42,7 +42,10 @@ const PageWrapper = async ({
       getReqPathname(),
       isAuthed ? fetchUserCampaign() : Promise.resolve(null),
       isAuthed ? getCurrentUserOrganizations() : Promise.resolve([]),
-      isAuthed ? getFlagVariants() : Promise.resolve(null),
+      // Not gated on isAuthed: getFlagVariants skips the authed gp-api call
+      // itself when there's no token, and the non-prod flag-override cookie it
+      // honors must seed the client even before SSR resolves the session.
+      getFlagVariants(),
       cookies(),
     ])
   const initialOrgSlug = cookieStore.get(ORG_SLUG_COOKIE)?.value ?? null
