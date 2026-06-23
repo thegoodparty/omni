@@ -142,9 +142,24 @@ This command takes no arguments — the release target is always the omni monore
    Re-check on a short interval until it reports `MERGED`, budget **~20 min**.
    This is the sync point Phase 3 depends on — `qa` only carries the new commits
    once the merge lands, so opening the `qa → master` PR before this would diff
-   against stale `qa`. If the state stays `OPEN` because a required check is
-   failing (`mergeStateStatus` = `BLOCKED` with a red check, not merely
-   `BEHIND`/`UNSTABLE` still settling), stop polling and present two options:
+   against stale `qa`. Interpret `mergeStateStatus` while polling — `BEHIND` and
+   `UNSTABLE` are not interchangeable:
+
+   - `UNSTABLE` — a *non-required* check is failing; this does **not** block
+     auto-merge, so keep polling.
+   - `BEHIND` — the base branch advanced and branch protection requires the PR be
+     up to date, so auto-merge is stuck until the branch updates. Stop polling,
+     tell the user to run `gh pr update-branch <pr_number>`, then resume polling.
+   - `BLOCKED` with a red required check — auto-merge will never fire on its own.
+     Capture the failing check names first (the poll command above returns status,
+     not names):
+
+     ```bash
+     cd "$RELEASE_OMNI_DIR"
+     gh pr checks <pr_number>
+     ```
+
+     then present two options:
 
    > omni PR #<n>: auto-merge is armed but a required check is failing, so it
    > won't merge on its own.
@@ -312,7 +327,8 @@ This command takes no arguments — the release target is always the omni monore
     - If auto-merge landed cleanly: develop→qa merged (note "via auto-merge", or "via direct-merge fallback" if step 5's `--auto` wasn't allowed), qa→master PR opened — with the open `qa → master` PR URL
     - If merged via admin override (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - If there were no changes between qa and develop: note it and stop (no PRs opened)
-    - If step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→master PR (Phase 3)". Name the failing check(s).
+    - If step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→master PR (Phase 3)". Name the failing check(s) (from the `gh pr checks` run in step 6).
+    - If step 6 hit the ~20-min budget timeout (checks stuck `PENDING`, never `BLOCKED`): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed but checks haven't finished — it will merge on its own once they pass; re-run this command afterward to open the qa→master PR (Phase 3)". Name the still-`PENDING` check(s), not "failing" ones.
     - If step 5 couldn't merge at all (both `--auto` and the direct-merge fallback failed): list the develop→qa PR with URL and the error, and note "merge could not be enabled — resolve in the GitHub UI (see Troubleshooting), then re-run from step 5"
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ENG-XXXX tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected

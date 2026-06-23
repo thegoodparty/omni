@@ -1,4 +1,4 @@
-<!-- v3 — 2026-06-10 -->
+<!-- v4 — 2026-06-23 -->
 # /release
 
 Merge the pending `qa → master` PR (opened by `/release-prep`) for the omni monorepo, wait 5 minutes for the deploy to settle, then print a `#product-releases` message: a one-paragraph plain-language summary of what shipped (grouped by epic/theme) followed by every ENG-XXXX ticket released along with its ClickUp title.
@@ -51,7 +51,15 @@ This command takes no arguments — the release target is always the omni monore
    gh pr list --base master --head qa --state open --json number,url,title
    ```
 
-   - 0 matches → stop with a message (likely `/release-prep` wasn't run, or nothing is pending)
+   - 0 matches → don't assume `/release-prep` wasn't run. It may have ended in `investigate`/budget-timeout with auto-merge armed, then merged develop→qa later **without** opening the `qa → master` PR. Disambiguate:
+
+     ```bash
+     cd "$RELEASE_OMNI_DIR"
+     git log origin/master..origin/qa --oneline --no-merges
+     ```
+
+     - **non-empty** → the promotion already landed but the release PR is missing. Tell the user to run `/release-prep` (its step-3 shortcut opens the `qa → master` PR), then re-run `/release`.
+     - **empty** → stop with a message (nothing is pending, or `/release-prep` wasn't run).
    - 1 match → continue
    - 2+ matches → list them and ask the user which to release; if unsure, abort with a message rather than guessing
 
@@ -229,7 +237,7 @@ This command takes no arguments — the release target is always the omni monore
 
 | Failure | Fix |
 |---------|-----|
-| `gh pr list --base master --head qa` returns nothing | Either `/release-prep` wasn't run, or there's nothing pending. Stop — don't try to construct a PR here. |
+| `gh pr list --base master --head qa` returns nothing | Check `git log origin/master..origin/qa` first (step 2). Non-empty → develop→qa already landed but the `qa → master` PR was never opened (a `/release-prep` that ended in `investigate`/budget-timeout, then auto-merged); re-run `/release-prep` to open it. Empty → either `/release-prep` wasn't run or nothing is pending; stop — don't construct a PR here. |
 | Multiple open `qa → master` PRs | A previous release was never closed. Ask the user which to merge, or close the stale one manually from the GitHub UI first. |
 | Step 5 aborts with "`qa` moved between confirmation and merge" | A concurrent `/release-prep` or direct push landed on `qa` while the user was deliberating on step 4. The abort is intentional — the user authorized a specific commit set, not the new one. Re-run `/release` to surface the updated contents in a fresh confirmation. |
 | ClickUp lookup returns 404 for an `ENG-XXXX` | Same as in `/release-prep`: verify `custom_task_ids=true` and `$CLICKUP_TEAM_ID`. If still 404, list the tag with no title and surface it in the final report. |
