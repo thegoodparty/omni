@@ -65,7 +65,7 @@ export default function AiChatSurface({
           config={config}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
-          className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
+          className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-12 overflow-y-auto px-4 py-5`}
           messageRenderer={messageRenderer}
         />
       </DrawerContent>

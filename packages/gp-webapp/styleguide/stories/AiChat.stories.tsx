@@ -603,11 +603,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     icon: CheckIcon,
     description:
       'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
-    source: {
-      organization: 'County Elections Office',
-      title: 'Filing Guide 2024',
-      description: 'Official guide for candidacy filings, fees, and ID requirements.',
-    },
+    source: 'County Elections Office — Filing Guide 2024',
   },
   {
     label: 'Step 2',
@@ -628,11 +624,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
     description:
       'Register a committee with the state ethics board before accepting any donations or spending any money.',
     link: { label: 'Register online at ethics.state.gov', href: '#' },
-    source: {
-      organization: 'State Ethics Board',
-      title: 'Campaign Finance FAQ',
-      description: 'Requirements for registering a campaign committee and initial reporting.',
-    },
+    source: 'State Ethics Board — Campaign Finance FAQ',
   },
   {
     label: 'Step 4',
@@ -652,11 +644,7 @@ const TIMELINE_ITEMS: TimelineItem[] = [
       'Late filings result in a $50/day penalty',
       'Include all in-kind contributions',
     ],
-    source: {
-      organization: 'State Ethics Board',
-      title: 'Disclosure Calendar',
-      description: 'Filing deadlines and penalty schedule for financial disclosures.',
-    },
+    source: 'State Ethics Board — Disclosure Calendar',
   },
 ]
 
@@ -672,19 +660,19 @@ const HISTORY_ITEMS: TimelineItem[] = [
     label: '1978',
     title: 'Chapter 18 created',
     description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
-    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 1978', description: 'Council adopts the modern zoning code.' },
+    source: 'Maplewood Council minutes, 1978',
   },
   {
     label: '2003',
     title: 'ADU allowance',
     description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
-    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 2003', description: 'ADU allowance added with owner-occupancy requirement.' },
+    source: 'Maplewood Council minutes, 2003',
   },
   {
     label: '2019',
     title: 'Owner-occupancy repealed',
     description: 'ADU owner-occupancy rule removed. No broader missing-middle reform attempted.',
-    source: { organization: 'Maplewood City Council', title: 'Meeting Minutes, 2019', description: 'Owner-occupancy rule removed from ADU ordinance.' },
+    source: 'Maplewood Council minutes, 2019',
   },
 ]
 
