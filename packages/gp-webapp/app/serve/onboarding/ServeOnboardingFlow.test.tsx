@@ -679,6 +679,43 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     )
   })
 
+  it('stamps the branch on the completion event (net-new)', async () => {
+    // Resume a self-reported (net-new) lead at constituents, then walk to
+    // completion. The `selfReported` marker keeps the branch net-new even though
+    // the record carries term dates, so the completion event must read 'net-new'.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'constituents',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Take our pledge to get your chief of staff')
+    await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
+
+    await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))
+    expect(eventProps(COMPLETED)).toContainEqual(
+      expect.objectContaining({ branch: 'net-new', electedOfficeId: EO_ID }),
+    )
+  })
+
   it('fires Switched to Campaign when a "still campaigning" lead confirms the hand-off', async () => {
     mockLoad(buildEO(), buildOrg())
     const user = userEvent.setup()

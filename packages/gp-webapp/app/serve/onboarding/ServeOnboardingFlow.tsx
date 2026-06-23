@@ -498,7 +498,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         },
       })
       if (brSuggestion.hadBrPrefill && brSuggestion.changedField) {
-        trackServeOnboarding(
+        // Await so the event flushes before the redirect below unloads the page.
+        await trackServeOnboarding(
           SERVE_ONBOARDING_EVENTS.SuggestionChanged,
           brSuggestion,
         )
@@ -506,8 +507,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
 
       // `branch` distinguishes a prefill (sales/BallotReady-seeded) completion
       // from a net-new (user-entered) one on the single completion event,
-      // rather than minting a separate event per branch.
-      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
+      // rather than minting a separate event per branch. Await so the event
+      // flushes before the redirect below unloads the page.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
         branch,
       })
