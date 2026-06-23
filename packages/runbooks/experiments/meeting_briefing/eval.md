@@ -122,9 +122,10 @@ The briefing should direct the official's attention to the right items. Not ever
 **Fail if:**
 - Major attention is directed to the wrong items
 - A genuinely important item is omitted from featured coverage or significantly under-emphasized
+- More than three items are featured, or the featured tier is padded with minor/procedural items to reach a count
 
 **Pass if:**
-- The 3–5 featured topics represent a reasonable and defensible allocation of attention given the agenda
+- The featured tier holds at most three items — only those that genuinely warrant elevation — and a smaller count (including zero) is correct when fewer qualify; the tier is never padded to hit a number
 - Minor or procedural items are treated briefly; significant or contested items receive appropriate depth
 
 | ✓ Pass | ✗ Fail |
