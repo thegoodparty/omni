@@ -17,15 +17,15 @@ import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 // Markdown bubble — same override set as Chief of Staff and briefing chat
 // ---------------------------------------------------------------------------
 const ASSISTANT_BUBBLE =
-  'w-full text-sm leading-relaxed text-foreground ' +
-  'space-y-3 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
+  'w-full text-sm leading-7 text-foreground ' +
+  'space-y-4 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
   '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
   '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
   '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
-  '[&_ul]:space-y-1 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
-  '[&_ol]:space-y-1 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
+  '[&_ul]:space-y-2 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
+  '[&_ol]:space-y-2 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
   '[&_h2]:!block [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:!block ' +
   '[&_h3]:text-sm [&_h3]:font-semibold [&_table]:!table [&_table]:!w-full ' +
   '[&_table]:!border-collapse [&_table]:my-2 [&_thead]:!table-header-group ' +
@@ -444,7 +444,7 @@ export default function AiChatBody({
         ref={scrollRef}
         className={
           className ??
-          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-4 overflow-y-auto px-4 py-4`
+          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-6 overflow-y-auto px-4 py-5`
         }
         data-testid="ai-chat-conversation"
       >
