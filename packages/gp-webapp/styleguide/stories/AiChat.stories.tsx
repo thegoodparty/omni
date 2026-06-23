@@ -474,55 +474,6 @@ export const WithStepper: StoryObj = {
 }
 
 // ---------------------------------------------------------------------------
-// WithVerticalStepper
-// ---------------------------------------------------------------------------
-
-export const WithVerticalStepper: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
-  render: () => {
-    const [open, setOpen] = useState(true)
-    return (
-      <div className="h-full min-h-[600px] bg-background">
-        {!open && (
-          <AiChatBar
-            chatApi={mockChatApi}
-            config={DEFAULT_CONFIG}
-            onOpen={() => setOpen(true)}
-            onOpenConversation={() => setOpen(true)}
-          />
-        )}
-        <Drawer open={open} onOpenChange={setOpen}>
-          <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
-            <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-5" aria-hidden />
-              </span>
-              <div className="flex flex-col text-left">
-                <DrawerTitle>{DEFAULT_CONFIG.title}</DrawerTitle>
-                <span className="text-xs text-muted-foreground">{DEFAULT_CONFIG.subtitle}</span>
-              </div>
-            </DrawerHeader>
-            <AiChatBody
-              chatApi={mockChatApi}
-              config={DEFAULT_CONFIG}
-              active={open}
-              className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
-              bottomSlot={
-                <Stepper
-                  variant="vertical"
-                  currentStep={2}
-                  labels={['Create account', 'Set up campaign', 'Add your story', 'Go live']}
-                />
-              }
-            />
-          </DrawerContent>
-        </Drawer>
-      </div>
-    )
-  },
-}
-
-// ---------------------------------------------------------------------------
 // LongConversation
 // ---------------------------------------------------------------------------
 
