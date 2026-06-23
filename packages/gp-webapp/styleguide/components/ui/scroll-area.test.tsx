@@ -9,7 +9,9 @@ describe('ScrollArea', () => {
         <div>content</div>
       </ScrollArea>,
     )
-    expect(container.querySelector('[data-slot="scroll-area"]')).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-slot="scroll-area"]'),
+    ).toBeInTheDocument()
     expect(
       container.querySelector('[data-slot="scroll-area-viewport"]'),
     ).toBeInTheDocument()
@@ -21,7 +23,9 @@ describe('ScrollArea', () => {
         <div>content</div>
       </ScrollArea>,
     )
-    const scrollbar = container.querySelector('[data-slot="scroll-area-scrollbar"]')
+    const scrollbar = container.querySelector(
+      '[data-slot="scroll-area-scrollbar"]',
+    )
     expect(scrollbar).toBeInTheDocument()
     expect(scrollbar).toHaveAttribute('data-orientation', 'vertical')
   })
@@ -32,7 +36,9 @@ describe('ScrollArea', () => {
         <div>content</div>
       </ScrollArea>,
     )
-    const scrollbar = container.querySelector('[data-slot="scroll-area-scrollbar"]')
+    const scrollbar = container.querySelector(
+      '[data-slot="scroll-area-scrollbar"]',
+    )
     expect(scrollbar).toBeInTheDocument()
     expect(scrollbar).toHaveAttribute('data-orientation', 'horizontal')
   })
@@ -43,7 +49,9 @@ describe('ScrollArea', () => {
         <div>content</div>
       </ScrollArea>,
     )
-    const scrollbars = container.querySelectorAll('[data-slot="scroll-area-scrollbar"]')
+    const scrollbars = container.querySelectorAll(
+      '[data-slot="scroll-area-scrollbar"]',
+    )
     expect(scrollbars).toHaveLength(2)
     const orientations = Array.from(scrollbars).map((el) =>
       el.getAttribute('data-orientation'),
@@ -58,8 +66,12 @@ describe('ScrollArea', () => {
         <div>content</div>
       </ScrollArea>,
     )
-    const viewport = container.querySelector('[data-slot="scroll-area-viewport"]')
-    const scrollbar = container.querySelector('[data-slot="scroll-area-scrollbar"]')
+    const viewport = container.querySelector(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    const scrollbar = container.querySelector(
+      '[data-slot="scroll-area-scrollbar"]',
+    )
     expect(viewport?.contains(scrollbar)).toBe(false)
     expect(viewport?.parentElement).toBe(scrollbar?.parentElement)
   })
