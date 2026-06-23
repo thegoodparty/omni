@@ -24,6 +24,22 @@ vi.mock('../../data/chat-api', () => ({
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
+const { dictationStartMock } = vi.hoisted(() => ({
+  dictationStartMock: vi.fn(),
+}))
+vi.mock('../../../briefings/shared/useDictationAppend', () => ({
+  useDictationAppend: () => ({
+    status: 'idle',
+    error: null,
+    partialTranscript: '',
+    active: false,
+    busy: false,
+    start: dictationStartMock,
+    stop: vi.fn(),
+    toggle: vi.fn(),
+  }),
+}))
+
 function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   return (async function* () {
     for (const ev of events) yield ev
@@ -36,6 +52,7 @@ beforeEach(() => {
   listConversationsMock.mockReset()
   streamMessageMock.mockReset()
   softDeleteMock.mockReset()
+  dictationStartMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -199,5 +216,28 @@ describe('<ChiefOfStaffChatBody>', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('starts dictation once when opened with autoDictate', async () => {
+    listConversationsMock.mockResolvedValue([])
+    render(<ChiefOfStaffChatBody active autoDictate />)
+    await waitFor(() => expect(dictationStartMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('does not start dictation without autoDictate', async () => {
+    listConversationsMock.mockResolvedValue([])
+    render(<ChiefOfStaffChatBody active />)
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalled())
+    expect(dictationStartMock).not.toHaveBeenCalled()
+  })
+
+  it('re-arms autoDictate after the surface closes and reopens', async () => {
+    listConversationsMock.mockResolvedValue([])
+    const { rerender } = render(<ChiefOfStaffChatBody active autoDictate />)
+    await waitFor(() => expect(dictationStartMock).toHaveBeenCalledTimes(1))
+    // Close (active=false) resets the guard, reopen starts dictation again.
+    rerender(<ChiefOfStaffChatBody active={false} autoDictate />)
+    rerender(<ChiefOfStaffChatBody active autoDictate />)
+    await waitFor(() => expect(dictationStartMock).toHaveBeenCalledTimes(2))
   })
 })
