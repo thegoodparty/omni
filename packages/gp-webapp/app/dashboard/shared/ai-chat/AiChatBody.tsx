@@ -555,7 +555,7 @@ export default function AiChatBody({
 
       {/* Suggestion chips — only on a fresh chat */}
       {suggestions.length > 0 && history.length === 0 && streaming === null && !error && (
-        <div className={`mx-auto flex w-full ${CHAT_MAX_W} flex-wrap gap-2 px-3 pb-3 pt-2`}>
+        <div className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2 px-3 pb-3 pt-2`}>
           {suggestions.map((s) => (
             <Button
               key={s}
