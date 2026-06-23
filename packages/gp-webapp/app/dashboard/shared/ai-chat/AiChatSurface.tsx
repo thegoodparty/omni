@@ -18,6 +18,8 @@ interface Props {
   messageRenderer?: (content: string) => React.ReactNode
   /** Portal target for the drawer. Defaults to document.body. */
   container?: HTMLElement | null
+  /** Optional slot rendered between the message list and the input. */
+  bottomSlot?: React.ReactNode
 }
 
 /**
@@ -35,6 +37,7 @@ export default function AiChatSurface({
   initialConversationId,
   messageRenderer,
   container,
+  bottomSlot,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId ?? null)
 
@@ -67,6 +70,7 @@ export default function AiChatSurface({
           conversationIdOverride={selectedId ?? undefined}
           className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-12 overflow-y-auto px-4 py-5`}
           messageRenderer={messageRenderer}
+          bottomSlot={bottomSlot}
         />
       </DrawerContent>
     </Drawer>

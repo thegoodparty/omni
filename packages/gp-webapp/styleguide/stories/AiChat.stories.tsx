@@ -5,7 +5,6 @@ import { useArgs } from 'storybook/preview-api'
 import { useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
 import { Stepper } from '../components/ui/stepper'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import {
@@ -13,14 +12,12 @@ import {
   CheckIcon,
   DownloadIcon,
   ShareIcon,
-  SparklesIcon,
 } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
 import ChatTimeline from 'app/dashboard/shared/ai-chat/ChatTimeline'
 import { mockChatApi } from 'app/dashboard/shared/ai-chat/mock-chat-api'
-import { CHAT_MAX_W } from 'app/dashboard/shared/ai-chat/constants'
 import type { AiChatClient, AiChatConfig, ChatMessageDto } from 'app/dashboard/shared/ai-chat/types'
 import type { TimelineItem } from 'app/dashboard/shared/ai-chat/ChatTimeline'
 
@@ -58,6 +55,7 @@ function AiChatDemo({
   extraBar,
   extraBarAlign,
   messageRenderer,
+  bottomSlot,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -68,6 +66,7 @@ function AiChatDemo({
   extraBar?: React.ReactNode
   extraBarAlign?: 'start' | 'center' | 'end'
   messageRenderer?: (content: string) => React.ReactNode
+  bottomSlot?: React.ReactNode
 }) {
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId ?? null)
 
@@ -99,6 +98,7 @@ function AiChatDemo({
         onOpenChange={onOpenChange}
         initialConversationId={conversationId}
         messageRenderer={messageRenderer}
+        bottomSlot={bottomSlot}
       />
     </div>
   )
@@ -418,16 +418,13 @@ export const WithRadioCards: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="h-full min-h-[600px] bg-background">
-        <AiChatSurface
-          chatApi={RADIO_API}
-          config={DEFAULT_CONFIG}
-          open={open}
-          onOpenChange={setOpen}
-          initialConversationId={SEEDED_ID}
-          messageRenderer={radioRenderer}
-        />
-      </div>
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={RADIO_API}
+        initialConversationId={SEEDED_ID}
+        messageRenderer={radioRenderer}
+      />
     )
   },
 }
@@ -441,38 +438,11 @@ export const WithStepper: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="h-full min-h-[600px] bg-background">
-        {!open && (
-          <AiChatBar
-            chatApi={mockChatApi}
-            config={DEFAULT_CONFIG}
-            onOpen={() => setOpen(true)}
-            onOpenConversation={() => setOpen(true)}
-          />
-        )}
-        <Drawer open={open} onOpenChange={setOpen}>
-          <DrawerContent className="flex h-[90vh] flex-col p-0" aria-describedby={undefined}>
-            <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-5" aria-hidden />
-              </span>
-              <div className="flex flex-col text-left">
-                <DrawerTitle>{DEFAULT_CONFIG.title}</DrawerTitle>
-                <span className="text-xs text-muted-foreground">{DEFAULT_CONFIG.subtitle}</span>
-              </div>
-            </DrawerHeader>
-            <AiChatBody
-              chatApi={mockChatApi}
-              config={DEFAULT_CONFIG}
-              active={open}
-              className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
-              bottomSlot={
-                <Stepper currentStep={2} totalSteps={4} />
-              }
-            />
-          </DrawerContent>
-        </Drawer>
-      </div>
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        bottomSlot={<Stepper currentStep={2} totalSteps={4} />}
+      />
     )
   },
 }
@@ -531,15 +501,12 @@ export const LongConversation: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="h-full min-h-[600px] bg-background">
-        <AiChatSurface
-          chatApi={LONG_CONV_API}
-          config={DEFAULT_CONFIG}
-          open={open}
-          onOpenChange={setOpen}
-          initialConversationId={SEEDED_ID}
-        />
-      </div>
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={LONG_CONV_API}
+        initialConversationId={SEEDED_ID}
+      />
     )
   },
 }
@@ -647,16 +614,13 @@ export const TimelineWithStatus: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="h-full min-h-[600px] bg-background">
-        <AiChatSurface
-          chatApi={TIMELINE_API}
-          config={DEFAULT_CONFIG}
-          open={open}
-          onOpenChange={setOpen}
-          initialConversationId={SEEDED_ID}
-          messageRenderer={timelineRenderer}
-        />
-      </div>
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={TIMELINE_API}
+        initialConversationId={SEEDED_ID}
+        messageRenderer={timelineRenderer}
+      />
     )
   },
 }
@@ -666,16 +630,13 @@ export const WithTimeline: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(true)
     return (
-      <div className="h-full min-h-[600px] bg-background">
-        <AiChatSurface
-          chatApi={HISTORY_API}
-          config={DEFAULT_CONFIG}
-          open={open}
-          onOpenChange={setOpen}
-          initialConversationId={SEEDED_ID}
-          messageRenderer={timelineRenderer}
-        />
-      </div>
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={HISTORY_API}
+        initialConversationId={SEEDED_ID}
+        messageRenderer={timelineRenderer}
+      />
     )
   },
 }
