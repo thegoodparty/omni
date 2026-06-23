@@ -49,9 +49,9 @@ export default function AiChatSurface({
         aria-describedby={undefined}
       >
         <DrawerHandle />
-        <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <SparklesIcon className="size-5" aria-hidden />
+        <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border px-4 py-2.5 pr-12">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <SparklesIcon className="size-3.5" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
             <DrawerTitle>{config.title}</DrawerTitle>
