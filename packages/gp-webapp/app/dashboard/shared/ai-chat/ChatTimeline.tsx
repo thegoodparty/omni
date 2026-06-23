@@ -22,18 +22,14 @@ export type TimelineItem = {
   badge?: string
 }
 
-const bulletColorClass: Record<TimelineStatus, string> = {
-  done: 'border-primary bg-primary text-primary-foreground',
-  active: 'border-primary bg-background text-primary',
-  upcoming:
-    'border-muted-foreground/40 bg-background text-muted-foreground/60 dark:border-muted-foreground/60 dark:text-muted-foreground',
-}
-
-const connectorClass: Record<TimelineStatus, string> = {
-  done: 'bg-primary',
-  active: 'bg-primary',
-  upcoming: 'bg-muted-foreground/30',
-}
+const STEP_COLORS = [
+  'bg-brand-blue-200',
+  'bg-brand-halo-green-200',
+  'bg-brand-lavender-200',
+  'bg-brand-waxflower-200',
+  'bg-brand-bright-yellow-200',
+  'bg-brand-red-200',
+]
 
 function isSafeHref(href: string): boolean {
   return href === '#' || /^https?:\/\//i.test(href)
@@ -53,26 +49,30 @@ export default function ChatTimeline({
       {items.map((item, i) => {
         const status = item.status ?? 'done'
         const isLast = i === items.length - 1
-        const Icon = !isTimeline ? item.icon : undefined
 
         return (
           <div key={`${item.label}-${item.title}`} className="relative flex gap-3" role="listitem">
             <div className="flex flex-col items-center">
               {isTimeline ? (
                 <div className="mt-1 size-2.5 shrink-0 rounded-full bg-primary" />
+              ) : status === 'done' ? (
+                <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <span className="text-xs font-semibold leading-none text-muted-foreground">{i + 1}</span>
+                </div>
               ) : (
-                <div
-                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${bulletColorClass[status]}`}
-                >
-                  {Icon && <Icon className="size-2.5" />}
+                <div className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${STEP_COLORS[i % STEP_COLORS.length]}`}>
+                  <span className="text-xs font-semibold leading-none text-brand-midnight-700">{i + 1}</span>
                 </div>
               )}
-              {!isLast && (
-                <div className={`w-px flex-1 ${isTimeline ? 'bg-primary' : connectorClass[status]}`} />
+              {!isTimeline && !isLast && (
+                <div className="w-px flex-1 bg-transparent" />
+              )}
+              {isTimeline && !isLast && (
+                <div className="w-px flex-1 bg-primary" />
               )}
             </div>
 
-            <div className={`flex flex-col gap-3 min-w-0 ${isLast ? '' : 'pb-8'}`}>
+            <div className={`flex flex-col gap-3 min-w-0 ${isLast ? '' : 'pb-6'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-foreground">{item.label}</span>
                 <span className="text-sm text-foreground">{item.title}</span>

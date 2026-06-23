@@ -446,7 +446,7 @@ export default function AiChatBody({
         ref={scrollRef}
         className={
           className ??
-          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-12 overflow-y-auto px-4 py-5`
+          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-10 overflow-y-auto px-4 py-5`
         }
         data-testid="ai-chat-conversation"
       >
@@ -465,7 +465,7 @@ export default function AiChatBody({
           item.kind === 'user' ? (
             <div
               key={item.id}
-              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground break-words max-w-full"
             >
               {item.content}
             </div>
@@ -617,7 +617,7 @@ export default function AiChatBody({
               disabled={creating}
               aria-label="Ask a question"
               rows={1}
-              className="flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
+              className={`flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36${multiline ? '' : ' whitespace-nowrap'}`}
             />
             <IconButton
               type="button"

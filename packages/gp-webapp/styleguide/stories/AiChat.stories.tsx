@@ -152,8 +152,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     open: false,
     firstName: 'Alex',
     subtitle: 'Your personal campaign strategist',
-    extraBarAlign: 'center',
     showExtraBar: false,
+    extraBarAlign: 'center',
     timelineVariant: 'none',
   },
   argTypes: {
@@ -166,14 +166,14 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: 'text',
       description: 'Subtitle shown under the drawer title.',
     },
+    showExtraBar: {
+      control: 'boolean',
+      description: 'Renders a Download button in the extraBar slot.',
+    },
     extraBarAlign: {
       control: 'inline-radio',
       options: ['start', 'center', 'end'],
       description: 'Horizontal alignment of the optional extra bar content.',
-    },
-    showExtraBar: {
-      control: 'boolean',
-      description: 'Renders a Download button in the extraBar slot.',
     },
     timelineVariant: {
       control: 'inline-radio',
@@ -616,7 +616,7 @@ function timelineRenderer(content: string): React.ReactNode {
 }
 
 export const WithStatus: StoryObj = {
-  name: 'With Status',
+  name: 'Vertical Stepper',
   parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
