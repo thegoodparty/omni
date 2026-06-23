@@ -462,7 +462,7 @@ export const WithStepper: StoryObj = {
               active={open}
               className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
               bottomSlot={
-                <Stepper currentStep={2} totalSteps={3} />
+                <Stepper currentStep={2} totalSteps={4} />
               }
             />
           </DrawerContent>
