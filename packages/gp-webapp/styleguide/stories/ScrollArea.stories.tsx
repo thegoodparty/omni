@@ -144,7 +144,11 @@ export const ScrollbarTypes: Story = {
 export const Horizontal: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <ScrollArea orientation="horizontal" className="w-72 rounded-md border p-4">
+    <ScrollArea
+      type="always"
+      orientation="horizontal"
+      className="w-72 rounded-md border p-4"
+    >
       <div className="flex gap-4" style={{ width: 800 }}>
         {Array.from({ length: 20 }, (_, i) => (
           <div
@@ -162,7 +166,11 @@ export const Horizontal: Story = {
 export const Both: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <ScrollArea orientation="both" className="h-48 w-72 rounded-md border p-4">
+    <ScrollArea
+      type="always"
+      orientation="both"
+      className="h-48 w-72 rounded-md border p-4"
+    >
       <div className="space-y-4" style={{ width: 600 }}>
         {Array.from({ length: 20 }, (_, i) => (
           <div
