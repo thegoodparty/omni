@@ -1,11 +1,13 @@
 import { useTestService } from '@/test-service'
-import { describe, expect, it } from 'vitest'
+import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
 const MONICA_SLUG = 'monica-alponte'
 const MONICA_RACE = 'race-monica'
 const MONICA = { firstName: 'Monica', lastName: 'Alponte' }
+const MONICA_PHOTO = 'https://clerk.example/monica.jpg'
 
 const seedCampaign = async (args: {
   id: number
@@ -42,6 +44,13 @@ const find = (params: {
 }) => service.client.get('/v1/public-campaigns', { params })
 
 describe('GET /v1/public-campaigns', () => {
+  // The endpoint resolves the candidate's avatar through Clerk; by default
+  // pass the owner through untouched so the seeded (photo-less) state stands.
+  beforeEach(() => {
+    const enricher = service.app.get(ClerkUserEnricherService)
+    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => user)
+  })
+
   it('returns the active campaign matching raceId + candidate name', async () => {
     await seedCampaign({
       id: 1,
@@ -159,5 +168,43 @@ describe('GET /v1/public-campaigns', () => {
     })
 
     expect(res.status).toBe(400)
+  })
+
+  it('returns the claimed candidate uploaded photo when Clerk has one', async () => {
+    const enricher = service.app.get(ClerkUserEnricherService)
+    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => ({
+      ...user,
+      avatar: MONICA_PHOTO,
+    }))
+    await seedCampaign({
+      id: 7,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBe(MONICA_PHOTO)
+  })
+
+  it('returns a null avatar when the claimed candidate has no uploaded photo', async () => {
+    const enricher = service.app.get(ClerkUserEnricherService)
+    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => ({
+      ...user,
+      avatar: null,
+    }))
+    await seedCampaign({
+      id: 8,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBeNull()
   })
 })
