@@ -409,6 +409,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       committeeType,
     } = tcrComplianceCreatePayload
 
+    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // campaign.placeId via Google Places (peerlyIdentity.service
+    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // compliance agent treats as transient and retries forever (campaign
+    // 325553). A 10DLC brand can't be registered without an address, so fail
+    // fast with a non-recoverable 4xx that names the real cause instead.
+    if (!campaign.placeId?.trim()) {
+      throw new BadRequestException(
+        'Cannot submit TCR registration to Peerly: the campaign has no ' +
+          'address on file (placeId missing). The candidate must add their ' +
+          'address before TCR registration can proceed.',
+      )
+    }
+
     const userFullName = getUserFullName(user)
     const { ballotLevel } = campaign.details as { ballotLevel?: string }
 
