@@ -271,6 +271,25 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
   }, [step, party, currentEO?.id])
 
+  // Per-step funnel instrumentation: fire "Step Viewed" once per step the user
+  // lands on (deduped via a Set ref so a back-and-forth — e.g. the prefill
+  // confirm→office→confirm detour, or stepping Back — doesn't re-fire and
+  // inflate the funnel). Gated on `!loading` so the initial render and the
+  // resume-step resolution settle first, and so a resumed user only logs the
+  // steps they actually view this session. `step` + `branch` make each event a
+  // slice of one funnel rather than a separate event per step.
+  const viewedStepsRef = useRef<Set<ServeStepId>>(new Set())
+  useEffect(() => {
+    if (loading) return
+    if (viewedStepsRef.current.has(step)) return
+    viewedStepsRef.current.add(step)
+    trackServeOnboarding(SERVE_ONBOARDING_EVENTS.StepViewed, {
+      step,
+      branch,
+      electedOfficeId: currentEO?.id,
+    })
+  }, [loading, step, branch, currentEO?.id])
+
   const officeIsChosen = Boolean(
     office?.positionId ||
     customOfficeName.trim() ||
@@ -485,8 +504,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         )
       }
 
+      // `branch` distinguishes a prefill (sales/BallotReady-seeded) completion
+      // from a net-new (user-entered) one on the single completion event,
+      // rather than minting a separate event per branch.
       trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
+        branch,
       })
 
       // Pin the elected-office org so the serve dashboard (and every
@@ -696,7 +719,18 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     return (
       <div className="min-h-screen w-full bg-background pb-12">
         <FlowHeader />
-        <SwitchToCampaignStep onBack={() => setSwitchToCampaign(false)} />
+        <SwitchToCampaignStep
+          onBack={() => setSwitchToCampaign(false)}
+          onSwitch={() => {
+            // Drop-off/handoff out of serve: the user confirmed they're still
+            // campaigning and is being handed to the Win onboarding flow. Fire
+            // before navigating so the event isn't lost to the redirect.
+            trackServeOnboarding(SERVE_ONBOARDING_EVENTS.SwitchedToCampaign, {
+              electedOfficeId: currentEO?.id,
+            })
+            window.location.href = '/onboarding/office-selection'
+          }}
+        />
       </div>
     )
   }
@@ -1310,14 +1344,13 @@ const PledgeStep = (): React.JSX.Element => {
 
 const SwitchToCampaignStep = ({
   onBack,
+  onSwitch,
 }: {
   onBack: () => void
+  // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
+  // The parent tracks the handoff, then routes to the Win flow's entry point.
+  onSwitch: () => void
 }): React.JSX.Element => {
-  const handleSwitch = () => {
-    // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-    // Hand off to the Win flow's entry point.
-    window.location.href = '/onboarding/office-selection'
-  }
   return (
     <>
       <main className="mx-auto max-w-3xl px-6 pt-12 pb-28">
@@ -1345,7 +1378,7 @@ const SwitchToCampaignStep = ({
           </Button>
           <Button
             size="large"
-            onClick={handleSwitch}
+            onClick={onSwitch}
             icon={<ArrowRight className="h-4 w-4" />}
             iconPosition="right"
             className="px-8"

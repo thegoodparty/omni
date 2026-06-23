@@ -14,7 +14,17 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
+
+const trackEventMock = vi.mocked(trackEvent)
+
+// Properties passed to a given event name across all trackEvent calls (the flow
+// fires through trackServeOnboarding → trackEvent).
+const eventProps = (name: string): Record<string, unknown>[] =>
+  trackEventMock.mock.calls
+    .filter(([eventName]) => eventName === name)
+    .map(([, props]) => (props ?? {}) as Record<string, unknown>)
 
 const EO_ID = 'eo-uuid-1'
 
@@ -65,6 +75,7 @@ const mockLoad = (eo: ElectedOffice, org: Organization) => {
 describe('ServeOnboardingFlow', () => {
   beforeEach(() => {
     api.reset()
+    trackEventMock.mockClear()
   })
 
   it('starts a net-new lead (no saved answers) at the welcome step', async () => {
@@ -567,5 +578,123 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('What office do you currently hold?'),
     ).toBeInTheDocument()
+  })
+})
+
+const STEP_VIEWED = 'Serve Onboarding - Step Viewed'
+const COMPLETED = 'Serve Onboarding - Net New Completed'
+const SWITCHED = 'Serve Onboarding - Switched to Campaign'
+
+describe('ServeOnboardingFlow analytics instrumentation', () => {
+  beforeEach(() => {
+    api.reset()
+    trackEventMock.mockClear()
+  })
+
+  it('fires Step Viewed once per step (with step + branch) as a net-new lead advances, deduped across back-and-forth', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    // welcome view (net-new branch resolved at load).
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await waitFor(() =>
+      expect(eventProps(STEP_VIEWED)).toContainEqual(
+        expect.objectContaining({ step: 'welcome', branch: 'net-new' }),
+      ),
+    )
+
+    // welcome → inOffice → back to welcome → forward to inOffice again.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+
+    // Each step is logged exactly once despite the re-visits (Set-ref dedupe).
+    expect(
+      eventProps(STEP_VIEWED).filter((p) => p.step === 'welcome'),
+    ).toHaveLength(1)
+    expect(
+      eventProps(STEP_VIEWED).filter((p) => p.step === 'inOffice'),
+    ).toHaveLength(1)
+    expect(eventProps(STEP_VIEWED)).toContainEqual(
+      expect.objectContaining({ step: 'inOffice', branch: 'net-new' }),
+    )
+  })
+
+  it('fires Step Viewed with the prefill branch for a resumed prefill lead', async () => {
+    // Genuine prefill (BR dates, no selfReported) resumes on the confirm hub.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+      }),
+      buildOrg(),
+    )
+    renderFlow()
+
+    await screen.findByText('Does this look right?')
+    await waitFor(() =>
+      expect(eventProps(STEP_VIEWED)).toContainEqual(
+        expect.objectContaining({ step: 'confirm', branch: 'prefill' }),
+      ),
+    )
+  })
+
+  it('stamps the branch on the completion event (prefill)', async () => {
+    // Resume a fully-prefilled lead at constituents, then walk to completion.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: false,
+        onboardingStep: 'constituents',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Take our pledge to get your chief of staff')
+    await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
+
+    await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))
+    expect(eventProps(COMPLETED)).toContainEqual(
+      expect.objectContaining({ branch: 'prefill', electedOfficeId: EO_ID }),
+    )
+  })
+
+  it('fires Switched to Campaign when a "still campaigning" lead confirms the hand-off', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The hand-off screen, then confirm the switch to the Win flow.
+    await screen.findByText("Let's switch you to campaign mode")
+    await user.click(screen.getByRole('button', { name: 'Switch to Campaign' }))
+
+    expect(eventProps(SWITCHED)).toHaveLength(1)
   })
 })

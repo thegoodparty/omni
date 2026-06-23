@@ -13,6 +13,12 @@ export const SERVE_ONBOARDING_EVENTS = {
   // Disqualification: the user picked a major party (Democrat/Republican) on the
   // party step, mirroring the Win flow's `PartyDesignationBlocked` event.
   PartyBlocked: EVENTS.ServeOnboarding.PartyDesignationBlocked,
+  // Per-step funnel stage, fired once per step the user lands on. Carries the
+  // `step` id and `branch` so each step is a slice of one funnel rather than a
+  // separate event per step.
+  StepViewed: EVENTS.ServeOnboarding.StepViewed,
+  // Drop-off/handoff out of serve into the Win (campaign) onboarding flow.
+  SwitchedToCampaign: EVENTS.ServeOnboarding.SwitchedToCampaign,
 } as const
 
 type ServeOnboardingEventProperties =

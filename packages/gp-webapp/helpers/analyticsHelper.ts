@@ -129,6 +129,12 @@ export const EVENTS = {
     NetNewCompleted: 'Serve Onboarding - Net New Completed',
     BrSuggestionChanged: 'Serve Onboarding - BR Suggestion Changed',
     PartyDesignationBlocked: 'Serve Onboarding - Party Designation Blocked',
+    // Per-step funnel stage: fired once when the user lands on each step
+    // (`step` + `branch` properties make it a funnel slice in Amplitude).
+    StepViewed: 'Serve Onboarding - Step Viewed',
+    // Drop-off/handoff: the user answered "still campaigning" and confirmed the
+    // hand-off into the Win (campaign) onboarding flow.
+    SwitchedToCampaign: 'Serve Onboarding - Switched to Campaign',
   },
   Navigation: {
     Top: {
