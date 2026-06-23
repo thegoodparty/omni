@@ -444,7 +444,7 @@ export default function AiChatBody({
         ref={scrollRef}
         className={
           className ??
-          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-6 overflow-y-auto px-4 py-5`
+          `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-12 overflow-y-auto px-4 py-5`
         }
         data-testid="ai-chat-conversation"
       >
