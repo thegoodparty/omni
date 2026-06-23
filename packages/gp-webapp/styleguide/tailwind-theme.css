@@ -711,11 +711,11 @@
 .text-shimmer {
   background-image: linear-gradient(
     90deg,
-    var(--color-brand-blue-400) 0%,
-    var(--color-brand-blue-400) 40%,
-    var(--color-brand-blue-700) 50%,
-    var(--color-brand-blue-400) 60%,
-    var(--color-brand-blue-400) 100%
+    var(--color-foreground) 0%,
+    var(--color-foreground) 25%,
+    var(--color-brand-blue-300) 50%,
+    var(--color-foreground) 75%,
+    var(--color-foreground) 100%
   );
 }
 
