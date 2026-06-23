@@ -316,6 +316,13 @@
       {
         "if": {"properties": {"next_action": {"properties": {"scheduled_for": {"minLength": 1}}, "required": ["scheduled_for"]}}, "required": ["next_action"]},
         "then": {"properties": {"next_action": {"properties": {"kind": {"minLength": 1}}}}}
+      },
+      {
+        "if": {"properties": {"stage": {"const": "tcr_submitted"}}, "required": ["stage"]},
+        "then": {"anyOf": [
+          {"properties": {"tcr_submission": {"properties": {"peerly_request_id": {"type": "string", "minLength": 1}}, "required": ["peerly_request_id"]}}, "required": ["tcr_submission"]},
+          {"properties": {"skipped_steps": {"type": "array", "contains": {"const": "submit_tcr"}}}, "required": ["skipped_steps"]}
+        ]}
       }
     ]
   }

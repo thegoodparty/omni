@@ -2,16 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Label } from '@styleguide'
-import { GoodPartyOrgLogoWordmark } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Compass,
-  LoaderCircle,
-  Pencil,
-} from 'lucide-react'
+import { Check, LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
@@ -20,6 +12,8 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
+import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
+import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import ServeOfficePicker from './ServeOfficePicker'
 import {
@@ -719,143 +713,138 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
 
   if (switchToCampaign) {
     return (
-      <div className="min-h-screen w-full bg-background pb-12">
-        <FlowHeader />
-        <SwitchToCampaignStep
-          onBack={() => setSwitchToCampaign(false)}
-          onSwitch={async () => {
-            // Drop-off/handoff out of serve: the user confirmed they're still
-            // campaigning and is being handed to the Win onboarding flow. Await
-            // the track call so the event isn't lost to the redirect.
-            await trackServeOnboarding(
-              SERVE_ONBOARDING_EVENTS.SwitchedToCampaign,
-              {
-                electedOfficeId: currentEO?.id,
-              },
-            )
-            window.location.href = '/onboarding/office-selection'
-          }}
+      <div className="min-h-screen bg-base-surface pb-28 text-foreground">
+        <OnboardingTopBar
+          currentStep={progress.current}
+          totalSteps={progress.total}
         />
+        <SwitchToCampaignStep onBack={() => setSwitchToCampaign(false)} />
       </div>
     )
   }
 
+  // The current step's explainer copy. When present it renders in the right
+  // rail on wide viewports and stacks below the content on narrow ones — the
+  // same responsive treatment as the Win flow's "Why this matters" aside.
+  const whyThisMatters = SERVE_STEP_COPY[step].whyWeAsk
+
   return (
-    <div className="min-h-screen w-full bg-background pb-24">
-      <FlowHeader />
+    <div className="min-h-screen bg-base-surface pb-28 text-foreground">
+      <OnboardingTopBar
+        currentStep={progress.current}
+        totalSteps={progress.total}
+      />
 
-      <div className="relative mx-auto max-w-5xl px-6 pt-8">
-        <div className="pointer-events-none absolute inset-x-6 top-0 flex h-8 items-center justify-end text-xs font-medium text-muted-foreground">
-          Step {progress.current} of {progress.total}
-        </div>
-        <div className="flex w-full items-center gap-1.5">
-          {Array.from({ length: progress.total }).map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                'h-1.5 flex-1 rounded-full transition-colors',
-                progress.current - 1 >= i ? 'bg-primary' : 'bg-muted',
-              )}
-            />
-          ))}
-        </div>
-      </div>
-
-      {step === 'welcome' && <WelcomeStep />}
-      {step === 'inOffice' && (
-        <InOfficeStep value={inOffice} onChange={setInOffice} />
-      )}
-      {step === 'party' && <PartyStep value={party} onChange={setParty} />}
-      {step === 'office' && (
-        <OfficeStep
-          office={office}
-          customOfficeName={customOfficeName}
-          manualEntry={manualEntry}
-          zip={zip}
-          onZipChange={setZip}
-          onSelectOffice={(selected) => {
-            setOffice(selected)
-            setCustomOfficeName('')
-          }}
-          onCustomOfficeNameChange={setCustomOfficeName}
-          onEnableManual={() => setManualEntry(true)}
-          onDisableManual={() => setManualEntry(false)}
-        />
-      )}
-      {step === 'term-dates' && (
-        <TermDatesStep
-          termStartDate={termStartDate}
-          termEndDate={termEndDate}
-          onStartChange={setTermStartDate}
-          onEndChange={setTermEndDate}
-          otherRanges={otherRanges}
-          calendarStart={CALENDAR_START}
-          calendarEnd={CALENDAR_END}
-          error={dateError}
-        />
-      )}
-      {step === 'confirm' && (
-        <ConfirmStep
-          officeLabel={officeIsChosen ? officeDisplayLabel : 'Add your office'}
-          officeValid={officeIsChosen}
-          termStartDate={termStartDate}
-          termEndDate={termEndDate}
-          datesValid={datesValid}
-          dateError={dateError}
-          onChangeOffice={goToOfficeFromConfirm}
-          onChangeDates={goToDatesFromConfirm}
-        />
-      )}
-      {step === 'constituents' && (
-        <ConstituentsStep
-          orgPositionId={constituentsPositionId}
-          office={officeDisplayLabel}
-          city={office?.city}
-          state={office?.state ?? orgState}
-        />
-      )}
-      {step === 'pledge' && <PledgeStep />}
-
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-base-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
         <div
           className={cn(
-            'mx-auto flex w-full max-w-5xl items-center gap-4 px-6 py-4',
-            step === 'welcome' ? 'justify-end' : 'justify-between',
+            'grid grid-cols-1 gap-8',
+            whyThisMatters &&
+              'md:grid-cols-[minmax(0,1fr)_280px] md:items-start',
           )}
         >
-          {step !== 'welcome' && (
-            <Button
-              variant="ghost"
-              onClick={handleBack}
-              icon={<ArrowLeft className="h-4 w-4" />}
-              disabled={saving}
+          <section
+            className={cn('space-y-8', step === 'welcome' && 'text-center')}
+          >
+            {step === 'welcome' && <WelcomeStep />}
+            {step === 'inOffice' && (
+              <InOfficeStep value={inOffice} onChange={setInOffice} />
+            )}
+            {step === 'party' && (
+              <PartyStep value={party} onChange={setParty} />
+            )}
+            {step === 'office' && (
+              <OfficeStep
+                office={office}
+                customOfficeName={customOfficeName}
+                manualEntry={manualEntry}
+                zip={zip}
+                onZipChange={setZip}
+                onSelectOffice={(selected) => {
+                  setOffice(selected)
+                  setCustomOfficeName('')
+                }}
+                onCustomOfficeNameChange={setCustomOfficeName}
+                onEnableManual={() => setManualEntry(true)}
+                onDisableManual={() => setManualEntry(false)}
+              />
+            )}
+            {step === 'term-dates' && (
+              <TermDatesStep
+                termStartDate={termStartDate}
+                termEndDate={termEndDate}
+                onStartChange={setTermStartDate}
+                onEndChange={setTermEndDate}
+                otherRanges={otherRanges}
+                calendarStart={CALENDAR_START}
+                calendarEnd={CALENDAR_END}
+                error={dateError}
+              />
+            )}
+            {step === 'confirm' && (
+              <ConfirmStep
+                officeLabel={
+                  officeIsChosen ? officeDisplayLabel : 'Add your office'
+                }
+                officeValid={officeIsChosen}
+                termStartDate={termStartDate}
+                termEndDate={termEndDate}
+                datesValid={datesValid}
+                dateError={dateError}
+                onChangeOffice={goToOfficeFromConfirm}
+                onChangeDates={goToDatesFromConfirm}
+              />
+            )}
+            {step === 'constituents' && (
+              <ConstituentsStep
+                orgPositionId={constituentsPositionId}
+                office={officeDisplayLabel}
+                city={office?.city}
+                state={office?.state ?? orgState}
+              />
+            )}
+            {step === 'pledge' && <PledgeStep />}
+          </section>
+
+          {whyThisMatters && (
+            <aside
+              className="md:fixed md:top-28 md:w-[280px]"
+              style={{
+                right: 'max(2rem, calc((100vw - 56rem) / 2 + 2rem))',
+              }}
             >
-              Back
-            </Button>
+              <WhyThisMatters text={whyThisMatters} />
+            </aside>
           )}
+        </div>
+      </main>
+
+      <div className="fixed inset-x-0 bottom-0 bg-base-surface">
+        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between border-t border-base-border px-4 sm:px-8">
           <Button
             type="button"
+            variant="ghost"
+            size="large"
+            onClick={handleBack}
+            disabled={saving || step === 'welcome'}
+          >
+            Back
+          </Button>
+          <Button
+            type="button"
+            variant="default"
             size="large"
             onClick={handleContinue}
             disabled={!canContinue || saving}
             loading={saving}
-            icon={<ArrowRight className="h-4 w-4" />}
-            iconPosition="right"
-            className="px-8"
           >
             {step === 'pledge' ? 'Agree & Continue' : 'Continue'}
           </Button>
         </div>
-      </footer>
+      </div>
     </div>
   )
 }
-
-const FlowHeader = (): React.JSX.Element => (
-  <header className="flex items-center border-b border-base-border px-6 py-4">
-    <GoodPartyOrgLogoWordmark size="small" textVariant="dark" />
-  </header>
-)
 
 const Panel = ({
   className,
@@ -872,19 +861,6 @@ const Panel = ({
   >
     {children}
   </div>
-)
-
-const WhyWeAsk = ({
-  children,
-}: {
-  children: React.ReactNode
-}): React.JSX.Element => (
-  <Panel className="mt-6 p-4">
-    <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-      <Compass className="h-3.5 w-3.5" /> Why we ask
-    </div>
-    <p className="mt-2 text-sm leading-relaxed text-foreground">{children}</p>
-  </Panel>
 )
 
 const StepHeading = ({
@@ -912,7 +888,7 @@ const StepHeading = ({
 const WelcomeStep = (): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.welcome
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8 text-center">
+    <div>
       <h1
         className="text-4xl leading-tight font-semibold tracking-tight text-foreground md:text-5xl"
         style={{ fontFamily: 'var(--font-geist)' }}
@@ -947,7 +923,7 @@ const WelcomeStep = (): React.JSX.Element => {
         <span className="font-semibold text-foreground">Continue</span> to get
         started.
       </p>
-    </main>
+    </div>
   )
 }
 
@@ -998,7 +974,7 @@ const InOfficeStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.inOffice
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
       <div className="mt-8 space-y-3">
         {SERVE_IN_OFFICE_OPTIONS.map((option) => (
@@ -1011,8 +987,7 @@ const InOfficeStep = ({
           />
         ))}
       </div>
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1025,7 +1000,7 @@ const PartyStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.party
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
       {isServeMajorParty(value) && (
         <div className="mt-8">
@@ -1043,8 +1018,7 @@ const PartyStep = ({
           />
         ))}
       </div>
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1071,7 +1045,7 @@ const OfficeStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.office
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-4 sm:p-6">
@@ -1103,9 +1077,7 @@ const OfficeStep = ({
           />
         )}
       </Panel>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1130,7 +1102,7 @@ const TermDatesStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY['term-dates']
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-4 sm:p-6">
@@ -1145,9 +1117,7 @@ const TermDatesStep = ({
           error={error}
         />
       </Panel>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1214,7 +1184,7 @@ const ConfirmStep = ({
       ? `${formatDisplay(termStartDate)} – ${formatDisplay(termEndDate)}`
       : 'Add your term dates'
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 px-6">
@@ -1239,9 +1209,7 @@ const ConfirmStep = ({
       {!datesValid && dateError && (
         <p className="mt-4 text-sm text-destructive">{dateError}</p>
       )}
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1262,7 +1230,7 @@ const ConstituentsStep = ({
   // valid code so a missing/full-name state never fires a doomed request.
   const hasValidState = /^[A-Za-z]{2}$/.test(state ?? '')
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <h1
         className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
         style={{ fontFamily: 'var(--font-geist)' }}
@@ -1276,24 +1244,30 @@ const ConstituentsStep = ({
       </p>
 
       <div className="mt-8">
+        {/* Reuse the Win flow's demographics step, but override its
+            candidate-facing "voter" copy with constituent wording for the
+            elected-official audience. Defaults keep the Win flow unchanged. */}
         <VoterDemographicsStep
           orgPositionId={orgPositionId}
           office={office}
           city={city}
           state={state}
           showLocalNewsSources={hasValidState}
+          demographicsHeading="Constituent Demographics"
+          totalLabel="Total Constituents"
+          ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
+          topIssuesHeading="Top issues for your constituents"
+          topIssuesDescription="The issues constituents in your district care about most right now."
         />
       </div>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
 const PledgeStep = (): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.pledge
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-6 sm:p-8">
@@ -1343,23 +1317,25 @@ const PledgeStep = (): React.JSX.Element => {
           .
         </p>
       </Panel>
-    </main>
+    </div>
   )
 }
 
 const SwitchToCampaignStep = ({
   onBack,
-  onSwitch,
 }: {
   onBack: () => void
-  // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-  // The parent tracks the handoff (awaiting the event so it survives the
-  // redirect), then routes to the Win flow's entry point.
-  onSwitch: () => void | Promise<void>
 }): React.JSX.Element => {
+  const handleSwitch = () => {
+    // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
+    // Hand off to the Win flow's entry point. The hand-off itself is captured
+    // as the `selection: "I'm still campaigning"` value on the Office Status
+    // Viewed event (fired on the inOffice Continue), so no event fires here.
+    window.location.href = '/onboarding/office-selection'
+  }
   return (
     <>
-      <main className="mx-auto max-w-3xl px-6 pt-12 pb-28">
+      <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
         <h1
           className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
           style={{ fontFamily: 'var(--font-geist)' }}
@@ -1373,26 +1349,21 @@ const SwitchToCampaignStep = ({
         </p>
       </main>
 
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-base-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          <Button
-            variant="ghost"
-            onClick={onBack}
-            icon={<ArrowLeft className="h-4 w-4" />}
-          >
+      <div className="fixed inset-x-0 bottom-0 bg-base-surface">
+        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between border-t border-base-border px-4 sm:px-8">
+          <Button type="button" variant="ghost" size="large" onClick={onBack}>
             Back
           </Button>
           <Button
+            type="button"
+            variant="default"
             size="large"
-            onClick={onSwitch}
-            icon={<ArrowRight className="h-4 w-4" />}
-            iconPosition="right"
-            className="px-8"
+            onClick={handleSwitch}
           >
             Switch to Campaign
           </Button>
         </div>
-      </footer>
+      </div>
     </>
   )
 }
