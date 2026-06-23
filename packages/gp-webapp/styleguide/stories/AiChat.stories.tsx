@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../components/ui/drawer'
-import { Progress } from '../components/ui/progress'
+import { Stepper } from '../components/ui/stepper'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
 import {
   ArrowRightIcon,
@@ -428,10 +428,10 @@ export const WithRadioCards: StoryObj = {
 }
 
 // ---------------------------------------------------------------------------
-// WithProgressBar
+// WithStepper
 // ---------------------------------------------------------------------------
 
-export const WithProgressBar: StoryObj = {
+export const WithStepper: StoryObj = {
   parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
   render: () => {
     const [open, setOpen] = useState(true)
@@ -462,13 +462,7 @@ export const WithProgressBar: StoryObj = {
               active={open}
               className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-3 overflow-y-auto px-4 py-3`}
               bottomSlot={
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Campaign setup</span>
-                    <span>65%</span>
-                  </div>
-                  <Progress value={65} className="h-1.5" />
-                </div>
+                <Stepper currentStep={2} totalSteps={3} />
               }
             />
           </DrawerContent>
