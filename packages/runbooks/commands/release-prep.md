@@ -64,7 +64,17 @@ This command takes no arguments — the release target is always the omni monore
    git log origin/qa..origin/develop --oneline --no-merges
    ```
 
-   If output is empty, print `omni: no changes between qa and develop — nothing to release`, and stop here (skip to the step 16 final report). There is nothing to prep.
+   If output is empty, the develop→qa promotion may already have landed during a
+   prior `investigate` / budget-timeout pause (its auto-merge fired on its own),
+   leaving only the `qa → master` PR to open. Before exiting, check the other leg:
+
+   ```bash
+   cd "$RELEASE_OMNI_DIR"
+   git log origin/master..origin/qa --oneline --no-merges
+   ```
+
+   - **Both empty** → print `omni: no changes between qa and develop — nothing to release` and stop here (skip to the step 16 final report). There is nothing to prep.
+   - **`master..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip Phase 2 entirely and jump to step 8 to open the `qa → master` PR, then continue through Phase 4.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -126,15 +136,15 @@ This command takes no arguments — the release target is always the omni monore
 
    ```bash
    cd "$RELEASE_OMNI_DIR"
-   gh pr view <pr_number> --json state,mergeStateStatus -q '.state'
+   gh pr view <pr_number> --json state,mergeStateStatus -q '[.state, .mergeStateStatus]'
    ```
 
-   Re-check on a short interval until it reports `MERGED`. This is the sync point
-   Phase 3 depends on — `qa` only carries the new commits once the merge lands, so
-   opening the `qa → master` PR before this would diff against stale `qa`. If the
-   state stays `OPEN` because a required check is failing (`mergeStateStatus` =
-   `BLOCKED` with a red check, not merely `BEHIND`/`UNSTABLE` still settling), stop
-   polling and present two options:
+   Re-check on a short interval until it reports `MERGED`, budget **~20 min**.
+   This is the sync point Phase 3 depends on — `qa` only carries the new commits
+   once the merge lands, so opening the `qa → master` PR before this would diff
+   against stale `qa`. If the state stays `OPEN` because a required check is
+   failing (`mergeStateStatus` = `BLOCKED` with a red check, not merely
+   `BEHIND`/`UNSTABLE` still settling), stop polling and present two options:
 
    > omni PR #<n>: auto-merge is armed but a required check is failing, so it
    > won't merge on its own.
@@ -146,10 +156,15 @@ This command takes no arguments — the release target is always the omni monore
    >   `gh pr merge <pr_number> --merge --admin` (requires admin). Record which
    >   check(s) were red — the step 16 report needs them.
 
-   On `investigate`, record that the develop→qa PR is left open with auto-merge
-   armed, then skip to the step 16 final report — Phase 3 and Phase 4 are skipped
-   because `qa` has no new state yet. On `merge-anyway` (override merge) or once
-   the poll reports `MERGED`, continue to step 7.
+   If the ~20-min budget elapses with the PR still `OPEN` and never `BLOCKED` (a
+   check stuck `PENDING`, a hung CI job, or an Actions delay), stop polling and
+   hand back to the user — treat it like `investigate`: the PR is left open with
+   auto-merge armed, so it will still merge on its own once the checks clear.
+
+   On `investigate` (or a budget timeout), record that the develop→qa PR is left
+   open with auto-merge armed, then skip to the step 16 final report — Phase 3 and
+   Phase 4 are skipped because `qa` has no new state yet. On `merge-anyway`
+   (override merge) or once the poll reports `MERGED`, continue to step 7.
 
 7. **Re-fetch** so local `qa` is current:
 
