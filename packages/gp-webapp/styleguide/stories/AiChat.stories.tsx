@@ -214,6 +214,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         extraBarAlign={extraBarAlign}
         chatApi={chatApi}
         messageRenderer={renderer}
+        initialConversationId={timelineVariant !== 'none' ? SEEDED_ID : undefined}
       />
     )
   },
