@@ -10,6 +10,10 @@ export type MeetingBriefingOutput =
 export type MeetingSchedule = MeetingScheduleFound | MeetingScheduleNotFound
 
 export interface AgentJobContracts {
+  campaign_tracker_tasks: {
+    Input: CampaignTrackerTasksInputParams
+    Output: CampaignTrackerTasksArtifact
+  }
   compliance_setup: {
     Input: {
       /**
@@ -141,6 +145,2128 @@ export interface AgentJobContracts {
     Input: OppositionResearchInputParams
     Output: OppositionResearchArtifact
   }
+}
+export interface CampaignTrackerTasksInputParams {
+  /**
+   * The candidate's generated campaign plan (summary text) for personalization context.
+   */
+  campaign_plan?: string | null
+  /**
+   * The candidate's story for personalization context.
+   */
+  campaign_story?: string | null
+  /**
+   * City / locality name, for local event search.
+   */
+  city?: string | null
+  /**
+   * General election date (YYYY-MM-DD), or null. Drives the last-30-days GOTV reframe.
+   */
+  election_date?: string | null
+  /**
+   * initial = first full generation; weekly = re-prioritize the upcoming week using prior_tasks.
+   */
+  mode: 'initial' | 'weekly'
+  /**
+   * Previously generated dynamic tasks with completion status (weekly mode). Empty on initial. Used to push incomplete-but-important tasks forward and avoid repeating same-type tasks.
+   */
+  prior_tasks?: {
+    catalog_id: string | null
+    completed: boolean
+    title: string
+  }[]
+  /**
+   * BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it.
+   */
+  race_id: string
+  /**
+   * 2-letter state code, for local event search.
+   */
+  state?: string | null
+  /**
+   * The dynamic task menu. The agent SELECTS and PERSONALIZES from this list and never invents new task types. Each item is a candidate Active/GOTV task.
+   */
+  task_catalog: {
+    channel: string
+    description: string
+    id: string
+    phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+    title: string
+  }[]
+  /**
+   * Reference date (YYYY-MM-DD) for the upcoming-week window and the GOTV reframe.
+   */
+  today: string
+  /**
+   * The candidate we write FOR. Referred to as 'you' in output, never by name.
+   */
+  user_full_name: string
+}
+export interface CampaignTrackerTasksArtifact {
+  /**
+   * ISO 8601 timestamp the agent emits when it writes the artifact.
+   */
+  generated_at: string
+  /**
+   * The week's top tasks in priority order (most important first), at most 12. At most 3 may be events (kind='event'). Tasks (kind='task') reference a task_catalog id.
+   *
+   * @minItems 0
+   * @maxItems 12
+   */
+  tasks:
+    | []
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
 }
 export interface DistrictIssuePulse {
   city: string
