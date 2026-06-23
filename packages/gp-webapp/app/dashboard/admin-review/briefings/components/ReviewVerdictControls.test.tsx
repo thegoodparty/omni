@@ -132,6 +132,38 @@ describe('ReviewVerdictControls', () => {
     await waitFor(() => expect(stopImpersonating).toHaveBeenCalled())
   })
 
+  it('omits failReason on a bare fail when review comments exist', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    api.mock('PUT /v1/meetings/:date/briefing/review-verdict', (req) => {
+      bodies.push(req.body)
+      return { status: 200, data: { ...verdictResponse, verdict: 'failed' } }
+    })
+    render(<ReviewVerdictControls meetingDate="2026-06-10" reviewsCount={2} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /fail/i }))
+    await userEvent.click(screen.getByRole('button', { name: /confirm fail/i }))
+
+    await waitFor(() => expect(stopImpersonating).toHaveBeenCalled())
+    expect(bodies).toEqual([{ verdict: 'failed' }])
+  })
+
+  it('sends the template as failReason on a bare fail with no comments', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    api.mock('PUT /v1/meetings/:date/briefing/review-verdict', (req) => {
+      bodies.push(req.body)
+      return { status: 200, data: { ...verdictResponse, verdict: 'failed' } }
+    })
+    render(<ReviewVerdictControls meetingDate="2026-06-10" reviewsCount={0} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /fail/i }))
+    await userEvent.click(screen.getByRole('button', { name: /confirm fail/i }))
+
+    await waitFor(() => expect(stopImpersonating).toHaveBeenCalled())
+    expect(bodies).toEqual([
+      { verdict: 'failed', failReason: FAIL_REASON_TEMPLATE.trim() },
+    ])
+  })
+
   it('resets the fail reason to the template when cancelled', async () => {
     render(<ReviewVerdictControls meetingDate="2026-06-10" reviewsCount={0} />)
 

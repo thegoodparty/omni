@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import slugify from 'slugify'
 import { FindByRaceIdDto } from '../schemas/public/FindByRaceId.schema'
 import { FindByRaceIdResponse } from '../schemas/public/FindByRaceIdResponse.schema'
 
 @Injectable()
 export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
+  constructor(private readonly clerkEnricher: ClerkUserEnricherService) {
+    super()
+  }
+
   async findCampaignByRaceId(
     params: FindByRaceIdDto,
   ): Promise<FindByRaceIdResponse> {
@@ -24,6 +29,9 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
         slug: true,
         details: true,
         updatedAt: true,
+        user: {
+          select: { id: true, clerkId: true, email: true, avatar: true },
+        },
         website: {
           select: {
             id: true,
@@ -75,16 +83,34 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
 
     if (campaignsWithLastName.length === 1) {
-      return campaignsWithLastName[0]
+      return this.withCandidateAvatar(campaignsWithLastName[0])
     }
 
     const campaignsWithBothNames = campaignsWithLastName.filter((campaign) =>
       this.matchesCandidateName(campaign.slug, firstName, lastName),
     )
 
-    return campaignsWithBothNames.length > 0
-      ? campaignsWithBothNames[0]
-      : campaignsWithLastName[0]
+    return this.withCandidateAvatar(
+      campaignsWithBothNames.length > 0
+        ? campaignsWithBothNames[0]
+        : campaignsWithLastName[0],
+    )
+  }
+
+  // Resolve the claimed candidate's uploaded photo from Clerk (not the stale
+  // User.avatar column): the enricher returns null when Clerk has no uploaded
+  // image, so candidates without a photo fall back to the BallotReady image.
+  private async withCandidateAvatar<
+    T extends {
+      user: { id: number; clerkId: string | null; avatar: string | null } | null
+    },
+  >(campaign: T): Promise<Omit<T, 'user'> & { avatar: string | null }> {
+    const { user, ...rest } = campaign
+    const avatar = user
+      ? (await this.clerkEnricher.enrichUser(user)).avatar
+      : null
+
+    return { ...rest, avatar }
   }
 
   private normalizeToTokens(value: string): string[] {
