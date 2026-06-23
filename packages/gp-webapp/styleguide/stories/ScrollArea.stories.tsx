@@ -42,22 +42,27 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
   render: ({ type, orientation, height, itemCount }) => {
     const isHorizontal = orientation === 'horizontal'
+    const isBoth = orientation === 'both'
+    const containerStyle = isHorizontal
+      ? { width: 288 }
+      : isBoth
+        ? { height, width: 288 }
+        : { height, width: 192 }
+    const innerStyle = isHorizontal || isBoth ? { width: 800 } : undefined
+    const innerClass = isHorizontal || isBoth ? 'flex gap-4' : 'space-y-4'
     return (
       <ScrollArea
         type={type}
         orientation={orientation}
         className="rounded-md border p-4"
-        style={isHorizontal ? { width: 288 } : { height, width: 192 }}
+        style={containerStyle}
       >
-        <div
-          className={isHorizontal ? 'flex gap-4' : 'space-y-4'}
-          style={isHorizontal ? { width: 800 } : undefined}
-        >
+        <div className={innerClass} style={innerStyle}>
           {Array.from({ length: itemCount }, (_, i) => (
             <div
               key={i}
               className={
-                isHorizontal
+                isHorizontal || isBoth
                   ? 'h-16 w-16 shrink-0 rounded bg-muted p-2 text-xs text-muted-foreground'
                   : 'h-8 rounded bg-muted p-2 text-muted-foreground'
               }
