@@ -11,8 +11,12 @@ import {
   ArrowRightIcon,
   CheckIcon,
   DownloadIcon,
+  ExportIcon,
+  ImportIcon,
   ShareIcon,
+  UploadIcon,
 } from '../components/ui/icons'
+import { IconButton } from '../components/ui/icon-button'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
@@ -54,6 +58,7 @@ function AiChatDemo({
   firstName,
   extraBar,
   extraBarAlign,
+  inlineActions,
   messageRenderer,
   bottomSlot,
 }: {
@@ -65,6 +70,7 @@ function AiChatDemo({
   firstName?: string
   extraBar?: React.ReactNode
   extraBarAlign?: 'start' | 'center' | 'end'
+  inlineActions?: React.ReactNode
   messageRenderer?: (content: string) => React.ReactNode
   bottomSlot?: React.ReactNode
 }) {
@@ -88,6 +94,7 @@ function AiChatDemo({
           }}
           extraBar={extraBar}
           extraBarAlign={extraBarAlign}
+          inlineActions={inlineActions}
         />
       )}
 
@@ -261,6 +268,30 @@ export const ExtraBarSlot: StoryObj = {
         onOpenChange={setOpen}
         extraBar={extraBar}
         extraBarAlign="center"
+      />
+    )
+  },
+}
+
+export const WithInlineActions: StoryObj = {
+  name: 'With Inline Actions',
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const [open, setOpen] = useState(false)
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        inlineActions={
+          <>
+            <IconButton type="button" variant="neutral" size="medium" aria-label="Import" className="bg-slate-100 border-transparent">
+              <ImportIcon className="size-5" />
+            </IconButton>
+            <IconButton type="button" variant="neutral" size="medium" aria-label="Export" className="bg-slate-100 border-transparent">
+              <ExportIcon className="size-5" />
+            </IconButton>
+          </>
+        }
       />
     )
   },
