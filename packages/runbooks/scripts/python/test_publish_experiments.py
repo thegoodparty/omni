@@ -478,3 +478,34 @@ def test_fetch_live_index_missing_experiments_array_raises():
     )
     with stub, pytest.raises(RuntimeError, match="experiments"):
         pe._fetch_live_index(s3, "agent-experiment-metadata-dev")
+
+
+def test_only_publish_uploads_files_and_writes_index_last(
+    hermetic_experiment_tree, monkeypatch
+):
+    """The --only upload leg: publish(only=<id>) must upload that experiment's
+    manifest + instruction and still write index.json LAST. Exercises the
+    ThreadPoolExecutor block + merged-index write that the guard-rail and pure
+    _compose_index_entries tests never reach. Live index carries an unrelated
+    sandbox entry so the merge (kept + new) is real, not a no-op."""
+    exp_name = next(
+        p.name
+        for p in sorted(hermetic_experiment_tree.iterdir())
+        if (hermetic_experiment_tree / p.name / "manifest.json").exists()
+        and not p.name.startswith((".", "_"))
+    )
+    uploads: list[str] = []
+    monkeypatch.setattr(pe.boto3, "client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        pe, "_fetch_live_index",
+        lambda s3, bucket: {"experiments": [_entry("sandbox_other")]},
+    )
+    monkeypatch.setattr(
+        pe, "_upload", lambda s3, bucket, key, body, ct: uploads.append(key)
+    )
+    monkeypatch.setattr(pe, "_reclaim_orphans", lambda *a, **k: None)
+    rc = pe.publish(env="dev", only=exp_name)
+    assert rc == 0
+    assert f"{exp_name}/manifest.json" in uploads
+    assert f"{exp_name}/instruction.md" in uploads
+    assert uploads[-1] == "index.json"  # atomic switch written last
