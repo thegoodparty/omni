@@ -5,5 +5,7 @@
 @import '../../styleguide/src/tailwind-theme.css';
 
 @import '../../styleguide/src/typography.css';
+@import '../../styleguide/src/styleguide-scope.css';
 
+@source '../app';
 @source '../../styleguide/src';

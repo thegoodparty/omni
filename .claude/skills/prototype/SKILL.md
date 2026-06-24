@@ -18,8 +18,9 @@ no real users, no real data, no backend. Operate accordingly.
   auth, backend calls, SQS/worker hooks, Prisma, S2S tokens)
 - Test-first discipline — no test files, no coverage requirements
 - "What breaks in prod" thinking — there is no prod here
-- Type strictness in service of safety: `any` is acceptable in prototype-only code
-  when it speeds up iteration
+- Type strictness in service of safety: explicit `any` annotations are acceptable
+  in prototype-only code when they speed up iteration, but parameters and
+  variables must still be annotated — implicit `any` fails `tsc --noEmit` in CI
 - Backend, data fetching, or network calls of any kind
 
 **ON for this session:**
@@ -54,12 +55,12 @@ A `PrototypeMeta` export looks like:
 
 ```ts
 export const meta: PrototypeMeta = {
-  slug: "some-concept",
-  title: "Some Concept",
-  description: "What this prototype explores.",
-  author: "designer@goodparty.org",
-  createdAt: "2026-01-01",
-};
+  slug: 'some-concept',
+  title: 'Some Concept',
+  description: 'What this prototype explores.',
+  author: 'designer@goodparty.org',
+  createdAt: '2026-01-01',
+}
 ```
 
 Confirm the slug before any edits. Then open the prototype's `page.tsx` and any
