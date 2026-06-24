@@ -9,6 +9,7 @@ import { ArtifactReviewModule } from 'src/artifactReview/artifactReview.module'
 import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { AdminCampaignsController } from './campaigns/adminCampaigns.controller'
+import { AdminCampaignMagicLinkController } from './campaigns/adminCampaignMagicLink.controller'
 import { AdminCampaignsService } from './campaigns/adminCampaigns.service'
 import { AdminUsersController } from './users/adminUsers.controller'
 import { AdminElectedOfficeController } from './electedOffice/adminElectedOffice.controller'
@@ -31,6 +32,7 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
   ],
   controllers: [
     AdminCampaignsController,
+    AdminCampaignMagicLinkController,
     AdminUsersController,
     AdminElectedOfficeController,
     AdminAgentRunsController,
