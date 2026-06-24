@@ -653,6 +653,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       userId: campaignUser.id,
       organizationSlug: 'org-jane-for-springfield',
       details: { electionDate: '2027-11-02' },
+      placeId: 'place-123',
     }),
     user: campaignUser,
   }
@@ -929,6 +930,32 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       await service.handleAgenticKickoff(kickoff)
 
       expect(mockExperimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: kickoff.tcrComplianceId, agenticRunId: null },
+        data: { status: TcrComplianceStatus.error },
+      })
+      expect(mockModel.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    { case: 'null', placeId: null },
+    { case: 'empty', placeId: '' },
+    { case: 'whitespace only', placeId: '   ' },
+  ])(
+    'marks the record as error and skips dispatch when placeId is $case',
+    async ({ placeId }) => {
+      mockCampaigns.findUnique.mockResolvedValueOnce({
+        ...campaign,
+        placeId,
+      })
+
+      await service.handleAgenticKickoff(kickoff)
+
+      expect(mockExperimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(
+        mockWebsites.ensureCompliancePublishableWebsite,
+      ).not.toHaveBeenCalled()
       expect(mockModel.updateMany).toHaveBeenCalledWith({
         where: { id: kickoff.tcrComplianceId, agenticRunId: null },
         data: { status: TcrComplianceStatus.error },
@@ -1502,6 +1529,96 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     })
     // Final write never happens on the failure path.
     expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  it('fails fast with BadRequestException when the campaign has no placeId', async () => {
+    // No placeId means Peerly's address resolution (getAddressByPlaceId) would
+    // 502, which the agent treats as transient and retries forever (campaign
+    // 325553). Fail fast with a 4xx instead, before any Peerly call.
+    const noAddressCampaign = createMockCampaign({
+      userId: user.id,
+      formattedAddress: '',
+      placeId: '',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, noAddressCampaign, input),
+    ).rejects.toThrow(BadRequestException)
+
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockPeerly.submit10DlcBrand).not.toHaveBeenCalled()
+    // Guard fires inside submitToPeerly, after the claim, so the claim is
+    // taken (updateMany #1) then rolled back (updateMany #2). Asserting this
+    // catches a refactor that moves the guard before the claim and silently
+    // breaks the lock rollback.
+    expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
+  let service: CampaignTcrComplianceService
+  let mockPeerly: { getIdentities: ReturnType<typeof vi.fn> }
+  let mockWebsites: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+
+  const user = createMockUser({ clerkId: 'user_clerk_legacy' })
+  // CreateTcrCompliancePayload omits placeId/formattedAddress (they live on the
+  // campaign); the guard reads campaign.placeId, not the payload.
+  const payload = {
+    ein: '12-3456789',
+    committeeName: 'Jane for Springfield',
+    filingUrl: 'https://example.gov/filing/123',
+    email: 'jane@example.com',
+    phone: '5555555555',
+    officeLevel: OfficeLevel.state,
+    fecCommitteeId: undefined,
+    committeeType: CommitteeType.CANDIDATE,
+    websiteDomain: 'vote-jane.site',
+  }
+
+  beforeEach(async () => {
+    mockPeerly = { getIdentities: vi.fn().mockResolvedValue([]) }
+    mockWebsites = {
+      findFirstOrThrow: vi
+        .fn()
+        .mockResolvedValue({ domain: { name: 'vote-jane.site' } }),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: {} } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: mockWebsites },
+        { provide: CampaignsService, useValue: { updateJsonFields: vi.fn() } },
+        { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+        {
+          provide: ComplianceStateService,
+          useValue: { findStateForCampaign: vi.fn() },
+        },
+        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: ExperimentRunsService, useValue: { dispatchRun: vi.fn() } },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('fails fast with BadRequestException when the campaign has no placeId', async () => {
+    const noAddressCampaign = createMockCampaign({
+      userId: user.id,
+      placeId: '',
+      formattedAddress: '',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(
+      service.create(user, noAddressCampaign, payload),
+    ).rejects.toThrow(BadRequestException)
+
+    // Fails inside submitToPeerly before any Peerly call.
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
   })
 })
 

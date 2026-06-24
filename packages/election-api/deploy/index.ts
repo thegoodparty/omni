@@ -131,6 +131,11 @@ export = async () => {
         prod: 'https://goodparty.org',
       }),
       AWS_REGION: 'us-west-2',
+      // Per-task Prisma pool size. The default of 10 exhausted under gp-api
+      // fan-out bursts (P2024 "Timed out fetching a connection" → 502s on the
+      // org list); 2 prod tasks x 25 = 50 connections, well within Aurora
+      // Serverless v2 capacity.
+      PRISMA_CONNECTION_LIMIT: select({ dev: '10', qa: '10', prod: '25' }),
     },
     permissions: [
       {

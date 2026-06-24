@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CampaignStory } from '@goodparty_org/contracts'
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Button,
   Card,
   Textarea,
@@ -24,6 +28,9 @@ export interface CampaignStorySection {
   title: string
   description: string
   placeholder: string
+  // Default example shown in the "Here's an example" accordion. Placeholder
+  // copy until Terry supplies the "gold" examples — swap the text in sections.ts.
+  example: string
 }
 
 const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
@@ -49,7 +56,7 @@ const CampaignStoryCard = ({
   initialValue,
   onAnsweredChange,
 }: CampaignStoryCardProps): React.JSX.Element => {
-  const { id, title, description, placeholder } = section
+  const { id, title, description, placeholder, example } = section
   const [value, setValue] = useState(initialValue ?? '')
   // Refs mirror the latest value and the last-persisted value so the async
   // save can read them without stale closures.
@@ -57,6 +64,10 @@ const CampaignStoryCard = ({
   const savedRef = useRef(value)
   const savingRef = useRef(false)
   const [saveFailed, setSaveFailed] = useState(false)
+  // Reactive mirrors of the save lifecycle so the explicit Save button can show
+  // dirty / saving / saved state (the refs above drive the async save itself).
+  const [savedValue, setSavedValue] = useState(initialValue ?? '')
+  const [isSaving, setIsSaving] = useState(false)
 
   // AI "Help me rewrite" suggestion. `rewrite` holds the latest draft; the
   // card is shown whenever we're generating, have a draft, or hit an error.
@@ -81,6 +92,11 @@ const CampaignStoryCard = ({
     window.addEventListener('beforeunload', warnIfUnsaved)
     return () => window.removeEventListener('beforeunload', warnIfUnsaved)
   }, [])
+
+  const isDirty = value !== savedValue
+  // "Saved" only reads true once there's persisted content; an untouched empty
+  // field shows a plain disabled "Save" instead of claiming it saved nothing.
+  const saveLabel = !isDirty && savedValue.trim().length > 0 ? 'Saved' : 'Save'
 
   const trimmedLength = value.trim().length
   const hint =
@@ -110,6 +126,7 @@ const CampaignStoryCard = ({
       return
     }
     savingRef.current = true
+    setIsSaving(true)
     let lastAttempted = savedRef.current
     try {
       while (valueRef.current !== savedRef.current) {
@@ -125,6 +142,7 @@ const CampaignStoryCard = ({
               : { issues: lastAttempted }
         await clientRequest('PUT /v1/campaigns/mine/story', body)
         savedRef.current = lastAttempted
+        setSavedValue(lastAttempted)
       }
       setSaveFailed(false)
     } catch (error) {
@@ -135,6 +153,7 @@ const CampaignStoryCard = ({
       setSaveFailed(true)
     } finally {
       savingRef.current = false
+      setIsSaving(false)
       // If the user edited again while a *failed* save was in flight, flush
       // that newer text once. Guarded on the value differing from what we just
       // tried, so a persistent failure with no new input falls back to the
@@ -214,6 +233,19 @@ const CampaignStoryCard = ({
     </div>
   )
 
+  const saveButton = (
+    <Button
+      variant="outline"
+      icon={saveLabel === 'Saved' && !isSaving ? <CheckIcon /> : undefined}
+      loading={isSaving}
+      loadingText="Saving…"
+      disabled={!isDirty || isSaving}
+      onClick={save}
+    >
+      {saveLabel}
+    </Button>
+  )
+
   return (
     <Card className="p-6">
       <div className="flex flex-col gap-1">
@@ -221,7 +253,7 @@ const CampaignStoryCard = ({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
-      <div className="mt-4 flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <div className="relative">
           <Textarea
             value={value}
@@ -256,84 +288,95 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        {rewriteActive ? (
-          <>
-            <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-primary">
-                  <WandSparklesIcon className="size-4" />
-                  Suggested rewrite
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  From your Campaign Manager
-                </span>
-              </div>
-
-              {isRewriting ? (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircleIcon className="size-4 animate-spin text-primary" />
-                  Your Campaign Manager is writing a draft&hellip;
-                </p>
-              ) : rewriteError ? (
-                <p className="text-sm text-destructive">
-                  Couldn&apos;t generate a rewrite. Please try again.
-                </p>
-              ) : (
-                <p className="whitespace-pre-wrap text-base text-foreground">
-                  {rewrite}
-                </p>
-              )}
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <Button
-                  variant="outline"
-                  icon={<XMarkIcon />}
-                  onClick={() => {
-                    if (rewrite) {
-                      trackEvent(EVENTS.CampaignStory.RewriteDiscarded, {
-                        field: id,
-                      })
-                    }
-                    discardRewrite()
-                  }}
-                  disabled={isRewriting}
-                >
-                  Discard
-                </Button>
-                <Button
-                  variant="outline"
-                  icon={<WandSparklesIcon />}
-                  onClick={() => requestRewrite('retry')}
-                  disabled={isRewriting || limitReached}
-                >
-                  Try again
-                </Button>
-                <Button
-                  icon={<CheckIcon />}
-                  onClick={() => rewrite && acceptRewrite(rewrite)}
-                  disabled={isRewriting || !rewrite}
-                >
-                  Use this
-                </Button>
-              </div>
+        {rewriteActive && (
+          <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-primary">
+                <WandSparklesIcon className="size-4" />
+                Suggested rewrite
+              </span>
+              <span className="text-sm text-muted-foreground">
+                From your Campaign Manager
+              </span>
             </div>
 
-            {hintBox}
-          </>
-        ) : (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            {hintBox}
+            {isRewriting ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <LoaderCircleIcon className="size-4 animate-spin text-primary" />
+                Your Campaign Manager is writing a draft&hellip;
+              </p>
+            ) : rewriteError ? (
+              <p className="text-sm text-destructive">
+                Couldn&apos;t generate a rewrite. Please try again.
+              </p>
+            ) : (
+              <p className="whitespace-pre-wrap text-base text-foreground">
+                {rewrite}
+              </p>
+            )}
 
-            <Button
-              icon={<WandSparklesIcon />}
-              className="sm:shrink-0"
-              onClick={() => requestRewrite('initial')}
-              disabled={trimmedLength === 0 || limitReached}
-            >
-              Help me rewrite
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                icon={<XMarkIcon />}
+                onClick={() => {
+                  if (rewrite) {
+                    trackEvent(EVENTS.CampaignStory.RewriteDiscarded, {
+                      field: id,
+                    })
+                  }
+                  discardRewrite()
+                }}
+                disabled={isRewriting}
+              >
+                Discard
+              </Button>
+              <Button
+                variant="outline"
+                icon={<WandSparklesIcon />}
+                onClick={() => requestRewrite('retry')}
+                disabled={isRewriting || limitReached}
+              >
+                Try again
+              </Button>
+              <Button
+                icon={<CheckIcon />}
+                onClick={() => rewrite && acceptRewrite(rewrite)}
+                disabled={isRewriting || !rewrite}
+              >
+                Use this
+              </Button>
+            </div>
           </div>
         )}
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {hintBox}
+
+          <div className="flex flex-col gap-2 sm:shrink-0">
+            {saveButton}
+            {!rewriteActive && (
+              <Button
+                icon={<WandSparklesIcon />}
+                onClick={() => requestRewrite('initial')}
+                disabled={trimmedLength === 0 || limitReached}
+              >
+                Help me rewrite
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <Accordion type="single" collapsible size="sm" className="-mt-2">
+          <AccordionItem value="example">
+            <AccordionTrigger>Here&apos;s an example</AccordionTrigger>
+            <AccordionContent>
+              <p className="whitespace-pre-wrap text-muted-foreground">
+                {example}
+              </p>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </Card>
   )

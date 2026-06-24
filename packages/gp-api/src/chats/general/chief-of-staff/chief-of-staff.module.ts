@@ -10,10 +10,6 @@ import { FeaturesModule } from '@/features/features.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import {
-  TavilySearchProvider,
-  type SearchProvider,
-} from '@/llm/tools/webSearch.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
@@ -22,7 +18,6 @@ import {
   ChiefOfStaffHandler,
   CONSTITUENT_DATA_PROVIDER,
   CONSTITUENT_TABLES_CONFIG,
-  COS_SEARCH_PROVIDER,
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
@@ -33,12 +28,6 @@ import { CommunityIssueReadAdapter } from './services/communityIssueRead.adapter
 import { COMMUNITY_ISSUE_READ_PORT } from './services/communityIssueRead.port'
 
 export { CHIEF_OF_STAFF_MODELS }
-
-const searchProviderFactory = (): SearchProvider | null => {
-  const apiKey = process.env.TAVILY_API_KEY
-  if (!apiKey) return null
-  return new TavilySearchProvider({ apiKey })
-}
 
 // Aggregate-only Databricks provider for the constituent-data tool. Reads the
 // SAME shared Databricks credential the briefing chat uses (OAuth M2M, or a PAT
@@ -79,10 +68,6 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     {
       provide: PRIORITIES_PORT,
       useClass: PrioritiesServiceAdapter,
-    },
-    {
-      provide: COS_SEARCH_PROVIDER,
-      useFactory: searchProviderFactory,
     },
     {
       provide: CONSTITUENT_DATA_PROVIDER,

@@ -108,7 +108,7 @@ jobs:
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
           api-base: ${{ steps.ctx.outputs.api_base }}
 
-  # The Storybook styleguide (packages/gp-webapp/styleguide) ships to its own
+  # The Storybook styleguide (packages/styleguide) ships to its own
   # Vercel project, served at style.goodparty.org. Only on merges to develop —
   # it's a single-environment site. vercel build runs the project's configured
   # `build-storybook` on the runner against the installed workspace deps (same
@@ -159,6 +159,11 @@ jobs:
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
+    # Exposes whether this develop commit's gp-api deploy was superseded by a
+    # newer merge. When true, the shards (and the E2E fail-gate) skip cleanly
+    # instead of hard-failing on a healthy dev stack.
+    outputs:
+      skip: ${{ steps.wait.outputs.skip }}
     # Generous budget: this gate waits on gp-api's (slow) deploy. The poll
     # itself can spend ~28 min in sleeps alone on the slow path (149x10s +
     # 17x10s), before gh-api/curl latency and runner provisioning — so keep the
@@ -183,29 +188,70 @@ jobs:
       # commit) — distinct from github.sha, which on a PR is the merge commit.
       # gp-api tags its image with github.sha, so /v1/version reports that.
       - name: Wait for gp-api deploy
+        id: wait
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_SHA: ${{ github.sha }}
           JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
+          IS_PUSH: ${{ github.event_name == 'push' }}
         run: |
+          # On develop, gp-api's deploy concurrency group (gp-api-deploy-develop)
+          # serializes deploys and drops the older *pending* run when a newer
+          # push queues. So a rapid second merge can cancel the first commit's
+          # gp-api deploy run (cancelled while pending => the run has no Deploy
+          # job at all), and the edge ends up serving the newer commit. Neither
+          # is a real failure for the older commit: the newer commit's gp-api
+          # deploy + E2E cover the current dev stack. Detect that "superseded"
+          # case and skip cleanly instead of hard-failing. A genuinely failed
+          # deploy (Deploy job conclusion=failure/timed_out) is NOT superseded
+          # and still fails E2E.
+          superseded() {
+            [ "$IS_PUSH" = "true" ] || return 1
+            local latest
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=develop&event=push&per_page=30" \
+              --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
+            # Our commit's gp-api develop run is no longer the newest develop
+            # gp-api run => a later merge superseded it.
+            [ -n "$latest" ] && [ -n "$run_id" ] && [ "$latest" != "$run_id" ]
+          }
+
           echo "Waiting for gp-api '$JOB_NAME' job on $RUN_SHA"
           for i in $(seq 1 150); do
-            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA" \
-              --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
-            conclusion=""
+            runs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA")
+            run_id=$(jq -r '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty' <<<"$runs_json")
+            run_conclusion=$(jq -r '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .conclusion // ""' <<<"$runs_json")
+            job_conclusion=""
             if [ -n "$run_id" ]; then
-              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
+              job_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
                 --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
             fi
-            echo "  attempt $i/150: gp-api '$JOB_NAME' conclusion=${conclusion:-<running>}"
-            case "$conclusion" in
-              success) break ;;
-              failure|cancelled|timed_out|skipped)
-                echo "::error::gp-api '$JOB_NAME' did not succeed ($conclusion)"
+            echo "  attempt $i/150: gp-api run=${run_id:-<none>} run_conclusion=${run_conclusion:-<running>} '$JOB_NAME' conclusion=${job_conclusion:-<running>}"
+
+            # Deploy job for our commit finished successfully.
+            [ "$job_conclusion" = "success" ] && break
+
+            # A real, non-superseded deploy failure must still fail E2E.
+            case "$job_conclusion" in
+              failure|timed_out|skipped)
+                echo "::error::gp-api '$JOB_NAME' did not succeed ($job_conclusion)"
                 exit 1 ;;
             esac
+
+            # Cancelled run/job: tolerate ONLY if a newer develop gp-api deploy
+            # superseded ours (rapid back-to-back merge); otherwise it's a real
+            # failure and must fail E2E.
+            if [ "$run_conclusion" = "cancelled" ] || [ "$job_conclusion" = "cancelled" ]; then
+              if superseded; then
+                echo "::notice::gp-api deploy for $RUN_SHA was superseded by a newer develop commit; skipping E2E for this commit."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "::error::gp-api '$JOB_NAME' was cancelled and no newer develop deploy superseded it"
+              exit 1
+            fi
+
             if [ "$i" = 150 ]; then
               echo "::error::timed out waiting for gp-api '$JOB_NAME' on $RUN_SHA"
               exit 1
@@ -224,14 +270,27 @@ jobs:
             [ "$got" = "$EXPECTED_SHA" ] && { echo "gp-api serving $EXPECTED_SHA"; exit 0; }
             sleep 10
           done
+          # Our commit never appeared on the edge. On develop this is expected
+          # when a newer commit already deployed over dev (same supersession as
+          # above) — the serialized deploy moves dev forward, never back to our
+          # SHA — so skip cleanly rather than failing on a stale exact-SHA check.
+          if superseded; then
+            echo "::notice::$API_BASE is serving a newer commit than $EXPECTED_SHA; skipping E2E for this superseded commit."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
           exit 1
 
   e2e-shard:
     name: E2E Shard (${{ matrix.shard }})
     needs: [deploy, e2e-wait]
+    # Skip when the wait gate determined this develop commit was superseded by a
+    # newer merge (the newer commit's gp-api deploy + E2E cover the current dev
+    # stack), so there's nothing meaningful to test for this SHA.
     if: >-
       needs.deploy.outputs.url != ''
+      && needs.e2e-wait.outputs.skip != 'true'
       && (github.event_name == 'pull_request'
           || (github.event_name == 'push' && github.ref_name == 'develop'))
     runs-on: ubuntu-latest
@@ -313,7 +372,7 @@ jobs:
   # upserts a results comment and publishes the HTML report to S3.
   e2e:
     name: E2E
-    needs: [deploy, e2e-shard]
+    needs: [deploy, e2e-wait, e2e-shard]
     if: >-
       always()
       && needs.deploy.outputs.url != ''
@@ -520,9 +579,15 @@ jobs:
 
       # Make the required "E2E" check red exactly when a shard had a failure (or
       # was skipped because the gp-api gate failed). always() so an earlier
-      # report/comment step failing can't mask a shard failure.
+      # report/comment step failing can't mask a shard failure. The one tolerated
+      # non-success is a superseded develop commit (e2e-wait set skip=true): the
+      # shards are intentionally skipped and the newer commit's E2E covers dev, so
+      # don't fail the gate in that case.
       - name: Fail if any shard did not pass
-        if: ${{ always() && needs.e2e-shard.result != 'success' }}
+        if: >-
+          ${{ always()
+          && needs.e2e-shard.result != 'success'
+          && needs.e2e-wait.outputs.skip != 'true' }}
         run: |
           echo "::error::E2E shards result: ${{ needs.e2e-shard.result }}"
           exit 1

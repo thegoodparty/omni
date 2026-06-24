@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
@@ -14,7 +14,17 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
+
+const trackEventMock = vi.mocked(trackEvent)
+
+// Properties passed to a given event name across all trackEvent calls (the flow
+// fires through trackServeOnboarding → trackEvent).
+const eventProps = (name: string): Record<string, unknown>[] =>
+  trackEventMock.mock.calls
+    .filter(([eventName]) => eventName === name)
+    .map(([, props]) => (props ?? {}) as Record<string, unknown>)
 
 const EO_ID = 'eo-uuid-1'
 
@@ -53,6 +63,51 @@ const renderFlow = () =>
     </SnackbarProvider>,
   )
 
+// The term-date fields are popover date pickers (a labelled trigger button that
+// opens a calendar with month/year dropdowns), not free-text inputs. Drive one
+// the way a user would: open its popover, navigate via the dropdowns, then click
+// the day cell. Day buttons carry `data-day` (the locale date string), so we
+// match the exact day directly instead of an ambiguous "1".
+const pickTermDate = async (
+  user: ReturnType<typeof userEvent.setup>,
+  fieldLabel: string,
+  date: Date,
+) => {
+  await user.click(screen.getByLabelText(fieldLabel))
+  const dialog = await screen.findByRole('dialog')
+  // The month/year dropdowns each re-render the calendar (and replace the
+  // <select> nodes) on change, so re-query before driving each one. Set the
+  // year first, then the month, to land on the target month grid.
+  const yearSelect = within(dialog).getAllByRole('combobox')[1]
+  await user.selectOptions(yearSelect!, String(date.getFullYear()))
+  const monthSelect = within(dialog).getAllByRole('combobox')[0]
+  await user.selectOptions(
+    monthSelect!,
+    date.toLocaleString('default', { month: 'short' }),
+  )
+  // Day buttons carry the locale date string in data-day; the day cell uses the
+  // ISO form, so scope to the button to pick the exact day unambiguously.
+  const dayButton = dialog.querySelector(
+    `button[data-day="${date.toLocaleDateString()}"]`,
+  )
+  await user.click(dayButton as HTMLElement)
+  // The popover closes once a day is picked.
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+  )
+}
+
+// Fills both term-date pickers with the canonical 2026-01-01 → 2030-01-01 range
+// the term-dates tests assert on.
+const fillTermDates = async (
+  user: ReturnType<typeof userEvent.setup>,
+  start = new Date(2026, 0, 1),
+  end = new Date(2030, 0, 1),
+) => {
+  await pickTermDate(user, 'Term start date', start)
+  await pickTermDate(user, 'Term end date', end)
+}
+
 // Mocks the three GETs the load effect fires. `eo` is returned for both
 // `current` and `mine` so the flow adopts it (rather than treating the user as
 // net-new with no record).
@@ -65,6 +120,7 @@ const mockLoad = (eo: ElectedOffice, org: Organization) => {
 describe('ServeOnboardingFlow', () => {
   beforeEach(() => {
     api.reset()
+    trackEventMock.mockClear()
   })
 
   it('starts a net-new lead (no saved answers) at the welcome step', async () => {
@@ -77,8 +133,10 @@ describe('ServeOnboardingFlow', () => {
   })
 
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
-    // Genuine prefill (BR term dates present) + party answered, office still to
-    // be confirmed → resumes on the confirm hub, NOT welcome.
+    // Genuine prefill (BR term dates present) + party answered, but the office
+    // is still missing. Prompt-first gating routes the user to fill the office
+    // FIRST (not the confirm hub, and not welcome) so confirm is never shown
+    // with a missing piece.
     mockLoad(
       buildEO({
         party: 'independent',
@@ -89,7 +147,10 @@ describe('ServeOnboardingFlow', () => {
     )
     renderFlow()
 
-    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    expect(
+      await screen.findByText('What office do you currently hold?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
@@ -107,8 +168,10 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText('Does this look right?')
-    // confirm → party → inOffice
+    // Prompt-first routing lands on the office step (office still missing).
+    // Backing out of a prompt-first detour returns to the prior real step:
+    // office → party → inOffice.
+    await screen.findByText('What office do you currently hold?')
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText("What's your party designation?")
     await user.click(screen.getByRole('button', { name: 'Back' }))
@@ -198,9 +261,7 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
-    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
-    await user.type(startInput!, '01012026')
-    await user.type(endInput!, '01012030')
+    await fillTermDates(user)
     return user
   }
 
@@ -279,12 +340,48 @@ describe('ServeOnboardingFlow', () => {
   it('treats a partial prefill (office present, no marker, no dates) as prefill so the snapshot fires', async () => {
     // Same field shape as the net-new case above — office on the org, party
     // answered, no term dates — but WITHOUT the selfReported marker. This is a
-    // genuine sales/BR prefill, so it must resume on the confirm hub (prefill
-    // branch), which is exactly the path that arms the BR suggestion-accuracy
-    // snapshot. Previously this shape was forced to net-new and the snapshot
-    // was silently dropped.
+    // genuine sales/BR prefill. Prompt-first gating routes to the term-dates
+    // step FIRST (instead of the confirm hub with a red error), but it stays in
+    // the prefill branch — proven by the term-dates Continue returning to the
+    // confirm hub (a net-new user would advance to constituents) — so the BR
+    // suggestion-accuracy snapshot is still armed.
     mockLoad(
       buildEO({ party: 'independent', selfReported: false }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
+
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The prefill detour returns to the confirm hub once dates are valid.
+    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+  })
+
+  it('shows the confirm hub with its "Why this matters" explainer once office and dates are valid', async () => {
+    // Complete prefill resumed via the confirm checkpoint: both office and valid
+    // term dates are present, so the confirm hub renders directly (no detour, no
+    // red error) alongside its right-rail explainer.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        onboardingStep: 'confirm',
+      }),
       buildOrg({
         positionName: 'Mayor',
         position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
@@ -293,9 +390,15 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.queryByText('When does your term run?'),
-    ).not.toBeInTheDocument()
+      screen.getByText(
+        'These details ensure we pull the right information and data to help you serve your community',
+      ),
+    ).toBeInTheDocument()
+    // The confirmed office renders as a plain value (the old red error state is
+    // gone now that confirm is only shown when complete).
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {
@@ -455,10 +558,7 @@ describe('ServeOnboardingFlow', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
-      const [startInput, endInput] =
-        screen.getAllByPlaceholderText('mm/dd/yyyy')
-      await user.type(startInput!, '01012026')
-      await user.type(endInput!, '01012030')
+      await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText(
@@ -567,5 +667,266 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('What office do you currently hold?'),
     ).toBeInTheDocument()
+  })
+})
+
+const WELCOME_VIEWED = 'Serve Onboarding - Welcome Viewed'
+const OFFICE_STATUS_VIEWED = 'Serve Onboarding - Office Status Viewed'
+const PARTY_VIEWED = 'Serve Onboarding - Party Designation Viewed'
+const OFFICE_VIEWED = 'Serve Onboarding - Office Viewed'
+const OFFICE_COMPLETED = 'Serve Onboarding - Office Completed'
+const TERM_DATES_VIEWED = 'Serve Onboarding - Term Dates Viewed'
+const CONSTITUENTS_VIEWED = 'Serve Onboarding - Know Your Constituents Viewed'
+const CONSTITUENTS_COMPLETED =
+  'Serve Onboarding - Know Your Constituents Completed'
+const PLEDGE_VIEWED = 'Serve Onboarding - Pledge Viewed'
+const PLEDGE_COMPLETED = 'Serve Onboarding - Pledge Completed'
+const COMPLETED = 'Serve Onboarding - Net New Completed'
+// Events removed in the per-screen rework — asserted absent below.
+const STEP_VIEWED = 'Serve Onboarding - Step Viewed'
+const SWITCHED = 'Serve Onboarding - Switched to Campaign'
+
+// A net-new lead resumed onto the office step (party saved, no office/dates),
+// with the office-picker race lookup and the persistence routes mocked. Returns
+// the userEvent once the office step is on screen — shared by the office-step
+// analytics tests so they can drive the picker without re-stubbing.
+const reachOfficeStepNetNew = async () => {
+  mockLoad(buildEO({ party: 'independent' }), buildOrg())
+  api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+  api.mock('PUT /v1/elected-office/:id', {
+    status: 200,
+    data: buildEO({ party: 'independent' }),
+  })
+  mswServer.use(
+    http.get('*/elections/races-by-year', () =>
+      HttpResponse.json([
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ]),
+    ),
+  )
+  const user = userEvent.setup()
+  renderFlow()
+  await screen.findByText('What office do you currently hold?')
+  return user
+}
+
+describe('ServeOnboardingFlow analytics instrumentation', () => {
+  beforeEach(() => {
+    api.reset()
+    trackEventMock.mockClear()
+  })
+
+  it('fires the Welcome Viewed event once (with branch), deduped across back-and-forth', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO(),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    // Welcome view fires on view (net-new branch resolved at load).
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await waitFor(() =>
+      expect(eventProps(WELCOME_VIEWED)).toContainEqual(
+        expect.objectContaining({ branch: 'net-new' }),
+      ),
+    )
+
+    // welcome → inOffice → back to welcome → forward to inOffice again.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+
+    // Welcome is logged exactly once despite the re-visit (Set-ref dedupe).
+    expect(eventProps(WELCOME_VIEWED)).toHaveLength(1)
+    // The legacy generic "Step Viewed" event is gone.
+    expect(eventProps(STEP_VIEWED)).toHaveLength(0)
+  })
+
+  it('fires Office Status Viewed on Continue with the selected card title (elected official)', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO(),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm an elected official/ }),
+    )
+    // No event yet — Office Status Viewed fires on Continue, not on selection.
+    expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(1),
+    )
+    expect(eventProps(OFFICE_STATUS_VIEWED)[0]).toEqual(
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: "I'm an elected official",
+      }),
+    )
+  })
+
+  it('captures the "still campaigning" hand-off as the Office Status Viewed selection', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The hand-off screen renders, and the office-status selection records the
+    // drop-off — the standalone "Switched to Campaign" event is gone.
+    await screen.findByText("Let's switch you to campaign mode")
+    expect(eventProps(OFFICE_STATUS_VIEWED)).toEqual([
+      expect.objectContaining({ selection: "I'm still campaigning" }),
+    ])
+    expect(eventProps(SWITCHED)).toHaveLength(0)
+  })
+
+  it('fires Party Designation Viewed on Continue with the selected party title', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm an elected official/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Independent \/ Non-major party/,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(eventProps(PARTY_VIEWED)).toHaveLength(1))
+    expect(eventProps(PARTY_VIEWED)[0]).toEqual(
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: 'Independent / Non-major party',
+      }),
+    )
+  })
+
+  it('fires Office Viewed on view and Office Completed on Continue with the chosen office title', async () => {
+    const user = await reachOfficeStepNetNew()
+
+    // Office Viewed fires once on view; Office Completed only after a pick.
+    await waitFor(() =>
+      expect(eventProps(OFFICE_VIEWED)).toContainEqual(
+        expect.objectContaining({ branch: 'net-new' }),
+      ),
+    )
+    expect(eventProps(OFFICE_COMPLETED)).toHaveLength(0)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter 5 digit zip code'),
+      '90001',
+    )
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('When does your term run?')
+    expect(eventProps(OFFICE_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new', selection: 'Mayor' }),
+    ])
+    // Term Dates Viewed then fires on view of the next screen.
+    expect(eventProps(TERM_DATES_VIEWED)).toHaveLength(1)
+  })
+
+  it('fires Know Your Constituents Viewed on view and Completed on Continue', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'constituents',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() => expect(eventProps(CONSTITUENTS_VIEWED)).toHaveLength(1))
+    expect(eventProps(CONSTITUENTS_COMPLETED)).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    expect(eventProps(CONSTITUENTS_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new' }),
+    ])
+    expect(eventProps(PLEDGE_VIEWED)).toHaveLength(1)
+  })
+
+  it('fires Pledge Completed and the Net New Completed metric (without a branch prop) at completion', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'pledge',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
+
+    await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))
+    // Pledge Completed carries the branch for funnel slicing.
+    expect(eventProps(PLEDGE_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new', electedOfficeId: EO_ID }),
+    ])
+    // The established Net New Completed metric fires WITHOUT a branch prop (the
+    // per-screen rework reverted that addition).
+    expect(eventProps(COMPLETED)).toEqual([{ electedOfficeId: EO_ID }])
   })
 })

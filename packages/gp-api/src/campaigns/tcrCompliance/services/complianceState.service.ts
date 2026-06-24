@@ -59,7 +59,7 @@ export const deriveComplianceStage = (
   campaign: Pick<Campaign, 'formattedAddress'>,
   website: Pick<Website, 'status'> | null,
   domain: Pick<Domain, 'status' | 'registrantVerifiedAt'> | null,
-  tcrCompliance: Pick<TcrCompliance, 'status' | 'peerlyIdentityId'> | null,
+  tcrCompliance: Pick<TcrCompliance, 'status'> | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
     return campaign.formattedAddress
@@ -91,16 +91,7 @@ export const deriveComplianceStage = (
   const websiteLive =
     website?.status === WebsiteStatus.published &&
     Boolean(domain?.registrantVerifiedAt)
-
-  // Post-submission stages must be backed by a real Peerly identity, not just
-  // a submission-era status. createAgentic writes status='submitted' at form
-  // submission, before any Peerly call, so a record with no peerlyIdentityId
-  // was never actually submitted. Reporting awaiting_pin here let a resume run
-  // that found the site newly-live treat submission as done and skip it,
-  // leaving peerlyIdentityId null (campaign 325412). Gate on both the live
-  // site and a persisted identity; otherwise stay at pending_website_live so
-  // the agent verifies-live and submits.
-  if (!websiteLive || !tcrCompliance.peerlyIdentityId) {
+  if (!websiteLive) {
     return ComplianceStage.pending_website_live
   }
 

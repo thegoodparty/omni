@@ -9,6 +9,7 @@ import {
   streamText as realStreamText,
   tool,
   type LanguageModel,
+  type Tool,
   type ToolSet,
   type TypedToolCall,
 } from 'ai'
@@ -80,9 +81,28 @@ export type LlmStreamTool<
       execute: (input: TInput) => Promise<TOutput> | TOutput
     }
 
+/**
+ * Provider-run web search (Anthropic's native `webSearch_20250305`), as opposed
+ * to a client `execute()` tool. The provider runs the search server-side, so
+ * there's no execute hook — tool-call/result events are surfaced from the
+ * stream instead. Only available on the Anthropic (Claude) path; ignored if
+ * ANTHROPIC_API_KEY is unset or the resolved model isn't a Claude model.
+ */
+export interface NativeWebSearchSpec {
+  kind: 'native_web_search'
+  maxUses?: number
+  allowedDomains?: string[]
+  blockedDomains?: string[]
+}
+
+export type LlmTool = LlmStreamTool<z.ZodTypeAny> | NativeWebSearchSpec
+
+const isNativeWebSearch = (t: LlmTool): t is NativeWebSearchSpec =>
+  'kind' in t && t.kind === 'native_web_search'
+
 export interface LlmStreamOptions {
   messages: ChatCompletionMessageParam[]
-  tools?: Record<string, LlmStreamTool<z.ZodTypeAny>>
+  tools?: Record<string, LlmTool>
   models?: string[]
   temperature?: number
   topP?: number
@@ -137,11 +157,14 @@ export type AiSdkProviderFactory = (opts: {
   baseURL: string
 }) => OpenAICompatibleProvider
 
-export type AnthropicChatModelResolver = (model: string) => LanguageModel
+export interface AnthropicProvider {
+  languageModel: (model: string) => LanguageModel
+  webSearchTool: (spec: NativeWebSearchSpec) => Tool
+}
 
 export type AnthropicProviderFactory = (opts: {
   apiKey: string
-}) => AnthropicChatModelResolver
+}) => AnthropicProvider
 
 export const STREAM_TEXT_TOKEN = 'LLM_STREAM_TEXT_FN'
 export const OPENAI_CLIENT_FACTORY_TOKEN = 'LLM_OPENAI_CLIENT_FACTORY'
@@ -173,7 +196,15 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
   apiKey,
 }) => {
   const provider = createAnthropic({ apiKey })
-  return (model: string) => provider(model)
+  return {
+    languageModel: (model: string) => provider(model),
+    webSearchTool: (spec: NativeWebSearchSpec) =>
+      provider.tools.webSearch_20250305({
+        ...(spec.maxUses !== undefined && { maxUses: spec.maxUses }),
+        ...(spec.allowedDomains && { allowedDomains: spec.allowedDomains }),
+        ...(spec.blockedDomains && { blockedDomains: spec.blockedDomains }),
+      }),
+  }
 }
 
 @Injectable()
@@ -187,7 +218,7 @@ export class LlmService {
   private readonly aiSdkProvider: OpenAICompatibleProvider
   private readonly anthropicProviderFactory: AnthropicProviderFactory
   private readonly anthropicApiKey: string | undefined
-  private anthropicResolver?: AnthropicChatModelResolver
+  private anthropicProvider?: AnthropicProvider
   private readonly streamTextFn: StreamTextFn
 
   constructor(
@@ -271,19 +302,27 @@ export class LlmService {
     return chain
   }
 
+  // Lazily builds the Anthropic provider; null when ANTHROPIC_API_KEY is unset
+  // (so native web search is simply unavailable rather than throwing).
+  private getAnthropicProvider(): AnthropicProvider | null {
+    if (!this.anthropicApiKey) return null
+    if (!this.anthropicProvider) {
+      this.anthropicProvider = this.anthropicProviderFactory({
+        apiKey: this.anthropicApiKey,
+      })
+    }
+    return this.anthropicProvider
+  }
+
   private resolveChatModel(model: string): LanguageModel {
     if (model.startsWith('claude')) {
-      if (!this.anthropicApiKey) {
+      const provider = this.getAnthropicProvider()
+      if (!provider) {
         throw new Error(
           `ANTHROPIC_API_KEY is not set but model "${model}" requires it`,
         )
       }
-      if (!this.anthropicResolver) {
-        this.anthropicResolver = this.anthropicProviderFactory({
-          apiKey: this.anthropicApiKey,
-        })
-      }
-      return this.anthropicResolver(model)
+      return provider.languageModel(model)
     }
     return this.aiSdkProvider.chatModel(model)
   }
@@ -455,9 +494,11 @@ export class LlmService {
     } = options
 
     const models = this.prepareModelList(providedModels)
-    const toolSet = tools
+    const built = tools
       ? this.buildToolSet(tools, { onToolCallStart, onToolCallEnd })
       : undefined
+    const toolSet = built?.toolSet
+    const providerToolNames = built?.providerToolNames
     const modelMessages = toModelMessages(messages)
 
     const { model, result } = await this.withModelFallback(
@@ -476,6 +517,32 @@ export class LlmService {
             ...(topP !== undefined && { topP }),
             ...(maxOutputTokens !== undefined && { maxOutputTokens }),
             ...(userId && { headers: { 'X-User-Id': userId } }),
+            // Provider-run tools (Anthropic web search) have no execute hook, so
+            // surface their call/result from the stream to drive the same
+            // onToolCallStart/End the client-tool execute wrapper fires.
+            ...(providerToolNames &&
+              providerToolNames.size > 0 && {
+                onChunk: ({ chunk }) => {
+                  if (
+                    chunk.type === 'tool-call' &&
+                    providerToolNames.has(chunk.toolName)
+                  ) {
+                    onToolCallStart?.({
+                      name: chunk.toolName,
+                      input: chunk.input,
+                    })
+                  } else if (
+                    chunk.type === 'tool-result' &&
+                    providerToolNames.has(chunk.toolName)
+                  ) {
+                    onToolCallEnd?.({
+                      name: chunk.toolName,
+                      input: chunk.input,
+                      output: chunk.output,
+                    })
+                  }
+                },
+              }),
           }),
         ),
     )
@@ -495,8 +562,12 @@ export class LlmService {
     }
   }
 
+  // Builds the AI SDK tool set. Client tools wrap their `execute` (and fire the
+  // hooks from there); native provider tools (Anthropic web search) have no
+  // execute — the provider runs them — so their names are returned in
+  // `providerToolNames` for the caller to surface tool events from the stream.
   private buildToolSet(
-    tools: Record<string, LlmStreamTool<z.ZodTypeAny>>,
+    tools: Record<string, LlmTool>,
     hooks: {
       onToolCallStart?: (event: { name: string; input: unknown }) => void
       onToolCallEnd?: (event: {
@@ -505,9 +576,23 @@ export class LlmService {
         output: unknown
       }) => void
     } = {},
-  ): ToolSet {
+  ): { toolSet: ToolSet; providerToolNames: Set<string> } {
     const set: ToolSet = {}
+    const providerToolNames = new Set<string>()
     for (const [name, t] of Object.entries(tools)) {
+      if (isNativeWebSearch(t)) {
+        const provider = this.getAnthropicProvider()
+        if (!provider) {
+          this.logger.warn(
+            { toolName: name },
+            'native web search requested but ANTHROPIC_API_KEY is unset; skipping',
+          )
+          continue
+        }
+        set[name] = provider.webSearchTool(t)
+        providerToolNames.add(name)
+        continue
+      }
       set[name] = tool<unknown, unknown>({
         description: t.description,
         inputSchema: t.inputSchema,
@@ -538,7 +623,7 @@ export class LlmService {
         },
       })
     }
-    return set
+    return { toolSet: set, providerToolNames }
   }
 
   private mapAiSdkToolCalls(calls: TypedToolCall<ToolSet>[]): ToolCall[] {

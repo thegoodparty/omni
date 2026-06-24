@@ -62,6 +62,15 @@ export default function ReviewVerdictControls({
     setSubmitting(true)
     setError(null)
     const reason = failReason.trim()
+    // When review comments exist the overall reason is optional, so an
+    // untouched template means "no reason given" — omit it rather than
+    // recording the blank rubric. With no comments a reason is required, so
+    // the template is sent as-is.
+    const untouchedTemplate = reason === FAIL_REASON_TEMPLATE.trim()
+    const includeReason =
+      pending === 'failed' &&
+      !!reason &&
+      !(reviewsCount > 0 && untouchedTemplate)
     let ok = false
     try {
       const res = await clientRequest(
@@ -69,7 +78,7 @@ export default function ReviewVerdictControls({
         {
           date: meetingDate,
           verdict: pending,
-          ...(pending === 'failed' && reason ? { failReason: reason } : {}),
+          ...(includeReason ? { failReason: reason } : {}),
         },
         { ignoreResponseError: true },
       )

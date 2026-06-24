@@ -206,7 +206,7 @@ export interface CampaignTrackerTasksInputParams {
    */
   election_date?: string | null
   /**
-   * initial = first full generation; weekly = re-prioritize the upcoming week using prior_tasks.
+   * initial = first full generation; weekly = re-prioritize the upcoming week using the candidate's prior tasks fetched via the tracker-tasks MCP tool.
    */
   mode: 'initial' | 'weekly'
   /**

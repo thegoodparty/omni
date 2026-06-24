@@ -43,11 +43,17 @@ import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
+import { isTestCampaign } from '@/users/util/users.util'
 
 const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
 
 const EMPTY_COMMUNITY_EVENTS: CommunityEventsResult = { events: [] }
+const EMPTY_STRATEGIC_LANDSCAPE: StrategicLandscapeResult = {
+  opportunities: [],
+  challenges: [],
+  opponents: [],
+}
 
 // A run that's COMPLETED but whose section never persisted past this window is
 // treated as stuck and re-dispatched on the next call (the persist step
@@ -210,6 +216,10 @@ export class CampaignStrategyService
       throw new InternalServerErrorException(
         'Campaign has no associated user — check @UseCampaign include',
       )
+    }
+
+    if (isTestCampaign(campaign)) {
+      return { status: 'ready', data: EMPTY_STRATEGIC_LANDSCAPE }
     }
 
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
@@ -390,6 +400,10 @@ export class CampaignStrategyService
   async getOrGenerateCommunityEvents(
     campaign: CampaignWith<'user'>,
   ): Promise<CommunityEventsResponse> {
+    if (isTestCampaign(campaign)) {
+      return { status: 'ready', data: EMPTY_COMMUNITY_EVENTS }
+    }
+
     // Resolve raceId + electionDate synchronously up front so a 400
     // surfaces to THIS call rather than getting swallowed in the
     // background, where it would leave the client stuck in a generating

@@ -144,6 +144,45 @@ describe('CampaignStrategyService', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
+  const testUserCampaign = (overrides: Record<string, unknown> = {}) =>
+    campaign({
+      user: {
+        clerkId: 'clerk-1',
+        email: 'jane@test.goodparty.org',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        name: null,
+      },
+      ...overrides,
+    })
+
+  it('returns ready-empty for a test-user strategic landscape, no dispatch', async () => {
+    const res =
+      await service.getOrGenerateStrategicLandscape(testUserCampaign())
+    expect(res).toEqual({
+      status: 'ready',
+      data: { opportunities: [], challenges: [], opponents: [] },
+    })
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('returns ready-empty for a test user even with no raceId (guard runs before the no-raceId check)', async () => {
+    const res = await service.getOrGenerateStrategicLandscape(
+      testUserCampaign({ details: {} }),
+    )
+    expect(res).toEqual({
+      status: 'ready',
+      data: { opportunities: [], challenges: [], opponents: [] },
+    })
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('returns ready-empty for test-user community events, no generate', async () => {
+    const res = await service.getOrGenerateCommunityEvents(testUserCampaign())
+    expect(res).toEqual({ status: 'ready', data: { events: [] } })
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
   it('resolves the raceId even when an unrelated details field is off-shape', async () => {
     // Regression: officeTermLength is a string per the details contract
     // ("4 years", written by the campaign-details editor), and a strict

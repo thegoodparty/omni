@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeServeResumeStep,
+  resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
   shouldSeedInOfficeOnResume,
@@ -187,6 +188,30 @@ describe('resolveServeResumeStep', () => {
     expect(resolveServeResumeStep('prefill', 'office', allSaved)).toBe(
       'constituents',
     )
+  })
+})
+
+describe('resolveConfirmEntryStep', () => {
+  it('routes to the office step first when the office is missing', () => {
+    expect(
+      resolveConfirmEntryStep({ officeReady: false, datesReady: false }),
+    ).toBe('office')
+    // Office takes priority even when dates are already valid.
+    expect(
+      resolveConfirmEntryStep({ officeReady: false, datesReady: true }),
+    ).toBe('office')
+  })
+
+  it('routes to the term-dates step when the office is set but dates are missing/invalid', () => {
+    expect(
+      resolveConfirmEntryStep({ officeReady: true, datesReady: false }),
+    ).toBe('term-dates')
+  })
+
+  it('shows the confirm hub only once office AND valid dates are present', () => {
+    expect(
+      resolveConfirmEntryStep({ officeReady: true, datesReady: true }),
+    ).toBe('confirm')
   })
 })
 

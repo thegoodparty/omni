@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, screen, waitFor } from '@testing-library/react'
 import {
   QueryClient,
   QueryClientProvider,
   useQuery,
 } from '@tanstack/react-query'
+import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { onboardingDistrictStatsQueryOptions } from './VoterDemographicsStep'
+import {
+  VoterDemographicsStep,
+  onboardingDistrictStatsQueryOptions,
+} from './VoterDemographicsStep'
 
 const statsResponse = {
   districtId: 'd-1',
@@ -96,5 +100,82 @@ describe('onboardingDistrictStatsQueryOptions', () => {
     })
 
     expect(before.queryKey).not.toEqual(after.queryKey)
+  })
+})
+
+describe('VoterDemographicsStep copy overrides', () => {
+  it('uses the default candidate ("voter") wording when no overrides are supplied', async () => {
+    // Locks the Win-flow defaults: the serve overrides must be opt-in so this
+    // shared step is unaffected at every existing candidate call site.
+    api.mock('GET /v1/onboarding/contacts/stats', {
+      status: 200,
+      data: statsResponse,
+    })
+    api.mock('GET /v1/onboarding/voter-issues', {
+      status: 200,
+      data: {
+        issues: [{ label: 'Public Safety', score: 80, priority: 'high' }],
+      },
+    })
+
+    render(
+      <VoterDemographicsStep
+        ballotReadyPositionId="br-1"
+        office="Mayor"
+        showLocalNewsSources={false}
+      />,
+    )
+
+    expect(await screen.findByText('Voter Demographics')).toBeInTheDocument()
+    expect(screen.getByText('Total Voters')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Top issues for your voters'),
+    ).toBeInTheDocument()
+  })
+
+  it('forwards constituent copy overrides through to the demographics and issues sections', async () => {
+    // The serve flow's constituent wording must reach both the local headings
+    // here and the nested TopVoterIssuesSection. Guards the full prop-forwarding
+    // path the serve flow depends on.
+    api.mock('GET /v1/onboarding/contacts/stats', {
+      status: 200,
+      data: statsResponse,
+    })
+    api.mock('GET /v1/onboarding/voter-issues', {
+      status: 200,
+      data: {
+        issues: [{ label: 'Public Safety', score: 80, priority: 'high' }],
+      },
+    })
+
+    render(
+      <VoterDemographicsStep
+        ballotReadyPositionId="br-1"
+        office="Mayor"
+        showLocalNewsSources={false}
+        demographicsHeading="Constituent Demographics"
+        totalLabel="Total Constituents"
+        ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
+        topIssuesHeading="Top issues for your constituents"
+        topIssuesDescription="The issues constituents in your district care about most right now."
+      />,
+    )
+
+    expect(
+      await screen.findByText('Constituent Demographics'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Total Constituents')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Top issues for your constituents'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Voter Demographics')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Top issues for your voters'),
+    ).not.toBeInTheDocument()
   })
 })
