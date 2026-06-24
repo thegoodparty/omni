@@ -85,7 +85,7 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     await ctx.controller.createMagicLink(dto({}))
     expect(ctx.analytics.track).toHaveBeenCalledWith(
       1,
-      'Serve Onboarding - Magic Link Sent',
+      'Onboarding - Magic Link Sent',
       expect.objectContaining({ email: 'eo@example.com', type: 'serve' }),
     )
   })

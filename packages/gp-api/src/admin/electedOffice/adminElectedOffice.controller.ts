@@ -101,7 +101,7 @@ export class AdminElectedOfficeController {
     // "Link sent" funnel event, keyed to the provisioned user + email (the EO
     // may not exist yet). Best-effort — never fail link creation on analytics.
     await this.analytics
-      .track(user.id, EVENTS.ServeOnboarding.MagicLinkSent, {
+      .track(user.id, EVENTS.Onboarding.MagicLinkSent, {
         email,
         type: 'serve',
         prefilledElectedOfficeId: prefill?.electedOfficeId,

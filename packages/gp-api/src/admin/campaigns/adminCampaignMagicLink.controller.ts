@@ -71,7 +71,7 @@ export class AdminCampaignMagicLinkController {
     // campaign does not exist yet). Best-effort — never fail link creation on
     // analytics.
     await this.analytics
-      .track(user.id, EVENTS.WinOnboarding.MagicLinkSent, {
+      .track(user.id, EVENTS.Onboarding.MagicLinkSent, {
         email,
         type: 'win',
       })
