@@ -143,6 +143,27 @@ describe('<CommunityIssuesChatDock>', () => {
     )
   })
 
+  it('does not fire a second createConversation while one is in flight', async () => {
+    let resolveCreate!: (value: { conversationId: string }) => void
+    createConversationMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    render(<Harness anchorIssue={issue} />)
+
+    selectInside('selected text')
+    const btn = await screen.findByRole('button', { name: /ask ai/i })
+    await user.click(btn)
+    await user.click(btn)
+
+    expect(createConversationMock).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveCreate({ conversationId: 'conv-1' })
+    })
+  })
+
   it('renders no Ask AI popover when anchorIssue is absent', () => {
     render(<Harness />)
 

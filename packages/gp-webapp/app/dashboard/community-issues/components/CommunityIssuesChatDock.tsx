@@ -34,6 +34,7 @@ const CommunityIssuesChatDock = ({
   const [opener, setOpener] = useState<string[] | undefined>(undefined)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const openNewChat = () => {
     setConversationId(null)
@@ -50,7 +51,7 @@ const CommunityIssuesChatDock = ({
   }
 
   const openAnchored = async () => {
-    if (!anchorIssue) return
+    if (!anchorIssue || creating) return
     const highlightedText = selection?.text
     trackEvent(EVENTS.CommunityIssues.AskAIStarted, { issueId: anchorIssue.id })
 
@@ -66,6 +67,7 @@ const CommunityIssuesChatDock = ({
     }
     window.getSelection()?.removeAllRanges()
     setError(null)
+    setCreating(true)
     try {
       const { conversationId: newId } =
         await chiefOfStaffChatApi.createConversation(anchor)
@@ -79,6 +81,8 @@ const CommunityIssuesChatDock = ({
       setChatOpen(true)
     } catch {
       setError('Could not start the chat. Please try again.')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -94,6 +98,7 @@ const CommunityIssuesChatDock = ({
         >
           <Button
             size="small"
+            disabled={creating}
             onMouseDown={(e) => e.preventDefault()}
             onClick={openAnchored}
             className="flex items-center gap-1.5 shadow-md"
