@@ -14,6 +14,8 @@ interface Props {
   opener?: string[]
   /** Identity of the opener — changes remount the body for a fresh chat. */
   openerKey?: string | null
+  /** Start dictation as soon as the chat opens (footer mic entry). */
+  autoDictate?: boolean
 }
 
 /**
@@ -27,16 +29,30 @@ export default function ChiefOfStaffChatSurface({
   initialConversationId,
   opener,
   openerKey,
+  autoDictate,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
+  )
+  // Mirrors the autoDictate prop on open, but clears on an in-drawer
+  // conversation switch so dictation never re-fires inside a historical chat.
+  const [shouldAutoDictate, setShouldAutoDictate] = useState(
+    autoDictate ?? false,
   )
 
   // Sync the active conversation when the surface opens or the caller targets
   // a specific conversation (e.g. picked from the footer's history popover).
   useEffect(() => {
-    if (open) setSelectedId(initialConversationId ?? null)
-  }, [open, initialConversationId])
+    if (open) {
+      setSelectedId(initialConversationId ?? null)
+      setShouldAutoDictate(autoDictate ?? false)
+    }
+  }, [open, initialConversationId, autoDictate])
+
+  const handleSelectConversation = (id: string) => {
+    setShouldAutoDictate(false)
+    setSelectedId(id)
+  }
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -62,9 +78,10 @@ export default function ChiefOfStaffChatSurface({
           // state with the right opener.
           key={selectedId ?? openerKey ?? 'new'}
           active={open}
+          autoDictate={shouldAutoDictate}
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
-          onSelectConversation={setSelectedId}
+          onSelectConversation={handleSelectConversation}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>
