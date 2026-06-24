@@ -70,6 +70,14 @@ const selectFilingAddress = async (page: Page) => {
     }
     throw new Error('onSelect handler not found on address autocomplete')
   })
+
+  // onSelect fires outside React's event loop, so the form re-render is async.
+  // Wait for the input to show the selected address before the caller clicks
+  // Continue — otherwise the click can race the re-render and read stale
+  // (address-missing) validation state, leaving the wizard on filing-details.
+  await expect(page.getByPlaceholder('Address')).toHaveValue(
+    '525 Montano Dr, San Luis, AZ 85349',
+  )
 }
 
 test.beforeEach(async ({ page }) => {
