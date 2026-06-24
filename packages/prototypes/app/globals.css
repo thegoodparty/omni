@@ -1,9 +1,9 @@
-@import "../../styleguide/src/design-tokens.css";
+@import '../../styleguide/src/design-tokens.css';
 
-@import "tailwindcss";
+@import 'tailwindcss';
 
-@import "../../styleguide/src/tailwind-theme.css";
+@import '../../styleguide/src/tailwind-theme.css';
 
-@import "../../styleguide/src/typography.css";
+@import '../../styleguide/src/typography.css';
 
 @source '../../styleguide/src';

@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "plugins": [
@@ -15,15 +11,9 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "app/*"
-      ],
-      "@styleguide": [
-        "../styleguide/src"
-      ],
-      "@styleguide/*": [
-        "../styleguide/src/*"
-      ]
+      "@/*": ["app/*"],
+      "@styleguide": ["../styleguide/src"],
+      "@styleguide/*": ["../styleguide/src/*"]
     },
     "jsx": "react-jsx",
     "allowJs": true,
@@ -56,8 +46,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules",
-    ".next"
-  ]
+  "exclude": ["node_modules", ".next"]
 }
