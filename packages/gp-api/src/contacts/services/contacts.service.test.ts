@@ -944,13 +944,28 @@ describe('ContactsService', () => {
       const channelFilters: Array<{
         segment: string
         filters: Record<string, true>
+        groupByHousehold: boolean
       }> = [
-        { segment: 'all', filters: {} },
-        { segment: 'doorKnocking', filters: {} },
-        { segment: 'directMail', filters: {} },
-        { segment: 'texting', filters: { hasCellPhone: true } },
-        { segment: 'digitalAds', filters: { hasCellPhone: true } },
-        { segment: 'phoneBanking', filters: { hasLandline: true } },
+        { segment: 'all', filters: {}, groupByHousehold: false },
+        // Door knocking de-dupes by physical household (ENG-10522); no other
+        // channel does.
+        { segment: 'doorKnocking', filters: {}, groupByHousehold: true },
+        { segment: 'directMail', filters: {}, groupByHousehold: false },
+        {
+          segment: 'texting',
+          filters: { hasCellPhone: true },
+          groupByHousehold: false,
+        },
+        {
+          segment: 'digitalAds',
+          filters: { hasCellPhone: true },
+          groupByHousehold: false,
+        },
+        {
+          segment: 'phoneBanking',
+          filters: { hasLandline: true },
+          groupByHousehold: false,
+        },
       ]
 
       const makeDownloadStream = () => ({
@@ -972,8 +987,8 @@ describe('ContactsService', () => {
       })
 
       it.each(channelFilters)(
-        'forwards the $segment channel filters to the people-api list/count query',
-        async ({ segment, filters }) => {
+        'forwards the $segment channel filters + grouping to the people-api list/count query',
+        async ({ segment, filters, groupByHousehold }) => {
           const org = makeOrganization({
             slug: 'campaign-1',
             overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -993,6 +1008,7 @@ describe('ContactsService', () => {
             expect.objectContaining({
               districtId: OVERRIDE_DISTRICT_ID,
               filters,
+              groupByHousehold,
             }),
             expect.any(Object),
           )
@@ -1000,8 +1016,8 @@ describe('ContactsService', () => {
       )
 
       it.each(channelFilters)(
-        'streams the $segment channel download with CSV headers and the same filters',
-        async ({ segment, filters }) => {
+        'streams the $segment channel download with CSV headers and the same filters + grouping',
+        async ({ segment, filters, groupByHousehold }) => {
           const org = makeOrganization({
             slug: 'eo-office-1',
             overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1017,6 +1033,7 @@ describe('ContactsService', () => {
             expect.objectContaining({
               districtId: OVERRIDE_DISTRICT_ID,
               filters,
+              groupByHousehold,
             }),
             expect.objectContaining({ responseType: 'stream' }),
           )
@@ -1033,6 +1050,54 @@ describe('ContactsService', () => {
           expect(stream.pipe).toHaveBeenCalledTimes(1)
         },
       )
+
+      it('door knocking reports fewer contacts than all by grouping households', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+
+        // Stand in for people-api: households < voters for the same district.
+        // The total it returns depends on whether grouping was requested, so a
+        // wiring regression that drops the flag would make the two counts
+        // equal and fail this test (real numbers, not a "called" assertion).
+        const VOTER_COUNT = 500
+        const HOUSEHOLD_COUNT = 180
+        mockHttpService.post.mockImplementation(
+          (_url: string, body: { groupByHousehold?: boolean }) =>
+            of({
+              data: {
+                people: [],
+                pagination: {
+                  totalResults: body.groupByHousehold
+                    ? HOUSEHOLD_COUNT
+                    : VOTER_COUNT,
+                },
+              },
+            }),
+        )
+
+        const all = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
+          org,
+        )
+        const doorKnocking = await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'doorKnocking',
+          },
+          org,
+        )
+
+        expect(all.pagination.totalResults).toBe(VOTER_COUNT)
+        expect(doorKnocking.pagination.totalResults).toBe(HOUSEHOLD_COUNT)
+        expect(doorKnocking.pagination.totalResults).toBeLessThan(
+          all.pagination.totalResults,
+        )
+      })
 
       it('surfaces the people-api total as the channel count', async () => {
         const org = makeOrganization({

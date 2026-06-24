@@ -69,6 +69,14 @@ Prisma ORM's coverage of partitioned tables is shallow. With ~100+ columns plus 
 
 `District` and `DistrictStats` stay on the ORM path — they're small and cheap to read.
 
+### Household grouping (door knocking)
+
+`findPeople` and the CSV download accept `groupByHousehold` (default `false`). When set, the list/count/export de-duplicate to one representative voter per **physical residence address** so canvassers don't visit one house twice (ENG-10522). The key is a normalized residence-address composite (`UPPER(TRIM(COALESCE(col,'')))` over the columns in `HOUSEHOLD_KEY_RESIDENCE_COLUMNS` from `@goodparty_org/contracts` — `Residence_Addresses_AddressLine`/`City`/`State`/`Zip`), built in `utils/buildHouseholdKeySql.utils.ts`. It is deliberately NOT `Mailing_Families_FamilyID` (that keys mailing households, not where a door-knocker stands).
+
+Both queries change together so counts and pages agree: the data query uses `DISTINCT ON (<key>) ... ORDER BY <key>, v."id"` (id is the deterministic tiebreaker that keeps pagination stable), and the count uses `COUNT(DISTINCT <key>)`. The pre-computed `DistrictStats.totalConstituents` fast-path is skipped in grouped mode (it counts voters, not households). Each row also exposes `householdId` (the key) and `householdSize` (`COUNT(*) OVER (PARTITION BY <key>)`, computed before `DISTINCT ON`, so it's the full in-scope household size) for the UI's "N voters at this address".
+
+Performance: there is no index on the residence composite, so `DISTINCT ON` / `COUNT(DISTINCT)` require a sort. These queries are always district-scoped (the `DistrictVoter` join bounds the set to one district — thousands to tens of thousands of voters), the same row scale the ungrouped list already sorts by `v."id"`; the partition key (`State`) still prunes. It is not a whole-table scan. If a heavy district ever shows up in latency metrics, the fix is a functional/expression index on the composite, or precomputing a household id column upstream in the ETL.
+
 ## Sampling
 
 `SampleService` (`src/people/services/sample.service.ts`) returns a deterministic subset of voters for a district. It hashes `LALVOTERID + salt` via `murmurhash` (`src/shared/util/hash.util.ts`) into N buckets and selects rows in the requested buckets. Same input → same output, which lets callers (e.g. campaign sampling tools) cache and resume safely.

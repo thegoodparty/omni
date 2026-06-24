@@ -199,6 +199,74 @@ describe('PeopleService', () => {
     })
   })
 
+  describe('findPeople household grouping (door knocking)', () => {
+    const sqlTextOf = (call: unknown): string => {
+      const arg = (call as { strings?: readonly string[] }) ?? {}
+      return arg.strings ? arg.strings.join('?') : ''
+    }
+
+    it('counts households (COUNT DISTINCT) and de-dupes rows (DISTINCT ON) and skips the voter-count fast path', async () => {
+      // Count query returns 3 households; data query returns 2 representatives.
+      // The point: grouped totalResults (households) is independent of and
+      // smaller than the raw voter population the same district would list.
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 3n }])
+        .mockResolvedValueOnce([
+          makeDbPerson({ id: 'rep-1', householdId: 'A', householdSize: 4n }),
+          makeDbPerson({ id: 'rep-2', householdId: 'B', householdSize: 1n }),
+        ])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+        groupByHousehold: true,
+      } as never)
+
+      // The pre-computed totalConstituents stat (120) must NOT be used: it
+      // counts voters, so it would over-report door-knocking households.
+      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(3)
+
+      const countSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      const dataSql = sqlTextOf(mockClient.$queryRaw.mock.calls[1]?.[0])
+      expect(countSql).toContain('COUNT(DISTINCT')
+      expect(countSql).toContain('Residence_Addresses_AddressLine')
+      expect(dataSql).toContain('DISTINCT ON')
+      expect(dataSql).toContain('"householdId"')
+      expect(dataSql).toContain('"householdSize"')
+      expect(dataSql).toContain('Residence_Addresses_AddressLine')
+
+      // Household count is strictly fewer than the constituents the same
+      // district reports for the ungrouped list (120), and the size/key surface
+      // through to the output for the UI's "N voters at this address".
+      expect(result.pagination.totalResults).toBeLessThan(120)
+      expect(result.people[0]?.householdSize).toBe(4)
+      expect(result.people[0]?.householdId).toBe('A')
+    })
+
+    it('does not group (one row per voter) when groupByHousehold is false', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+        groupByHousehold: false,
+      } as never)
+
+      // Ungrouped + no filters/search still uses the fast stat path (120).
+      expect(mockStatsService.getTotalCounts).toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(120)
+      const dataSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(dataSql).not.toContain('DISTINCT ON')
+      expect(result.people[0]?.householdId).toBeNull()
+      expect(result.people[0]?.householdSize).toBeNull()
+    })
+  })
+
   describe('findPerson', () => {
     it('returns person for district path', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([
