@@ -74,8 +74,10 @@ export const PersonSchema = z.object({
   // Populated only when people-api runs in household-grouped mode (door
   // knocking). `householdId` is a normalized residence-address composite (see
   // HOUSEHOLD_KEY_RESIDENCE_COLUMNS) shared by every voter at the same physical
-  // address; `householdSize` is how many voters that address holds. null on the
-  // ungrouped (one-row-per-voter) path.
+  // address; `householdSize` is how many of the voters MATCHING the current
+  // segment/filters share that address (filter-scoped, not raw occupancy — a
+  // hasCellPhone segment counts only the matching contacts at the address).
+  // null on the ungrouped (one-row-per-voter) path.
   householdId: z.string().nullable().optional(),
   householdSize: z.number().int().nullable().optional(),
 })

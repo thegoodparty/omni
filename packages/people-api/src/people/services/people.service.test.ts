@@ -239,11 +239,43 @@ describe('PeopleService', () => {
       expect(dataSql).toContain('Residence_Addresses_AddressLine')
 
       // Household count is strictly fewer than the constituents the same
-      // district reports for the ungrouped list (120), and the size/key surface
-      // through to the output for the UI's "N voters at this address".
+      // district reports for the ungrouped list (120), and the key + count of
+      // matching voters at the address surface through to the output.
       expect(result.pagination.totalResults).toBeLessThan(120)
       expect(result.people[0]?.householdSize).toBe(4)
       expect(result.people[0]?.householdId).toBe('A')
+    })
+
+    it('clamps a too-high page to the last household page instead of returning empty', async () => {
+      // 3 households, 10 per page → 1 page. A client paging from the voter list
+      // (which has many more pages) into door knocking on page 99 must get the
+      // last household page, not an empty result. The data query must therefore
+      // run AFTER the count with a clamped offset of 0, not (99-1)*10.
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 3n }])
+        .mockResolvedValueOnce([
+          makeDbPerson({ id: 'rep-1', householdId: 'A', householdSize: 1n }),
+        ])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 99,
+        groupByHousehold: true,
+      } as never)
+
+      // Count resolved before the data query (sequential), so the offset was
+      // clamped: the page is non-empty and currentPage is the last page.
+      expect(result.people.length).toBeGreaterThan(0)
+      expect(result.pagination.totalPages).toBe(1)
+      expect(result.pagination.currentPage).toBe(1)
+
+      const dataSql = mockClient.$queryRaw.mock.calls[1]?.[0] as {
+        values?: unknown[]
+      }
+      // buildRawPeopleQuery binds [..., take, skip]; the clamped skip is 0.
+      expect(dataSql.values?.[dataSql.values.length - 1]).toBe(0)
     })
 
     it('does not group (one row per voter) when groupByHousehold is false', async () => {
