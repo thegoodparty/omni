@@ -41,13 +41,20 @@ export const useTextSelection = (
     // would leave it drifting away from the text. Dismiss on scroll instead.
     const clearOnScroll = () => setSelection(null)
 
+    // selectionchange fires continuously mid-drag on some browsers; also
+    // settle on mouseup/keyup so the popover anchors to the final selection,
+    // matching the briefings highlight hook (app/shared/briefings/use-selection).
     document.addEventListener('selectionchange', handler)
+    document.addEventListener('mouseup', handler)
+    document.addEventListener('keyup', handler)
     window.addEventListener('scroll', clearOnScroll, {
       capture: true,
       passive: true,
     })
     return () => {
       document.removeEventListener('selectionchange', handler)
+      document.removeEventListener('mouseup', handler)
+      document.removeEventListener('keyup', handler)
       window.removeEventListener('scroll', clearOnScroll, { capture: true })
     }
   }, [containerRef])
