@@ -21,6 +21,9 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   await authenticateTestUser(page, {
     isolated: true,
     race: { zip: '82001', office: 'Cheyenne City Council - Ward 1' },
+    // The serve menu (Constituent Data / Polls) asserted below is gated by the
+    // serve-access flag; force it on via the server-side e2e override seam.
+    flagOverrides: { 'serve-access': 'on' },
   })
 
   await NavigationHelper.navigateToPage(page, '/dashboard')

@@ -45,6 +45,10 @@ export const setupElectedOfficeUser = async (
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
     race,
+    // The serve menu is gated by the serve-access flag. Flag resolution is
+    // server-side now, and gp-api's Amplitude eval doesn't target synthetic
+    // test users, so force it on via the e2e override seam.
+    flagOverrides: { 'serve-access': 'on' },
   })
 
   await page.goto('/dashboard/election-result')

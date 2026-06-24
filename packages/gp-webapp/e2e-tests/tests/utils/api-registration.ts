@@ -94,6 +94,15 @@ type BaseTestUserOptions = {
     zip: string
     office: string | ((offices: string) => boolean)
   }
+  /**
+   * Force specific Amplitude flag variants for this user via the server-side
+   * e2e override seam (honored only on PR previews / local dev). Maps flag key
+   * → variant value, e.g. `{ 'serve-access': 'on' }`. Needed because flag
+   * resolution is server-side (gp-api → Amplitude) and the browser no longer
+   * fetches Amplitude, so a test can't stub it to force a variant. See
+   * app/shared/experiments/flagOverrides.ts.
+   */
+  flagOverrides?: Record<string, string>
 }
 
 export type TestUserOptions =
@@ -392,6 +401,27 @@ export const authenticateTestUser = async (
     cookies.push({
       name: 'organization-slug',
       value: `campaign-${campaignId}`,
+      domain: COOKIE_DOMAIN,
+      path: '/',
+      sameSite: 'Lax',
+    })
+  }
+
+  if (options?.flagOverrides) {
+    // Cookie name mirrors FLAG_OVERRIDE_COOKIE in
+    // app/shared/experiments/flagOverrides.ts; e2e-tests can't import from app/
+    // (separate tsconfig, no Next runtime). Value is the contract variant shape
+    // ({ value }), which the server-side resolver merges over gp-api's result.
+    cookies.push({
+      name: 'e2e-flag-overrides',
+      value: JSON.stringify(
+        Object.fromEntries(
+          Object.entries(options.flagOverrides).map(([key, value]) => [
+            key,
+            { value },
+          ]),
+        ),
+      ),
       domain: COOKIE_DOMAIN,
       path: '/',
       sameSite: 'Lax',
