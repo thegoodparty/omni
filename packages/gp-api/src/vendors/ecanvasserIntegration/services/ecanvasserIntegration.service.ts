@@ -245,53 +245,99 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         })
       }
 
-      // Create or update records
+      // Upsert each record keyed on (ecanvasserId, externalId) rather than
+      // appending. The delta sync overlaps its window on each run, so the same
+      // eCanvasser record can be re-fetched; upserting updates it in place
+      // instead of inserting a duplicate that would violate the unique index.
+      for (const contact of contacts) {
+        const data = {
+          firstName: contact.first_name,
+          lastName: contact.last_name,
+          type: contact.type,
+          gender: contact.gender || null,
+          dateOfBirth: contact.date_of_birth
+            ? new Date(contact.date_of_birth)
+            : null,
+          yearOfBirth: contact.year_of_birth?.toString() || null,
+          houseId: contact.house_id || null,
+          uniqueIdentifier: contact.unique_identifier || null,
+          organization: contact.organization || null,
+          volunteer: contact.volunteer,
+          deceased: contact.deceased,
+          donor: contact.donor,
+          homePhone: contact.contact_details?.home || null,
+          mobilePhone: contact.contact_details?.mobile || null,
+          email: contact.contact_details?.email || null,
+          actionId: contact.action_id || null,
+          lastInteractionId: contact.last_interaction_id || null,
+          createdBy: contact.created_by || 0,
+        }
+        await this.client.ecanvasserContact.upsert({
+          where: {
+            ecanvasserId_externalId: {
+              ecanvasserId: ecanvasser.id,
+              externalId: contact.id,
+            },
+          },
+          create: {
+            ...data,
+            externalId: contact.id,
+            ecanvasserId: ecanvasser.id,
+          },
+          update: data,
+        })
+      }
+
+      for (const house of houses) {
+        const data = {
+          address: house.address,
+          latitude: house.latitude || null,
+          longitude: house.longitude || null,
+        }
+        await this.client.ecanvasserHouse.upsert({
+          where: {
+            ecanvasserId_externalId: {
+              ecanvasserId: ecanvasser.id,
+              externalId: house.id,
+            },
+          },
+          create: {
+            ...data,
+            externalId: house.id,
+            ecanvasserId: ecanvasser.id,
+          },
+          update: data,
+        })
+      }
+
+      for (const interaction of interactions) {
+        const data = {
+          type: interaction.type,
+          status: interaction.status?.name ?? 'Unknown',
+          contactId: interaction.contact_id || 0,
+          createdBy: interaction.created_by || 0,
+          date: interaction.created_at,
+          rating: interaction.rating || null,
+        }
+        await this.client.ecanvasserInteraction.upsert({
+          where: {
+            ecanvasserId_externalId: {
+              ecanvasserId: ecanvasser.id,
+              externalId: interaction.id,
+            },
+          },
+          create: {
+            ...data,
+            externalId: interaction.id,
+            ecanvasserId: ecanvasser.id,
+          },
+          update: data,
+        })
+      }
+
       const updated = await this.model.update({
         where: { id: ecanvasser.id },
         data: {
-          contacts: {
-            create: contacts.map((contact) => ({
-              externalId: contact.id,
-              firstName: contact.first_name,
-              lastName: contact.last_name,
-              type: contact.type,
-              gender: contact.gender || null,
-              dateOfBirth: contact.date_of_birth
-                ? new Date(contact.date_of_birth)
-                : null,
-              yearOfBirth: contact.year_of_birth?.toString() || null,
-              houseId: contact.house_id || null,
-              uniqueIdentifier: contact.unique_identifier || null,
-              organization: contact.organization || null,
-              volunteer: contact.volunteer,
-              deceased: contact.deceased,
-              donor: contact.donor,
-              homePhone: contact.contact_details?.home || null,
-              mobilePhone: contact.contact_details?.mobile || null,
-              email: contact.contact_details?.email || null,
-              actionId: contact.action_id || null,
-              lastInteractionId: contact.last_interaction_id || null,
-              createdBy: contact.created_by || 0,
-            })),
-          },
-          houses: {
-            create: houses.map((house) => ({
-              address: house.address,
-              latitude: house.latitude || null,
-              longitude: house.longitude || null,
-            })),
-          },
-          interactions: {
-            create: interactions.map((interaction) => ({
-              externalId: interaction.id,
-              type: interaction.type,
-              status: interaction.status?.name ?? 'Unknown',
-              contactId: interaction.contact_id || 0,
-              createdBy: interaction.created_by || 0,
-              date: interaction.created_at,
-              rating: interaction.rating || null,
-            })),
-          },
           lastSync: new Date(),
           error: null,
         },
