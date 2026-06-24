@@ -54,13 +54,17 @@ to open. Never assume — two prototypes often share similar names or topics.
 A `PrototypeMeta` export looks like:
 
 ```ts
-export const meta: PrototypeMeta = {
-  slug: 'some-concept',
+import type { PrototypeMeta } from '@/shared/prototypeMeta'
+
+const meta: Omit<PrototypeMeta, 'slug'> = {
   title: 'Some Concept',
   description: 'What this prototype explores.',
   author: 'designer@goodparty.org',
   createdAt: '2026-01-01',
+  status: 'draft',
 }
+
+export default meta
 ```
 
 Confirm the slug before any edits. Then open the prototype's `page.tsx` and any

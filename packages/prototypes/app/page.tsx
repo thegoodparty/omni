@@ -11,6 +11,11 @@ import {
 } from '@goodparty_org/styleguide'
 import { sortPrototypes, type PrototypeMeta } from '@/shared/prototypeMeta'
 
+// Discover prototypes from the filesystem on each request rather than baking the
+// list in at build time. next.config.ts traces app/p into the deployed bundle so
+// the readdir below resolves at runtime.
+export const dynamic = 'force-dynamic'
+
 const STATUS_STYLES: Record<
   PrototypeMeta['status'],
   { variant: 'default' | 'secondary' | 'outline'; label: string }
@@ -69,6 +74,7 @@ const Page = async () => {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {prototypes.map((proto) => {
           const badge = STATUS_STYLES[proto.status]
+          if (!badge) return null
           return (
             <Link key={proto.slug} href={`/p/${proto.slug}`}>
               <Card className="h-full transition-shadow hover:shadow-md">
