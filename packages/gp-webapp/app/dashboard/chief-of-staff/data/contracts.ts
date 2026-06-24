@@ -80,12 +80,24 @@ export type ChatScope =
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+export type ChatMessageSegmentKind = 'text' | 'tool'
+
+// One ordered display block of an assistant turn (mirrors the persisted
+// ChatMessageSegment). Consecutive `tool` segments are grouped into one pill
+// row by the renderer. Present only on assistant turns that used tools.
+export interface ChatMessageSegment {
+  kind: ChatMessageSegmentKind
+  text?: string | null
+  toolName?: string | null
+}
+
 export interface ChatMessageDto {
   id: string
   conversationId: string
   role: ChatMessageRole
   content: string
   createdAt: string
+  segments?: ChatMessageSegment[]
 }
 
 export interface ChatConversationDto {

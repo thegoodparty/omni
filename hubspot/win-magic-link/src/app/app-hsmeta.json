@@ -1,0 +1,29 @@
+{
+  "uid": "goodparty_win_magic_link_app",
+  "type": "app",
+  "config": {
+    "name": "GoodParty Win Magic Link (Internal)",
+    "description": "Internal/testing tool: send a candidate onboarding magic link directly from a HubSpot contact record.",
+    "distribution": "private",
+    "auth": {
+      "type": "static",
+      "requiredScopes": ["oauth", "crm.objects.contacts.read"],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [
+        "https://gp-api.goodparty.org",
+        "https://gp-api-dev.goodparty.org",
+        "https://api.hubapi.com"
+      ],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "dev@goodparty.org",
+      "documentationUrl": "https://github.com/thegoodparty/tgp-omni",
+      "supportUrl": "https://goodparty.org"
+    }
+  }
+}

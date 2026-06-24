@@ -65,7 +65,7 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
     })
   })
 
-  it('rejects a non-pro Win campaign even when the flag is on', async () => {
+  it('admits a non-pro Win campaign to the base list when the flag is on', async () => {
     await seedOrgWithCampaign({
       slug: WIN_SLUG,
       ownerId: service.user.id,
@@ -83,8 +83,32 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
       headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
     })
 
-    expect(result.status).toBe(400)
-    expect(findContacts).not.toHaveBeenCalled()
+    // Non-pro Win users see the aggregates + a blurred preview; the pro gate
+    // moves to the per-action paths (search/segment in findContacts, download).
+    expect(result.status).toBe(200)
+    expect(findContacts).toHaveBeenCalled()
+  })
+
+  it('admits a non-pro Win campaign to district stats when the flag is on', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: false,
+    })
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(true)
+    const getDistrictStats = vi
+      .spyOn(service.app.get(ContactsService), 'getDistrictStats')
+      .mockResolvedValue(undefined as never)
+
+    const result = await service.client.get('/v1/contacts/stats', {
+      headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(getDistrictStats).toHaveBeenCalled()
   })
 
   it('makes the Win path unreachable when win-voter-data is off', async () => {

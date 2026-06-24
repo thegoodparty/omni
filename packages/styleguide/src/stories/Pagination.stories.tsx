@@ -23,9 +23,10 @@ type Story = StoryObj<typeof Pagination>
 type PlaygroundArgs = {
   totalPages: number
   currentPage: number
+  size: 'small' | 'medium' | 'large'
 }
 
-function pageList(total: number, current: number): (number | 'ellipsis')[] {
+const pageList = (total: number, current: number): (number | 'ellipsis')[] => {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1)
   }
@@ -44,13 +45,19 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
     totalPages: 10,
     currentPage: 4,
+    size: 'medium',
   },
   argTypes: {
     totalPages: { control: { type: 'number', min: 1, max: 50 } },
     currentPage: { control: { type: 'number', min: 1, max: 50 } },
+    size: {
+      control: { type: 'select' },
+      options: ['small', 'medium', 'large'],
+    },
   },
-  render: ({ totalPages, currentPage }) => {
-    const [, updateArgs] = useArgs()
+  render: () => {
+    const [{ totalPages, currentPage, size }, updateArgs] =
+      useArgs<PlaygroundArgs>()
     const pages = pageList(totalPages, currentPage)
     const goTo = (page: number) => (event: React.MouseEvent) => {
       event.preventDefault()
@@ -60,17 +67,23 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       <Pagination>
         <PaginationContent>
           <PaginationItem>
-            <PaginationPrevious href="#" onClick={goTo(currentPage - 1)} />
+            <PaginationPrevious
+              href="#"
+              size={size}
+              onClick={goTo(currentPage - 1)}
+              aria-disabled={currentPage === 1}
+            />
           </PaginationItem>
           {pages.map((p, i) =>
             p === 'ellipsis' ? (
               <PaginationItem key={`ellipsis-${i}`}>
-                <PaginationEllipsis />
+                <PaginationEllipsis size={size} />
               </PaginationItem>
             ) : (
               <PaginationItem key={p}>
                 <PaginationLink
                   href="#"
+                  size={size}
                   isActive={p === currentPage}
                   onClick={goTo(p)}
                 >
@@ -80,7 +93,12 @@ export const Playground: StoryObj<PlaygroundArgs> = {
             ),
           )}
           <PaginationItem>
-            <PaginationNext href="#" onClick={goTo(currentPage + 1)} />
+            <PaginationNext
+              href="#"
+              size={size}
+              onClick={goTo(currentPage + 1)}
+              aria-disabled={currentPage === totalPages}
+            />
           </PaginationItem>
         </PaginationContent>
       </Pagination>
@@ -88,33 +106,51 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
 }
 
-export const Default: Story = {
+export const Sizes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Pagination>
-      <PaginationContent>
-        <PaginationItem>
-          <PaginationPrevious href="#" />
-        </PaginationItem>
-        <PaginationItem>
-          <PaginationLink href="#">1</PaginationLink>
-        </PaginationItem>
-        <PaginationItem>
-          <PaginationLink href="#" isActive>
-            2
-          </PaginationLink>
-        </PaginationItem>
-        <PaginationItem>
-          <PaginationLink href="#">3</PaginationLink>
-        </PaginationItem>
-        <PaginationItem>
-          <PaginationNext href="#" />
-        </PaginationItem>
-      </PaginationContent>
-    </Pagination>
+    <div className="flex flex-col gap-6">
+      {(['small', 'medium', 'large'] as const).map((size) => (
+        <div key={size} className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground capitalize">
+            {size}
+          </span>
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious href="#" size={size} />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationLink href="#" size={size}>
+                  1
+                </PaginationLink>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationLink href="#" size={size} isActive>
+                  2
+                </PaginationLink>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationEllipsis size={size} />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationLink href="#" size={size}>
+                  10
+                </PaginationLink>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext href="#" size={size} />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      ))}
+    </div>
   ),
 }
 
 export const WithEllipsis: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Pagination>
       <PaginationContent>
@@ -132,6 +168,32 @@ export const WithEllipsis: Story = {
         </PaginationItem>
         <PaginationItem>
           <PaginationNext href="#" />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
+  ),
+}
+
+export const States: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Pagination>
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious href="#" aria-disabled={true} />
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationLink href="#" aria-disabled={true}>
+            1
+          </PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationLink href="#" isActive aria-disabled={true}>
+            2
+          </PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationNext href="#" aria-disabled={true} />
         </PaginationItem>
       </PaginationContent>
     </Pagination>

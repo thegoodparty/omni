@@ -27,11 +27,16 @@ import {
 } from '../../../queue/queue.types'
 import { getUserFullName } from '../../../users/util/users.util'
 import {
+  BrandApprovalResult,
+  PeerlyCvVerificationStatus,
   PeerlyIdentityProfile,
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCase,
 } from '../../../vendors/peerly/peerly.types'
-import { PEERLY_USECASE } from '../../../vendors/peerly/services/peerly.const'
+import {
+  PEERLY_PROFILE_STATUS_PENDING,
+  PEERLY_USECASE,
+} from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { WebsitesService } from '../../../websites/services/websites.service'
 import {
@@ -48,16 +53,19 @@ import { ExperimentRunsService } from '../../../agentExperiments/services/experi
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 
-const TCR_COMPLIANCE_CHECK_INTERVAL = process.env.TCR_COMPLIANCE_CHECK_INTERVAL
-  ? parseInt(process.env.TCR_COMPLIANCE_CHECK_INTERVAL)
-  : 12 * 60 * 60 // Defaults to 12 hrs
+// `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
+// env value yields NaN and falls back to the default rather than reaching
+// setInterval, which coerces NaN to ~1ms and hot-loops the sweep.
+const TCR_COMPLIANCE_CHECK_INTERVAL =
+  parseInt(process.env.TCR_COMPLIANCE_CHECK_INTERVAL ?? '') || 12 * 60 * 60 // 12 hrs
 
-const AGENTIC_KICKOFF_SWEEP_INTERVAL = process.env
-  .AGENTIC_KICKOFF_SWEEP_INTERVAL
-  ? parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL)
-  : 10 * 60
+const AGENTIC_KICKOFF_SWEEP_INTERVAL =
+  parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL ?? '') || 10 * 60
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
+
+const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
+  parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -163,6 +171,133 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
       }
     }
+  }
+
+  // The POLITICAL usecase is what finalizes a TCR registration, and it is only
+  // submitted by approve10DLCBrand — which today fires solely from the in-app
+  // PIN flow (submit-cv-pin). When Campaign Verify completes without that step
+  // running (the CV authority approved the candidate directly, or the in-app
+  // approve threw), the usecase is never submitted and the identity strands
+  // "loading" in Peerly. This sweep submits the usecase for any verified record
+  // that's missing one, healing both existing stranded records and any future
+  // stragglers. Only `submitted` records are candidates — `pending` means the
+  // usecase was already submitted (status is advanced after approve).
+  @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
+  private async sweepUnsubmittedUsecases() {
+    const candidates = await this.model.findMany({
+      where: {
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: { not: null },
+      },
+    })
+
+    for (const record of candidates) {
+      try {
+        await this.submitUsecaseIfVerified(record)
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[TCR Compliance] Failed to submit usecase for verified record',
+        )
+      }
+    }
+  }
+
+  private async submitUsecaseIfVerified(tcrCompliance: TcrCompliance) {
+    const { peerlyIdentityId } = tcrCompliance
+    if (!peerlyIdentityId) {
+      return
+    }
+
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: tcrCompliance.campaignId },
+    })
+    if (!campaign) {
+      return
+    }
+
+    // Idempotency guard. approve10DLCBrand advances the Peerly profile from
+    // `pending` to `waiting_to_finalize` (then `finalized`), so a non-`pending`
+    // profile already has its usecase submitted. get_usecases can't serve as
+    // this guard — it stays empty until `finalized`, so it would let an
+    // in-flight (`waiting_to_finalize`) record be re-submitted.
+    let profileResponse: PeerlyIdentityProfileResponseBody | null
+    try {
+      profileResponse = await this.peerlyIdentityService.getIdentityProfile(
+        peerlyIdentityId,
+        campaign,
+      )
+    } catch (err) {
+      // A deleted/orphaned Peerly identity 404s here; skip rather than letting
+      // it propagate and have the sweep re-select it every tick.
+      if (err instanceof NotFoundException) {
+        return
+      }
+      throw err
+    }
+    if (profileResponse?.profile?.status !== PEERLY_PROFILE_STATUS_PENDING) {
+      return
+    }
+
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+
+    // Two Campaign Verify completion paths both warrant submitting the usecase:
+    //  - VERIFIED: the candidate proved control of their contact info via PIN.
+    //    Mint a CV token, then approve with it.
+    //  - APPROVED: the CV authority approved the candidate directly, with no
+    //    candidate PIN (e.g. postal / expedited). create_cv_token 400s in this
+    //    state, but approve accepts an empty token.
+    // Any other status (REQUESTED / IN_REVIEW / REJECTED / WITHDRAWN) is not yet
+    // verifiable or is terminal — skip, which also keeps the sweep from
+    // 400-spamming Peerly (and the 10DLC Slack channel) for those records.
+    let campaignVerifyToken = ''
+    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
+      const token = await this.peerlyIdentityService.createCampaignVerifyToken(
+        peerlyIdentityId,
+        campaign,
+      )
+      if (!token) {
+        return
+      }
+      campaignVerifyToken = token
+    } else if (cvStatus !== PeerlyCvVerificationStatus.APPROVED) {
+      return
+    }
+
+    // On approve failure, mark the record `error` so the sweep's `submitted`
+    // filter stops re-selecting it every hour (each retry re-fires the
+    // bot10DlcCompliance alert from handleApiError). `error` is retryable — a
+    // re-submit through createAgentic resets it.
+    let approveResult: BrandApprovalResult | undefined
+    try {
+      approveResult = await this.submitCampaignVerifyToken(
+        tcrCompliance,
+        campaignVerifyToken,
+      )
+    } catch (err) {
+      await this.model.update({
+        where: { id: tcrCompliance.id },
+        data: { status: TcrComplianceStatus.error },
+      })
+      throw err
+    }
+
+    // submitCampaignVerifyToken returns undefined in non-prod (it short-circuits
+    // the Peerly approve). Only advance status when the usecase was actually
+    // submitted, so a non-prod record isn't promoted to `pending` (and then
+    // swept by bootstrapTcrComplianceCheck) for a usecase that doesn't exist.
+    if (approveResult === undefined) {
+      return
+    }
+
+    await this.model.update({
+      where: { id: tcrCompliance.id },
+      data: { status: TcrComplianceStatus.pending },
+    })
   }
 
   @Interval(TCR_COMPLIANCE_CHECK_INTERVAL * 1000) // This will run based on the environment variable
@@ -273,6 +408,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       fecCommitteeId,
       committeeType,
     } = tcrComplianceCreatePayload
+
+    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // campaign.placeId via Google Places (peerlyIdentity.service
+    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // compliance agent treats as transient and retries forever (campaign
+    // 325553). A 10DLC brand can't be registered without an address, so fail
+    // fast with a non-recoverable 4xx that names the real cause instead.
+    if (!campaign.placeId?.trim()) {
+      throw new BadRequestException(
+        'Cannot submit TCR registration to Peerly: the campaign has no ' +
+          'address on file (placeId missing). The candidate must add their ' +
+          'address before TCR registration can proceed.',
+      )
+    }
 
     const userFullName = getUserFullName(user)
     const { ballotLevel } = campaign.details as { ballotLevel?: string }
@@ -833,7 +982,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
     const campaign = await this.campaignsService.findUnique({
       where: { id: campaignId },
-      include: { user: true },
+      include: {
+        user: true,
+        campaignPositions: { include: { topIssue: true } },
+      },
     })
     if (!campaign || !campaign.user) {
       this.logger.warn(
@@ -871,6 +1023,36 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
+    // Peerly TCR submission resolves the postal address from campaign.placeId
+    // (peerlyIdentity.service getAddressByPlaceId). Without it the run publishes
+    // a site, reaches website_verified_live, then can't submit — and the agent
+    // reports `partial`, so the resume sweep re-dispatches a full paid run every
+    // few minutes until it gives up (~$10 burned per stuck candidate). Reject at
+    // kickoff so the candidate is told to add their address instead of looping.
+    if (!campaign.placeId?.trim()) {
+      this.logger.error(
+        { campaignId, tcrComplianceId },
+        '[TCR Compliance] Cannot dispatch compliance_setup: ' +
+          'campaign.placeId is missing; Peerly requires a postal address',
+      )
+      await this.model.updateMany({
+        where: { id: tcrComplianceId, agenticRunId: null },
+        data: { status: TcrComplianceStatus.error },
+      })
+      return
+    }
+
+    // The agent buys a domain and publishes this campaign's website but can't
+    // create one or author missing copy. Legacy-Pro candidates reach this flow
+    // without the pre-payment candidate-profile step that builds the site, so
+    // guarantee a publishable site before dispatch. Runs before the claim:
+    // same-campaign kickoffs are serialized by the FIFO message group, and a
+    // failure here redelivers cleanly with no claim to roll back.
+    await this.websitesService.ensureCompliancePublishableWebsite(
+      campaign.user,
+      campaign,
+    )
+
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
     // at-least-once SQS delivery (consumer crashes, redelivery, concurrent
     // workers). Pattern mirrors the Peerly submission claim above. The claim
@@ -897,9 +1079,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (claim.count === 0) {
       // Idempotency branches intentionally exclude FAILED from the skip path.
       // Per gp-api/CLAUDE.md "Idempotency check breadth", FAILED runs must
-      // remain eligible for re-dispatch — sweepStaleRuns flips RUNNING→FAILED
-      // at 45min, and dispatchRun writes RUNNING then flips to FAILED on
-      // SQS-send failure; including FAILED here would permanently strand both.
+      // remain eligible for re-dispatch — dispatchRun writes RUNNING then
+      // flips to FAILED on SQS-send failure, and a dead Fargate task is
+      // reconciled to FAILED by the gp-ai-projects ECS task-reaper; including
+      // FAILED here would permanently strand both.
       const current = await this.model.findUnique({
         where: { id: tcrComplianceId },
       })
@@ -1025,8 +1208,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Stamp the runId scoped to our claim timestamp. If dispatchRun exceeded
     // the TTL and a re-claimant took over and stamped its own runId, this
     // updateMany matches zero rows — we don't clobber the live claim. The
-    // orphaned experiment_run row this caller created is RUNNING; sweepStaleRuns
-    // in ExperimentRunsService will flip it to FAILED at 45min.
+    // orphaned experiment_run row this caller created is RUNNING; if its
+    // Fargate task dies it is reconciled to FAILED by the gp-ai-projects ECS
+    // task-reaper (there is no time-based stale sweeper in gp-api).
     const stamped = await this.model.updateMany({
       where: {
         id: tcrComplianceId,
@@ -1039,7 +1223,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       this.logger.error(
         { campaignId, tcrComplianceId, runId: run.runId },
         '[TCR Compliance] Claim expired before dispatch completed; ' +
-          'experiment_run is orphaned and will be FAILED by sweepStaleRuns',
+          'experiment_run is orphaned; a dead task is reconciled to FAILED ' +
+          'by the gp-ai-projects ECS task-reaper',
       )
       return
     }

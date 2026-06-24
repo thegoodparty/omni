@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -50,7 +50,15 @@ describe('ChiefOfStaffHandler', () => {
   let context: ChiefOfStaffContextService
   let port: PrioritiesToolPort
 
+  // The CoS chat is Claude-only and requires this key to run; web_search is
+  // gated on it, so set it for the tool-set assertions.
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+  })
+
   beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
     port = buildPort()
     store = {
       createScopedConversation: vi.fn(),
@@ -141,22 +149,23 @@ describe('ChiefOfStaffHandler', () => {
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
-    // No search provider injected -> web_search omitted.
+    // web_search is always present now (Anthropic native, gated at the LLM
+    // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
       'crud_priorities',
       'get_briefing',
       'list_briefings',
+      'web_search',
     ])
   })
 
-  it('includes web_search when a search provider is present', async () => {
+  it('includes web_search (Anthropic native, no provider needed)', async () => {
     const handler = new ChiefOfStaffHandler(
       store,
       context,
       buildBriefings(),
       port,
       [],
-      { search: vi.fn(() => Promise.resolve([])) },
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
@@ -183,7 +192,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildFeatures(true),
@@ -201,7 +209,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildFeatures(false),
@@ -220,7 +227,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildThrowingFeatures(),
@@ -240,7 +246,6 @@ describe('ChiefOfStaffHandler', () => {
       port,
       TEST_TABLES,
       undefined,
-      undefined,
       buildResolver(),
     )
     const ctx = await handler.loadContext('c1', USER_ID)
@@ -256,7 +261,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       [],
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
     )
@@ -277,7 +281,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       resolver,
     )
@@ -407,7 +410,6 @@ describe('ChiefOfStaffHandler', () => {
         buildBriefings(),
         port,
         [],
-        undefined,
         undefined,
         undefined,
         undefined,

@@ -27,10 +27,10 @@ function RadioGroupItem({
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
       className={cn(
-        'aspect-square size-5 shrink-0 rounded-full border border-border bg-background outline-none',
+        'aspect-square size-5 shrink-0 rounded-full border border-components-input-border bg-components-input-base outline-none',
         'transition-[border-color,border-width,box-shadow]',
-        'focus-visible:ring-[3px] focus-visible:ring-primary-focus',
-        'aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+        'focus-visible:ring-[3px] focus-visible:ring-components-input-focus',
+        'aria-invalid:border-destructive focus-visible:aria-invalid:ring-[3px] focus-visible:aria-invalid:ring-destructive-focus',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'data-[state=checked]:border-[6px] data-[state=checked]:border-primary',
         className,
@@ -66,7 +66,8 @@ function RadioGroupItemLabel({
       />
       <Label
         htmlFor={id}
-        className="flex cursor-pointer flex-col items-start gap-px font-normal leading-5 text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
+        variant="secondary"
+        className="flex cursor-pointer flex-col items-start gap-px peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
       >
         <span>{label}</span>
         {description && (

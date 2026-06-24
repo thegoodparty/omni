@@ -54,7 +54,20 @@ interface VoterDemographicsStepProps {
   office?: string
   showLocalNewsSources?: boolean
   headingsAsSubsections?: boolean
+  // Copy overrides for non-candidate contexts (e.g. the elected-official
+  // "serve" flow, which addresses constituents rather than voters). Each
+  // defaults to the Win/candidate wording so existing call sites are unchanged.
+  demographicsHeading?: string
+  totalLabel?: string
+  ageDistributionDescription?: string
+  topIssuesHeading?: string
+  topIssuesDescription?: string
 }
+
+const DEFAULT_DEMOGRAPHICS_HEADING = 'Voter Demographics'
+const DEFAULT_TOTAL_LABEL = 'Total Voters'
+const DEFAULT_AGE_DISTRIBUTION_DESCRIPTION =
+  "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger voters, and prioritizing mail and door-knocks for older ones."
 
 export const VoterDemographicsStep = ({
   ballotReadyPositionId,
@@ -65,6 +78,11 @@ export const VoterDemographicsStep = ({
   office,
   showLocalNewsSources = true,
   headingsAsSubsections = false,
+  demographicsHeading = DEFAULT_DEMOGRAPHICS_HEADING,
+  totalLabel = DEFAULT_TOTAL_LABEL,
+  ageDistributionDescription = DEFAULT_AGE_DISTRIBUTION_DESCRIPTION,
+  topIssuesHeading,
+  topIssuesDescription,
 }: VoterDemographicsStepProps): React.JSX.Element => {
   const query = useQuery(
     onboardingDistrictStatsQueryOptions({
@@ -112,7 +130,7 @@ export const VoterDemographicsStep = ({
   return (
     <div className="flex w-full flex-col items-stretch gap-6 text-left">
       <div className="space-y-2">
-        <HeadingTag className={headingClass}>Voter Demographics</HeadingTag>
+        <HeadingTag className={headingClass}>{demographicsHeading}</HeadingTag>
         {locationLabel ? (
           <p className="text-sm leading-6 text-muted-foreground">
             A snapshot of who lives, votes, and pays attention in{' '}
@@ -125,7 +143,7 @@ export const VoterDemographicsStep = ({
       </div>
 
       <NumberInsight
-        title="Total Voters"
+        title={totalLabel}
         value={chartData.totalConstituents || 0}
         icon={<UsersRound />}
         isLoading={isLoading}
@@ -137,7 +155,7 @@ export const VoterDemographicsStep = ({
         chartType="barList"
         percentage={true}
         title="Age Distribution"
-        description="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger voters, and prioritizing mail and door-knocks for older ones."
+        description={ageDistributionDescription}
         data={chartData.ageDistribution}
         isLoading={isLoading}
         error={error}
@@ -190,6 +208,8 @@ export const VoterDemographicsStep = ({
         state={state}
         office={office}
         headingsAsSubsections={headingsAsSubsections}
+        heading={topIssuesHeading}
+        description={topIssuesDescription}
       />
 
       {showLocalNewsSources ? (

@@ -2,6 +2,7 @@
 
 import { addDays, format, parse } from 'date-fns'
 import { Label } from '@styleguide'
+import { cn } from '@styleguide/lib/utils'
 import DateInputCalendar from '@shared/inputs/DateInputCalendar'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 
@@ -111,6 +112,25 @@ export const termDateError = (
   return null
 }
 
+// Scope GoodParty brand blue (the `primary` token already used across serve
+// onboarding CTAs and the progress bar) to THIS calendar only. The shared
+// <Calendar> defaults to neutral gray for its selected/today/focus states; we
+// override them here via descendant selectors on the day-picker root so the
+// shared component used by win onboarding and poll scheduling stays untouched.
+const BRAND_CALENDAR_CLASSNAME = cn(
+  'rounded-lg border shadow-sm',
+  // Selected day -> solid brand blue.
+  '[&_[data-selected-single=true]]:!bg-primary',
+  '[&_[data-selected-single=true]]:!text-primary-foreground',
+  '[&_[data-selected-single=true]]:hover:!bg-primary/90',
+  // Today -> soft brand-blue accent (selected still wins, see above).
+  '[&_[data-today=true]]:!bg-primary/10',
+  '[&_[data-today=true]]:!text-primary',
+  // Keyboard focus ring on day cells -> brand blue.
+  '[&_button[data-day]]:focus:!ring-primary/50',
+  '[&_button[data-day]]:focus-visible:!ring-primary/50',
+)
+
 /**
  * The two term-date calendars (start + end) with their disabled ranges and a
  * shared error line. Used by both the serve onboarding term-dates step and the
@@ -146,7 +166,8 @@ export const TermDatesFields = ({
             value={termStartDate}
             onChange={onStartChange}
             showTextInput
-            label="Term start"
+            label=""
+            calendarClassName={BRAND_CALENDAR_CLASSNAME}
             startMonth={calendarStart}
             endMonth={calendarEnd}
             disabled={startDisabled}
@@ -158,7 +179,8 @@ export const TermDatesFields = ({
             value={termEndDate}
             onChange={onEndChange}
             showTextInput
-            label="Term end"
+            label=""
+            calendarClassName={BRAND_CALENDAR_CLASSNAME}
             startMonth={calendarStart}
             endMonth={calendarEnd}
             disabled={endDisabled}

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ChatMessageRoleSchema, ChatScopeSchema } from "../generated/enums";
+import {
+  ChatMessageRoleSchema,
+  ChatMessageSegmentKindSchema,
+  ChatScopeSchema,
+} from "../generated/enums";
 
 // Scope-generic chat surface (Chief of Staff is the first consumer). Shared by
 // gp-api and gp-webapp. The SSE event shapes are lifted from the briefing
@@ -53,11 +57,25 @@ export type SendChatMessageRequest = z.infer<
 
 // --- Replay a conversation ---------------------------------------------------
 
+// One block of an assistant turn's display structure: a run of text, or a
+// single tool call. Consecutive `tool` segments are grouped into one pill row
+// by the UI. `ordinal` is implied by array position.
+export const ChatMessageSegmentSchema = z.object({
+  kind: ChatMessageSegmentKindSchema,
+  text: z.string().nullable().optional(),
+  toolName: z.string().nullable().optional(),
+});
+export type ChatMessageSegment = z.infer<typeof ChatMessageSegmentSchema>;
+
 export const ChatMessageSchema = z.object({
   id: z.string(),
   role: ChatMessageRoleSchema,
   content: z.string(),
   createdAt: z.coerce.date(),
+  // Present only for assistant turns that used tools (persisted display
+  // structure). Absent on older messages and pure-text turns — render
+  // `content` flat in that case.
+  segments: z.array(ChatMessageSegmentSchema).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 

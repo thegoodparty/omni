@@ -27,6 +27,7 @@ const TooltipOpenOnClickContext = React.createContext<{
 
 function Tooltip({
   openOnClick = false,
+  defaultOpen,
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root> & {
@@ -35,14 +36,19 @@ function Tooltip({
    * opens on hover and keyboard focus, and a tap on touch devices would
    * otherwise never show the tooltip; a second tap dismisses it). Manages
    * open state internally — don't combine with `open`/`onOpenChange`.
+   * `defaultOpen` seeds the initial state but is ignored after first mount.
    */
   openOnClick?: boolean
 }) {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpen] = React.useState(defaultOpen ?? false)
   if (!openOnClick) {
     return (
       <TooltipProvider>
-        <TooltipPrimitive.Root data-slot="tooltip" {...props}>
+        <TooltipPrimitive.Root
+          data-slot="tooltip"
+          defaultOpen={defaultOpen}
+          {...props}
+        >
           {children}
         </TooltipPrimitive.Root>
       </TooltipProvider>
@@ -112,7 +118,7 @@ function TooltipTrigger({
 
 function TooltipContent({
   className,
-  sideOffset = 0,
+  sideOffset = 4,
   showArrow = true,
   children,
   ...props
@@ -125,15 +131,16 @@ function TooltipContent({
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}
+        collisionPadding={8}
         className={cn(
-          'bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
+          'bg-components-tooltip-base text-components-tooltip-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit max-w-[min(24rem,calc(100vw-1rem))] origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
           className,
         )}
         {...props}
       >
         {children}
         {showArrow && (
-          <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+          <TooltipPrimitive.Arrow className="fill-components-tooltip-base z-50" />
         )}
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>

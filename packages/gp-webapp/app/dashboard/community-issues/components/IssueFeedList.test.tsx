@@ -1,8 +1,20 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import IssueFeedList from './IssueFeedList'
+
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [null, vi.fn(), false],
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
 
 const makeCard = (
   overrides: Partial<CommunityIssueCard> = {},

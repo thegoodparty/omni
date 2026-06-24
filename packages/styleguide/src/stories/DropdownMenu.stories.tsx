@@ -25,6 +25,7 @@ export default meta
 type Story = StoryObj<typeof DropdownMenu>
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -32,7 +33,6 @@ export const Default: Story = {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>My Account</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuItem>Profile</DropdownMenuItem>
         <DropdownMenuItem>Billing</DropdownMenuItem>
         <DropdownMenuItem>Team</DropdownMenuItem>
@@ -42,7 +42,8 @@ export const Default: Story = {
   ),
 }
 
-export const WithCheckbox: Story = {
+export const MultiSelect: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -50,7 +51,6 @@ export const WithCheckbox: Story = {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>View Options</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem checked>
           Show Toolbar
         </DropdownMenuCheckboxItem>
@@ -63,7 +63,8 @@ export const WithCheckbox: Story = {
   ),
 }
 
-export const WithRadioGroup: Story = {
+export const SingleSelect: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -71,7 +72,6 @@ export const WithRadioGroup: Story = {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuRadioGroup value="system">
           <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
@@ -83,6 +83,7 @@ export const WithRadioGroup: Story = {
 }
 
 export const WithSubMenu: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -90,7 +91,6 @@ export const WithSubMenu: Story = {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuItem>Edit</DropdownMenuItem>
         <DropdownMenuItem>Share</DropdownMenuItem>
         <DropdownMenuSub>
@@ -102,13 +102,14 @@ export const WithSubMenu: Story = {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+        <DropdownMenuItem>Delete</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   ),
 }
 
 export const WithIcons: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -116,7 +117,6 @@ export const WithIcons: Story = {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuItem>
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -128,7 +128,7 @@ export const WithIcons: Story = {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="mr-2 h-4 w-4"
+            className="size-4"
           >
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
           </svg>
@@ -145,7 +145,7 @@ export const WithIcons: Story = {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="mr-2 h-4 w-4"
+            className="size-4"
           >
             <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
             <polyline points="16 6 12 2 8 6" />
@@ -164,7 +164,7 @@ export const WithIcons: Story = {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="mr-2 h-4 w-4"
+            className="size-4"
           >
             <path d="M3 6h18" />
             <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />

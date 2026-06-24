@@ -1,13 +1,7 @@
 'use client'
 
-import { Alert, AlertDescription, Button, Card, CardContent } from '@styleguide'
-import {
-  CalendarCheck,
-  CircleAlert,
-  Target,
-  UsersRound,
-  Wand2,
-} from 'lucide-react'
+import { Button, Card, CardContent } from '@styleguide'
+import { CalendarCheck, Target, UsersRound, Wand2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -52,6 +46,7 @@ import {
 } from './VoterDemographicsStep'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
+import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
   BallotStatus,
   ManualOfficeForm,
@@ -150,14 +145,7 @@ const PartyAffiliationStep = ({
 }: PartyAffiliationStepProps): React.JSX.Element => {
   return (
     <div className="space-y-4">
-      {isMajorPartyAffiliation(value) ? (
-        <Alert variant="destructive" icon={<CircleAlert />}>
-          <AlertDescription>
-            Sorry, GoodParty.org is only for non-partisan and independent
-            candidates.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      {isMajorPartyAffiliation(value) ? <MajorPartyBlockedAlert /> : null}
       <RadioCardGroup
         name="party-affiliation"
         value={value}

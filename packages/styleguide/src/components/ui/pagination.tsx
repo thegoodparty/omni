@@ -43,36 +43,35 @@ function PaginationItem({ className, ...props }: React.ComponentProps<'li'>) {
 }
 
 const paginationLinkVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm border border-transparent px-3 text-sm font-normal text-foreground no-underline transition-colors outline-none hover:bg-base-accent focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent text-sm font-medium text-foreground no-underline transition-colors outline-none hover:bg-base-accent focus-visible:ring-primary-focus focus-visible:ring-[3px] aria-disabled:pointer-events-none aria-disabled:opacity-50',
   {
     variants: {
       isActive: {
-        true: 'border-base-border',
+        true: 'border-components-input-border hover:bg-muted',
         false: '',
       },
       size: {
-        xSmall: 'h-6',
-        small: 'h-8',
-        medium: 'h-10',
-        large: 'h-12',
+        small: 'size-8',
+        medium: 'size-10',
+        large: 'size-12',
       },
     },
     defaultVariants: {
       isActive: false,
-      size: 'small',
+      size: 'medium',
     },
   },
 )
 
 type PaginationLinkProps = {
   isActive?: boolean
-  size?: 'xSmall' | 'small' | 'medium' | 'large'
+  size?: 'small' | 'medium' | 'large'
 } & React.ComponentProps<'a'>
 
 function PaginationLink({
   className,
   isActive,
-  size = 'small',
+  size = 'medium',
   ...props
 }: PaginationLinkProps) {
   return (
@@ -93,11 +92,10 @@ function PaginationPrevious({
   return (
     <PaginationLink
       aria-label="Go to previous page"
-      size="medium"
-      className={cn('gap-1 px-2.5 sm:pl-2.5', className)}
+      className={cn('w-auto gap-1 px-2.5 sm:pl-2.5', className)}
       {...props}
     >
-      <ChevronLeftIcon />
+      <ChevronLeftIcon className="size-4" />
       <span className="hidden sm:block">Previous</span>
     </PaginationLink>
   )
@@ -110,28 +108,48 @@ function PaginationNext({
   return (
     <PaginationLink
       aria-label="Go to next page"
-      size="medium"
-      className={cn('gap-1 px-2.5 sm:pr-2.5', className)}
+      className={cn('w-auto gap-1 px-2.5 sm:pr-2.5', className)}
       {...props}
     >
       <span className="hidden sm:block">Next</span>
-      <ChevronRightIcon />
+      <ChevronRightIcon className="size-4" />
     </PaginationLink>
   )
 }
 
+const ellipsisSizeMap: Record<'small' | 'medium' | 'large', string> = {
+  small: 'size-8',
+  medium: 'size-10',
+  large: 'size-12',
+}
+
+const ellipsisIconSizeMap: Record<'small' | 'medium' | 'large', string> = {
+  small: 'size-3',
+  medium: 'size-4',
+  large: 'size-5',
+}
+
+type PaginationEllipsisProps = {
+  size?: 'small' | 'medium' | 'large'
+} & React.ComponentProps<'span'>
+
 function PaginationEllipsis({
   className,
+  size = 'medium',
   ...props
-}: React.ComponentProps<'span'>) {
+}: PaginationEllipsisProps) {
   return (
     <span
       aria-hidden
       data-slot="pagination-ellipsis"
-      className={cn('flex size-9 items-center justify-center', className)}
+      className={cn(
+        'flex items-center justify-center text-foreground',
+        ellipsisSizeMap[size],
+        className,
+      )}
       {...props}
     >
-      <MoreHorizontalIcon className="size-4" />
+      <MoreHorizontalIcon className={ellipsisIconSizeMap[size]} />
       <span className="sr-only">More pages</span>
     </span>
   )

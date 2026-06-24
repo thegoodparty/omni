@@ -519,6 +519,20 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       )
       return verificationStatus
     } catch (e) {
+      if (isAxiosError<{ status_code?: number }>(e)) {
+        // Peerly returns 400 with nested status_code: 404 when no CV request
+        // exists for this identity (mirrors getCampaignVerifyRequest). Treat as
+        // "no status" rather than alerting + throwing — callers handle null.
+        const is404 =
+          e.status === 404 ||
+          (e.status === 400 && e.response?.data?.status_code === 404)
+        if (is404) {
+          this.logger.debug(
+            `No Campaign Verify request found for identityId: ${peerlyIdentityId}`,
+          )
+          return null
+        }
+      }
       await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }

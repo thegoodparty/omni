@@ -2,10 +2,12 @@ import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
 import {
   Drawer,
+  DrawerBody,
   DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
+  DrawerHandle,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
@@ -13,7 +15,6 @@ import {
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-import { Textarea } from '../components/ui/textarea'
 
 const meta: Meta<typeof Drawer> = {
   title: 'Components/Drawer',
@@ -22,30 +23,30 @@ const meta: Meta<typeof Drawer> = {
 }
 
 export default meta
-type Story = StoryObj<typeof Drawer>
 
-type PlaygroundArgs = {
-  open: boolean
-  direction: 'top' | 'bottom' | 'left' | 'right'
-}
+type Direction = 'bottom' | 'top' | 'right' | 'left'
 
-export const Playground: StoryObj<PlaygroundArgs> = {
-  args: {
-    open: false,
-    direction: 'bottom',
-  },
+const directions: { value: Direction; label: string }[] = [
+  { value: 'bottom', label: 'Bottom' },
+  { value: 'top', label: 'Top' },
+  { value: 'right', label: 'Right' },
+  { value: 'left', label: 'Left' },
+]
+
+const hasHandle = (dir: Direction | undefined) => dir === 'bottom'
+
+export const Playground: StoryObj<typeof Drawer> = {
+  args: { open: false, direction: 'bottom' },
   argTypes: {
-    open: {
-      control: 'boolean',
-      description: 'Controlled open state.',
-    },
+    open: { table: { disable: true } },
     direction: {
       control: 'select',
-      options: ['top', 'bottom', 'left', 'right'],
+      options: ['bottom', 'right', 'top', 'left'],
+      description: 'Slide direction.',
     },
   },
-  render: ({ open, direction }) => {
-    const [, updateArgs] = useArgs()
+  render: ({ direction = 'bottom' }) => {
+    const [{ open }, updateArgs] = useArgs()
     return (
       <Drawer
         open={open}
@@ -56,20 +57,21 @@ export const Playground: StoryObj<PlaygroundArgs> = {
           <Button variant="outline">Open Drawer</Button>
         </DrawerTrigger>
         <DrawerContent>
+          {hasHandle(direction) && <DrawerHandle />}
           <DrawerHeader>
             <DrawerTitle>Drawer Title</DrawerTitle>
-            <DrawerDescription>
-              Toggle direction in Controls to see how the drawer slides in.
-            </DrawerDescription>
+            <DrawerDescription>Drawer description text.</DrawerDescription>
           </DrawerHeader>
-          <div className="p-4">
+          <DrawerBody>
             <p>Drawer content goes here.</p>
-          </div>
+          </DrawerBody>
           <DrawerFooter>
+            <Button type="button">Submit</Button>
             <DrawerClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
             </DrawerClose>
-            <Button>Submit</Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -77,101 +79,167 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
 }
 
-export const Default: Story = {
+export const WithForm: StoryObj = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Drawer>
       <DrawerTrigger asChild>
-        <Button variant="outline">Open Drawer</Button>
+        <Button variant="outline">Edit Profile</Button>
       </DrawerTrigger>
       <DrawerContent>
+        <DrawerHandle />
         <DrawerHeader>
-          <DrawerTitle>Drawer Title</DrawerTitle>
+          <DrawerTitle>Edit Profile</DrawerTitle>
           <DrawerDescription>
-            This is a basic drawer component.
+            Make changes to your profile here. Click save when you&apos;re done.
           </DrawerDescription>
         </DrawerHeader>
-        <div className="p-4">
-          <p>Drawer content goes here.</p>
-        </div>
-        <DrawerFooter>
-          <DrawerClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DrawerClose>
-          <Button>Submit</Button>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
-  ),
-}
-
-export const WithForm: Story = {
-  render: () => (
-    <Drawer>
-      <DrawerTrigger asChild>
-        <Button variant="outline">Open Form Drawer</Button>
-      </DrawerTrigger>
-      <DrawerContent>
-        <DrawerHeader>
-          <DrawerTitle>Create New Item</DrawerTitle>
-          <DrawerDescription>
-            Fill in the details to create a new item.
-          </DrawerDescription>
-        </DrawerHeader>
-        <form className="grid gap-4 p-4">
+        <form
+          id="drawer-form"
+          className="grid gap-4 p-4"
+          onSubmit={(e) => e.preventDefault()}
+        >
           <div className="grid gap-2">
             <Label htmlFor="drawer-name">Name</Label>
-            <Input id="drawer-name" placeholder="Enter name" />
+            <Input id="drawer-name" placeholder="Placeholder" />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="drawer-description">Description</Label>
-            <Textarea
-              id="drawer-description"
-              placeholder="Enter description"
-              rows={4}
-            />
+            <Label htmlFor="drawer-username">Username</Label>
+            <Input id="drawer-username" placeholder="Placeholder" />
           </div>
         </form>
         <DrawerFooter>
+          <Button type="submit" form="drawer-form">
+            Save changes
+          </Button>
           <DrawerClose asChild>
-            <Button variant="outline">Cancel</Button>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
           </DrawerClose>
-          <Button type="submit">Create Item</Button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
   ),
 }
 
-export const WithCustomHeight: Story = {
+export const Directions: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-wrap gap-4">
+      {directions.map(({ value, label }) => (
+        <div key={value} className="flex flex-col gap-2">
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            {label}
+          </p>
+          <Drawer direction={value}>
+            <DrawerTrigger asChild>
+              <Button variant="outline">Open {label}</Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              {hasHandle(value) && <DrawerHandle />}
+              <DrawerHeader>
+                <DrawerTitle>{label} Drawer</DrawerTitle>
+                <DrawerDescription>
+                  direction=&quot;{value}&quot;
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerFooter>
+                <Button type="button">Confirm</Button>
+                <DrawerClose asChild>
+                  <Button type="button" variant="outline">
+                    Cancel
+                  </Button>
+                </DrawerClose>
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
+        </div>
+      ))}
+    </div>
+  ),
+}
+
+export const Overflow: StoryObj = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Drawer>
       <DrawerTrigger asChild>
-        <Button variant="outline">Open Tall Drawer</Button>
+        <Button variant="outline">Open with Long Content</Button>
       </DrawerTrigger>
-      <DrawerContent className="h-[80vh]">
+      <DrawerContent>
+        <DrawerHandle />
         <DrawerHeader>
-          <DrawerTitle>Tall Drawer</DrawerTitle>
+          <DrawerTitle>Long Content</DrawerTitle>
           <DrawerDescription>
-            This drawer has a custom height of 80vh.
+            DrawerBody scrolls independently — header and footer stay fixed.
           </DrawerDescription>
         </DrawerHeader>
-        <div className="p-4">
-          <div className="space-y-4">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="rounded-lg border p-4">
-                <h3 className="font-medium">Section {i + 1}</h3>
-                <p className="text-sm text-muted-foreground">
-                  This is section {i + 1} of the drawer content.
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <DrawerBody>
+          {Array.from({ length: 20 }, (_, i) => (
+            <p
+              key={i}
+              className="py-2 text-sm border-b border-border last:border-0"
+            >
+              Item {i + 1} — scrollable content row
+            </p>
+          ))}
+        </DrawerBody>
         <DrawerFooter>
+          <Button type="button">Confirm</Button>
           <DrawerClose asChild>
-            <Button variant="outline">Close</Button>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
           </DrawerClose>
         </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  ),
+}
+
+export const Anatomy: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Drawer>
+      <DrawerTrigger asChild>
+        <Button variant="outline">Open Anatomy</Button>
+      </DrawerTrigger>
+      <DrawerContent>
+        <div className="border-border border-b border-dashed">
+          <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
+            DrawerHandle
+          </p>
+          <DrawerHandle />
+        </div>
+        <div className="border-border border-b border-dashed">
+          <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
+            DrawerHeader
+          </p>
+          <DrawerHeader>
+            <DrawerTitle>DrawerTitle</DrawerTitle>
+            <DrawerDescription>DrawerDescription</DrawerDescription>
+          </DrawerHeader>
+        </div>
+        <div className="border-border border-b border-dashed">
+          <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
+            DrawerBody
+          </p>
+          <DrawerBody className="text-sm">Body content goes here.</DrawerBody>
+        </div>
+        <div className="border-border border-dashed">
+          <p className="text-muted-foreground px-4 pt-2 text-xs font-medium uppercase tracking-wide">
+            DrawerFooter
+          </p>
+          <DrawerFooter>
+            <Button type="button">Primary Action</Button>
+            <DrawerClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </div>
       </DrawerContent>
     </Drawer>
   ),

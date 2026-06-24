@@ -53,6 +53,14 @@ export const DispatchResponseSchema = z.object({
   skipped: z.number(),
 })
 
+export const SelfDispatchRequestSchema = z.object({
+  type: z.enum(['top_community_issues', 'trending_issues']),
+})
+
+export class SelfDispatchRequestDto extends createZodDto(
+  SelfDispatchRequestSchema,
+) {}
+
 const IssueIdParamSchema = z.object({ id: z.string() })
 
 export class IssueIdParamDto extends createZodDto(IssueIdParamSchema) {}

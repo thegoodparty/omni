@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
 const eligibility = (reelectionOfficeSlug: string | null) => ({
@@ -51,6 +52,24 @@ describe('FollowOnFlow', () => {
       screen.getByText("I'm running for the same office"),
     ).toBeInTheDocument()
     expect(screen.getByLabelText(/same office/i)).toBeChecked()
+  })
+
+  it('exits to the dashboard when Back is clicked on the intent step', async () => {
+    vi.mocked(router.push!).mockClear()
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
+
+    const backButton = await screen.findByRole('button', { name: /back/i })
+    // The first step has no in-flow predecessor, so Back leaves the flow
+    // rather than trapping the user on it.
+    expect(backButton).toBeEnabled()
+    fireEvent.click(backButton)
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
   it('skips the intent screen for a candidate with no held office', async () => {
@@ -115,8 +134,8 @@ describe('FollowOnFlow', () => {
     })
 
     // Direct ?intent=same-office URL with no ?from=: Continue must stay
-    // disabled rather than firing a request the server would 400 (Back is
-    // disabled on this first step, so there'd be no way out).
+    // disabled rather than firing a request the server would 400. Back still
+    // offers a way out (it exits to the dashboard on this first step).
     render(<FollowOnFlow intent="same-office" />)
 
     expect(

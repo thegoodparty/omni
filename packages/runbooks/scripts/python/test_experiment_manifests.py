@@ -411,6 +411,8 @@ def test_compliance_setup_output_schema_accepts_recovery_loop_exits():
         **_empty_subobjects(),
         "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
                    "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "website": {"url": "https://votedoeNov2026.run", "vanity_path": "votedoe",
+                    "published_at": "2026-05-23T10:01:30Z", "verified_live_at": ""},
         "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
                             "publish_website"],
         "skipped_steps": [],

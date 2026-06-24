@@ -208,3 +208,14 @@ For Radix-style root + parts, the `render` escape hatch is correct — children 
 #### `play` functions
 
 Use only for interaction examples worth testing (click trigger, verify content appears). Optional, not required. The `@storybook/addon-interactions` addon is not installed — import test utilities from `storybook/test`, not `@storybook/test`.
+
+### Component color tokens
+
+Every color in a component — background, border, text, focus ring — must come from a theme semantic token. Never use raw palette tokens (`brand-midnight-*`, `brand-blue-*`, `tw-slate-*`), hardcoded hex, or Tailwind default colors directly in component `className` strings.
+
+The theme token families are: `primary`, `secondary`, `tertiary`, `destructive`, `success`, `info`. Each has base, `-light`, `-dark`, `-foreground`, and `-focus` variants. Pick the family whose base color matches the component's visual role.
+
+- **Selected/active state:** use the `-dark` variant — `bg-tertiary-dark`, `border-tertiary-dark`, `text-tertiary-foreground`
+- **Hover on a colored state:** apply opacity to the base token, not a separate token — `hover:bg-tertiary-dark/90`
+- **Focus ring:** use the `-focus` variant of the same family — `ring-tertiary-focus`. Never use `ring-ring` — it is a shadcn default with no semantic meaning in this system (resolves to neutral-500 in dark mode).
+- **Adding a missing focus utility:** if `ring-{family}-focus` doesn't exist yet, add `--color-{family}-focus: var(--theme-{family}-focus)` to `tailwind-theme.css` alongside the other entries for that family before using it.

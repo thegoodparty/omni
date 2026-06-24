@@ -2,6 +2,7 @@
 
 import { Badge, Skeleton } from '@styleguide'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
+import StaffDispatchButtons from './StaffDispatchButtons'
 
 type CommunityIssueListResponse = {
   issues: CommunityIssueCard[]
@@ -108,6 +109,7 @@ const IssueFeedList = ({
   return (
     <div className="flex flex-col gap-8 p-6">
       <h1 className="text-2xl font-bold text-foreground">Community Issues</h1>
+      <StaffDispatchButtons />
       <FeedSection title="Top community issues" feed={topCommunity} showRank />
       <FeedSection title="Trending" feed={trending} showRank={false} />
     </div>

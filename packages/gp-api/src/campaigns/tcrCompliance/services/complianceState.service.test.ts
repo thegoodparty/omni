@@ -98,18 +98,7 @@ describe('deriveComplianceStage', () => {
     ).toBe(ComplianceStage.pending_website_live)
   })
 
-  it('returns awaiting_pin when website is live and TCR was submitted to Peerly', () => {
-    expect(
-      deriveComplianceStage(
-        mockCampaign(),
-        mockWebsite(),
-        mockDomain(),
-        mockTcr({ peerlyIdentityId: 'peerly-123' }),
-      ),
-    ).toBe(ComplianceStage.awaiting_pin)
-  })
-
-  it('returns awaiting_pin when website is live even without peerlyIdentityId', () => {
+  it('returns awaiting_pin when website is live and TCR status is submitted', () => {
     expect(
       deriveComplianceStage(
         mockCampaign(),

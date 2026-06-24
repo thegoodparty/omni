@@ -29,7 +29,13 @@ export type ExperimentRunDispatchInput<
   priority?: DispatchPriority
 }
 
-export const MAX_RESUME_ATTEMPTS = 48
+// Each resume is a full paid agent run (~$1). The slowest legitimate
+// compliance_setup completion observed in prod used 5 resume attempts (a site
+// awaiting DNS propagation); everything else completes within 1. Capping at 5
+// bounds a stuck run to ~6 runs (~$6) instead of ~$48, and — because the agent
+// otherwise tends to give up around attempt 7 with a silent terminal failure —
+// ensures the exhaustion path (and its Slack alert) actually fires on a loop.
+export const MAX_RESUME_ATTEMPTS = 5
 // Drain the resumable backlog incrementally across ticks so a post-pause
 // surge can't load an unbounded result set or overrun the 5-minute interval.
 const RESUME_SWEEP_BATCH_SIZE = 100
@@ -340,7 +346,7 @@ export class ExperimentRunsService extends createPrismaBase(
         // The cron fires on every replica; only the one whose update actually
         // terminalized the row (count > 0) alerts, so the failure isn't
         // re-announced each tick. Without this the run dies silently after
-        // ~24h of retries — no log, no Slack, no human in the loop.
+        // exhausting its resume budget — no log, no Slack, no human in the loop.
         if (count > 0) {
           await this.alertMaxResumeExhausted(run)
         }

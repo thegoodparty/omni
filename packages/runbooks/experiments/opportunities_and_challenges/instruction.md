@@ -28,6 +28,7 @@ Produce the Opportunities and Challenges of a candidate's campaign plan: up to 3
 - `other_party` (string|null): candidate party when affiliation is "Other".
 - `campaign_strategy_context` (object): the GENERAL-election context (fields below). We are focused on the general elections.
 - `campaign_primary_strategy_context` (object|null): the PRIMARY-stage roster only (fields below); null if no primary. Not the campaign we are targeting, but data may be valuable.
+- `campaign_story` (object): the candidate's own story (fields below) — first-person positioning that guides which opportunities/challenges to surface and how to frame them. Any field may be null when unwritten.
 
 **`campaign_strategy_context` (general election)**
 - `candidate_count` (int): count of the general roster.
@@ -54,6 +55,10 @@ Produce the Opportunities and Challenges of a candidate's campaign plan: up to 3
 - `candidate_count` (int): count of the primary roster.
 - `candidates[]`: primary roster, same row shape as the general candidates.
 
+**`campaign_story` (the candidate's own framing)**
+- `why` (string|null): why the candidate is running.
+- `background` (string|null): the candidate's background, career, community ties.
+- `issues` (string|null): the issues the candidate will fight for.
 
 ## CRITICAL RULES
 
@@ -69,6 +74,8 @@ Produce the Opportunities and Challenges of a candidate's campaign plan: up to 3
 3. `pmf_runtime.http.get(url)` (browser render) is a LAST RESORT - only when `head` returns 403/405 on a real site or you must read the page body.
 
 **Opponent data is provisional - do NOT build bullets on it.** The roster in `campaign_strategy_context` (`candidate_count`, `candidates[]`, and each candidate's `is_incumbent`) is currently incomplete and lags reality; who is actually running is owned by a separate opposition-research process, not this one. Do NOT base any opportunity or challenge on the number of opponents, whether it is an open seat, or whether anyone is an incumbent, as read from this roster. Build every bullet from the reliable race numbers (`win_number_effective`, `projected_turnout`, `contacts_needed_estimate`, `registered_voters`, election dates, `number_of_seats`, `office_level`/`office_type`, `state`, `partisan_type`) and from web search. If you want to make a point about the field (open seat, crowded race, a strong incumbent), confirm it with a web search and cite that source - never assert it from the provided roster.
+
+**`campaign_story` shapes selection and voice, not facts.** The candidate's `campaign_story` (why/background/issues) tells you WHICH opportunities/challenges matter to this candidate and how to frame them in their voice — lean toward signals that connect to the issues and background they care about. It is NOT a factual source: never present story content as an external claim, never cite it, and never build a bullet whose substance rests on it. Every bullet's facts still come from the reliable race numbers (cite `GoodParty.org Data`) or a 200-verified web source. Treat null/empty story fields as "no steer."
 
 **Bullet-content rules (every opportunity and challenge string):**
 - Plain, direct U.S. English. **No em dashes.** No jargon.
@@ -102,6 +109,10 @@ print("win_number_effective:", c.get("win_number_effective"), "| projected_turno
 print("contacts_needed_estimate:", c.get("contacts_needed_estimate"))
 print("registered_voters:", c.get("registered_voters"))
 print("general:", c.get("general_election_date"), "| primary:", c.get("primary_election_date"))
+s = p.get("campaign_story") or {}
+print("story why:", s.get("why"))
+print("story background:", s.get("background"))
+print("story issues:", s.get("issues"))
 # Do NOT print candidate_count or the candidates[] roster (incl. is_incumbent):
 # the opponent-data rule forbids building bullets on them (opposition research
 # owns the field). Read only the reliable race numbers above.

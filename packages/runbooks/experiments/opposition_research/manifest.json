@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "opposition_research",
-  "version": 9,
+  "version": 10,
   "model": "sonnet",
   "max_turns": 30,
   "timeout_seconds": 600,
@@ -13,7 +13,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Opposition Research input params",
     "type": "object",
-    "additionalProperties": false,
+    "additionalProperties": true,
     "required": [
       "race_id",
       "user_email",
@@ -301,6 +301,39 @@
                 }
               }
             }
+          }
+        }
+      },
+      "campaign_story": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The candidate's own campaign story, captured on the Campaign Story page and hydrated by gp-api before dispatch: why they're running, their background, and the issues they'll fight for. First-person positioning context for the candidate ('you'). A field is null when the candidate hasn't written it yet - treat null or empty as 'not provided' and never invent content. This is the candidate's own framing, NOT opponent data.",
+        "required": [
+          "why",
+          "background",
+          "issues"
+        ],
+        "properties": {
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the candidate is running - the moment, people, or conviction behind the campaign."
+          },
+          "background": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The candidate's background: career, community ties, and the personal story behind the candidacy."
+          },
+          "issues": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The concrete issues the candidate will fight for in their first term."
           }
         }
       }

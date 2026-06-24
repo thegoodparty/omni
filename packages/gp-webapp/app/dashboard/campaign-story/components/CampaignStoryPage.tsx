@@ -57,11 +57,8 @@ const CampaignStoryPage = ({
               Campaign Story
             </h3>
             <p className="text-base text-muted-foreground">
-              This is the foundation we build everything else on: your why, your
-              background, and the issues you&apos;ll fight for. The answers you
-              give us here personalize your campaign plan, your stump speech,
-              and the messages we draft for voters. Tap any answer to edit it
-              directly, or let your Campaign Manager help you sharpen it.
+              This is necessary to personalize your Campaign Plan, Campaign
+              Tracker, and your GoodParty.org experience.
             </p>
           </section>
 

@@ -19,7 +19,7 @@ import {
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
-import type { ChatStoreService } from './chatStore.prisma'
+import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 
 const DEFAULT_SYS = 'sys'
@@ -39,6 +39,7 @@ interface AppendArgs {
   role: ChatMessageRole
   content: string
   clientMessageId?: string
+  segments?: PersistedSegment[]
 }
 
 class FakeChatStore {
@@ -49,6 +50,7 @@ class FakeChatStore {
   public lastListRecentLimit: number | undefined
   public listRecentCalls = 0
   public deletedBeforeUserAppend = false
+  public lastAppendedSegments: PersistedSegment[] | undefined
 
   seedConversation(seed: FakeConversationSeed): ChatConversation {
     const row: ChatConversation = {
@@ -142,6 +144,7 @@ class FakeChatStore {
 
   appendMessage(args: AppendArgs): Promise<ChatMessage> {
     this.events.push(`appendMessage:${args.role}`)
+    if (args.segments !== undefined) this.lastAppendedSegments = args.segments
     if (args.clientMessageId !== undefined) {
       const list = this.messagesByConversation.get(args.conversationId) ?? []
       const existing = list.find(
@@ -607,6 +610,39 @@ describe('ChatStreamService', () => {
         },
         { type: 'text', delta: 'after' },
       ])
+    })
+
+    it('assembles ordered text/tool segments and persists them', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        { kind: 'text', delta: 'before ' },
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'goodparty' },
+          output: { results: ['r1'] },
+        },
+        { kind: 'text', delta: 'after' },
+      ])
+
+      await collect(
+        service.stream(baseStreamArgs({ tools: { web_search: fakeTool } })),
+      )
+
+      expect(store.lastAppendedSegments).toEqual([
+        { kind: 'text', text: 'before ' },
+        { kind: 'tool', toolName: 'web_search' },
+        { kind: 'text', text: 'after' },
+      ])
+    })
+
+    it('persists no segments for a pure-text turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'just text' }])
+
+      await collect(service.stream(baseStreamArgs()))
+
+      expect(store.lastAppendedSegments).toBeUndefined()
     })
   })
 

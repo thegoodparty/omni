@@ -19,6 +19,8 @@ const mockElectedOffice: ElectedOffice = {
   party: null,
   pledgedAt: null,
   onboardingCompletedAt: null,
+  selfReported: false,
+  onboardingStep: null,
 }
 
 describe('ElectedOfficeDisplaySection', () => {

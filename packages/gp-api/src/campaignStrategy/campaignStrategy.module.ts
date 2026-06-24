@@ -4,6 +4,7 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { CampaignStrategyController } from './campaignStrategy.controller'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
 import { CommunityEventsPersister } from './services/communityEvents.persister'
@@ -19,6 +20,7 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
     ElectionsModule,
     AgentExperimentsModule,
     AwsModule,
+    CampaignStoryModule,
   ],
   controllers: [CampaignStrategyController],
   providers: [

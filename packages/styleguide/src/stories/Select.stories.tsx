@@ -1,3 +1,4 @@
+import * as React from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
 import {
@@ -14,13 +15,22 @@ const meta: Meta<typeof Select> = {
   title: 'Components/Select',
   component: Select,
   tags: ['autodocs'],
-  argTypes: {
-    disabled: { control: 'boolean' },
-  },
 }
 
 export default meta
 type Story = StoryObj<typeof Select>
+
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    {children}
+  </p>
+)
+
+const FRUITS = ['apple', 'banana', 'blueberry', 'grapes', 'pineapple']
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
 
 type PlaygroundArgs = {
   value: string
@@ -37,9 +47,10 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   argTypes: {
     value: {
       control: 'select',
-      options: ['', 'apple', 'banana', 'blueberry', 'grapes', 'pineapple'],
+      options: ['', ...FRUITS],
       description: 'Controlled selection. Empty string means nothing selected.',
     },
+    disabled: { control: 'boolean' },
     placeholder: { control: 'text' },
   },
   render: ({ value, disabled, placeholder }) => {
@@ -56,11 +67,11 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         <SelectContent>
           <SelectGroup>
             <SelectLabel>Fruits</SelectLabel>
-            <SelectItem value="apple">Apple</SelectItem>
-            <SelectItem value="banana">Banana</SelectItem>
-            <SelectItem value="blueberry">Blueberry</SelectItem>
-            <SelectItem value="grapes">Grapes</SelectItem>
-            <SelectItem value="pineapple">Pineapple</SelectItem>
+            {FRUITS.map((f) => (
+              <SelectItem key={f} value={f}>
+                {capitalize(f)}
+              </SelectItem>
+            ))}
           </SelectGroup>
         </SelectContent>
       </Select>
@@ -68,84 +79,209 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   },
 }
 
-export const Default: Story = {
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Select>
-      <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Select a fruit" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Fruits</SelectLabel>
-          <SelectItem value="apple">Apple</SelectItem>
-          <SelectItem value="banana">Banana</SelectItem>
-          <SelectItem value="blueberry">Blueberry</SelectItem>
-          <SelectItem value="grapes">Grapes</SelectItem>
-          <SelectItem value="pineapple">Pineapple</SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+    <div className="flex flex-col gap-6">
+      <div>
+        <SectionLabel>Default</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select a fruit" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Fruits</SelectLabel>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>With groups</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[280px]">
+            <SelectValue placeholder="Select a framework" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Frontend</SelectLabel>
+              <SelectItem value="react">React</SelectItem>
+              <SelectItem value="vue">Vue</SelectItem>
+              <SelectItem value="angular">Angular</SelectItem>
+            </SelectGroup>
+            <SelectGroup>
+              <SelectLabel>Backend</SelectLabel>
+              <SelectItem value="node">Node.js</SelectItem>
+              <SelectItem value="django">Django</SelectItem>
+              <SelectItem value="rails">Ruby on Rails</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
   ),
 }
 
-export const WithGroups: Story = {
+// Active and Focus are interactive pseudo-states (:focus / :focus-visible) that
+// can't be forced statically, so those two rows simulate the trigger's output
+// with explicit token classes. Active = mouse focus (border only). Focus =
+// keyboard focus (border + ring). The real trigger applies these via
+// focus:/focus-visible: variants on the same tokens.
+export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Select>
-      <SelectTrigger className="w-[280px]">
-        <SelectValue placeholder="Select a framework" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Frontend</SelectLabel>
-          <SelectItem value="react">React</SelectItem>
-          <SelectItem value="vue">Vue</SelectItem>
-          <SelectItem value="angular">Angular</SelectItem>
-        </SelectGroup>
-        <SelectGroup>
-          <SelectLabel>Backend</SelectLabel>
-          <SelectItem value="node">Node.js</SelectItem>
-          <SelectItem value="django">Django</SelectItem>
-          <SelectItem value="rails">Ruby on Rails</SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  ),
-}
-
-export const Disabled: Story = {
-  render: () => (
-    <Select disabled>
-      <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Select an option" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Options</SelectLabel>
-          <SelectItem value="option1">Option 1</SelectItem>
-          <SelectItem value="option2">Option 2</SelectItem>
-          <SelectItem value="option3">Option 3</SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  ),
-}
-
-export const WithDisabledItems: Story = {
-  render: () => (
-    <Select>
-      <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Select a plan" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Plans</SelectLabel>
-          <SelectItem value="free">Free</SelectItem>
-          <SelectItem value="pro">Pro</SelectItem>
-          <SelectItem value="enterprise" disabled>
-            Enterprise
-          </SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+    <div className="flex flex-col gap-6">
+      <div>
+        <SectionLabel>Default (unselected)</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>Active (mouse)</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[180px] border-components-input-active">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>Focus (keyboard)</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[180px] border-components-input-active ring-[3px] ring-components-input-focus">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>Selected</SectionLabel>
+        <Select defaultValue="apple">
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>Disabled</SectionLabel>
+        <Select disabled>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {FRUITS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {capitalize(f)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>With disabled item</SectionLabel>
+        <Select>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select a plan" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Plans</SelectLabel>
+              <SelectItem value="free">Free</SelectItem>
+              <SelectItem value="pro">Pro</SelectItem>
+              <SelectItem value="enterprise" disabled>
+                Enterprise
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <SectionLabel>Error</SectionLabel>
+        <div className="grid gap-1.5">
+          <Select>
+            <SelectTrigger className="w-[180px]" aria-invalid>
+              <SelectValue placeholder="Select an option" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {FRUITS.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {capitalize(f)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-destructive">Please select an option.</p>
+        </div>
+      </div>
+      <div>
+        <SectionLabel>Error focused (keyboard)</SectionLabel>
+        <div className="grid gap-1.5">
+          <Select>
+            <SelectTrigger
+              className="w-[180px] ring-[3px] ring-destructive-focus"
+              aria-invalid
+            >
+              <SelectValue placeholder="Select an option" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {FRUITS.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {capitalize(f)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-destructive">Please select an option.</p>
+        </div>
+      </div>
+    </div>
   ),
 }

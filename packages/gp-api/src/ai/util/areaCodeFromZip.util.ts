@@ -140,7 +140,9 @@ export class AreaCodeFromZipService {
         .replace(/```\n?/g, '')
         .trim()
     } catch (error) {
-      this.logger.error(
+      // Non-fatal: caller falls back to default job geography when this returns
+      // null. Logged at warn so transient LLM failures don't page as errors.
+      this.logger.warn(
         `Error calling OpenAI API for area codes (zip ${zipCode}): ${error}`,
       )
       return null

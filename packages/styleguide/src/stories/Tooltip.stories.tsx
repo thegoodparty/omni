@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
+import { expect, userEvent, within } from 'storybook/test'
 import { useArgs } from 'storybook/preview-api'
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '../components/ui/tooltip'
 import { Button } from '../components/ui/button'
@@ -22,18 +22,23 @@ type PlaygroundArgs = {
   open: boolean
   side: 'top' | 'right' | 'bottom' | 'left'
   delayDuration: number
+  content: string
+  openOnClick: boolean
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
-    open: false,
+    open: true,
     side: 'top',
     delayDuration: 200,
+    content: 'Add to library',
+    openOnClick: false,
   },
   argTypes: {
     open: {
       control: 'boolean',
       description: 'Controlled open state.',
+      if: { arg: 'openOnClick', truthy: false },
     },
     side: {
       control: 'select',
@@ -43,30 +48,42 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: { type: 'number', min: 0, max: 2000, step: 50 },
       description: 'Delay before the tooltip appears, in ms.',
     },
+    content: {
+      control: 'text',
+      description: 'Tooltip text content.',
+    },
+    openOnClick: {
+      control: 'boolean',
+      description: 'Also open on click/tap — useful for touch devices.',
+    },
   },
-  render: ({ open, side, delayDuration }) => {
+  render: ({ open, side, delayDuration, content, openOnClick }) => {
     const [, updateArgs] = useArgs()
     return (
-      <TooltipProvider delayDuration={delayDuration}>
+      <div className="flex items-center justify-center py-16">
         <Tooltip
-          open={open}
-          onOpenChange={(next) => updateArgs({ open: next })}
+          {...(!openOnClick
+            ? { open, onOpenChange: (next) => updateArgs({ open: next }) }
+            : {})}
+          openOnClick={openOnClick}
+          delayDuration={delayDuration}
         >
           <TooltipTrigger asChild>
             <Button variant="outline">Hover me</Button>
           </TooltipTrigger>
           <TooltipContent side={side}>
-            <p>Add to library</p>
+            <p>{content}</p>
           </TooltipContent>
         </Tooltip>
-      </TooltipProvider>
+      </div>
     )
   },
 }
 
-export const Default: Story = {
+export const TriggerTypes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <TooltipProvider>
+    <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="outline">Hover me</Button>
@@ -75,13 +92,6 @@ export const Default: Story = {
           <p>Add to library</p>
         </TooltipContent>
       </Tooltip>
-    </TooltipProvider>
-  ),
-}
-
-export const WithIcon: Story = {
-  render: () => (
-    <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="ghost" size="small">
@@ -92,88 +102,110 @@ export const WithIcon: Story = {
           <p>Add to favorites</p>
         </TooltipContent>
       </Tooltip>
-    </TooltipProvider>
+    </div>
   ),
 }
 
-export const Multiple: Story = {
+export const Sides: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <TooltipProvider>
-      <div className="flex gap-4">
-        <Tooltip>
+    <div className="grid grid-cols-2 place-items-center gap-16 py-8">
+      {(['top', 'bottom', 'left', 'right'] as const).map((side) => (
+        <Tooltip key={side} open>
           <TooltipTrigger asChild>
-            <Button variant="outline">Copy</Button>
+            <Button variant="outline" className="capitalize">
+              {side}
+            </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            <p>Copy to clipboard</p>
+          <TooltipContent side={side}>
+            <p>Tooltip on {side}</p>
           </TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline">Share</Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Share with others</p>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline">Delete</Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Delete permanently</p>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
+      ))}
+    </div>
   ),
+}
+
+export const Disabled: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex items-center justify-center py-16">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex">
+            <Button variant="outline" disabled className="pointer-events-none">
+              Disabled action
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>You don&apos;t have permission to do this</p>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const span = canvas.getByText('Disabled action').closest('span')!
+    await userEvent.hover(span)
+    await expect(
+      within(document.body).findByText("You don't have permission to do this"),
+    ).resolves.toBeVisible()
+  },
 }
 
 export const OpenOnClick: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Tooltip openOnClick disableHoverableContent>
-      <TooltipTrigger className="cursor-pointer underline decoration-dotted">
-        Campaign plan
-      </TooltipTrigger>
-      <TooltipContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        showArrow={false}
-        className="flex w-80 items-start gap-4 rounded-xl bg-white p-4 text-components-card-foreground shadow-md"
-      >
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-bright-yellow-200">
-          <StarIcon className="h-6 w-6" />
-        </span>
-        <span className="flex flex-col gap-2">
-          <span className="text-xl font-semibold leading-7">Campaign plan</span>
-          <span className="text-base font-normal leading-6">
-            Opens on hover and keyboard focus; click/tap toggles it (a second
-            tap dismisses). `showArrow=false` plus a `sideOffset` keeps a gap
-            between the trigger and the card.
-          </span>
-        </span>
-      </TooltipContent>
-    </Tooltip>
-  ),
-}
-
-export const WithCustomContent: Story = {
-  render: () => (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="outline">Custom content</Button>
+    <div className="flex items-center justify-center py-16">
+      <Tooltip openOnClick disableHoverableContent>
+        <TooltipTrigger className="cursor-pointer text-foreground underline decoration-dotted">
+          Campaign plan
         </TooltipTrigger>
-        <TooltipContent className="w-80">
-          <div className="space-y-2">
-            <h4 className="font-medium">Custom tooltip</h4>
-            <p className="text-sm text-muted-foreground">
-              This tooltip has custom content with a title and description.
-            </p>
-          </div>
+        <TooltipContent side="top">
+          <p>Opens on hover and tap — tap again to dismiss.</p>
         </TooltipContent>
       </Tooltip>
-    </TooltipProvider>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByText('Campaign plan'))
+    await expect(
+      within(document.body).findByText(
+        'Opens on hover and tap — tap again to dismiss.',
+      ),
+    ).resolves.toBeVisible()
+  },
+}
+
+export const RichContent: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex items-center justify-center py-48">
+      <Tooltip open>
+        <TooltipTrigger className="cursor-pointer text-foreground underline decoration-dotted">
+          Campaign plan
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="center"
+          sideOffset={8}
+          showArrow={false}
+          className="flex w-80 items-start gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-lg"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <StarIcon className="h-5 w-5" />
+          </span>
+          <span className="flex flex-col gap-1">
+            <span className="text-sm font-semibold">Campaign plan</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              A step-by-step guide to help you run a winning campaign — from
+              filing to election day.
+            </span>
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   ),
 }

@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { Campaign } from '../../generated/prisma'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { RacesService } from '@/elections/services/races.service'
+import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from './electionApi.service'
 
@@ -34,15 +36,20 @@ export class StrategicLandscapeParamsService {
   constructor(
     private readonly electionApi: ElectionApiService,
     private readonly races: RacesService,
-  ) {}
+    private readonly campaignStory: CampaignStoryService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(StrategicLandscapeParamsService.name)
+  }
 
   async build(
     campaign: CampaignWith<'user'>,
     brHashId: string,
   ): Promise<StrategicLandscapeInput> {
-    const [context, primary] = await Promise.all([
+    const [context, primary, campaignStory] = await Promise.all([
       this.electionApi.getStrategyContext(brHashId),
       this.buildPrimaryContext(brHashId),
+      this.loadStory(campaign.id),
     ])
     const { user } = campaign
     const { party, otherParty } = resolveParty(campaign.details)
@@ -56,6 +63,23 @@ export class StrategicLandscapeParamsService {
       other_party: otherParty,
       campaign_strategy_context: context,
       campaign_primary_strategy_context: primary,
+      campaign_story: campaignStory,
+    }
+  }
+
+  // The story is optional enrichment, so a transient read failure must not
+  // abort the (expensive) strategy build — log it and degrade to undefined.
+  private async loadStory(
+    campaignId: number,
+  ): Promise<StrategicLandscapeInput['campaign_story']> {
+    try {
+      return await this.campaignStory.getForCampaign(campaignId)
+    } catch (error) {
+      this.logger.warn(
+        { error, campaignId },
+        'Failed to load campaign story for strategy params; proceeding without it',
+      )
+      return undefined
     }
   }
 
