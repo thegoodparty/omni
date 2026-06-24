@@ -124,6 +124,15 @@ describe('BallotReadyService GraphQL injection hardening', () => {
       expect(variables).toEqual({ zip: '97201', lt: expect.any(String) })
     })
 
+    it('truncates a ZIP+4 to the first 5 digits before sending', async () => {
+      mockRequest.mockResolvedValue({ races: { edges: [] } })
+
+      await service.fetchRacesWithElectionDates('97201-3456', PositionLevel.CITY)
+
+      const [, variables] = mockRequest.mock.calls[0]
+      expect(variables.zip).toBe('97201')
+    })
+
     it('rejects an unrecognised position level without calling BallotReady', async () => {
       const result = await service.fetchRacesWithElectionDates(
         '97201',
