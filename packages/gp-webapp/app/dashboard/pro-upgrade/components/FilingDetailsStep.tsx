@@ -97,14 +97,16 @@ export const getInitialFilingDetailsState = (
 const getStringValue = (value: FormDataState[keyof FormDataState]): string =>
   typeof value === 'string' ? value : ''
 
-// Peerly delivers the verification PIN only to an email or phone that matches
-// the filing, so both are required here; address is optional. Reuse the shared
-// validator's per-channel selection: email + phone selected (required), address
-// not (optional), which also satisfies its >=1-channel rule (86aj5bqvw).
+// Peerly delivers the verification PIN to an email or phone that matches the
+// filing, so both are required. The filing address is required too: the agentic
+// flow submits a TCR registration whose postal address is resolved from this
+// placeId, so a blank address starts a run that only fails several paid steps
+// later at the Peerly submit. (Supersedes 86aj5bqvw, which made the address
+// optional before the agentic Peerly postal-address requirement was known.)
 const validateFilingDetails = (data: FormDataState) =>
   validateRegistrationForm(data, {
     requireWebsite: false,
-    contactSelection: { email: true, phone: true, address: false },
+    contactSelection: { email: true, phone: true, address: true },
   })
 
 interface FilingDetailsFormProps {
@@ -128,7 +130,7 @@ const FilingDetailsForm = ({
 
   const { validations, isValid } = validateRegistrationForm(formData, {
     requireWebsite: false,
-    contactSelection: { email: true, phone: true, address: false },
+    contactSelection: { email: true, phone: true, address: true },
   })
 
   // `website` is validated but has no input in this form (the agentic flow
@@ -288,8 +290,8 @@ const FilingDetailsForm = ({
           <div className="font-medium">Filing contact details</div>
           <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter the email and phone that appear on your campaign filing — your
-            PIN is sent to one of these to verify your campaign. Add the filing
-            address too if it appears on your filing.
+            PIN is sent to one of these to verify your campaign. Your filing
+            address is required to register for texting.
           </Body2>
           <div className="flex flex-col gap-6">
             <TextField
@@ -325,7 +327,7 @@ const FilingDetailsForm = ({
                   },
                 })
               }}
-              placeholder="Address (optional)"
+              placeholder="Address"
               variant="outlined"
               dropdownClassName="texting-compliance-address-dropdown"
             />
