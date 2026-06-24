@@ -11,7 +11,6 @@ const meta: Meta<typeof PageLayout> = {
   title: 'Patterns/Page Layout',
   tags: ['autodocs'],
   argTypes: {
-    heading: { table: { disable: true } },
     leading: { table: { disable: true } },
     trailing: { table: { disable: true } },
     onBack: { table: { disable: true } },
