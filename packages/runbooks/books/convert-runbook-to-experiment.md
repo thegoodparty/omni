@@ -259,11 +259,14 @@ Schema-valid does NOT mean working. The only way to know is to run it on Fargate
 ### 1. Publish
 
 ```bash
-cd /Users/collinpark/work/runbooks/scripts/python
+cd scripts/python
+# single experiment (dev-only) — recommended while iterating:
+AWS_PROFILE=work uv run python publish_experiments.py --env=dev --only=<slug>
+# or the full set:
 AWS_PROFILE=work uv run python publish_experiments.py --env=dev
 ```
 
-The script validates every manifest first, then uploads per-experiment files, then `index.json` LAST (atomic switch). If validation fails, S3 is untouched.
+The script validates first, then uploads per-experiment files, then `index.json` LAST (atomic switch). If validation fails, S3 is untouched. `--only=<slug>` (dev-only) uploads just that experiment and merges its entry into the live `index.json`, preserving every other live entry — use it to stand up a new experiment or iterate on one without a full publish.
 
 ### 2. Resolve the test district from election-api RDS
 
@@ -307,7 +310,7 @@ If the manifest+instruction shipped but the agent's behavior is wrong, you do NO
 
 1. Edit `experiments/<slug>/instruction.md` (or `manifest.json`)
 2. Bump `version` in the manifest
-3. Re-run `publish_experiments.py --env=dev`
+3. Re-run `publish_experiments.py --env=dev --only=<slug>`
 4. Dispatch a new SQS message — the next run picks up the new bytes within ~60s (Lambda's `index.json` TTL cache)
 
 Each Fargate run captures the manifest + instruction `VersionId` at dispatch time, so an in-flight run is unaffected by your edit. New dispatches see the new bytes deterministically.
@@ -321,6 +324,8 @@ The git branch is the curation surface. Promote experiments by merging branches,
 - **main** branch → `agent-experiment-metadata-prod` S3 bucket
 
 GH Actions (`.github/workflows/publish-experiments.yml`) auto-publishes the FULL set under `experiments/<id>/` on every push to `dev`/`qa`/`main`. To promote, open a PR `dev → qa` (or `qa → main`) carrying the verified experiment dirs. CODEOWNERS gates the `main` PR for prod.
+
+`--only` and sandbox preservation are **dev-only** affordances for pre-merge testing — qa and prod always publish the full canonical set with no preservation, so a partial state or a `sandbox` experiment can never reach them. A full dev publish (including CI's) preserves live `index.json` entries whose id contains `sandbox`, so a `sandbox_*` scratch experiment is not clobbered by CI; canonical experiments still get reset to `develop`.
 
 Manual local publish (drift recovery only):
 

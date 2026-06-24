@@ -6,6 +6,9 @@ on:
       - "packages/runbooks/experiments/**"
       - "packages/runbooks/scripts/python/publish_experiments.py"
       - "packages/runbooks/scripts/python/test_experiment_manifests.py"
+      - "packages/runbooks/scripts/python/test_publish_experiments.py"
+      - "packages/runbooks/scripts/python/test_publish_safety.py"
+      - "packages/runbooks/scripts/python/test_publish_experiments_qa.py"
       - ".github/workflows/publish-experiments.yml"
   # Branch-per-env auto-publish:
   #   push to dev  → publishes to dev  S3 bucket
@@ -16,6 +19,10 @@ on:
     paths:
       - "packages/runbooks/experiments/**"
       - "packages/runbooks/scripts/python/publish_experiments.py"
+      - "packages/runbooks/scripts/python/test_experiment_manifests.py"
+      - "packages/runbooks/scripts/python/test_publish_experiments.py"
+      - "packages/runbooks/scripts/python/test_publish_safety.py"
+      - "packages/runbooks/scripts/python/test_publish_experiments_qa.py"
       - ".github/workflows/publish-experiments.yml"
   # workflow_dispatch with no inputs — env is derived from the branch you ran
   # this workflow against (dev/qa/main). Always publishes the FULL set under
@@ -44,9 +51,9 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
 
-      - name: Run meta-schema tests (locks the contract)
+      - name: Run meta-schema + publisher tests (locks the contract)
         working-directory: packages/runbooks/scripts/python
-        run: uv run pytest test_experiment_manifests.py -v
+        run: uv run pytest test_experiment_manifests.py test_publish_experiments.py test_publish_safety.py test_publish_experiments_qa.py -v
 
   publish:
     # Triggered on push to develop/qa/master, or manual workflow_dispatch from one of

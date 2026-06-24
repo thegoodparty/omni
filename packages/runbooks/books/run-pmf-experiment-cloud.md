@@ -32,12 +32,13 @@ What you changed determines what (if anything) you must deploy before dispatchin
 
 | You changed… | How to make it live | Wait for? |
 |---|---|---|
-| `instruction.md` / `manifest.json` / `attachments/*` | `cd scripts/python && AWS_PROFILE=work uv run python publish_experiments.py --env=dev` | ~60s (Lambda caches `index.json`) |
+| `instruction.md` / `manifest.json` / `attachments/*` for ONE experiment | `cd scripts/python && AWS_PROFILE=work uv run python publish_experiments.py --env=dev --only=<id>` (dev-only; uploads just that experiment and merges its entry into the live `index.json`, leaving every other entry untouched) | ~60s (Lambda caches `index.json`) |
+| All experiments at once | `cd scripts/python && AWS_PROFILE=work uv run python publish_experiments.py --env=dev` | ~60s |
 | runner / harness code (`pmf_engine/`) | `gh workflow run build-pmf-engine.yml --ref <branch> -f environment=dev` | build to finish (~7 min). Fresh task per dispatch → next dispatch uses it, **no rollover** |
 | broker code (`broker/`) | `gh workflow run build-broker.yml --ref <branch> -f environment=dev` | build **AND** rollover — broker-<env> is a long-running ECS service (see "wait for rollover" below) |
 
 **Gotchas (learned the hard way):**
-- **`develop` CI clobbers dev.** The dev `index.json` and broker-dev track the `develop` branch. If a `develop` build runs after your manual publish/build, it re-publishes and your eng-branch changes are reverted. After dispatching from an eng branch, re-check your experiment entry is present (`aws s3 cp s3://agent-experiment-metadata-dev/index.json -`), and re-run `publish_experiments.py` if needed.
+- **`develop` CI clobbers dev.** The dev `index.json` and broker-dev track the `develop` branch. If a `develop` build runs after your manual publish/build, it re-publishes and your eng-branch changes are reverted. After dispatching from an eng branch, re-check your experiment entry is present (`aws s3 cp s3://agent-experiment-metadata-dev/index.json -`), and re-run `publish_experiments.py --env=dev --only=<id>` if needed. **Exception:** a `develop` publish preserves dev `index.json` entries whose id contains `sandbox`, so a `sandbox_*` experiment is NOT clobbered. Name your scratch experiment `sandbox_<you>_<thing>` and deploy it with `--only` if you want it to survive CI.
 - **Two concurrent builds race for the `:*-dev` tag.** If you trigger a build twice, the workflow's concurrency group usually cancels the older one; confirm the build you want is the one that finished last.
 
 ### Wait for broker rollover (only when you rebuilt the broker)
@@ -128,7 +129,7 @@ Schema-valid ≠ functional — eyeball the `markdown`/content. The runner alrea
 | Symptom | Cause → fix |
 |---|---|
 | No `Started Fargate task` in the Lambda log | Params failed `input_schema` validation. The error is in the Lambda log; fix params, new `RUN_ID`. |
-| Your instruction/manifest change had no effect | You didn't republish, or a `develop` build clobbered it. Re-run `publish_experiments.py --env=dev`; confirm the entry in `index.json`. |
+| Your instruction/manifest change had no effect | You didn't republish, or a `develop` build clobbered it. Re-run `publish_experiments.py --env=dev --only=<id>`; confirm the entry in `index.json`. |
 | Broker code change had no effect | broker-dev hadn't rolled over yet (Step 0) — you hit the old task. |
 | Run hangs ~30s+ on a URL, or the agent uses `urllib`/`curl` | The task is quarantined — direct egress fails. The agent must use the broker-proxied `pmf_runtime.http.head/get/download`. (The runtime egress guard now fails these fast with an instructive message.) |
 | Artifact never lands | Agent errored or ran out of turns — check `/ecs/pmf-engine-dev` for the run, and `logs/session.jsonl` if it was uploaded. |
