@@ -150,4 +150,33 @@ describe('getFlagVariants', () => {
       'serve-access': { value: 'off' },
     })
   })
+
+  it('ignores a cookie that parses but fails the variant schema', async () => {
+    mockServerRequest.mockResolvedValue({
+      ok: true,
+      data: { variants: { 'serve-access': { value: 'off' } } },
+    })
+    // Bare string instead of the `{ value }` variant shape — valid JSON, but
+    // ExperimentVariantsSchema rejects it.
+    setOverrideCookie(JSON.stringify({ 'serve-access': 'on' }))
+
+    expect(await getFlagVariants()).toEqual({
+      'serve-access': { value: 'off' },
+    })
+  })
+
+  it('does not let an override bypass the anonymous (no token) gate', async () => {
+    mockGetServerToken.mockResolvedValue(undefined)
+    setOverrideCookie(JSON.stringify({ 'serve-access': { value: 'on' } }))
+
+    expect(await getFlagVariants()).toBeNull()
+    expect(mockServerRequest).not.toHaveBeenCalled()
+  })
+
+  // Drift guard: the e2e auth helper hardcodes this cookie name
+  // (e2e-tests/tests/utils/api-registration.ts) because that workspace can't
+  // import from app/. A rename here must be mirrored there — this pins it.
+  it('exposes the cookie name the e2e helper depends on', () => {
+    expect(FLAG_OVERRIDE_COOKIE).toBe('e2e-flag-overrides')
+  })
 })
