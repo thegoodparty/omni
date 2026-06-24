@@ -26,6 +26,12 @@ export interface AudienceFieldsInput {
   genderMale?: boolean
   genderFemale?: boolean
   genderUnknown?: boolean
+  hasCellPhone?: boolean
+  hasLandline?: boolean
+  ethnicityEuropean?: boolean
+  ethnicityAsian?: boolean
+  ethnicityHispanic?: boolean
+  ethnicityAfricanAmerican?: boolean
 }
 
 export interface AudienceFieldsOutput {
@@ -44,6 +50,12 @@ export interface AudienceFieldsOutput {
   gender_male?: boolean
   gender_female?: boolean
   gender_unknown?: boolean
+  has_cell_phone?: boolean
+  has_landline?: boolean
+  ethnicity_european?: boolean
+  ethnicity_asian?: boolean
+  ethnicity_hispanic?: boolean
+  ethnicity_african_american?: boolean
 }
 
 /**
@@ -93,6 +105,14 @@ export function mapAudienceFields(
     ...(input.genderMale === true ? { gender_male: true } : {}),
     ...(input.genderFemale === true ? { gender_female: true } : {}),
     ...(input.genderUnknown === true ? { gender_unknown: true } : {}),
+    ...(input.hasCellPhone === true ? { has_cell_phone: true } : {}),
+    ...(input.hasLandline === true ? { has_landline: true } : {}),
+    ...(input.ethnicityEuropean === true ? { ethnicity_european: true } : {}),
+    ...(input.ethnicityAsian === true ? { ethnicity_asian: true } : {}),
+    ...(input.ethnicityHispanic === true ? { ethnicity_hispanic: true } : {}),
+    ...(input.ethnicityAfricanAmerican === true
+      ? { ethnicity_african_american: true }
+      : {}),
   }
 }
 

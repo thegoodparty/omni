@@ -1,7 +1,16 @@
 'use client'
 
 import H1 from '@shared/typography/H1'
-import { Button } from '@styleguide'
+import {
+  Button,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@styleguide'
 import { LoaderCircleIcon } from '@styleguide/components/ui/icons'
 import { Alert, AlertDescription, AlertTitle } from '@styleguide'
 import { MdError } from 'react-icons/md'
@@ -10,7 +19,8 @@ import CustomVoterAudienceFilters, {
   AudienceFiltersState,
   AudienceFilterKey,
 } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { clientRequest } from 'gpApi/typed-request'
 import {
   countVoterFile,
   CountVoterFileError,
@@ -29,6 +39,24 @@ import { PhoneListInput } from 'helpers/createP2pPhoneList'
 const TEXT_PRICE = 0.035
 const CALL_PRICE = 0.04
 const CALL_W_VOICEMAIL_PRICE = 0.055
+
+// The texting/outreach flow auto-creates throwaway filters named "<type>
+// Campaign" on every send (handleCreateVoterFileFilter). Those are not lists a
+// candidate intentionally built, so they must not clutter the saved-list
+// selector. Linked to ENG-10521 (cleaning up the throwaway-filter pattern).
+const AUTO_FILTER_NAME_PATTERN = new RegExp(
+  `^(${[...Object.values(TASK_TYPES), ...Object.values(LEGACY_TASK_TYPES)]
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')}) Campaign$`,
+)
+
+const NEW_FROM_FILTERS = '__new__'
+
+interface SavedList {
+  id: number
+  name?: string
+  [key: string]: unknown
+}
 
 const MISSING_L2_DISTRICT_DATA_ERROR_CODE = 'MISSING_L2_DISTRICT_DATA'
 const MISSING_L2_DISTRICT_DATA_DEFAULT_MESSAGE =
@@ -95,6 +123,44 @@ export default function AudienceStep({
     [audience],
   )
 
+  const isTextType = type === LEGACY_TASK_TYPES.sms || type === TASK_TYPES.text
+
+  const [savedLists, setSavedLists] = useState<SavedList[]>([])
+  // Empty string = "build a new audience from the checkboxes" (the default).
+  const [selectedListId, setSelectedListId] = useState('')
+
+  const selectedList = useMemo(
+    () =>
+      selectedListId === '' || selectedListId === NEW_FROM_FILTERS
+        ? null
+        : (savedLists.find((l) => l.id.toString() === selectedListId) ?? null),
+    [selectedListId, savedLists],
+  )
+
+  useEffect(() => {
+    if (!isTextType) return
+    let active = true
+    clientRequest('GET /v1/voters/voter-file/filters', {})
+      .then(({ data }) => {
+        if (!active) return
+        setSavedLists(
+          (data || []).filter(
+            (list): list is SavedList =>
+              typeof list?.name === 'string' &&
+              !AUTO_FILTER_NAME_PATTERN.test(list.name),
+          ),
+        )
+      })
+      .catch(() => {
+        // A failed list fetch must not block the build-new-from-checkboxes
+        // path — the selector just stays empty.
+        if (active) setSavedLists([])
+      })
+    return () => {
+      active = false
+    }
+  }, [isTextType])
+
   const nextTrackingAttrs = useMemo(
     () => buildTrackingAttrs('Next Target Audience', { type }),
     [type],
@@ -112,10 +178,12 @@ export default function AudienceStep({
 
     setLoading(true)
 
-    const isTextType =
-      type === LEGACY_TASK_TYPES.sms || type === TASK_TYPES.text
-
-    const voterFileFilter = await onCreateVoterFileFilter()
+    // A selected saved list is reused as-is: its id links the outreach and its
+    // persisted filter fields drive the Peerly CSV — no throwaway filter is
+    // POSTed. Otherwise build a new filter from the checkbox selections.
+    const voterFileFilter = selectedList
+      ? (selectedList as VoterFileFilterResult)
+      : await onCreateVoterFileFilter()
     if (!voterFileFilter) {
       setLoading(false)
       return
@@ -144,6 +212,16 @@ export default function AudienceStep({
     // filter combination is dropped on arrival. countVoterFile has no abort
     // support, so the network call still completes — we just ignore it.
     const requestId = ++countRequestIdRef.current
+
+    // A selected saved list drives the audience server-side from its persisted
+    // fields; the checkbox-based live count doesn't apply to it.
+    if (selectedList) {
+      setCountError(null)
+      setCount(0)
+      setLoading(false)
+      onChangeCallback('voterCount', 0)
+      return
+    }
 
     if (!hasValues) {
       setCountError(null)
@@ -193,13 +271,16 @@ export default function AudienceStep({
         debounceTimerRef.current = null
       }
     }
-  }, [audience, isCustom, type, hasValues, onChangeCallback])
+  }, [audience, isCustom, type, hasValues, selectedList, onChangeCallback])
 
   const handleChangeAudience = (newState: AudienceFiltersState) => {
     onChangeCallback('audience', newState)
   }
 
-  const isTextType = type === LEGACY_TASK_TYPES.sms || type === TASK_TYPES.text
+  const handleSelectList = useCallback((value: string) => {
+    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
+  }, [])
+
   let price: number | undefined
   // TODO: confirm these prices are correct for new task types!!!
   if (
@@ -229,8 +310,9 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
-  const isNextDisabled =
-    !hasValues || loading || hasCountError || (hasValues && count === 0)
+  const isNextDisabled = selectedList
+    ? loading
+    : !hasValues || loading || hasCountError || (hasValues && count === 0)
 
   return (
     <div className="p-4 w-[80vw] max-w-4xl">
@@ -243,22 +325,42 @@ export default function AudienceStep({
             </span>
           </div>
         )}
-        <div className="p-4 text-sm">
-          Voters selected:
-          <span className="font-bold text-black ml-1">
-            {loading ? (
-              <LoaderCircleIcon
-                size={14}
-                className="inline-block align-middle animate-spin"
-              />
-            ) : (
-              numberFormatter(count)
-            )}
-          </span>
-          {price && (
-            <>
-              <span className="mx-3">|</span>
-              Estimated cost:
+        {isTextType && savedLists.length > 0 && (
+          <div className="text-left mt-4">
+            <Select value={selectedListId} onValueChange={handleSelectList}>
+              <SelectTrigger className="w-full justify-start">
+                <label className="text-sm font-normal text-muted-foreground border-r pr-3 border-gray-200">
+                  Audience
+                </label>
+                <div className="w-full text-left pl-1">
+                  <SelectValue placeholder="Build a new audience" />
+                </div>
+              </SelectTrigger>
+              <SelectContent className="max-h-[50vh]">
+                <SelectItem value={NEW_FROM_FILTERS}>
+                  Build a new audience
+                </SelectItem>
+                <SelectGroup>
+                  <SelectLabel>Your saved lists</SelectLabel>
+                  {savedLists.map((list) => (
+                    <SelectItem key={list.id} value={list.id.toString()}>
+                      {list.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {selectedList ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            Using your saved list:{' '}
+            <span className="font-bold text-black">{selectedList.name}</span>
+          </div>
+        ) : (
+          <>
+            <div className="p-4 text-sm">
+              Voters selected:
               <span className="font-bold text-black ml-1">
                 {loading ? (
                   <LoaderCircleIcon
@@ -266,27 +368,43 @@ export default function AudienceStep({
                     className="inline-block align-middle animate-spin"
                   />
                 ) : (
-                  `$${numberFormatter(calculateCost(count), 2)}`
+                  numberFormatter(count)
                 )}
               </span>
-            </>
-          )}
-        </div>
-        {inlineCountErrorMessage ? (
-          <Alert variant="destructive" className="mb-4 text-left">
-            <MdError />
-            <AlertTitle>Voter data unavailable</AlertTitle>
-            <AlertDescription>{inlineCountErrorMessage}</AlertDescription>
-          </Alert>
-        ) : null}
-        <div className="text-left">
-          <CustomVoterAudienceFilters
-            trackingKey={TRACKING_KEYS.scheduleCampaign}
-            showAudienceRequest
-            audience={audience}
-            onChangeCallback={handleChangeAudience}
-          />
-        </div>
+              {price && (
+                <>
+                  <span className="mx-3">|</span>
+                  Estimated cost:
+                  <span className="font-bold text-black ml-1">
+                    {loading ? (
+                      <LoaderCircleIcon
+                        size={14}
+                        className="inline-block align-middle animate-spin"
+                      />
+                    ) : (
+                      `$${numberFormatter(calculateCost(count), 2)}`
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
+            {inlineCountErrorMessage ? (
+              <Alert variant="destructive" className="mb-4 text-left">
+                <MdError />
+                <AlertTitle>Voter data unavailable</AlertTitle>
+                <AlertDescription>{inlineCountErrorMessage}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="text-left">
+              <CustomVoterAudienceFilters
+                trackingKey={TRACKING_KEYS.scheduleCampaign}
+                showAudienceRequest
+                audience={audience}
+                onChangeCallback={handleChangeAudience}
+              />
+            </div>
+          </>
+        )}
         <div className="mt-4 grid grid-cols-12 gap-4">
           <div className="col-span-6 text-left mt-6">
             <Button

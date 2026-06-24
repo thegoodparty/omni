@@ -94,6 +94,12 @@ export class VoterFileFilterService extends createPrismaBase(
       age50Plus,
       genderMale,
       genderFemale,
+      hasCellPhone,
+      hasLandline,
+      ethnicityEuropean,
+      ethnicityAsian,
+      ethnicityHispanic,
+      ethnicityAfricanAmerican,
     }: Partial<VoterFileFilter> =
       typeof idOrFilter === 'number'
         ? await this.model.findUniqueOrThrow({ where: { id: idOrFilter } })
@@ -128,6 +134,18 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(age50Plus === true ? { age_50_plus: age50Plus } : {}),
       ...(genderMale === true ? { gender_male: genderMale } : {}),
       ...(genderFemale === true ? { gender_female: genderFemale } : {}),
+      ...(hasCellPhone === true ? { has_cell_phone: hasCellPhone } : {}),
+      ...(hasLandline === true ? { has_landline: hasLandline } : {}),
+      ...(ethnicityEuropean === true
+        ? { ethnicity_european: ethnicityEuropean }
+        : {}),
+      ...(ethnicityAsian === true ? { ethnicity_asian: ethnicityAsian } : {}),
+      ...(ethnicityHispanic === true
+        ? { ethnicity_hispanic: ethnicityHispanic }
+        : {}),
+      ...(ethnicityAfricanAmerican === true
+        ? { ethnicity_african_american: ethnicityAfricanAmerican }
+        : {}),
     }
   }
 
