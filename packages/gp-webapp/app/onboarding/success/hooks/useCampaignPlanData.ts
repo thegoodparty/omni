@@ -15,12 +15,10 @@ import {
   type PlanInput,
 } from '../components/planContent'
 import type {
-  EventsState,
   PressOutletsState,
   StrategyState,
   VoterInsightsContext,
 } from '../components/PlanSections'
-import { useCommunityEvents } from './useCommunityEvents'
 import { useStrategicLandscape } from './useStrategicLandscape'
 
 // Lifecycle signals per async plan resource, shaped for analytics.
@@ -38,11 +36,9 @@ export interface CampaignPlanData {
   planReady: boolean
   state: string
   strategyState: StrategyState
-  eventsState: EventsState
   pressOutletsState: PressOutletsState
   voterInsightsContext: VoterInsightsContext
   strategy: PlanResourceStatus
-  communityEvents: PlanResourceStatus & { eventCount: number }
   media: PlanResourceStatus & { outletCount: number }
 }
 
@@ -119,9 +115,6 @@ export const useCampaignPlanData = (
   // decides skeleton vs hidden based on those flags.
   const strategy = useStrategicLandscape()
   // Section 7 community events — same polling shape as strategy. Pre-warm
-  // fires after office submit in onboarding, so the cache is usually warm
-  // by the time the user lands here.
-  const events = useCommunityEvents()
   // The BR position ID is in-memory on `answers.structuredOffice.positionId`
   // during onboarding. After pledge submit, `OnboardingFlow` persists the
   // whole `answers` object under `campaign.data.onboarding`, so it survives
@@ -248,7 +241,6 @@ export const useCampaignPlanData = (
       raceCandidates: raceCandidatesRef ?? [],
       milestones: milestonesRef,
       strategicLandscape: strategy.data,
-      communityEvents: events.data,
       pressOutletsFromApi,
       voterIssuesFromApi,
     }
@@ -278,7 +270,6 @@ export const useCampaignPlanData = (
     raceCandidatesRef,
     milestonesRef,
     strategy.data,
-    events.data,
     pressOutletsFromApi,
     voterIssuesFromApi,
   ])
@@ -291,7 +282,6 @@ export const useCampaignPlanData = (
   // one-shot fetch, so `isPending` alone covers it.
   const planReady =
     !(strategy.isPending || strategy.isGenerating) &&
-    !(events.isPending || events.isGenerating) &&
     !isLocalNewsGenerating &&
     !voterIssuesQuery.isPending
 
@@ -303,10 +293,6 @@ export const useCampaignPlanData = (
     strategyState: {
       isGenerating: strategy.isPending || strategy.isGenerating,
       isError: strategy.isError,
-    },
-    eventsState: {
-      isGenerating: events.isPending || events.isGenerating,
-      isError: events.isError,
     },
     pressOutletsState: {
       isGenerating: isLocalNewsGenerating,
@@ -332,11 +318,6 @@ export const useCampaignPlanData = (
     strategy: {
       ready: strategy.data !== undefined,
       isGenerating: strategy.isGenerating,
-    },
-    communityEvents: {
-      ready: events.data !== undefined,
-      isGenerating: events.isGenerating,
-      eventCount: events.data?.events?.length ?? 0,
     },
     media: {
       ready: localNewsQuery.data?.status === 'ready',

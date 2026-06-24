@@ -2,8 +2,7 @@
 
 import { useMemo } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion } from '@styleguide'
-import { useCommunityEvents } from 'app/onboarding/success/hooks/useCommunityEvents'
+import { Accordion, Card } from '@styleguide'
 import { buildCampaignStrategy } from './buildCampaignStrategy'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
@@ -20,8 +19,7 @@ import CampaignStrategyPhase from './CampaignStrategyPhase'
 // data contract).
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const events = useCommunityEvents()
-  const { tasks } = useTrackerTasks()
+  const { tasks, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
 
   // Completion only persists for real tracker rows; the catalog fallback has no
@@ -59,7 +57,6 @@ const CampaignStrategySection = (): React.JSX.Element => {
       campaignStart: campaignStartIso ? new Date(campaignStartIso) : null,
       uniqueCellphones: metrics?.uniqueCellphones ?? null,
       uniqueLandlines: metrics?.uniqueLandlines ?? null,
-      communityEvents: events.data?.events ?? [],
     })
   }, [
     tasks,
@@ -67,7 +64,6 @@ const CampaignStrategySection = (): React.JSX.Element => {
     campaignStartIso,
     metrics?.uniqueCellphones,
     metrics?.uniqueLandlines,
-    events.data,
   ])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
@@ -89,14 +85,21 @@ const CampaignStrategySection = (): React.JSX.Element => {
           <p className="text-muted-foreground mt-1 text-sm">
             Everything you need to do, in order. We tell you what to do and
             when, so you always know your next move.
-            {events.isGenerating &&
-              ' Finding community events in your district...'}
           </p>
         </div>
         <span className="text-primary mt-1 shrink-0 text-xs font-semibold tracking-wide uppercase">
           You are here
         </span>
       </div>
+      {isGeneratingDynamic && (
+        <Card className="mb-4 flex items-center gap-3 p-4">
+          <div className="size-4 shrink-0 animate-spin rounded-full border-b-2 border-primary" />
+          <p className="text-muted-foreground text-sm">
+            Finding local events and personalizing the rest of your weekly
+            tasks. They will appear here automatically in a few minutes.
+          </p>
+        </Card>
+      )}
       <Accordion
         type="multiple"
         defaultValue={defaultOpen}

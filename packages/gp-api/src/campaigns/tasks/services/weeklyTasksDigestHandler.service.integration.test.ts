@@ -67,7 +67,7 @@ async function makeTask(
     week?: number
   } = {},
 ) {
-  return service.prisma.campaignTask.create({
+  return service.prisma.campaignTrackerTask.create({
     data: {
       campaignId,
       title: overrides.title ?? 'Task',
@@ -185,7 +185,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
   })
 
   describe('task selection', () => {
-    it('returns exactly 5 tasks when a campaign has more than 5 incomplete', async () => {
+    it('returns exactly 3 tasks when a campaign has more than 3 incomplete', async () => {
       const campaign = await makeCampaign()
       for (let i = 0; i < 8; i++) {
         await makeTask(campaign.id, { title: `Task ${i}` })
@@ -203,8 +203,12 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         string,
         Record<string, unknown>,
       ]
-      expect(properties.task_name_5).not.toBe('')
-      // Since we always send 5 slots, check that plan_total_tasks reflects the real count
+      // Top 3 surfaced; the event still carries 5 slots (slots 4-5 blank) so
+      // HubSpot clears stale data — no change needed on the email side.
+      expect(properties.task_name_3).not.toBe('')
+      expect(properties.task_name_4).toBe('')
+      expect(properties.task_name_5).toBe('')
+      // plan_total_tasks still reflects the real incomplete count, not the cap
       expect(properties.plan_total_tasks).toBe(8)
     })
 

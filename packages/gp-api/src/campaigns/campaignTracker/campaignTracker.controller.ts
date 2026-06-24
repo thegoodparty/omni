@@ -3,6 +3,7 @@ import { Campaign } from '../../generated/prisma'
 import { CampaignTrackerTasksService } from './services/campaignTrackerTasks.service'
 import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
+import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import {
   completeTaskBodySchema,
   CompleteTaskBodySchema,
@@ -16,6 +17,14 @@ export class CampaignTrackerController {
   ) {}
 
   @Get()
+  @McpTool({
+    description:
+      "List the calling candidate's current campaign tracker tasks, each " +
+      'with its title, phase, channel, due date, and whether it is completed. ' +
+      'Use this in weekly mode to see what was generated before and which ' +
+      'tasks the candidate already finished, so you can carry forward ' +
+      'incomplete-but-important work and avoid repeating completed tasks.',
+  })
   listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
   }

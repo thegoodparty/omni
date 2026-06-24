@@ -76,6 +76,10 @@ export type CampaignTrackerTask = {
   completed: boolean
   phase: string | null
   proRequired: boolean | null
+  // true for the static launch/pre-launch rows materialized at bootstrap;
+  // false for the dynamic tasks + events the CAP run produces. Lets the client
+  // tell "still generating" (only static present) from "done".
+  isDefaultTask: boolean
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */

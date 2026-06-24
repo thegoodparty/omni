@@ -15,6 +15,7 @@ const row = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   completed: false,
   phase: 'preLaunch',
   proRequired: null,
+  isDefaultTask: false,
   ...over,
 })
 
@@ -69,5 +70,25 @@ describe('buildTrackerStrategy', () => {
       .find((p) => p.key === 'active')
       ?.groups.flatMap((g) => g.tasks)
     expect(shown).toHaveLength(4)
+  })
+
+  it('reports the withheld count so the UI can say more will unlock', () => {
+    const active = Array.from({ length: 6 }, (_, i) =>
+      row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 1}` }),
+    )
+    const data = buildTrackerStrategy(active, { electionDate: null, today })
+    const phase = data.phases.find((p) => p.key === 'active')
+    expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(3)
+    expect(phase?.hiddenCount).toBe(3)
+  })
+
+  it('withholds nothing for the static launch checklist', () => {
+    const pre = Array.from({ length: 6 }, (_, i) =>
+      row({ id: `p${i}`, phase: 'preLaunch', date: `2026-02-0${i + 1}` }),
+    )
+    const data = buildTrackerStrategy(pre, { electionDate: null, today })
+    const phase = data.phases.find((p) => p.key === 'preLaunch')
+    expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
+    expect(phase?.hiddenCount ?? 0).toBe(0)
   })
 })

@@ -36,7 +36,7 @@ const CampaignPlanView = ({
   const router = useRouter()
   const [campaign] = useCampaign()
   const data = useCampaignPlanData(initialUser)
-  const { campaignId, strategy, communityEvents, media } = data
+  const { campaignId, strategy, media } = data
   const [heroDownloading, setHeroDownloading] = useState(false)
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
@@ -61,15 +61,13 @@ const CampaignPlanView = ({
   }
 
   const getStrategyTiming = useGenerationTiming(strategy.isGenerating)
-  const getEventsTiming = useGenerationTiming(communityEvents.isGenerating)
   const getMediaTiming = useGenerationTiming(media.isGenerating)
 
-  // Requested — on the dashboard this page is the origin of all three
-  // resource requests (no pre-warm step like onboarding has).
+  // Requested — on the dashboard this page is the origin of these resource
+  // requests (no pre-warm step like onboarding has).
   useEffect(() => {
     fireOnce(planEvents.MediaRequested, { campaignId })
     fireOnce(planEvents.StrategicLandscapeRequested, { campaignId })
-    fireOnce(planEvents.CommunityEventsRequested, { campaignId })
   }, [campaignId])
 
   // Results Received — fire once when each resource's status first hits
@@ -86,16 +84,6 @@ const CampaignPlanView = ({
     })
     fireOnce(planEvents.MediaDisplayed, { campaignId })
   }, [media.ready, media.outletCount, campaignId])
-
-  useEffect(() => {
-    if (!communityEvents.ready) return
-    fireOnce(planEvents.CommunityEventsResultsReceived, {
-      campaignId,
-      eventCount: communityEvents.eventCount,
-      ...getEventsTiming(),
-    })
-    fireOnce(planEvents.CommunityEventsDisplayed, { campaignId })
-  }, [communityEvents.ready, communityEvents.eventCount, campaignId])
 
   useEffect(() => {
     if (!strategy.ready) return
@@ -154,7 +142,6 @@ const CampaignPlanView = ({
         planReady={data.planReady}
         state={data.state}
         strategyState={data.strategyState}
-        eventsState={data.eventsState}
         pressOutletsState={data.pressOutletsState}
         voterInsightsContext={data.voterInsightsContext}
         onDownload={handleDownload}

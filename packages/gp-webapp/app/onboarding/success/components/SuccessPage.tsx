@@ -26,7 +26,7 @@ interface SuccessPageProps {
 const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   const router = useRouter()
   const data = useCampaignPlanData(initialUser)
-  const { campaignId, strategy, communityEvents, media } = data
+  const { campaignId, strategy, media } = data
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
@@ -50,7 +50,6 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
   }
 
   const getStrategyTiming = useGenerationTiming(strategy.isGenerating)
-  const getEventsTiming = useGenerationTiming(communityEvents.isGenerating)
   const getMediaTiming = useGenerationTiming(media.isGenerating)
 
   // Requested — media only. StrategicLandscapeRequested and
@@ -74,16 +73,6 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
     })
     fireOnce(EVENTS.OnboardingV2.MediaDisplayed, { campaignId })
   }, [media.ready, media.outletCount, campaignId])
-
-  useEffect(() => {
-    if (!communityEvents.ready) return
-    fireOnce(EVENTS.OnboardingV2.CommunityEventsResultsReceived, {
-      campaignId,
-      eventCount: communityEvents.eventCount,
-      ...getEventsTiming(),
-    })
-    fireOnce(EVENTS.OnboardingV2.CommunityEventsDisplayed, { campaignId })
-  }, [communityEvents.ready, communityEvents.eventCount, campaignId])
 
   useEffect(() => {
     if (!strategy.ready) return
@@ -116,7 +105,6 @@ const SuccessPage = ({ initialUser }: SuccessPageProps): React.JSX.Element => {
       planReady={data.planReady}
       state={data.state}
       strategyState={data.strategyState}
-      eventsState={data.eventsState}
       pressOutletsState={data.pressOutletsState}
       voterInsightsContext={data.voterInsightsContext}
       onDownload={handleDownload}

@@ -210,14 +210,6 @@ export interface CampaignTrackerTasksInputParams {
    */
   mode: 'initial' | 'weekly'
   /**
-   * Previously generated dynamic tasks with completion status (weekly mode). Empty on initial. Used to push incomplete-but-important tasks forward and avoid repeating same-type tasks.
-   */
-  prior_tasks?: {
-    catalog_id: string | null
-    completed: boolean
-    title: string
-  }[]
-  /**
    * BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it.
    */
   race_id: string
@@ -225,16 +217,6 @@ export interface CampaignTrackerTasksInputParams {
    * 2-letter state code, for local event search.
    */
   state?: string | null
-  /**
-   * The dynamic task menu. The agent SELECTS and PERSONALIZES from this list and never invents new task types. Each item is a candidate Active/GOTV task.
-   */
-  task_catalog: {
-    channel: string
-    description: string
-    id: string
-    phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
-    title: string
-  }[]
   /**
    * Reference date (YYYY-MM-DD) for the upcoming-week window and the GOTV reframe.
    */

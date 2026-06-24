@@ -64,6 +64,10 @@ export interface CampaignStrategyPhase {
   summary: string
   groups: CampaignStrategyGroup[]
   gate?: CampaignStrategyGate
+  // Progressive reveal: dynamic weekly tasks beyond the shown top-N uncompleted
+  // are withheld until earlier ones are completed. Count of those withheld
+  // tasks, so the UI can tell the candidate more will unlock.
+  hiddenCount?: number
 }
 
 export interface CampaignStrategyData {

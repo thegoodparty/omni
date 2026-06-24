@@ -10,7 +10,7 @@
     "title": "Campaign Tracker tasks input params",
     "type": "object",
     "additionalProperties": false,
-    "required": ["race_id", "user_full_name", "mode", "today", "task_catalog"],
+    "required": ["race_id", "user_full_name", "mode", "today"],
     "properties": {
       "race_id": {
         "type": "string",
@@ -25,7 +25,7 @@
       "mode": {
         "type": "string",
         "enum": ["initial", "weekly"],
-        "description": "initial = first full generation; weekly = re-prioritize the upcoming week using prior_tasks."
+        "description": "initial = first full generation; weekly = re-prioritize the upcoming week using the candidate's prior tasks fetched via the tracker-tasks MCP tool."
       },
       "today": {
         "type": "string",
@@ -51,39 +51,6 @@
       "campaign_story": {
         "type": ["string", "null"],
         "description": "The candidate's story for personalization context."
-      },
-      "task_catalog": {
-        "type": "array",
-        "description": "The dynamic task menu. The agent SELECTS and PERSONALIZES from this list and never invents new task types. Each item is a candidate Active/GOTV task.",
-        "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id", "title", "description", "phase", "channel"],
-          "properties": {
-            "id": { "type": "string", "minLength": 1 },
-            "title": { "type": "string", "minLength": 1 },
-            "description": { "type": "string", "minLength": 1 },
-            "phase": {
-              "type": "string",
-              "enum": ["preLaunch", "launch", "active", "gotv"]
-            },
-            "channel": { "type": "string", "minLength": 1 }
-          }
-        }
-      },
-      "prior_tasks": {
-        "type": "array",
-        "description": "Previously generated dynamic tasks with completion status (weekly mode). Empty on initial. Used to push incomplete-but-important tasks forward and avoid repeating same-type tasks.",
-        "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["catalog_id", "title", "completed"],
-          "properties": {
-            "catalog_id": { "type": ["string", "null"] },
-            "title": { "type": "string", "minLength": 1 },
-            "completed": { "type": "boolean" }
-          }
-        }
       }
     }
   },

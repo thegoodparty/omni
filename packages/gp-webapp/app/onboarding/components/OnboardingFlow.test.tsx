@@ -143,13 +143,13 @@ describe('resolvePostPledgeRoute', () => {
     ).toBe('/dashboard/campaign-story')
   })
 
-  it('sends campaign-strategy-only users to the success page', () => {
+  it('sends campaign-strategy-only users to the Campaign Plan page', () => {
     expect(
       resolvePostPledgeRoute({
         campaignStoryEnabled: false,
         campaignStrategyEnabled: true,
       }),
-    ).toBe('/onboarding/success')
+    ).toBe('/dashboard/campaign-plan')
   })
 
   it('sends everyone else to the dashboard', () => {

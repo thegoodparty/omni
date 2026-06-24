@@ -42,6 +42,7 @@ import { StrategicLandscapeParamsService } from './strategicLandscapeParams.serv
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 
 const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
@@ -183,6 +184,7 @@ export class CampaignStrategyService
     private readonly electionApi: ElectionApiService,
     private readonly races: RacesService,
     private readonly analytics: AnalyticsService,
+    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
   ) {
     super()
   }
@@ -354,6 +356,35 @@ export class CampaignStrategyService
       )
       throw error
     }
+
+    await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+  }
+
+  // The plan is fully generated once both sections are persisted — that is the
+  // trigger to bootstrap the campaign tracker (static rows + the initial CAP
+  // generation). Fail-closed: a tracker hiccup must not throw back into the
+  // result handler, or the SQS result would replay and re-persist the section.
+  private async bootstrapTrackerIfPlanComplete(
+    planId: number,
+    campaignId: number,
+  ): Promise<void> {
+    const plan = await this.findFirst({ where: { id: planId } })
+    if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) return
+
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign) return
+
+    await this.campaignTrackerTasks
+      .bootstrapForCampaign(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId },
+          'campaign tracker bootstrap failed after plan completion',
+        ),
+      )
   }
 
   async getOrGenerateCommunityEvents(

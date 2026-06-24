@@ -178,13 +178,14 @@ export const buildTrackerStrategy = (
     if (phase.key === 'active' || phase.key === 'gotv') {
       const flat = phase.groups.flatMap((g) => g.tasks).sort(compareTasks)
       const completedCount = flat.filter((t) => t.completed).length
+      // Progressive reveal: show the next WEEKLY_LIMIT to do plus every task
+      // already completed; the rest stay hidden until the candidate works
+      // through these. Surface the withheld count so the UI can say so.
+      const limit = WEEKLY_LIMIT + completedCount
       phase.groups = [
-        {
-          key: 'thisWeek',
-          label: '',
-          tasks: flat.slice(0, WEEKLY_LIMIT + completedCount),
-        },
+        { key: 'thisWeek', label: '', tasks: flat.slice(0, limit) },
       ]
+      phase.hiddenCount = Math.max(0, flat.length - limit)
     }
   }
 

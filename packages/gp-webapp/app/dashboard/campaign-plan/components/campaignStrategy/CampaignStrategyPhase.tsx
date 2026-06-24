@@ -95,6 +95,12 @@ const CampaignStrategyPhase = ({
             </ul>
           </div>
         ))}
+      {!phase.gate && !!phase.hiddenCount && (
+        <p className="text-muted-foreground border-border border-t px-6 py-4 text-sm">
+          {phase.hiddenCount} more {phase.hiddenCount === 1 ? 'task' : 'tasks'}{' '}
+          unlock as you complete these.
+        </p>
+      )}
     </AccordionContent>
   </AccordionItem>
 )

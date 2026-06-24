@@ -8,7 +8,6 @@ import {
   subWeeks,
 } from 'date-fns'
 import { CAMPAIGN_TASK_CATALOG } from '@goodparty_org/contracts'
-import type { CommunityEvent } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
   CampaignStrategyGroup,
@@ -68,7 +67,6 @@ interface BuildCampaignStrategyInput {
   campaignStart: Date | null
   uniqueCellphones: number | null
   uniqueLandlines: number | null
-  communityEvents: CommunityEvent[]
   // pill token -> ISO date for jurisdiction-dependent markers we actually have.
   jurisdictionDates?: Partial<Record<string, string>>
   today?: Date
@@ -150,31 +148,6 @@ const toRenderTask = (
   completed: false,
 })
 
-// Community events (Plan Sec 7) are the one generated-per-item source we have
-// data for: one card per event, replacing the generic template.
-const expandCommunityEvents = (
-  def: CampaignTaskDefinition,
-  events: CommunityEvent[],
-): CampaignStrategyTask[] =>
-  events.map((event, index) => ({
-    id: `${def.id}-${index}`,
-    title: `Work ${event.title}`,
-    description: event.address
-      ? `${event.description} (${event.address})`
-      : event.description,
-    channel: 'event',
-    date: event.date || null,
-    param: null,
-    href: event.url,
-    hrefLabel: event.url ? 'View event' : null,
-    priorityTier: def.priorityTier,
-    proRequired: def.proRequired,
-    status: def.status,
-    unlocksAfter: null,
-    isNext: false,
-    completed: false,
-  }))
-
 const dateValue = (task: CampaignStrategyTask): number =>
   task.date ? new Date(task.date.replace(/-/g, '/')).getTime() : Infinity
 
@@ -211,22 +184,13 @@ export const buildCampaignStrategy = (
   const today = input.today ?? new Date()
   const start = input.campaignStart ?? today
 
-  // Expand the catalog into render tasks (community events spawn per-item).
+  // Expand the catalog into render tasks.
   const renderTasks: {
     def: CampaignTaskDefinition
     task: CampaignStrategyTask
   }[] = []
   for (const def of CAMPAIGN_TASK_CATALOG) {
-    if (
-      def.generatorSource === 'communityEvents' &&
-      input.communityEvents.length > 0
-    ) {
-      for (const task of expandCommunityEvents(def, input.communityEvents)) {
-        renderTasks.push({ def, task })
-      }
-    } else {
-      renderTasks.push({ def, task: toRenderTask(def, input, start) })
-    }
+    renderTasks.push({ def, task: toRenderTask(def, input, start) })
   }
 
   // Bucket by phase, then group by category (catalog order preserved).

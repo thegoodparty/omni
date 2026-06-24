@@ -1,8 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
-import LoadingState from './LoadingState'
 import HeaderSection from './HeaderSection'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ProgressSection from './ProgressSection'
@@ -10,37 +8,25 @@ import ProUpgradeBanner from './ProUpgradeBanner'
 import ProUpgrade3ComplianceCard from './ProUpgrade3ComplianceCard'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
-import { calculateContactGoalsFromCampaign } from '../voterGoalsHelpers'
-import EmptyState from '../EmptyState'
-import type { Task } from '../tasks/TaskItem'
 import { TcrCompliance } from 'helpers/types'
-import TasksList from '../tasks/TasksList'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { clientFetch } from 'gpApi/clientFetch'
-import { apiRoutes } from 'gpApi/routes'
-import { useTaskGenerationStream } from './useTaskGenerationStream'
-import { FailedToGenerate } from './FailedToGenerate'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionOver from '../ElectionOver'
 import PrimaryResultModal from '../PrimaryResultModal'
 import { usePostElectionState } from '../usePostElectionState'
 import { usePositionName } from '@shared/hooks/usePositionName'
+import Link from 'next/link'
+import { Button, Card } from '@styleguide'
 
-const TASKS_QUERY_KEY = ['campaignTasks']
-
+// The legacy campaign_task generator + task list has been retired: every
+// candidate now goes through Campaign Story → Campaign Plan, where the campaign
+// tracker owns the weekly task list. The dashboard home keeps its header /
+// progress chrome and points at the Campaign Plan.
 export default function CampaignManager({
   pathname,
-  tcrCompliance,
 }: {
   pathname: string
   tcrCompliance: TcrCompliance | null
 }) {
   const [campaign] = useCampaign()
-  const queryClient = useQueryClient()
-  const generatingRef = useRef(false)
-  const generatedInSessionRef = useRef(false)
-  const trackedGenerationCompleteRef = useRef(false)
-  const [showLoadingState, setShowLoadingState] = useState(false)
   const positionName = usePositionName()
   const {
     electionInPast,
@@ -52,89 +38,9 @@ export default function CampaignManager({
   } = usePostElectionState()
   const electionOver = electionInPast || primaryLost
 
-  const hideLoadingChecklist = useCallback(() => {
-    setShowLoadingState(false)
-  }, [])
-
-  const { data: tasks = [], isLoading: isLoadingTasks } = useQuery({
-    queryKey: TASKS_QUERY_KEY,
-    queryFn: async () => {
-      const resp = await clientFetch<Task[]>(apiRoutes.campaign.tasks.list)
-      return resp.ok ? resp.data : []
-    },
-    enabled: !!campaign,
-  })
-
-  const onTasksReceived = useCallback(
-    (generatedTasks: Task[]) => {
-      if (generatedTasks.length > 0) {
-        queryClient.setQueryData(TASKS_QUERY_KEY, generatedTasks)
-      }
-    },
-    [queryClient],
-  )
-
-  const { isGenerating, error, startGeneration, cancelGeneration } =
-    useTaskGenerationStream(onTasksReceived)
-
-  useEffect(() => {
-    if (isGenerating) {
-      generatedInSessionRef.current = true
-      trackedGenerationCompleteRef.current = false
-      setShowLoadingState(true)
-    }
-  }, [isGenerating])
-
-  useEffect(() => {
-    if (isLoadingTasks) return
-    if (tasks.length > 0) {
-      generatingRef.current = false
-      return
-    }
-    if (!campaign || generatingRef.current || electionOver) return
-
-    generatingRef.current = true
-    void startGeneration()
-
-    return () => {
-      generatingRef.current = false
-      cancelGeneration()
-    }
-  }, [
-    isLoadingTasks,
-    tasks,
-    campaign,
-    startGeneration,
-    cancelGeneration,
-    electionOver,
-  ])
-
-  useEffect(() => {
-    if (error) {
-      generatingRef.current = false
-      setShowLoadingState(false)
-    }
-  }, [error])
-
-  useEffect(() => {
-    if (
-      !showLoadingState &&
-      tasks.length > 0 &&
-      generatedInSessionRef.current &&
-      !trackedGenerationCompleteRef.current
-    ) {
-      trackEvent(EVENTS.Dashboard.CampaignPlan.GenerationCompleted)
-      trackedGenerationCompleteRef.current = true
-    }
-  }, [showLoadingState, tasks.length])
-
   if (!campaign) {
     return null
   }
-
-  const contactGoals = calculateContactGoalsFromCampaign(campaign)
-  const isStreamComplete =
-    !isGenerating && !error && generatedInSessionRef.current
 
   return (
     <DashboardLayout
@@ -153,30 +59,17 @@ export default function CampaignManager({
                 <ProUpgradeBanner />
                 <ProUpgrade3ComplianceCard />
                 <ProgressSection />
-                {showLoadingState && (
-                  <LoadingState
-                    isStreamComplete={isStreamComplete}
-                    hideCallback={hideLoadingChecklist}
-                  />
-                )}
-                {error && !isGenerating && !showLoadingState && (
-                  <FailedToGenerate retryGeneration={startGeneration} />
-                )}
-                {!showLoadingState && (
-                  <>
-                    {tasks.length > 0 || contactGoals ? (
-                      <TasksList
-                        campaign={campaign}
-                        tasks={tasks}
-                        tcrCompliance={tcrCompliance}
-                      />
-                    ) : (
-                      <div className="mt-4">
-                        <EmptyState />
-                      </div>
-                    )}
-                  </>
-                )}
+                <Card className="mt-4 flex flex-col items-start gap-3 p-6">
+                  <p className="text-muted-foreground">
+                    Your weekly tasks live in your Campaign Plan, tailored to
+                    your story and plan.
+                  </p>
+                  <Button asChild>
+                    <Link href="/dashboard/campaign-plan">
+                      Go to Campaign Plan
+                    </Link>
+                  </Button>
+                </Card>
               </>
             )}
           </div>

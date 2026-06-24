@@ -129,6 +129,7 @@ describe('CampaignStrategyService', () => {
       { getRaceContext: vi.fn() } as never,
       { getZipCodesByRaceId: vi.fn() } as never,
       analytics as never,
+      { bootstrapForCampaign: vi.fn() } as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {

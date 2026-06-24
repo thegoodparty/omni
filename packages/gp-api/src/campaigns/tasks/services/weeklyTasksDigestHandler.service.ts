@@ -12,7 +12,10 @@ const OUTREACH_FLOW_TYPES: CampaignTaskType[] = [
   CampaignTaskType.doorKnocking,
   CampaignTaskType.phoneBanking,
 ]
-const MAX_TASKS = 5
+// Surface the top 3 uncompleted tasks for the week (TDD: "Change top-5 to
+// top-3"). The Segment event still carries all 5 slots — slots 4-5 go blank so
+// HubSpot clears stale data — so there is no change needed on the email side.
+const MAX_TASKS = 3
 const MIN_TASKS = 3
 
 interface DigestRow {
@@ -161,7 +164,7 @@ function groupByCampaign(rows: DigestRow[]): Map<number, CampaignDigestGroup> {
 
 @Injectable()
 export class WeeklyTasksDigestHandlerService extends createPrismaBase(
-  MODELS.CampaignTask,
+  MODELS.CampaignTrackerTask,
 ) {
   constructor(private readonly analytics: AnalyticsService) {
     super()
@@ -188,7 +191,7 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
           COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
           COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
         FROM campaign c
-        JOIN campaign_task t ON t.campaign_id = c.id
+        JOIN campaign_tracker_tasks t ON t.campaign_id = c.id
         WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
           AND (c.details->>'electionDate')::date > NOW()::date
           AND t.date >= ${windowStart}
@@ -211,7 +214,7 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                 THEN 0 ELSE 1 END,
               t.date ASC
           ) AS slot
-        FROM campaign_task t
+        FROM campaign_tracker_tasks t
         JOIN eligible e ON e.id = t.campaign_id
         WHERE t.completed = false
           AND t.date >= ${windowStart}

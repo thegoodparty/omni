@@ -14,7 +14,6 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
-import { CAMPAIGN_TASK_CATALOG } from '@goodparty_org/contracts'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import { buildStaticTrackerTaskRows } from './staticTrackerTasks.util'
@@ -24,17 +23,6 @@ import {
 } from '../campaignTracker.consts'
 
 type TrackerParams = AgentJobContracts['campaign_tracker_tasks']['Input']
-
-// The dynamic subset of the catalog is the menu the experiment selects from.
-const DYNAMIC_MENU = CAMPAIGN_TASK_CATALOG.filter(
-  (task) => task.type === 'dynamic',
-).map((task) => ({
-  id: task.id,
-  title: task.title,
-  description: task.description,
-  phase: task.phase,
-  channel: task.channel,
-}))
 
 // Runtime guard over the CAP artifact — the manifest output_schema in Zod form.
 const trackerArtifactSchema = z.object({
@@ -125,22 +113,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       return
     }
 
-    const priorTasks =
-      mode === 'weekly'
-        ? (
-            await this.model.findMany({
-              where: { campaignId: campaign.id, isDefaultTask: false },
-              select: { title: true, completed: true },
-            })
-          ).map((t) => ({
-            catalog_id: null,
-            title: t.title,
-            completed: t.completed,
-          }))
-        : []
+    const { campaignPlan, campaignStory } =
+      await this.loadPersonalizationContext(campaign.id)
 
-    // Plan + story content feed personalization; story arrives with the
-    // campaign-story feature, so both are null by contract until wired.
+    // The dynamic task menu ships with the experiment as an attachment, and the
+    // agent fetches prior tasks + completion live via the tracker-tasks MCP
+    // tool (weekly mode) — neither rides in params, which keeps us under the
+    // dispatch param-size limit. Plan + story summaries feed personalization;
+    // both are nullable by contract (a campaign here normally has both).
     const params: TrackerParams = {
       race_id: raceId,
       user_full_name: fullName,
@@ -149,10 +129,8 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       election_date: campaign.details?.electionDate ?? null,
       state: campaign.details?.state ?? null,
       city: campaign.details?.city ?? null,
-      campaign_plan: null,
-      campaign_story: null,
-      task_catalog: DYNAMIC_MENU,
-      prior_tasks: priorTasks,
+      campaign_plan: campaignPlan,
+      campaign_story: campaignStory,
     }
 
     await this.experimentRuns.dispatchRun({
@@ -161,6 +139,76 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       clerkUserId,
       params,
     })
+  }
+
+  // First-run bootstrap, called once the campaign plan finishes generating
+  // (the story is already complete by then — a plan can't generate without
+  // it). Materializes the static launch/pre-launch rows so the tracker renders
+  // immediately, then kicks the initial CAP generation. Idempotent: static
+  // rows are a no-op once present, and the initial dispatch is skipped if any
+  // tracker run already exists for the org (so a re-generated plan, or a second
+  // section result, can't fire a duplicate run).
+  async bootstrapForCampaign(campaign: CampaignWith<'user'>): Promise<void> {
+    await this.materializeStaticTasks(campaign)
+
+    const existingRun = await this.experimentRuns.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+      },
+    })
+    if (existingRun) return
+
+    await this.dispatchGeneration(campaign, 'initial')
+  }
+
+  // Assemble the plan + story summary strings the CAP run uses as
+  // personalization context. Read straight off the DB (not via the sibling
+  // services) so this service stays free of a dependency cycle with
+  // CampaignStrategyService, which depends on this service for bootstrap.
+  private async loadPersonalizationContext(campaignId: number): Promise<{
+    campaignPlan: string | null
+    campaignStory: string | null
+  }> {
+    const [story, strategy] = await Promise.all([
+      this.client.campaignStory.findUnique({ where: { campaignId } }),
+      this.client.campaignStrategy.findUnique({
+        where: { campaignId },
+        include: {
+          opportunities: { orderBy: { order: Prisma.SortOrder.asc } },
+          challenges: { orderBy: { order: Prisma.SortOrder.asc } },
+          opponents: true,
+        },
+      }),
+    ])
+
+    const storyParts = [
+      story?.why ? `Why I'm running:\n${story.why}` : null,
+      story?.background ? `Background:\n${story.background}` : null,
+      story?.issues ? `Key issues:\n${story.issues}` : null,
+    ].filter((part): part is string => part !== null)
+    const campaignStory = storyParts.length ? storyParts.join('\n\n') : null
+
+    const planParts: string[] = []
+    if (strategy?.opportunities.length) {
+      const lines = strategy.opportunities
+        .map((o) => `- ${o.content}`)
+        .join('\n')
+      planParts.push(`Opportunities:\n${lines}`)
+    }
+    if (strategy?.challenges.length) {
+      const lines = strategy.challenges.map((c) => `- ${c.content}`).join('\n')
+      planParts.push(`Challenges:\n${lines}`)
+    }
+    if (strategy?.opponents.length) {
+      const lines = strategy.opponents
+        .map((op) => `- ${op.fullName} (${op.partyAffiliation})`)
+        .join('\n')
+      planParts.push(`Likely opponents:\n${lines}`)
+    }
+    const campaignPlan = planParts.length ? planParts.join('\n\n') : null
+
+    return { campaignPlan, campaignStory }
   }
 
   // Queue-consumer hook: on a completed tracker run, load the artifact and
