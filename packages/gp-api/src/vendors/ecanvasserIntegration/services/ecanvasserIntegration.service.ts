@@ -240,7 +240,7 @@ export class EcanvasserIntegrationService extends createPrismaBase(
       // (startDate set) skips the delete and only upserts, so its writes are
       // independently safe and don't need the wrapping transaction, but routing
       // both through the same block keeps the write path single.
-      await this.client.$transaction(
+      const updated = await this.client.$transaction(
         async (tx) => {
           if (!startDate) {
             await tx.ecanvasserContact.deleteMany({
@@ -349,18 +349,22 @@ export class EcanvasserIntegrationService extends createPrismaBase(
               update: data,
             })
           }
+
+          // Stamp lastSync inside the same transaction as the data writes so a
+          // crash can't leave lastSync stale relative to what was persisted — a
+          // stale lastSync would re-enter the full-sync deleteMany branch on the
+          // next run and briefly empty all three child tables.
+          return tx.ecanvasser.update({
+            where: { id: ecanvasser.id },
+            data: {
+              lastSync: new Date(),
+              error: null,
+            },
+            include: { contacts: true, interactions: true },
+          })
         },
         { timeout: 60_000 },
       )
-
-      const updated = await this.model.update({
-        where: { id: ecanvasser.id },
-        data: {
-          lastSync: new Date(),
-          error: null,
-        },
-        include: { contacts: true, interactions: true },
-      })
       await this.crm.trackCampaign(campaignId)
       // Emit per-voter door-knock attribution from the freshly-synced rows. This
       // is a best-effort side effect of the sync: idempotent, and its expected
