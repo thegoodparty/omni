@@ -1,9 +1,18 @@
 'use client'
 
+import { useState } from 'react'
 import { addDays, format, parse } from 'date-fns'
-import { Label } from '@styleguide'
+import {
+  Button,
+  Calendar,
+  CalendarIcon,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import DateInputCalendar from '@shared/inputs/DateInputCalendar'
+import type { Matcher } from 'react-day-picker'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 
 export type DisabledRange = { from: Date; to: Date }
@@ -132,7 +141,77 @@ const BRAND_CALENDAR_CLASSNAME = cn(
 )
 
 /**
- * The two term-date calendars (start + end) with their disabled ranges and a
+ * A single term-date form field: a labelled button that opens a popover
+ * containing the brand-blue calendar (matching the design system's canonical
+ * Date Picker pattern). The popover closes once a date is picked.
+ */
+const TermDateField = ({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+  calendarStart,
+  calendarEnd,
+}: {
+  id: string
+  label: string
+  value: Date | undefined
+  onChange: (date: Date | undefined) => void
+  disabled: Matcher[]
+  calendarStart: Date
+  calendarEnd: Date
+}): React.JSX.Element => {
+  const [open, setOpen] = useState(false)
+  const [month, setMonth] = useState<Date>(value ?? new Date())
+
+  const handleSelect = (date: Date | undefined): void => {
+    onChange(date)
+    if (date) {
+      setMonth(date)
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            variant="outline"
+            className={cn(
+              'w-full justify-start text-left font-normal',
+              !value && 'text-muted-foreground',
+            )}
+          >
+            <CalendarIcon className="mr-2 size-4" />
+            {value ? formatDisplay(value) : 'Pick a date'}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            month={month}
+            onMonthChange={setMonth}
+            selected={value}
+            onSelect={handleSelect}
+            disabled={disabled}
+            captionLayout="dropdown"
+            startMonth={calendarStart}
+            endMonth={calendarEnd}
+            className={BRAND_CALENDAR_CLASSNAME}
+            autoFocus
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+/**
+ * The two term-date pickers (start + end) with their disabled ranges and a
  * shared error line. Used by both the serve onboarding term-dates step and the
  * dashboard term-date prompt so the picker + validation never diverge.
  */
@@ -159,44 +238,25 @@ export const TermDatesFields = ({
   const endDisabled = endDisabledMatchers(otherRanges, termStartDate)
   return (
     <>
-      {/* Each field stacks its own always-open inline calendar. The calendars
-          render at a fixed natural width, so a two-column grid collapses them
-          into columns narrower than the calendars themselves once the right-rail
-          layout shrinks the content area — the two month grids then overrun and
-          collide. Stacking gives each calendar the full content width (centered,
-          never overlapping) and wraps it in an x-scroll guard so it can't break
-          the layout on a narrow viewport either. */}
-      <div className="grid grid-cols-1 gap-8">
-        <div className="space-y-2">
-          <Label>Term start date</Label>
-          <div className="overflow-x-auto">
-            <DateInputCalendar
-              value={termStartDate}
-              onChange={onStartChange}
-              showTextInput
-              label=""
-              calendarClassName={BRAND_CALENDAR_CLASSNAME}
-              startMonth={calendarStart}
-              endMonth={calendarEnd}
-              disabled={startDisabled}
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label>Term end date</Label>
-          <div className="overflow-x-auto">
-            <DateInputCalendar
-              value={termEndDate}
-              onChange={onEndChange}
-              showTextInput
-              label=""
-              calendarClassName={BRAND_CALENDAR_CLASSNAME}
-              startMonth={calendarStart}
-              endMonth={calendarEnd}
-              disabled={endDisabled}
-            />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <TermDateField
+          id="term-start-date"
+          label="Term start date"
+          value={termStartDate}
+          onChange={onStartChange}
+          disabled={startDisabled}
+          calendarStart={calendarStart}
+          calendarEnd={calendarEnd}
+        />
+        <TermDateField
+          id="term-end-date"
+          label="Term end date"
+          value={termEndDate}
+          onChange={onEndChange}
+          disabled={endDisabled}
+          calendarStart={calendarStart}
+          calendarEnd={calendarEnd}
+        />
       </div>
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
     </>
