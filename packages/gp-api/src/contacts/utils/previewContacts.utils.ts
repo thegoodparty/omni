@@ -5,8 +5,9 @@ import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
 // blur is not a real boundary — the blurred values are copy-pastable straight
 // out of the DOM. So the base list returns fabricated people the UI still
 // blurs: a copied value can never belong to a real person. Phone numbers use
-// the 555-01xx range reserved for fictional use as a second guard. Rows are
-// deterministic (varied by index) so tests can assert on them.
+// the 555 fictional exchange as a second guard, with a 4-digit suffix so they
+// stay distinct until 10,000 rows. Rows are deterministic (varied by index) so
+// tests can assert on them.
 
 const FIRST_NAMES = [
   'Alex',
@@ -55,7 +56,7 @@ const pick = <T>(list: readonly T[], index: number): T =>
 
 const buildPreviewPerson = (index: number): Person => {
   const houseNumber = 100 + index * 7
-  const phoneSuffix = String(index % 100).padStart(2, '0')
+  const phoneSuffix = String(index % 10000).padStart(4, '0')
   return {
     id: `preview-${index}`,
     lalVoterId: `preview-${index}`,
@@ -75,8 +76,8 @@ const buildPreviewPerson = (index: number): Person => {
       latitude: null,
       longitude: null,
     },
-    cellPhone: `(202) 555-01${phoneSuffix}`,
-    landline: `(202) 555-01${String((index + 50) % 100).padStart(2, '0')}`,
+    cellPhone: `(202) 555-${phoneSuffix}`,
+    landline: `(202) 555-${String((index + 5000) % 10000).padStart(4, '0')}`,
     gender: pick(GENDERS, index),
     politicalParty: pick(PARTIES, index),
     registeredVoter: 'Yes',

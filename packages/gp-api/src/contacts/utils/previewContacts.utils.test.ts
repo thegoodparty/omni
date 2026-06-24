@@ -29,17 +29,21 @@ describe('buildPreviewContacts', () => {
     expect(pagination.hasPreviousPage).toBe(false)
   })
 
-  it('only emits fabricated phone numbers in the fiction-reserved 555-01xx range', () => {
+  it('emits distinct fabricated phones in the 555 fictional exchange past 100 rows', () => {
+    // 200 rows exercises indices well past 100, where a 2-digit suffix would
+    // have collided (delegate-caught regression).
     const { people } = buildPreviewContacts({
-      resultsPerPage: 50,
+      resultsPerPage: 200,
       page: 1,
-      totalResults: 500,
+      totalResults: 1000,
     })
 
     for (const person of people) {
-      expect(person.cellPhone).toMatch(/555-01\d\d$/)
-      expect(person.landline).toMatch(/555-01\d\d$/)
+      expect(person.cellPhone).toMatch(/555-\d{4}$/)
+      expect(person.landline).toMatch(/555-\d{4}$/)
     }
+    const cellPhones = new Set(people.map((person) => person.cellPhone))
+    expect(cellPhones.size).toBe(people.length)
   })
 
   it('gives rows distinct synthetic ids across pages', () => {
