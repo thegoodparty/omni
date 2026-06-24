@@ -94,6 +94,16 @@ describe('BallotReadyService GraphQL injection hardening', () => {
       expect(mockRequest).not.toHaveBeenCalled()
     })
 
+    it('fetchPersonOfficeHolders passes a valid id as a variable, not interpolated', async () => {
+      mockRequest.mockResolvedValue({ node: null })
+      await service.fetchPersonOfficeHolders('Z2lkOi8vcGVyc29u')
+
+      const [query, variables] = mockRequest.mock.calls[0]
+      expect(query).toContain('node(id: $personId)')
+      expect(query).not.toContain('Z2lkOi8vcGVyc29u')
+      expect(variables).toEqual({ personId: 'Z2lkOi8vcGVyc29u' })
+    })
+
     it('fetchMilestones rejects a malformed id without calling BallotReady', async () => {
       const result = await service.fetchMilestones(INJECTION_ID)
 
