@@ -100,6 +100,15 @@ npm workspace graph. npm owns the TS packages; uv owns that subtree.
 only). Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via
 Vercel with deterministic PR-preview aliases. Detail in `docs/deployment.md`.
 
+## Worktrees
+
+This checkout is shared — other agents and sessions move `HEAD` underneath you. Do
+git work (branches, commits, PRs) in a worktree, not the main checkout. The native
+worktree tool places them in `.claude/worktrees/` (gitignored); if you create one by
+hand, put it under `.worktrees/` and remove it with `git worktree remove`, never
+`rm` — `rm` leaves git's worktree metadata dangling. After a worktree's PR merges,
+run `git worktree prune`.
+
 ## Observability and debugging (use the MCPs)
 
 When investigating a bug or incident, use the MCP tools rather than guessing.
