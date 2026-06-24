@@ -53,13 +53,15 @@ export const buildVoterWhereSql = (args: {
       )
     } else {
       const tokens = search.split(/\s+/).filter(Boolean)
-      if (tokens.length === 1) {
+      // Case-insensitive prefix match per token, AND-joined across tokens, with
+      // each token allowed to match either name field. This handles "First Last",
+      // "Last First", and middle-name noise. `lower(col) LIKE lower(tok) || '%'`
+      // is the form the Voter_firstname_lower_idx / Voter_lastname_lower_idx
+      // functional indexes can serve; ILIKE would seq-scan the 200M-row table.
+      for (const token of tokens) {
+        const prefix = token.toLowerCase() + '%'
         parts.push(
-          Prisma.sql`(v."FirstName" = ${tokens[0]} OR v."LastName" = ${tokens[0]})`,
-        )
-      } else if (tokens.length >= 2) {
-        parts.push(
-          Prisma.sql`(v."FirstName" = ${tokens[0]} AND v."LastName" = ${tokens[1]})`,
+          Prisma.sql`(lower(v."FirstName") LIKE ${prefix} OR lower(v."LastName") LIKE ${prefix})`,
         )
       }
     }
