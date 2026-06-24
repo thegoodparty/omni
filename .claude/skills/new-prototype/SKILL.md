@@ -100,13 +100,21 @@ All of these are importable directly from `lucide-react` in prototype code
 - **Screens use only `@goodparty_org/styleguide` + hardcoded content.** No
   `fetch`, no service imports, no Prisma, no `gp-api` calls, no auth, no env
   vars. All data is inline.
-- **`tabs` entries follow the `PrototypeTab` shape** (from `@/shared/AppShell`):
+- **`AppShell` takes `userName` + `modes`.** Each `ShellMode` is a workspace
+  (GoodParty's products are `serve` and `win`); its `tabs` are the sidebar nav.
+  The footer account switcher flips between modes. Shapes (from `@/shared/AppShell`):
   ```ts
   type PrototypeTab = {
-    slug: string // kebab-case, unique within the prototype
+    slug: string // kebab-case, unique within the mode
     label: string // display label in the sidebar
     icon: LucideIcon // lucide-react component (not a string)
     component: ReactNode
+  }
+  type ShellMode = {
+    id: string // 'serve' | 'win' (or your own)
+    label: string // sidebar header label, e.g. 'Serve'
+    role: string // account role line, e.g. 'Serve – City Council'
+    tabs: PrototypeTab[]
   }
   ```
 - **`meta.ts` exports `Omit<PrototypeMeta, 'slug'>`** (from `@/shared/prototypeMeta`):
@@ -147,39 +155,49 @@ export default meta
 'use client'
 
 import { LayoutDashboard, UsersRound, Send } from 'lucide-react'
-import { AppShell } from '@/shared/AppShell'
+import { AppShell, type ShellMode } from '@/shared/AppShell'
 import { Overview } from './screens/Overview'
 import { Contacts } from './screens/Contacts'
 import { Messages } from './screens/Messages'
 
-const tabs = [
+const modes: ShellMode[] = [
   {
-    slug: 'overview',
-    label: 'Overview',
-    icon: LayoutDashboard,
-    component: <Overview />,
-  },
-  {
-    slug: 'contacts',
-    label: 'Contacts',
-    icon: UsersRound,
-    component: <Contacts />,
-  },
-  {
-    slug: 'messages',
-    label: 'Messages',
-    icon: Send,
-    component: <Messages />,
+    id: 'serve',
+    label: 'Serve',
+    role: 'Serve – City Council',
+    tabs: [
+      {
+        slug: 'overview',
+        label: 'Overview',
+        icon: LayoutDashboard,
+        component: <Overview />,
+      },
+      {
+        slug: 'contacts',
+        label: 'Contacts',
+        icon: UsersRound,
+        component: <Contacts />,
+      },
+      {
+        slug: 'messages',
+        label: 'Messages',
+        icon: Send,
+        component: <Messages />,
+      },
+    ],
   },
 ]
 
-const Page = () => <AppShell title="TITLE" tabs={tabs} />
+const Page = () => <AppShell userName="USER_NAME" modes={modes} />
 
 export default Page
 ```
 
-Generate `tabs` from the actual tab list the user provided. Import the
-matching icon for each. Import each screen component from `./screens/TAB_NAME`.
+Generate the `tabs` inside the mode from the actual tab list the user provided.
+Import the matching icon for each, and import each screen from `./screens/TAB_NAME`.
+A single workspace (`mode`) is fine; add a second entry to `modes` (e.g. a `win`
+workspace) to demonstrate the account switcher between GoodParty's Serve and Win
+products.
 
 ### Screen stub (one file per tab, e.g. `screens/Overview.tsx`)
 
