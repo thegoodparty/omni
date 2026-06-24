@@ -1,0 +1,160 @@
+import * as React from 'react'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
+import { MenuIcon, PlusIcon, ShareIcon } from '../components/ui/icons'
+import { Button } from '../components/ui/button'
+import { IconButton } from '../components/ui/icon-button'
+import { SidebarProvider } from '../components/ui/sidebar'
+import { PageLayout } from '../components/ui/page-layout'
+
+const meta: Meta<typeof PageLayout> = {
+  component: PageLayout,
+  title: 'Patterns/Page Layout',
+  tags: ['autodocs'],
+  argTypes: {
+    title: { table: { disable: true } },
+    leading: { table: { disable: true } },
+    trailing: { table: { disable: true } },
+    onBack: { table: { disable: true } },
+    backHref: { table: { disable: true } },
+    backLabel: { table: { disable: true } },
+    subBarTrailing: { table: { disable: true } },
+    subBarContent: { table: { disable: true } },
+  },
+  parameters: {
+    layout: 'fullscreen',
+    backgrounds: { disable: true },
+  },
+  decorators: [
+    (Story) => (
+      // -m-6 cancels the 1.5rem padding the global preview decorator injects
+      <div className="-m-6 bg-background">
+        <SidebarProvider>
+          <Story />
+        </SidebarProvider>
+      </div>
+    ),
+  ],
+}
+export default meta
+
+const Burger = () => (
+  <IconButton variant="ghost" size="medium" aria-label="Open menu">
+    <MenuIcon className="size-5" />
+  </IconButton>
+)
+
+const SubBarActions = () => (
+  <>
+    <IconButton variant="ghost" size="small" aria-label="Share">
+      <ShareIcon className="size-4" />
+    </IconButton>
+    <Button size="small" icon={<PlusIcon />}>
+      Add note
+    </Button>
+  </>
+)
+
+const label = (text: string) => (
+  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide px-4 pt-4 pb-2">
+    {text}
+  </p>
+)
+
+type PlaygroundArgs = {
+  title: string
+  showTrailing: boolean
+  showBack: boolean
+  showBackLabel: boolean
+  showSubBarTrailing: boolean
+}
+
+export const Playground: StoryObj<PlaygroundArgs> = {
+  args: {
+    title: 'Campaign Manager',
+    showTrailing: true,
+    showBack: false,
+    showBackLabel: false,
+    showSubBarTrailing: false,
+  },
+  argTypes: {
+    title: { control: 'text' },
+    showTrailing: {
+      control: 'boolean',
+      description: 'Mobile: burger trigger (lg:hidden)',
+    },
+    showBack: { control: 'boolean', description: 'Sub-bar: show back button' },
+    showBackLabel: {
+      control: 'boolean',
+      description: 'Sub-bar: show label next to back arrow',
+      if: { arg: 'showBack', truthy: true },
+    },
+    showSubBarTrailing: {
+      control: 'boolean',
+      description: 'Sub-bar: action buttons',
+    },
+  },
+  render: ({
+    title,
+    showTrailing,
+    showBack,
+    showBackLabel,
+    showSubBarTrailing,
+  }) => (
+    <PageLayout
+      title={title}
+      trailing={showTrailing ? <Burger /> : undefined}
+      onBack={showBack ? () => alert('back') : undefined}
+      backLabel={showBack && showBackLabel ? 'Briefings' : undefined}
+      subBarTrailing={showSubBarTrailing ? <SubBarActions /> : undefined}
+    />
+  ),
+}
+
+export const MainBar: StoryObj = {
+  name: 'Main bar',
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-0">
+      {label('Mobile — logo + title + burger')}
+      <PageLayout title="Campaign Manager" trailing={<Burger />} />
+      {label('Desktop — title only')}
+      <PageLayout title="Campaign Manager" />
+    </div>
+  ),
+}
+
+export const SubBar: StoryObj = {
+  name: 'Sub-bar',
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-0">
+      {label('Back arrow only')}
+      <PageLayout
+        title="Briefings"
+        trailing={<Burger />}
+        onBack={() => alert('back')}
+      />
+      {label('Back with label')}
+      <PageLayout
+        title="Briefings"
+        trailing={<Burger />}
+        onBack={() => alert('back')}
+        backLabel="Briefings"
+      />
+      {label('Back + actions')}
+      <PageLayout
+        title="Q3 Voter Outreach Meeting"
+        trailing={<Burger />}
+        onBack={() => alert('back')}
+        backLabel="Briefings"
+        subBarTrailing={<SubBarActions />}
+      />
+      {label('Actions only (no back)')}
+      <PageLayout
+        title="Q3 Voter Outreach Meeting"
+        trailing={<Burger />}
+        subBarTrailing={<SubBarActions />}
+      />
+    </div>
+  ),
+}
