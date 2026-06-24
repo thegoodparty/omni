@@ -534,6 +534,23 @@ export class UsersService extends createPrismaBase(MODELS.User) {
    * don't get a duplicate identity. The token is redeemed by the webapp via
    * Clerk's `ticket` sign-in strategy.
    */
+  // A magic-link sign-in may only be minted for a fresh EO lead (or a stranded
+  // partial-create), never a real account: any assigned role (admin, sales,
+  // candidate, …) or campaign ownership marks a real account and is refused. A
+  // new lead and a stranded partial-create both have roles: [] and no campaign,
+  // so this never blocks legitimate provisioning (incl. admin retries).
+  private async assertReusableForMagicLink(user: User): Promise<void> {
+    if (user.roles.length > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+    }
+    const campaignCount = await this.client.campaign.count({
+      where: { userId: user.id },
+    })
+    if (campaignCount > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+    }
+  }
+
   async provisionMagicLinkUser(data: {
     email: string
     firstName: string
@@ -559,6 +576,16 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       if (controlsAccount) {
         throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       }
+    }
+
+    // Gate the pre-existing email-matched row BEFORE minting or binding any
+    // Clerk identity: otherwise findOrProvisionByClerk would bind the fresh
+    // Clerk id onto that row (tryBindClerkId) before we could reject it, leaving
+    // a foreign clerkId stamped on e.g. a staff/admin account. Re-checked on the
+    // resolved user below to cover a row created concurrently.
+    const existingLocal = await this.findUserByEmail(email)
+    if (existingLocal) {
+      await this.assertReusableForMagicLink(existingLocal)
     }
 
     let clerkId: string
@@ -617,23 +644,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       )
     }
 
-    // A user who already owns a campaign is a real candidate account, not a
-    // fresh EO lead, so never repurpose it for a magic-link sign-in. Check the
-    // RESOLVED user unconditionally: findOrProvisionByClerk can return a
-    // pre-existing legacy local user matched by email (clerkId was null, so no
-    // Clerk identity existed and reusedExistingClerkUser stays false) that owns
-    // a campaign — gating on reusedExistingClerkUser would skip that case. A
-    // brand-new lead's just-created user owns no campaign, so this never blocks
-    // legitimate leads. Campaign ownership is the only signal: a passwordless,
-    // campaign-less account is either a new lead or a stranded partial create,
-    // so it must stay reusable — gating on a missing ElectedOffice would
-    // permanently block legitimate admin retries after a failed first attempt.
-    const campaignCount = await this.client.campaign.count({
-      where: { userId: user.id },
-    })
-    if (campaignCount > 0) {
-      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
-    }
+    // Checked on the RESOLVED user: findOrProvisionByClerk can return a
+    // pre-existing clerkId-null local row matched by email (the takeover
+    // target), not only the just-created lead.
+    await this.assertReusableForMagicLink(user)
 
     const signInToken = await this.clerkClient.signInTokens.createSignInToken({
       userId: clerkId,

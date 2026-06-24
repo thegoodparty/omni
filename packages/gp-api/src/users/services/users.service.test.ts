@@ -14,6 +14,7 @@ import {
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { UserRole } from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -660,10 +661,10 @@ describe('UsersService', () => {
     })
 
     it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
-      // No Clerk identity exists for the email (clerkId is null), so a new Clerk
-      // user is created and reuse-tracking never trips — but findOrProvisionByClerk
-      // links the existing campaign-owning local user. The campaign gate must run
-      // on the resolved user, not only when we knowingly reused a Clerk identity.
+      // The email matches a campaign-owning local row whose clerkId is null. The
+      // gate must run on this pre-existing row BEFORE any Clerk identity is
+      // minted or bound — so no Clerk user is created and the row's clerkId is
+      // left untouched.
       const suffix = uniqueSuffix()
       const email = `eo-legacy-camp-${suffix}@example.com`
       const user = await service.prisma.user.create({
@@ -702,7 +703,91 @@ describe('UsersService', () => {
           lastName: 'Candidate',
         }),
       ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
-      expect(createUser).toHaveBeenCalled()
+      expect(createUser).not.toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
+      const refetched = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refetched?.clerkId).toBeNull()
+    })
+
+    it('refuses a legacy staff/admin local user with no Clerk identity and no campaign', async () => {
+      // The account-takeover path: an admin-console-created staff row has
+      // clerkId: null and owns NO campaign, so the campaign gate alone misses
+      // it. The role gate refuses it — and runs before provisioning, so no Clerk
+      // identity is minted or bound to the privileged row and no token issues.
+      const suffix = uniqueSuffix()
+      const email = `eo-admin-${suffix}@example.com`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Staff',
+          lastName: 'Admin',
+          name: 'Staff Admin',
+          clerkId: null,
+          roles: [UserRole.admin],
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_admin_${suffix}` } as never)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Staff',
+          lastName: 'Admin',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(createUser).not.toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
+      // No foreign Clerk identity was bound onto the privileged row.
+      const refetched = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refetched?.clerkId).toBeNull()
+    })
+
+    it('refuses a role-bearing account that already has a Clerk identity', async () => {
+      // A privileged account is refused even when the email already maps to a
+      // (bare passwordless) Clerk identity — the role gate, not the passwordless
+      // gate, is what blocks it, and no sign-in token is minted.
+      const suffix = uniqueSuffix()
+      const email = `eo-clerk-admin-${suffix}@example.com`
+      const clerkId = `clerk_admin_existing_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Clerk',
+          lastName: 'Admin',
+          name: 'Clerk Admin',
+          clerkId,
+          roles: [UserRole.admin],
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      // Mocked so the read-enrichment wrapper (findUserByEmail enriches a row
+      // that has a clerkId) doesn't reach the real Clerk API.
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Clerk',
+          lastName: 'Admin',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       expect(signIn).not.toHaveBeenCalled()
     })
   })
