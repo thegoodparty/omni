@@ -7,7 +7,7 @@ import {
   ArrowLeftIcon,
   CheckIcon,
   ChevronRightIcon,
-} from 'styleguide/components/ui/icons'
+} from '@styleguide/components/ui/icons'
 import type {
   CommunityIssueDetail,
   CommunityIssueSource,

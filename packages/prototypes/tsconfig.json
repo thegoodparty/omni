@@ -11,7 +11,7 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["app/shared/*"],
+      "@/*": ["app/*"],
       "@styleguide": ["../styleguide/src"],
       "@styleguide/*": ["../styleguide/src/*"]
     },
@@ -32,10 +32,11 @@
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "incremental": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "incremental": true,
+    "types": ["vitest/globals"]
   },
   "include": [
     "**/*.js",
@@ -44,8 +45,7 @@
     "**/*.tsx",
     "next-env.d.ts",
     ".next/types/**/*.ts",
-    "types/**/*.d.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", "e2e-tests"]
+  "exclude": ["node_modules", ".next"]
 }

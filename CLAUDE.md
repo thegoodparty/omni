@@ -18,17 +18,19 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 
 ## Packages
 
-| Path                       | What                                            | Stack             | Port |
-| -------------------------- | ----------------------------------------------- | ----------------- | ---- |
-| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)    | NestJS + Fastify  | 3000 |
-| `packages/gp-webapp`       | Product app for candidates & elected officials  | Next.js 16        | 4000 |
-| `packages/election-api`    | Election/race/candidacy data microservice       | NestJS + Fastify  | 3001 |
-| `packages/people-api`      | Voter/people data microservice (L2 records)     | NestJS + Fastify  | 3002 |
-| `packages/gp-admin`        | Internal staff admin console (uses the SDK)     | Next.js 16        | 3500 |
-| `packages/candidate-sites` | Per-candidate static sites                      | Next.js           | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | TypeScript        | —    |
-| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | TypeScript        | —    |
-| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | Markdown + Python | —    |
+| Path                       | What                                                              | Stack             | Port |
+| -------------------------- | ----------------------------------------------------------------- | ----------------- | ---- |
+| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)                      | NestJS + Fastify  | 3000 |
+| `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
+| `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
+| `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
+| `packages/people-api`      | Voter/people data microservice (L2 records)                       | NestJS + Fastify  | 3002 |
+| `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
+| `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
+| `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
+| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client                           | TypeScript        | —    |
+| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
+| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
 
 ## Where to look (read the nearest doc first)
 
