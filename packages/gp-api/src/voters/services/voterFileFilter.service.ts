@@ -94,6 +94,7 @@ export class VoterFileFilterService extends createPrismaBase(
       age50Plus,
       genderMale,
       genderFemale,
+      genderUnknown,
       hasCellPhone,
       hasLandline,
       ethnicityEuropean,
@@ -134,6 +135,7 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(age50Plus === true ? { age_50_plus: age50Plus } : {}),
       ...(genderMale === true ? { gender_male: genderMale } : {}),
       ...(genderFemale === true ? { gender_female: genderFemale } : {}),
+      ...(genderUnknown === true ? { gender_unknown: genderUnknown } : {}),
       ...(hasCellPhone === true ? { has_cell_phone: hasCellPhone } : {}),
       ...(hasLandline === true ? { has_landline: hasLandline } : {}),
       ...(ethnicityEuropean === true
