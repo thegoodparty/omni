@@ -33,6 +33,7 @@
     "@contentful/rich-text-react-renderer": "^16.0.1",
     "@contentful/rich-text-types": "^16.0.1",
     "@goodparty_org/contracts": "*",
+    "@goodparty_org/styleguide": "*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -87,7 +88,6 @@
     "clsx": "^1.2.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
-
     "es-toolkit": "^1.32.0",
     "fast-glob": "^3.3.3",
     "fuse.js": "^7.1.0",
@@ -133,7 +133,6 @@
     "react-responsive-masonry": "^2.1.6",
     "react-schemaorg": "^2.0.0",
     "react-scroll-into-view": "^1.12.2",
-
     "react-stickynode": "^5.0.2",
     "recharts": "^2.15.3",
     "remark-gfm": "^4.0.1",
@@ -179,7 +178,6 @@
     "@types/react": "^19.2.17",
     "@types/react-color": "^3.0.13",
     "@types/react-dom": "^19.2.3",
-
     "@types/sanitize-html": "^2.16.0",
     "@types/validator": "^13.15.4",
     "@types/xml2js": "^0.4.14",

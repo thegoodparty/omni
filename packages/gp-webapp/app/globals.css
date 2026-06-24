@@ -16,17 +16,17 @@
  */
 
 /* 1. Raw CSS variables that @theme will reference via var() */
-@import '../styleguide/design-tokens.css';
+@import '../../styleguide/src/design-tokens.css';
 
 /* 2. Core Tailwind - MUST come before @theme, @plugin, @source */
 @import 'tailwindcss';
 
 /* 3. Theme tokens - @theme MUST come AFTER @import "tailwindcss" */
-@import '../styleguide/tailwind-theme.css';
+@import '../../styleguide/src/tailwind-theme.css';
 
 /* 4. Additional CSS imports (all @import must precede @plugin/@source/@custom-variant for PostCSS/Storybook) */
-@import '../styleguide/typography.css';
-@import '../styleguide/styleguide-scope.css';
+@import '../../styleguide/src/typography.css';
+@import '../../styleguide/src/styleguide-scope.css';
 @import 'tw-animate-css';
 
 /* 5. Tailwind v4 plugin (replaces plugins[] in tailwind.config.js) */
@@ -35,7 +35,7 @@
 /* 6. Content sources (replaces content[] in tailwind.config.js) */
 @source "../app";
 @source "../components";
-@source "../styleguide";
+@source "../../styleguide/src";
 
 /* Dark mode variant */
 @custom-variant dark (&:is(.dark *));

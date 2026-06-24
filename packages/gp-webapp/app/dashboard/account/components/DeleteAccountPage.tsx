@@ -5,7 +5,7 @@ import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@shared/hooks/useUser'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
-import { buttonVariants } from 'styleguide/components/ui/button'
+import { buttonVariants } from '@styleguide/components/ui/button'
 import {
   Alert,
   AlertDescription,
@@ -18,7 +18,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
   Button,
-} from 'styleguide/components/ui'
+} from '@styleguide/components/ui'
 
 export default function DeleteAccountPage(): React.JSX.Element {
   const [user] = useUser()

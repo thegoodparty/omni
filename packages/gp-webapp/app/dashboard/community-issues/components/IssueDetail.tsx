@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { Badge, Button } from '@styleguide'
-import { ArchiveIcon } from 'styleguide/components/ui/icons'
+import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import type {
   CommunityIssueDetail,
   CommunityIssueSource,

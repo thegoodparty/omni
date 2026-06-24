@@ -4,6 +4,7 @@ import path from 'node:path'
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../..'),
+  transpilePackages: ['@goodparty_org/styleguide'],
   reactStrictMode: true,
   images: {
     remotePatterns: [
