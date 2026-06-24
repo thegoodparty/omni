@@ -258,7 +258,22 @@ export const TermDatesFields = ({
           calendarEnd={calendarEnd}
         />
       </div>
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p
+          className={cn(
+            'mt-4 text-sm',
+            // The "enter both dates" guidance (shown while either date is still
+            // empty) is a neutral prompt, not an error — keep it in the default
+            // text color. Genuine validation errors (end-before-start, overlap)
+            // only occur once both dates are set, and stay red.
+            !termStartDate || !termEndDate
+              ? 'text-foreground'
+              : 'text-destructive',
+          )}
+        >
+          {error}
+        </p>
+      )}
     </>
   )
 }
