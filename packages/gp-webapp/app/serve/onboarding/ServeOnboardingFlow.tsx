@@ -771,8 +771,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       case 'term-dates':
         if (returnToConfirm) {
+          // The term-dates detour is only reachable when an office is already
+          // chosen, so backing out always returns to the confirm hub. (Unlike
+          // the office detour, dates are invalid by construction here, so
+          // backFromConfirmDetour would wrongly fall back to `party`.)
           setReturnToConfirm(false)
-          setStep(backFromConfirmDetour())
+          setStep('confirm')
         } else {
           setStep('office')
         }

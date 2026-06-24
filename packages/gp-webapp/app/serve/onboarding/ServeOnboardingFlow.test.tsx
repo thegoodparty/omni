@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
@@ -62,6 +62,51 @@ const renderFlow = () =>
       <ServeOnboardingFlow />
     </SnackbarProvider>,
   )
+
+// The term-date fields are popover date pickers (a labelled trigger button that
+// opens a calendar with month/year dropdowns), not free-text inputs. Drive one
+// the way a user would: open its popover, navigate via the dropdowns, then click
+// the day cell. Day buttons carry `data-day` (the locale date string), so we
+// match the exact day directly instead of an ambiguous "1".
+const pickTermDate = async (
+  user: ReturnType<typeof userEvent.setup>,
+  fieldLabel: string,
+  date: Date,
+) => {
+  await user.click(screen.getByLabelText(fieldLabel))
+  const dialog = await screen.findByRole('dialog')
+  // The month/year dropdowns each re-render the calendar (and replace the
+  // <select> nodes) on change, so re-query before driving each one. Set the
+  // year first, then the month, to land on the target month grid.
+  const yearSelect = within(dialog).getAllByRole('combobox')[1]
+  await user.selectOptions(yearSelect!, String(date.getFullYear()))
+  const monthSelect = within(dialog).getAllByRole('combobox')[0]
+  await user.selectOptions(
+    monthSelect!,
+    date.toLocaleString('default', { month: 'short' }),
+  )
+  // Day buttons carry the locale date string in data-day; the day cell uses the
+  // ISO form, so scope to the button to pick the exact day unambiguously.
+  const dayButton = dialog.querySelector(
+    `button[data-day="${date.toLocaleDateString()}"]`,
+  )
+  await user.click(dayButton as HTMLElement)
+  // The popover closes once a day is picked.
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+  )
+}
+
+// Fills both term-date pickers with the canonical 2026-01-01 → 2030-01-01 range
+// the term-dates tests assert on.
+const fillTermDates = async (
+  user: ReturnType<typeof userEvent.setup>,
+  start = new Date(2026, 0, 1),
+  end = new Date(2030, 0, 1),
+) => {
+  await pickTermDate(user, 'Term start date', start)
+  await pickTermDate(user, 'Term end date', end)
+}
 
 // Mocks the three GETs the load effect fires. `eo` is returned for both
 // `current` and `mine` so the flow adopts it (rather than treating the user as
@@ -216,9 +261,7 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
-    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
-    await user.type(startInput!, '01012026')
-    await user.type(endInput!, '01012030')
+    await fillTermDates(user)
     return user
   }
 
@@ -321,9 +364,7 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
 
-    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
-    await user.type(startInput!, '01012026')
-    await user.type(endInput!, '01012030')
+    await fillTermDates(user)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The prefill detour returns to the confirm hub once dates are valid.
@@ -517,10 +558,7 @@ describe('ServeOnboardingFlow', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
-      const [startInput, endInput] =
-        screen.getAllByPlaceholderText('mm/dd/yyyy')
-      await user.type(startInput!, '01012026')
-      await user.type(endInput!, '01012030')
+      await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText(
