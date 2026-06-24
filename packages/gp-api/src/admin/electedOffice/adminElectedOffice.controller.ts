@@ -103,6 +103,7 @@ export class AdminElectedOfficeController {
     await this.analytics
       .track(user.id, EVENTS.ServeOnboarding.MagicLinkSent, {
         email,
+        type: 'serve',
         prefilledElectedOfficeId: prefill?.electedOfficeId,
         ballotReadyPositionId: prefill?.ballotReadyPositionId,
       })
