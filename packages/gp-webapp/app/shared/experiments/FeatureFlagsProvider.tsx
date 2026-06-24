@@ -99,6 +99,11 @@ export const FeatureFlagsProvider = ({
   // Re-resolve through gp-api (server-side), never from Amplitude in the
   // browser — so an ad blocker or blocked network can't affect flag resolution.
   const refresh = useCallback(async (): Promise<void> => {
+    // Resolve to the gp-api result, or fail safe to empty. refresh() runs on
+    // identity changes without pre-clearing, so a transient failure (non-ok,
+    // unparseable, or network error) must NOT leave the previous identity's
+    // variants in place — an unresolvable flag has to read off, never stale.
+    let next: Record<string, Variant> = {}
     try {
       const res = await fetch(VARIANTS_ROUTE, { credentials: 'include' })
       if (res.ok) {
@@ -106,8 +111,7 @@ export const FeatureFlagsProvider = ({
           await res.json(),
         )
         if (parsed.success) {
-          setVariants(parsed.data.variants)
-          exposedRef.current = new Set()
+          next = parsed.data.variants
         }
       }
     } catch (error) {
@@ -116,6 +120,8 @@ export const FeatureFlagsProvider = ({
         { context: 'FeatureFlagsProvider.refresh' },
       )
     } finally {
+      setVariants(next)
+      exposedRef.current = new Set()
       setReady(true)
     }
   }, [])
@@ -132,10 +138,19 @@ export const FeatureFlagsProvider = ({
     if (!resolvedRef.current) {
       resolvedRef.current = true
       resolvedKeyRef.current = key
-      // Trust the SSR seed for an authed user (covers the brief anonymous flash
-      // during Clerk hydration — keep the seed instead of discarding it), or
-      // stay empty for a genuinely anonymous visitor. Either way, no fetch.
-      if (hasSeed || !user) {
+      // Trust the SSR seed only when the client confirms the same authed user.
+      // A genuinely anonymous visitor (no seed, no user) likewise skips the
+      // fetch and stays empty. But if the session expired between SSR and
+      // hydration (seed present, user gone), the seed is for the wrong identity
+      // — discard it and re-resolve through gp-api, which is cookie-authed
+      // server-side and so returns the right answer even during Clerk's brief
+      // anonymous flash (the old client-Amplitude refetch couldn't, which is why
+      // the seed used to be kept here).
+      if (hasSeed && user) {
+        setReady(true)
+        return
+      }
+      if (!hasSeed && !user) {
         setReady(true)
         return
       }

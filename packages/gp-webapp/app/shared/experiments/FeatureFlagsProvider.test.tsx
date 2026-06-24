@@ -98,21 +98,27 @@ describe('server-seeded initialVariants', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('keeps the seed through a transient anonymous flash during hydration', async () => {
-    // Clerk briefly reports no user before the session restores. The provider
-    // must NOT discard the seed or call Amplitude — it keeps serving the seed.
+  it('re-resolves instead of trusting a stale seed when the session is gone at hydration', async () => {
+    // The seed was rendered for an authed user server-side, but the client
+    // hydrates with no user (session expired between SSR and hydration). The
+    // provider must NOT keep serving the authed seed — it re-resolves through
+    // gp-api, which returns empty for an anonymous request. (The effect only
+    // runs after isUserLoading is false, so a null user here is definitively
+    // gone, not transitionally missing.)
     mockUser = null
     mockIsUserLoading = false
+    serverVariants = {}
 
     const { result } = renderHook(() => useFlagOn('campaign-story'), {
       wrapper: seededWrapper,
     })
 
-    await act(async () => {
-      await Promise.resolve()
-    })
-    expect(result.current.on).toBe(true)
-    expect(fetchMock).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
+        credentials: 'include',
+      }),
+    )
+    await waitFor(() => expect(result.current.on).toBe(false))
   })
 
   it('re-resolves through gp-api when the identity changes after seeding', async () => {
@@ -371,16 +377,27 @@ describe('regression coverage', () => {
     await waitFor(() => expect(result.current.on).toBe(true))
   })
 
-  it('keeps current variants and does not report when the refresh 4xx/5xxs', async () => {
-    // An HTTP error (res.ok === false) is not a thrown network error: skip the
-    // update, still become ready, and do not noise up Sentry.
+  it('fails safe to empty (does not serve the prior identity) when a refresh 4xx/5xxs', async () => {
+    // An HTTP error (res.ok === false) is not a thrown network error, so it
+    // must NOT noise up Sentry — but the variants from the previous identity
+    // must not linger either. refresh() runs on the identity change without
+    // pre-clearing, so the provider has to clear to empty: an unresolvable flag
+    // reads off, never stale.
     mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+    expect(fetchMock).not.toHaveBeenCalled()
+
     fetchOk = false
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
 
-    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(result.current.all()).toEqual({})
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.on).toBe(false))
     expect(reportErrorToSentry).not.toHaveBeenCalled()
   })
 
