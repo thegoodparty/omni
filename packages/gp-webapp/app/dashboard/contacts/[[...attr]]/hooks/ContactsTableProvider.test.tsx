@@ -42,6 +42,12 @@ vi.mock('@shared/experiments/winVoterDataFlag', () => ({
   useWinVoterDataFlag: vi.fn(),
 }))
 
+// The provider and useElectedOffice both read the active org from here to
+// org-scope their query keys (ENG-10511); outside a provider it would throw.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-one' }),
+}))
+
 const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 
 beforeEach(() => {

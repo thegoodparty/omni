@@ -38,6 +38,7 @@ import defaultSegments from '../components/configs/defaultSegments.config'
 import { isCustomSegment } from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useOrganization } from '@shared/organization-picker'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 
 const extractPersonIdFromParams = (
@@ -126,6 +127,7 @@ interface ContactsTableProviderProps {
 }
 
 const contactTableQueryOptions = (params: {
+  orgSlug: string | undefined
   page: number
   resultsPerPage: number
   segment: string
@@ -161,6 +163,11 @@ export const ContactsTableProvider = ({
   const router = useRouter()
 
   const [campaign] = useCampaign()
+  // All contacts/person/segment data is org-scoped: gpFetch sends the active
+  // org's slug as X-Organization-Slug from the cookie. The slug is in every
+  // query key below so a Win org can never read a Serve org's cached rows or
+  // detail when the active org changes outside the org picker (ENG-10511).
+  const orgSlug = useOrganization()?.slug
   const { data: electedOffice } = useElectedOffice()
   // Single source of the Win-vs-Serve decision (shared with the menu, mobile
   // title, and page copy). Picks the engagement :id below and the page labels.
@@ -209,6 +216,7 @@ export const ContactsTableProvider = ({
 
   const contactsQuery = useQuery(
     contactTableQueryOptions({
+      orgSlug,
       page: currentPage,
       resultsPerPage: pageSize,
       segment: currentSegment,
@@ -219,6 +227,7 @@ export const ContactsTableProvider = ({
   // Prefetch the next page
   useQuery(
     contactTableQueryOptions({
+      orgSlug,
       page: currentPage + 1,
       resultsPerPage: pageSize,
       segment: currentSegment,
@@ -227,7 +236,7 @@ export const ContactsTableProvider = ({
   )
 
   const personQuery = useQuery({
-    queryKey: ['person', currentlySelectedPersonId],
+    queryKey: ['person', orgSlug, currentlySelectedPersonId],
     queryFn: () =>
       clientRequest('GET /v1/contacts/:id', {
         id: currentlySelectedPersonId!,
@@ -236,7 +245,12 @@ export const ContactsTableProvider = ({
   })
 
   const issuesInfiniteQuery = useInfiniteQuery({
-    queryKey: ['contact-engagement', 'issues', currentlySelectedPersonId],
+    queryKey: [
+      'contact-engagement',
+      'issues',
+      orgSlug,
+      currentlySelectedPersonId,
+    ],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/issues', {
         id: currentlySelectedPersonId!,
@@ -260,7 +274,12 @@ export const ContactsTableProvider = ({
     : currentlySelectedPersonId
 
   const activitiesInfiniteQuery = useInfiniteQuery({
-    queryKey: ['contact-engagement', 'activities', activitiesEngagementId],
+    queryKey: [
+      'contact-engagement',
+      'activities',
+      orgSlug,
+      activitiesEngagementId,
+    ],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/activities', {
         id: activitiesEngagementId!,
@@ -273,7 +292,7 @@ export const ContactsTableProvider = ({
   })
 
   const customSegmentsQuery = useQuery({
-    queryKey: ['custom-segments'],
+    queryKey: ['custom-segments', orgSlug],
     queryFn: () =>
       clientRequest('GET /v1/voters/voter-file/filters', {}).then(
         (res) => res.data,
