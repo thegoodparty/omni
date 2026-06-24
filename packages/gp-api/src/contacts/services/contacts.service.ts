@@ -209,6 +209,7 @@ export class ContactsService {
     const fetchPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
     ) => {
       try {
         const response = await lastValueFrom(
@@ -220,6 +221,7 @@ export class ContactsService {
               page,
               filters,
               search,
+              groupByHousehold,
             },
             {
               headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
@@ -236,8 +238,9 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
     return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters),
+      fetchPeople(params, filters, groupByHousehold),
     )
   }
 
@@ -355,13 +358,14 @@ export class ContactsService {
     const downloadPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
     ) => {
       let response: { data: Readable }
       try {
         response = await lastValueFrom(
           this.httpService.post<Readable>(
             `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters },
+            { ...districtParams, filters, groupByHousehold },
             {
               headers: {
                 Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -457,8 +461,9 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
     return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters),
+      downloadPeople(params, filters, groupByHousehold),
     )
   }
 
@@ -561,6 +566,21 @@ export class ContactsService {
       )
 
     return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+  }
+
+  // Only the built-in door-knocking channel de-dupes by household; custom and
+  // named segments (and every other channel) list one row per voter.
+  private segmentGroupsByHousehold(segment: string | undefined): boolean {
+    const builtIn =
+      defaultSegmentToFiltersMap[
+        // Dynamic key lookup into const object — TS can't narrow string to keys
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        (segment ||
+          ALL_CONTACTS_SEGMENT) as keyof typeof defaultSegmentToFiltersMap
+      ]
+    return (
+      !!builtIn && 'groupByHousehold' in builtIn && builtIn.groupByHousehold
+    )
   }
 
   private resolveBuiltInSegment(segment: string): FilterObject | undefined {
