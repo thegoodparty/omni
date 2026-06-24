@@ -57,17 +57,29 @@ describe('AdminOrM2MGuard', () => {
     expect(result).toBe(true)
   })
 
-  it('allows email-fallback actor via actorSub', () => {
+  it('rejects a demoted-admin actor token (actorUser no longer admin) despite actorSub', () => {
+    // The vuln: a demoted admin's outstanding actor token still carries an act
+    // claim (actorSub), but the resolved actor's roles no longer include admin.
+    // Authorization must follow the actor's CURRENT role, not the claim's
+    // presence.
     const result = guard.canActivate(
       mockContext({
-        user: {
-          roles: [UserRole.candidate],
-          impersonating: false,
-        },
+        user: { roles: [UserRole.candidate], impersonating: true },
+        actorUser: { roles: [UserRole.candidate] },
         actorSub: 'admin@goodparty.org',
       }),
     )
-    expect(result).toBe(true)
+    expect(result).toBe(false)
+  })
+
+  it('rejects an unresolved actor (actorSub present, no actorUser)', () => {
+    const result = guard.canActivate(
+      mockContext({
+        user: { roles: [UserRole.candidate], impersonating: false },
+        actorSub: 'admin@goodparty.org',
+      }),
+    )
+    expect(result).toBe(false)
   })
 
   it('rejects when no actorSub, no actorUser, non-admin user', () => {
@@ -77,6 +89,18 @@ describe('AdminOrM2MGuard', () => {
           roles: [UserRole.candidate],
           impersonating: false,
         },
+      }),
+    )
+    expect(result).toBe(false)
+  })
+
+  it('rejects when an admin subject is impersonated by a non-admin actor', () => {
+    // The actor is the acting principal — the subject's admin role must not
+    // bleed through to a non-admin actor.
+    const result = guard.canActivate(
+      mockContext({
+        user: { roles: [UserRole.admin], impersonating: true },
+        actorUser: { roles: [UserRole.candidate] },
       }),
     )
     expect(result).toBe(false)

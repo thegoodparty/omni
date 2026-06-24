@@ -653,6 +653,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       userId: campaignUser.id,
       organizationSlug: 'org-jane-for-springfield',
       details: { electionDate: '2027-11-02' },
+      placeId: 'place-123',
     }),
     user: campaignUser,
   }
@@ -929,6 +930,32 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
       await service.handleAgenticKickoff(kickoff)
 
       expect(mockExperimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: kickoff.tcrComplianceId, agenticRunId: null },
+        data: { status: TcrComplianceStatus.error },
+      })
+      expect(mockModel.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    { case: 'null', placeId: null },
+    { case: 'empty', placeId: '' },
+    { case: 'whitespace only', placeId: '   ' },
+  ])(
+    'marks the record as error and skips dispatch when placeId is $case',
+    async ({ placeId }) => {
+      mockCampaigns.findUnique.mockResolvedValueOnce({
+        ...campaign,
+        placeId,
+      })
+
+      await service.handleAgenticKickoff(kickoff)
+
+      expect(mockExperimentRuns.dispatchRun).not.toHaveBeenCalled()
+      expect(
+        mockWebsites.ensureCompliancePublishableWebsite,
+      ).not.toHaveBeenCalled()
       expect(mockModel.updateMany).toHaveBeenCalledWith({
         where: { id: kickoff.tcrComplianceId, agenticRunId: null },
         data: { status: TcrComplianceStatus.error },
