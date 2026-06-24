@@ -7,8 +7,8 @@ import { Separator } from './separator'
 import { cn } from '@styleguide/lib/utils'
 
 export interface PageLayoutProps extends React.HTMLAttributes<HTMLElement> {
-  /** Main bar: section title. */
-  title?: React.ReactNode
+  /** Main bar: section heading. */
+  heading?: React.ReactNode
   /**
    * Main bar: overrides the left slot (default: GoodParty logo, hidden on desktop via lg:hidden).
    * When a custom leading is passed, breakpoint visibility and the separator are the consumer's responsibility.
@@ -35,7 +35,7 @@ export interface PageLayoutProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 function PageLayout({
-  title,
+  heading,
   leading,
   trailing,
   onBack,
@@ -105,7 +105,7 @@ function PageLayout({
         {leadingEl && (
           <>
             <div className="flex items-center shrink-0">{leadingEl}</div>
-            {title && (
+            {heading && (
               <Separator
                 orientation="vertical"
                 className="data-[orientation=vertical]:h-5 mx-3 lg:hidden"
@@ -114,10 +114,10 @@ function PageLayout({
           </>
         )}
 
-        {title && (
+        {heading && (
           <div className="flex-1 min-w-0">
             <span className="block truncate text-base font-semibold text-sidebar-foreground">
-              {title}
+              {heading}
             </span>
           </div>
         )}

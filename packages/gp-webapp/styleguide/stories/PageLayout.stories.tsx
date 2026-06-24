@@ -11,7 +11,7 @@ const meta: Meta<typeof PageLayout> = {
   title: 'Patterns/Page Layout',
   tags: ['autodocs'],
   argTypes: {
-    title: { table: { disable: true } },
+    heading: { table: { disable: true } },
     leading: { table: { disable: true } },
     trailing: { table: { disable: true } },
     onBack: { table: { disable: true } },
@@ -61,7 +61,7 @@ const label = (text: string) => (
 )
 
 type PlaygroundArgs = {
-  title: string
+  heading: string
   showTrailing: boolean
   showBack: boolean
   showBackLabel: boolean
@@ -70,14 +70,14 @@ type PlaygroundArgs = {
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
-    title: 'Campaign Manager',
+    heading: 'Campaign Manager',
     showTrailing: true,
     showBack: false,
     showBackLabel: false,
     showSubBarTrailing: false,
   },
   argTypes: {
-    title: { control: 'text' },
+    heading: { control: 'text' },
     showTrailing: {
       control: 'boolean',
       description: 'Mobile: burger trigger (lg:hidden)',
@@ -94,14 +94,14 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
   },
   render: ({
-    title,
+    heading,
     showTrailing,
     showBack,
     showBackLabel,
     showSubBarTrailing,
   }) => (
     <PageLayout
-      title={title}
+      heading={heading}
       trailing={showTrailing ? <Burger /> : undefined}
       onBack={showBack ? () => alert('back') : undefined}
       backLabel={showBack && showBackLabel ? 'Briefings' : undefined}
@@ -116,9 +116,9 @@ export const MainBar: StoryObj = {
   render: () => (
     <div className="flex flex-col gap-0">
       {label('Mobile — logo + title + burger')}
-      <PageLayout title="Campaign Manager" trailing={<Burger />} />
+      <PageLayout heading="Campaign Manager" trailing={<Burger />} />
       {label('Desktop — title only')}
-      <PageLayout title="Campaign Manager" />
+      <PageLayout heading="Campaign Manager" />
     </div>
   ),
 }
@@ -130,20 +130,20 @@ export const SubBar: StoryObj = {
     <div className="flex flex-col gap-0">
       {label('Back arrow only')}
       <PageLayout
-        title="Briefings"
+        heading="Briefings"
         trailing={<Burger />}
         onBack={() => alert('back')}
       />
       {label('Back with label')}
       <PageLayout
-        title="Briefings"
+        heading="Briefings"
         trailing={<Burger />}
         onBack={() => alert('back')}
         backLabel="Briefings"
       />
       {label('Back + actions')}
       <PageLayout
-        title="Q3 Voter Outreach Meeting"
+        heading="Q3 Voter Outreach Meeting"
         trailing={<Burger />}
         onBack={() => alert('back')}
         backLabel="Briefings"
@@ -151,7 +151,7 @@ export const SubBar: StoryObj = {
       />
       {label('Actions only (no back)')}
       <PageLayout
-        title="Q3 Voter Outreach Meeting"
+        heading="Q3 Voter Outreach Meeting"
         trailing={<Burger />}
         subBarTrailing={<SubBarActions />}
       />
