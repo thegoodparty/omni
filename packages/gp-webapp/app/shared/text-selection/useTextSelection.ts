@@ -37,8 +37,19 @@ export const useTextSelection = (
       setSelection({ text, rect: range.getBoundingClientRect() })
     }
 
+    // The popover is positioned from a viewport-relative rect, so a scroll
+    // would leave it drifting away from the text. Dismiss on scroll instead.
+    const clearOnScroll = () => setSelection(null)
+
     document.addEventListener('selectionchange', handler)
-    return () => document.removeEventListener('selectionchange', handler)
+    window.addEventListener('scroll', clearOnScroll, {
+      capture: true,
+      passive: true,
+    })
+    return () => {
+      document.removeEventListener('selectionchange', handler)
+      window.removeEventListener('scroll', clearOnScroll, { capture: true })
+    }
   }, [containerRef])
 
   return selection
