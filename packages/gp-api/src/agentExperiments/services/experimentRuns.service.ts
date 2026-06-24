@@ -14,6 +14,7 @@ import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
+import { isTestCampaign } from '@/users/util/users.util'
 
 const sqs = new SQS({})
 
@@ -120,6 +121,20 @@ export class ExperimentRunsService extends createPrismaBase(
     if (!queueUrl) {
       this.logger.warn(
         'No Queue Url found for agent dispatch, not configured for this environment',
+      )
+      return
+    }
+    const campaign = await this.client.campaign.findUnique({
+      where: { organizationSlug: input.organizationSlug },
+      select: { user: { select: { email: true } } },
+    })
+    if (isTestCampaign(campaign)) {
+      this.logger.info(
+        {
+          organizationSlug: input.organizationSlug,
+          experimentType: input.experimentType,
+        },
+        'Skipping agent dispatch for test-user campaign',
       )
       return
     }
