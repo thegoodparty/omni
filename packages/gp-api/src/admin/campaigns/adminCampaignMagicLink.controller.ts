@@ -71,7 +71,10 @@ export class AdminCampaignMagicLinkController {
     // campaign does not exist yet). Best-effort — never fail link creation on
     // analytics.
     await this.analytics
-      .track(user.id, EVENTS.WinOnboarding.MagicLinkSent, { email })
+      .track(user.id, EVENTS.Onboarding.MagicLinkSent, {
+        email,
+        type: 'win',
+      })
       .catch((err: unknown) => {
         this.logger.warn({ err }, 'Failed to track magic-link-sent event')
       })

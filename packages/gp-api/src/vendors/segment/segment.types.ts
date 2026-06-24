@@ -22,18 +22,15 @@ export const EVENTS = {
   },
   Onboarding: {
     UserCreated: 'Onboarding - User Created',
-    // Top of the serve (elected-official) magic-link funnel. Emitted when sales
-    // generates a magic link for a lead, keyed to the provisioned user id +
-    // email (the EO may not exist yet). Paired client-side with
-    // 'Onboarding - Magic Link Clicked' (gp-webapp). Prefix is intentionally
-    // `Onboarding -` (renamed from 'Serve Onboarding - Magic Link Sent').
+    // Top of the magic-link funnel. Emitted when sales generates an onboarding
+    // magic link for a lead, keyed to the provisioned user id + email. A single
+    // funnel event for both flows — the `type` property ('serve' | 'win')
+    // distinguishes the elected-official (serve) link from the candidate (win)
+    // link. The downstream record (EO or campaign) may not exist yet at send
+    // time. Paired client-side with 'Onboarding - Magic Link Clicked'
+    // (gp-webapp). Renamed from 'Serve Onboarding -'/'Win Onboarding - Magic
+    // Link Sent'.
     MagicLinkSent: 'Onboarding - Magic Link Sent',
-  },
-  WinOnboarding: {
-    // Emitted when sales generates a magic link for a candidate lead. Keyed to
-    // the provisioned user id + email (the campaign does not exist yet — the
-    // lead creates it during the office-selection onboarding step).
-    MagicLinkSent: 'Win Onboarding - Magic Link Sent',
   },
   //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
   // Used in: https://app.hubspot.com/workflows/21589597/platform/flow/1739287110/edit
