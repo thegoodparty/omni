@@ -47,14 +47,14 @@ export default function AiChatBar({
   return (
     <div className={`fixed inset-x-0 bottom-0 z-[55]${className ? ` ${className}` : ''}`}>
       {extraBar && (
-        <div className="flex h-14 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
+        <div className="flex h-12 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
           <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
             {extraBar}
           </div>
         </div>
       )}
       <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
-      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center gap-2 px-4 py-2.5 lg:px-6`}>
+      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center gap-2 px-4 py-3 lg:px-6`}>
         {inlineActions && <div className="flex shrink-0 items-center gap-2">{inlineActions}</div>}
         <div
           className="relative min-w-0 flex-1 rounded-full p-[1.5px] animate-spin-gradient"
