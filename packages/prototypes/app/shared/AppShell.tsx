@@ -32,8 +32,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  useSidebar,
   ArrowRightIcon,
 } from '@goodparty_org/styleguide'
+import { MenuIcon } from '@styleguide/components/ui/icons'
 
 export type PrototypeTab = {
   slug: string
@@ -88,6 +90,32 @@ const ACCOUNT_ITEMS = [
   { label: 'Settings', icon: Settings },
   { label: 'Account', icon: UserCog },
 ]
+
+// Mobile-only top bar (mirrors the webapp DashboardLayout MobileMenuTrigger):
+// the rail is an offcanvas drawer below `lg`, so this gives a header + a button
+// to open it.
+const MobileHeader = ({ title }: { title?: string }) => {
+  const { setOpenMobile } = useSidebar()
+  return (
+    <div className="bg-sidebar border-sidebar-border flex h-16 items-center justify-between border-b px-4 lg:hidden">
+      <div className="flex min-w-0 items-center gap-3">
+        <Logo />
+        {title && (
+          <h1 className="text-foreground truncate text-base font-semibold">
+            {title}
+          </h1>
+        )}
+      </div>
+      <button
+        onClick={() => setOpenMobile(true)}
+        className="flex size-9 items-center justify-center rounded-full"
+        aria-label="Open menu"
+      >
+        <MenuIcon size={20} />
+      </button>
+    </div>
+  )
+}
 
 export const AppShell = ({ userName, orgs }: AppShellProps) => {
   const [activeOrgId, setActiveOrgId] = useState(orgs[0]?.id ?? '')
@@ -251,6 +279,7 @@ export const AppShell = ({ userName, orgs }: AppShellProps) => {
       </Sidebar>
 
       <SidebarInset className="bg-[#f5f5f5]">
+        <MobileHeader title={activeTab?.label} />
         <div className="flex-1 p-2 md:p-4">{activeTab?.component}</div>
       </SidebarInset>
     </SidebarProvider>

@@ -9,3 +9,42 @@
 
 @source '../app';
 @source '../../styleguide/src';
+
+/*
+ * Base rules the design system relies on, mirrored from the gp-webapp globals.
+ * The styleguide package does not yet ship its own base layer, so every consumer
+ * has to restore these. Most important: Tailwind v4 defaults `border-color` to
+ * `currentColor` (black), so bare `border` utilities render dark without this.
+ */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--gray-200);
+  }
+
+  button,
+  [role='button'],
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  summary {
+    cursor: pointer;
+  }
+
+  h1,
+  h2 {
+    letter-spacing: -0.02em;
+  }
+}
+
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+[data-slot='sidebar-wrapper'] a,
+[data-slot='sidebar'] a,
+[data-slot='dropdown-menu-content'] a {
+  text-decoration: none;
+}
