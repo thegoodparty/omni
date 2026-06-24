@@ -100,20 +100,21 @@ All of these are importable directly from `lucide-react` in prototype code
 - **Screens use only `@goodparty_org/styleguide` + hardcoded content.** No
   `fetch`, no service imports, no Prisma, no `gp-api` calls, no auth, no env
   vars. All data is inline.
-- **`AppShell` takes `userName` + `modes`.** Each `ShellMode` is a workspace
-  (GoodParty's products are `serve` and `win`); its `tabs` are the sidebar nav.
-  The footer account switcher flips between modes. Shapes (from `@/shared/AppShell`):
+- **`AppShell` takes `userName` + `orgs`.** Each `ShellOrg` is a GoodParty
+  organization/workspace (an elected office = Serve, or a campaign = Win); its
+  `tabs` are the sidebar nav. The header org picker switches orgs (swapping the
+  nav); the footer is the user account menu. Shapes (from `@/shared/AppShell`):
   ```ts
   type PrototypeTab = {
-    slug: string // kebab-case, unique within the mode
+    slug: string // kebab-case, unique within the org
     label: string // display label in the sidebar
     icon: LucideIcon // lucide-react component (not a string)
     component: ReactNode
   }
-  type ShellMode = {
+  type ShellOrg = {
     id: string // 'serve' | 'win' (or your own)
-    label: string // sidebar header label, e.g. 'Serve'
-    role: string // account role line, e.g. 'Serve – City Council'
+    name: string // org name in the picker, e.g. 'Pittsboro Town Council'
+    isPro: boolean // shows the PRO badge next to GoodParty.org
     tabs: PrototypeTab[]
   }
   ```
@@ -155,16 +156,16 @@ export default meta
 'use client'
 
 import { LayoutDashboard, UsersRound, Send } from 'lucide-react'
-import { AppShell, type ShellMode } from '@/shared/AppShell'
+import { AppShell, type ShellOrg } from '@/shared/AppShell'
 import { Overview } from './screens/Overview'
 import { Contacts } from './screens/Contacts'
 import { Messages } from './screens/Messages'
 
-const modes: ShellMode[] = [
+const orgs: ShellOrg[] = [
   {
     id: 'serve',
-    label: 'Serve',
-    role: 'Serve – City Council',
+    name: 'Pittsboro Town Council',
+    isPro: false,
     tabs: [
       {
         slug: 'overview',
@@ -188,15 +189,15 @@ const modes: ShellMode[] = [
   },
 ]
 
-const Page = () => <AppShell userName="USER_NAME" modes={modes} />
+const Page = () => <AppShell userName="USER_NAME" orgs={orgs} />
 
 export default Page
 ```
 
-Generate the `tabs` inside the mode from the actual tab list the user provided.
+Generate the `tabs` inside the org from the actual tab list the user provided.
 Import the matching icon for each, and import each screen from `./screens/TAB_NAME`.
-A single workspace (`mode`) is fine; add a second entry to `modes` (e.g. a `win`
-workspace) to demonstrate the account switcher between GoodParty's Serve and Win
+A single org is fine; add a second entry to `orgs` (e.g. a `win` campaign
+workspace) to demonstrate the org picker between GoodParty's Serve and Win
 products.
 
 ### Screen stub (one file per tab, e.g. `screens/Overview.tsx`)
