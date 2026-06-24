@@ -446,9 +446,12 @@ strong {
  * with a near-max inline z-index, so an open Radix overlay (Sheet/Dialog) can't
  * out-stack it by raising its own z-index. Radix locks the body while a modal is
  * open (data-scroll-locked), so hide the bubble for that window — it reappears
- * when the overlay closes. ENG-10515.
+ * when the overlay closes. Vaul (used for Drawer) does not set data-scroll-locked;
+ * its overlay element gets data-vaul-overlay + data-state=open instead. ENG-10515.
  */
-body[data-scroll-locked] #hubspot-messages-iframe-container {
+body[data-scroll-locked] #hubspot-messages-iframe-container,
+body:has([data-vaul-overlay][data-state='open'])
+  #hubspot-messages-iframe-container {
   visibility: hidden !important;
 }
 
