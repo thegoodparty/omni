@@ -510,6 +510,8 @@ export class ContactsService {
 
     const payload = {
       iss: 'gp-api',
+      // Bind the token to people-api so the verifier can require this audience.
+      aud: 'people-api',
       iat: now,
       exp: now + 300,
     }

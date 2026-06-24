@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import { WebsiteStatus } from '../../generated/prisma'
 import slugify from 'slugify'
 import { FindByRaceIdDto } from '../schemas/public/FindByRaceId.schema'
 import { FindByRaceIdResponse } from '../schemas/public/FindByRaceIdResponse.schema'
@@ -16,7 +17,7 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
   ): Promise<FindByRaceIdResponse> {
     const { raceId, firstName, lastName } = params
 
-    const campaigns = await this.findMany({
+    const rawCampaigns = await this.findMany({
       where: {
         details: {
           path: ['raceId'],
@@ -69,6 +70,18 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
         updatedAt: 'desc',
       },
     })
+
+    // Draft (unpublished) websites must not leak through this @PublicAccess()
+    // path — the canonical public website endpoints reject any non-published
+    // site. Only expose the website (incl. its draft contact/bio content) once
+    // it is published; otherwise return it as absent.
+    const campaigns = rawCampaigns.map((campaign) => ({
+      ...campaign,
+      website:
+        campaign.website?.status === WebsiteStatus.published
+          ? campaign.website
+          : null,
+    }))
 
     if (campaigns.length === 0) {
       return null

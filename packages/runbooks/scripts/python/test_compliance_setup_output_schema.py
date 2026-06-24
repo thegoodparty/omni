@@ -88,3 +88,35 @@ def test_tcr_submitted_without_submission_is_rejected():
     artifact["completed_steps"] = ["compliance_state_read"]
     artifact["skipped_steps"] = []
     assert _errors(artifact), "expected a validation error for tcr_submitted with no submission"
+
+
+def _intermediate(stage: str) -> dict:
+    """A non-terminal-stage artifact (data_quality=partial so it isn't
+    rejected by the ok/degraded->tcr_submitted rule)."""
+    artifact = _base_artifact()
+    artifact["stage"] = stage
+    artifact["completed_steps"] = ["compliance_state_read"]
+    artifact["data_quality"] = {"overall": "partial"}
+    return artifact
+
+
+def test_domain_purchased_requires_domain_name():
+    """A 'domain purchased' (or later) artifact with an empty domain.name is
+    the same looks-done-but-isn't class as the tcr_submitted bug."""
+    artifact = _intermediate("domain_purchased")
+    artifact["domain"]["name"] = ""
+    assert _errors(artifact), "expected an error: domain.name required at domain_purchased"
+
+
+def test_website_stage_requires_website_url():
+    artifact = _intermediate("pending_website_live")
+    artifact["website"]["url"] = ""
+    assert _errors(artifact), "expected an error: website.url required at pending_website_live"
+
+
+def test_domain_purchased_without_website_url_is_valid():
+    """website.url is only required from website_content_published onward, so
+    an empty website.url at domain_purchased must still validate."""
+    artifact = _intermediate("domain_purchased")
+    artifact["website"]["url"] = ""
+    assert _errors(artifact) == []

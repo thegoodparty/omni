@@ -282,9 +282,10 @@ describe('LlmService.streamChatCompletion', () => {
       provider: 'anthropic',
       modelId: model,
     }))
-    const anthropicProviderFactory: AnthropicProviderFactory = vi.fn(
-      () => anthropicResolve as never,
-    )
+    const anthropicProviderFactory: AnthropicProviderFactory = vi.fn(() => ({
+      languageModel: anthropicResolve as never,
+      webSearchTool: vi.fn() as never,
+    }))
 
     const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
     const service = new LlmService(
@@ -312,6 +313,121 @@ describe('LlmService.streamChatCompletion', () => {
     })
   })
 
+  it('registers Anthropic native web search and sets onChunk', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    const nativeTool = { __native: true }
+    const webSearchTool = vi.fn(() => nativeTool)
+    const anthropicProviderFactory: AnthropicProviderFactory = () => ({
+      languageModel: ((m: string) => ({
+        provider: 'anthropic',
+        modelId: m,
+      })) as never,
+      webSearchTool: webSearchTool as never,
+    })
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const service = new LlmService(
+      createMockLogger(),
+      streamTextFn as unknown as StreamTextFn,
+      stubClientFactory,
+      noopProviderFactory,
+      anthropicProviderFactory,
+    )
+
+    const spec = { kind: 'native_web_search' as const, maxUses: 3 }
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      tools: { web_search: spec },
+      retries: 0,
+    })
+
+    expect(webSearchTool).toHaveBeenCalledWith(spec)
+    const call = streamTextFn.mock.calls[0][0]
+    expect(call.tools.web_search).toBe(nativeTool)
+    expect(typeof call.onChunk).toBe('function')
+  })
+
+  it('skips native web search and warns when ANTHROPIC_API_KEY is unset', async () => {
+    delete process.env.ANTHROPIC_API_KEY
+    const logger = createMockLogger()
+    const togetherProviderFactory: AiSdkProviderFactory = () =>
+      ({
+        chatModel: (m: string) => ({ provider: 'together', modelId: m }),
+      }) as unknown as OpenAICompatibleProvider
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const service = new LlmService(
+      logger,
+      streamTextFn as unknown as StreamTextFn,
+      stubClientFactory,
+      togetherProviderFactory,
+    )
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['model1'],
+      tools: { web_search: { kind: 'native_web_search', maxUses: 3 } },
+      retries: 0,
+    })
+
+    expect(logger.warn).toHaveBeenCalled()
+    const call = streamTextFn.mock.calls[0][0]
+    expect(call.tools?.web_search).toBeUndefined()
+    expect(call.onChunk).toBeUndefined()
+  })
+
+  it('fires tool hooks for native web search from onChunk', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    const anthropicProviderFactory: AnthropicProviderFactory = () => ({
+      languageModel: ((m: string) => ({
+        provider: 'anthropic',
+        modelId: m,
+      })) as never,
+      webSearchTool: (() => ({})) as never,
+    })
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const service = new LlmService(
+      createMockLogger(),
+      streamTextFn as unknown as StreamTextFn,
+      stubClientFactory,
+      noopProviderFactory,
+      anthropicProviderFactory,
+    )
+    const onToolCallStart = vi.fn()
+    const onToolCallEnd = vi.fn()
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      tools: { web_search: { kind: 'native_web_search' } },
+      onToolCallStart,
+      onToolCallEnd,
+      retries: 0,
+    })
+
+    const { onChunk } = streamTextFn.mock.calls[0][0]
+    onChunk({
+      chunk: { type: 'tool-call', toolName: 'web_search', input: { q: 'x' } },
+    })
+    onChunk({
+      chunk: {
+        type: 'tool-result',
+        toolName: 'web_search',
+        input: { q: 'x' },
+        output: { results: [] },
+      },
+    })
+
+    expect(onToolCallStart).toHaveBeenCalledWith({
+      name: 'web_search',
+      input: { q: 'x' },
+    })
+    expect(onToolCallEnd).toHaveBeenCalledWith({
+      name: 'web_search',
+      input: { q: 'x' },
+      output: { results: [] },
+    })
+  })
+
   it('routes non-claude model names through the openai-compatible provider', async () => {
     process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
 
@@ -325,8 +441,10 @@ describe('LlmService.streamChatCompletion', () => {
       }) as unknown as OpenAICompatibleProvider
 
     const anthropicResolve = vi.fn()
-    const anthropicProviderFactory: AnthropicProviderFactory = () =>
-      anthropicResolve as never
+    const anthropicProviderFactory: AnthropicProviderFactory = () => ({
+      languageModel: anthropicResolve as never,
+      webSearchTool: vi.fn() as never,
+    })
 
     const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
     const service = new LlmService(
