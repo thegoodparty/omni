@@ -43,6 +43,23 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
   the project's **production** target, which Vercel serves at its production
   domain. The project has no Git integration — CLI-only, like the others.
+- The **prototypes app** (`packages/prototypes`) is its own Vercel project
+  (`VERCEL_PROJECT_ID_PROTOTYPES`, `rootDirectory=packages/prototypes`), served at
+  `prototypes.goodparty.org`. It is a single-environment, fully public Next.js app
+  with no backend coupling (no gp-api, no election-api, no e2e). The
+  `prototypes.yml` workflow deploys it: on merges to `develop` it deploys to the
+  **production** target; on PRs it deploys a preview with a deterministic alias
+  (`prototypes-pr-<N>-good-party.vercel.app`). The deploy job is guarded by
+  `vars.VERCEL_PROJECT_ID_PROTOTYPES != ''` and no-ops until that variable is set.
+
+  **Manual prerequisites (one-time setup):**
+  1. Create the Vercel project with `rootDirectory=packages/prototypes`.
+  2. Set the `VERCEL_PROJECT_ID_PROTOTYPES` Actions variable in the repo (Settings
+     → Secrets and variables → Actions → Variables).
+  3. Add the `prototypes.goodparty.org` domain to the Vercel project and point the
+     DNS record at Vercel.
+  4. Confirm that deployment protection is OFF so the site is fully public.
+
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
 build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every
