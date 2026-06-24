@@ -88,8 +88,10 @@ describe('ServeOnboardingFlow', () => {
   })
 
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
-    // Genuine prefill (BR term dates present) + party answered, office still to
-    // be confirmed → resumes on the confirm hub, NOT welcome.
+    // Genuine prefill (BR term dates present) + party answered, but the office
+    // is still missing. Prompt-first gating routes the user to fill the office
+    // FIRST (not the confirm hub, and not welcome) so confirm is never shown
+    // with a missing piece.
     mockLoad(
       buildEO({
         party: 'independent',
@@ -100,7 +102,10 @@ describe('ServeOnboardingFlow', () => {
     )
     renderFlow()
 
-    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    expect(
+      await screen.findByText('What office do you currently hold?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
@@ -118,8 +123,10 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText('Does this look right?')
-    // confirm → party → inOffice
+    // Prompt-first routing lands on the office step (office still missing).
+    // Backing out of a prompt-first detour returns to the prior real step:
+    // office → party → inOffice.
+    await screen.findByText('What office do you currently hold?')
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText("What's your party designation?")
     await user.click(screen.getByRole('button', { name: 'Back' }))
@@ -290,12 +297,50 @@ describe('ServeOnboardingFlow', () => {
   it('treats a partial prefill (office present, no marker, no dates) as prefill so the snapshot fires', async () => {
     // Same field shape as the net-new case above — office on the org, party
     // answered, no term dates — but WITHOUT the selfReported marker. This is a
-    // genuine sales/BR prefill, so it must resume on the confirm hub (prefill
-    // branch), which is exactly the path that arms the BR suggestion-accuracy
-    // snapshot. Previously this shape was forced to net-new and the snapshot
-    // was silently dropped.
+    // genuine sales/BR prefill. Prompt-first gating routes to the term-dates
+    // step FIRST (instead of the confirm hub with a red error), but it stays in
+    // the prefill branch — proven by the term-dates Continue returning to the
+    // confirm hub (a net-new user would advance to constituents) — so the BR
+    // suggestion-accuracy snapshot is still armed.
     mockLoad(
       buildEO({ party: 'independent', selfReported: false }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
+
+    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
+    await user.type(startInput!, '01012026')
+    await user.type(endInput!, '01012030')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The prefill detour returns to the confirm hub once dates are valid.
+    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+  })
+
+  it('shows the confirm hub with its "Why this matters" explainer once office and dates are valid', async () => {
+    // Complete prefill resumed via the confirm checkpoint: both office and valid
+    // term dates are present, so the confirm hub renders directly (no detour, no
+    // red error) alongside its right-rail explainer.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        onboardingStep: 'confirm',
+      }),
       buildOrg({
         positionName: 'Mayor',
         position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
@@ -304,9 +349,15 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.queryByText('When does your term run?'),
-    ).not.toBeInTheDocument()
+      screen.getByText(
+        'These details ensure we pull the right information and data to help you serve your community',
+      ),
+    ).toBeInTheDocument()
+    // The confirmed office renders as a plain value (the old red error state is
+    // gone now that confirm is only shown when complete).
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {
