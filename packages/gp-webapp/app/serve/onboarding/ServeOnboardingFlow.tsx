@@ -52,6 +52,18 @@ import {
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
 
+// Screens whose "Viewed" event fires once on view (in a useEffect). The two
+// selection screens (`inOffice`, `party`) are deliberately absent: their
+// "Viewed" events carry the chosen card title and so fire on Continue instead.
+const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
+  welcome: SERVE_ONBOARDING_EVENTS.WelcomeViewed,
+  office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
+  confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
+  'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
+  constituents: SERVE_ONBOARDING_EVENTS.KnowYourConstituentsViewed,
+  pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
+}
+
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
 
@@ -169,10 +181,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
 
         setOtherRanges(buildDisabledRanges(mine, eo?.id))
 
-        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Activated, {
-          electedOfficeId: eo?.id,
-        })
-
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
         // Resume markers from the persisted record. `party` is the user's first
         // real answer (welcome/inOffice persist nothing), so it signals the
@@ -264,6 +272,34 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       })
     }
   }, [step, party, currentEO?.id])
+
+  // Per-screen funnel instrumentation: fire each screen's dedicated "Viewed"
+  // event once when the user lands on it (deduped via a Set ref so a
+  // back-and-forth — e.g. the prefill confirm→office→confirm detour, or
+  // stepping Back — doesn't re-fire and inflate the funnel). Gated on
+  // `!loading` so the initial render and resume-step resolution settle first,
+  // and so a resumed user only logs the screens they actually view this
+  // session. The `inOffice` and `party` screens are intentionally NOT fired
+  // here: their "Viewed" events carry the user's selected card title, so they
+  // fire on Continue (see handleContinue) once the selection is known.
+  const viewedStepsRef = useRef<Set<ServeStepId>>(new Set())
+  useEffect(() => {
+    if (loading) return
+    const viewedEvent = SERVE_STEP_VIEWED_EVENTS[step]
+    if (!viewedEvent) return
+    if (viewedStepsRef.current.has(step)) return
+    viewedStepsRef.current.add(step)
+    trackServeOnboarding(viewedEvent, {
+      branch,
+      electedOfficeId: currentEO?.id,
+    })
+  }, [loading, step, branch, currentEO?.id])
+
+  // One-shot guards for the two selection screens whose "Viewed" event fires on
+  // Continue (with the chosen card title) rather than on view, so re-advancing
+  // after a Back doesn't double-count them.
+  const officeStatusViewedRef = useRef(false)
+  const partyViewedRef = useRef(false)
 
   const officeIsChosen = Boolean(
     office?.positionId ||
@@ -473,13 +509,23 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         },
       })
       if (brSuggestion.hadBrPrefill && brSuggestion.changedField) {
-        trackServeOnboarding(
+        // Await so the event flushes before the redirect below unloads the page.
+        await trackServeOnboarding(
           SERVE_ONBOARDING_EVENTS.SuggestionChanged,
           brSuggestion,
         )
       }
 
-      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
+      // Pledge submitted: the per-screen completion of the final pledge step.
+      // Awaited (like the events around it) so it flushes before the redirect.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PledgeCompleted, {
+        branch,
+        electedOfficeId,
+      })
+
+      // The established serve completion metric (kept as-is). Await so the
+      // event flushes before the redirect below unloads the page.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
       })
 
@@ -529,7 +575,22 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // is deferred to the inOffice Continue (the first real "I'm in office").
         setStep('inOffice')
         return
-      case 'inOffice':
+      case 'inOffice': {
+        // The office-status "Viewed" event carries the user's selected card
+        // title, so it fires here (once) rather than on view. Firing on BOTH
+        // the campaigning and non-campaigning paths captures the "still
+        // campaigning" hand-off as a `selection` value — the funnel drop-off
+        // signal that the removed standalone "Switched to Campaign" event used
+        // to provide.
+        if (!officeStatusViewedRef.current && inOffice) {
+          officeStatusViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeStatusViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_IN_OFFICE_OPTIONS.find((o) => o.value === inOffice)
+              ?.title,
+          })
+        }
         if (inOffice === 'campaigning') {
           setSwitchToCampaign(true)
           return
@@ -545,7 +606,21 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           'serveOnboarding.checkpoint.inOffice',
         )
         return
+      }
       case 'party': {
+        // The party-designation "Viewed" event carries the chosen party card
+        // title, so it fires here (once) rather than on view. Continue is gated
+        // on a non-major-party pick, so this only fires for valid selections
+        // that proceed; major-party picks are covered by PartyDesignationBlocked.
+        if (!partyViewedRef.current && party) {
+          partyViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PartyDesignationViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_PARTY_OPTIONS.find((o) => o.value === party)
+              ?.title,
+          })
+        }
         // The party PUT also stamps the net-new `selfReported` marker (the
         // record's first user-driven write): the office the user picks next
         // lands on the org indistinguishably from a prefill, so we record HERE
@@ -565,6 +640,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       }
       case 'office': {
+        // Office picker completed: carry the selected office title on the
+        // dedicated completion event (the natural moment a selection exists).
+        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeCompleted, {
+          branch,
+          electedOfficeId: currentEO?.id,
+          selection: officeDisplayLabel,
+        })
         const target = returnToConfirm ? 'confirm' : 'term-dates'
         void persistAndAdvance(
           { targetStep: target, office: officePayload() },
@@ -607,6 +689,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         )
         return
       case 'constituents':
+        trackServeOnboarding(
+          SERVE_ONBOARDING_EVENTS.KnowYourConstituentsCompleted,
+          { branch, electedOfficeId: currentEO?.id },
+        )
         void persistAndAdvance(
           { targetStep: 'pledge' },
           () => setStep('pledge'),
@@ -1303,7 +1389,9 @@ const SwitchToCampaignStep = ({
 }): React.JSX.Element => {
   const handleSwitch = () => {
     // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-    // Hand off to the Win flow's entry point.
+    // Hand off to the Win flow's entry point. The hand-off itself is captured
+    // as the `selection: "I'm still campaigning"` value on the Office Status
+    // Viewed event (fired on the inOffice Continue), so no event fires here.
     window.location.href = '/onboarding/office-selection'
   }
   return (

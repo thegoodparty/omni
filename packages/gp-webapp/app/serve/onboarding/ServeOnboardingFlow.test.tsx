@@ -14,7 +14,17 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
+
+const trackEventMock = vi.mocked(trackEvent)
+
+// Properties passed to a given event name across all trackEvent calls (the flow
+// fires through trackServeOnboarding → trackEvent).
+const eventProps = (name: string): Record<string, unknown>[] =>
+  trackEventMock.mock.calls
+    .filter(([eventName]) => eventName === name)
+    .map(([, props]) => (props ?? {}) as Record<string, unknown>)
 
 const EO_ID = 'eo-uuid-1'
 
@@ -65,6 +75,7 @@ const mockLoad = (eo: ElectedOffice, org: Organization) => {
 describe('ServeOnboardingFlow', () => {
   beforeEach(() => {
     api.reset()
+    trackEventMock.mockClear()
   })
 
   it('starts a net-new lead (no saved answers) at the welcome step', async () => {
@@ -567,5 +578,266 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('What office do you currently hold?'),
     ).toBeInTheDocument()
+  })
+})
+
+const WELCOME_VIEWED = 'Serve Onboarding - Welcome Viewed'
+const OFFICE_STATUS_VIEWED = 'Serve Onboarding - Office Status Viewed'
+const PARTY_VIEWED = 'Serve Onboarding - Party Designation Viewed'
+const OFFICE_VIEWED = 'Serve Onboarding - Office Viewed'
+const OFFICE_COMPLETED = 'Serve Onboarding - Office Completed'
+const TERM_DATES_VIEWED = 'Serve Onboarding - Term Dates Viewed'
+const CONSTITUENTS_VIEWED = 'Serve Onboarding - Know Your Constituents Viewed'
+const CONSTITUENTS_COMPLETED =
+  'Serve Onboarding - Know Your Constituents Completed'
+const PLEDGE_VIEWED = 'Serve Onboarding - Pledge Viewed'
+const PLEDGE_COMPLETED = 'Serve Onboarding - Pledge Completed'
+const COMPLETED = 'Serve Onboarding - Net New Completed'
+// Events removed in the per-screen rework — asserted absent below.
+const STEP_VIEWED = 'Serve Onboarding - Step Viewed'
+const SWITCHED = 'Serve Onboarding - Switched to Campaign'
+
+// A net-new lead resumed onto the office step (party saved, no office/dates),
+// with the office-picker race lookup and the persistence routes mocked. Returns
+// the userEvent once the office step is on screen — shared by the office-step
+// analytics tests so they can drive the picker without re-stubbing.
+const reachOfficeStepNetNew = async () => {
+  mockLoad(buildEO({ party: 'independent' }), buildOrg())
+  api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+  api.mock('PUT /v1/elected-office/:id', {
+    status: 200,
+    data: buildEO({ party: 'independent' }),
+  })
+  mswServer.use(
+    http.get('*/elections/races-by-year', () =>
+      HttpResponse.json([
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ]),
+    ),
+  )
+  const user = userEvent.setup()
+  renderFlow()
+  await screen.findByText('What office do you currently hold?')
+  return user
+}
+
+describe('ServeOnboardingFlow analytics instrumentation', () => {
+  beforeEach(() => {
+    api.reset()
+    trackEventMock.mockClear()
+  })
+
+  it('fires the Welcome Viewed event once (with branch), deduped across back-and-forth', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO(),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    // Welcome view fires on view (net-new branch resolved at load).
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await waitFor(() =>
+      expect(eventProps(WELCOME_VIEWED)).toContainEqual(
+        expect.objectContaining({ branch: 'net-new' }),
+      ),
+    )
+
+    // welcome → inOffice → back to welcome → forward to inOffice again.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+
+    // Welcome is logged exactly once despite the re-visit (Set-ref dedupe).
+    expect(eventProps(WELCOME_VIEWED)).toHaveLength(1)
+    // The legacy generic "Step Viewed" event is gone.
+    expect(eventProps(STEP_VIEWED)).toHaveLength(0)
+  })
+
+  it('fires Office Status Viewed on Continue with the selected card title (elected official)', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO(),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm an elected official/ }),
+    )
+    // No event yet — Office Status Viewed fires on Continue, not on selection.
+    expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(1),
+    )
+    expect(eventProps(OFFICE_STATUS_VIEWED)[0]).toEqual(
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: "I'm an elected official",
+      }),
+    )
+  })
+
+  it('captures the "still campaigning" hand-off as the Office Status Viewed selection', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The hand-off screen renders, and the office-status selection records the
+    // drop-off — the standalone "Switched to Campaign" event is gone.
+    await screen.findByText("Let's switch you to campaign mode")
+    expect(eventProps(OFFICE_STATUS_VIEWED)).toEqual([
+      expect.objectContaining({ selection: "I'm still campaigning" }),
+    ])
+    expect(eventProps(SWITCHED)).toHaveLength(0)
+  })
+
+  it('fires Party Designation Viewed on Continue with the selected party title', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /I'm an elected official/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Independent \/ Non-major party/,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(eventProps(PARTY_VIEWED)).toHaveLength(1))
+    expect(eventProps(PARTY_VIEWED)[0]).toEqual(
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: 'Independent / Non-major party',
+      }),
+    )
+  })
+
+  it('fires Office Viewed on view and Office Completed on Continue with the chosen office title', async () => {
+    const user = await reachOfficeStepNetNew()
+
+    // Office Viewed fires once on view; Office Completed only after a pick.
+    await waitFor(() =>
+      expect(eventProps(OFFICE_VIEWED)).toContainEqual(
+        expect.objectContaining({ branch: 'net-new' }),
+      ),
+    )
+    expect(eventProps(OFFICE_COMPLETED)).toHaveLength(0)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter 5 digit zip code'),
+      '90001',
+    )
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('When does your term run?')
+    expect(eventProps(OFFICE_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new', selection: 'Mayor' }),
+    ])
+    // Term Dates Viewed then fires on view of the next screen.
+    expect(eventProps(TERM_DATES_VIEWED)).toHaveLength(1)
+  })
+
+  it('fires Know Your Constituents Viewed on view and Completed on Continue', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'constituents',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() => expect(eventProps(CONSTITUENTS_VIEWED)).toHaveLength(1))
+    expect(eventProps(CONSTITUENTS_COMPLETED)).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    expect(eventProps(CONSTITUENTS_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new' }),
+    ])
+    expect(eventProps(PLEDGE_VIEWED)).toHaveLength(1)
+  })
+
+  it('fires Pledge Completed and the Net New Completed metric (without a branch prop) at completion', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'pledge',
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
+
+    await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))
+    // Pledge Completed carries the branch for funnel slicing.
+    expect(eventProps(PLEDGE_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net-new', electedOfficeId: EO_ID }),
+    ])
+    // The established Net New Completed metric fires WITHOUT a branch prop (the
+    // per-screen rework reverted that addition).
+    expect(eventProps(COMPLETED)).toEqual([{ electedOfficeId: EO_ID }])
   })
 })

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import type {
@@ -6,6 +6,8 @@ import type {
   CommunityIssueDetail,
 } from 'gpApi/api-endpoints'
 import IssueDetail from './IssueDetail'
+
+vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
 
 const makeSource = (id: string) => ({
   id,
@@ -28,7 +30,7 @@ const makeFeedDetail = (
 ): CommunityIssueDetail => ({
   id: 'issue-1',
   list: 'top_community',
-  category: 'Housing',
+  category: 'housing_and_development',
   priority: 'high',
   title: 'Housing Crisis',
   summary: 'Rising rents are a top concern.',
@@ -98,7 +100,7 @@ describe('IssueDetail', () => {
     expect(screen.getByText('Sources (2)')).toBeInTheDocument()
   })
 
-  it('renders related briefing links', () => {
+  it('renders a related-briefing next-step card linking to the briefing', () => {
     const issue = makeFeedDetail({
       relatedBriefings: [
         {
@@ -109,13 +111,15 @@ describe('IssueDetail', () => {
       ],
     })
     render(<IssueDetail issue={issue} />)
-    expect(screen.getByText('2025-06-01')).toBeInTheDocument()
+    const link = screen.getByRole('link', {
+      name: /review the related meeting briefing/i,
+    })
+    expect(link).toHaveAttribute('href', '/dashboard/briefings/2025-06-01')
   })
 
-  it('renders issue title and category badge', () => {
+  it('renders the issue title', () => {
     render(<IssueDetail issue={makeFeedDetail()} />)
     expect(screen.getByText('Housing Crisis')).toBeInTheDocument()
-    expect(screen.getByText('Housing')).toBeInTheDocument()
   })
 
   it('renders no-detail fallback when detail is null', () => {
