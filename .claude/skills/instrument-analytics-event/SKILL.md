@@ -142,6 +142,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
 
+   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff before moving to step 7.
+
 7. **Verify.**
 
    **Frontend** (from the repo root):

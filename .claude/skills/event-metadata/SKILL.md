@@ -144,12 +144,15 @@ other — that is normal given different data volumes):
      immutable); only the status/supersession lines change.
    - Pass the full merged string — never just the block. Re-runs update the block in
      place (never duplicate it) and never drop human content.
-3. Apply, branching on the event's `isInSchema`:
-   - **Brand-new** (not ingested, not in plan) → `create_events` with the description,
-     then `update_event` to set the `tags`.
-   - **Ingested but unexpected** (`isInSchema:false`) → `create_events(isUnexpected:true)`
-     to add it to the plan, then `update_event` for `descriptions` + `tags`.
-   - **Already in the plan** (`isInSchema:true`) → `update_event` for `descriptions` +
+3. Apply, branching on the event's `isInSchema` flag in the `get_events` response (the
+   MCP returns it camelCase as `isInSchema` — verified against a live response):
+   - **Brand-new** (the event is not returned by `get_events` at all — never ingested,
+     not in the plan) → `create_events` with the description, then `update_event` to set
+     the `tags`.
+   - **Ingested but unexpected** (returned with `isInSchema: false`) →
+     `create_events(isUnexpected:true)` to add it to the plan, then `update_event` for
+     `descriptions` + `tags`.
+   - **Already in the plan** (`isInSchema: true`) → `update_event` for `descriptions` +
      `tags` directly.
 
 ### Verify
@@ -161,7 +164,8 @@ block, the `product:*` tag, and the status line are present and correct.
 
 The caller passes a payload; honor it instead of re-asking:
 
-- **ADD**: `mode=add`, `event`, `purposeDraft`, `productHint` (win|serve|shared), and
+- **ADD**: `mode=add`, `event`, `purposeDraft`, `productHint` (`win|serve|shared` —
+  prefix it with `product:` to form the tag, e.g. `win` → `product:win`), and
   `supersedes` **only** if the human explicitly named a predecessor (never inferred from
   a co-occurring removal). Skip Q1; prefill purpose and product tag (still confirm); ask
   net-new-vs-supersedes only if `supersedes` was not passed.
