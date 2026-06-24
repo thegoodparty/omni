@@ -35,7 +35,7 @@
     "libphonenumber-js": "^1.12.36",
     "next": "^15.5.19",
     "next-navigation-guard": "^0.2.0",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.10",
     "radix-ui": "^1.4.3",
     "react": "19.2.7",
     "react-dom": "19.2.7",
