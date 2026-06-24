@@ -159,32 +159,43 @@ export const TermDatesFields = ({
   const endDisabled = endDisabledMatchers(otherRanges, termStartDate)
   return (
     <>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      {/* Each field stacks its own always-open inline calendar. The calendars
+          render at a fixed natural width, so a two-column grid collapses them
+          into columns narrower than the calendars themselves once the right-rail
+          layout shrinks the content area — the two month grids then overrun and
+          collide. Stacking gives each calendar the full content width (centered,
+          never overlapping) and wraps it in an x-scroll guard so it can't break
+          the layout on a narrow viewport either. */}
+      <div className="grid grid-cols-1 gap-8">
         <div className="space-y-2">
           <Label>Term start date</Label>
-          <DateInputCalendar
-            value={termStartDate}
-            onChange={onStartChange}
-            showTextInput
-            label=""
-            calendarClassName={BRAND_CALENDAR_CLASSNAME}
-            startMonth={calendarStart}
-            endMonth={calendarEnd}
-            disabled={startDisabled}
-          />
+          <div className="overflow-x-auto">
+            <DateInputCalendar
+              value={termStartDate}
+              onChange={onStartChange}
+              showTextInput
+              label=""
+              calendarClassName={BRAND_CALENDAR_CLASSNAME}
+              startMonth={calendarStart}
+              endMonth={calendarEnd}
+              disabled={startDisabled}
+            />
+          </div>
         </div>
         <div className="space-y-2">
           <Label>Term end date</Label>
-          <DateInputCalendar
-            value={termEndDate}
-            onChange={onEndChange}
-            showTextInput
-            label=""
-            calendarClassName={BRAND_CALENDAR_CLASSNAME}
-            startMonth={calendarStart}
-            endMonth={calendarEnd}
-            disabled={endDisabled}
-          />
+          <div className="overflow-x-auto">
+            <DateInputCalendar
+              value={termEndDate}
+              onChange={onEndChange}
+              showTextInput
+              label=""
+              calendarClassName={BRAND_CALENDAR_CLASSNAME}
+              startMonth={calendarStart}
+              endMonth={calendarEnd}
+              disabled={endDisabled}
+            />
+          </div>
         </div>
       </div>
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
