@@ -187,12 +187,22 @@ export class ContactsService {
     }
 
     // A non-pro requester (a Win candidate on the base-list upsell) must never
-    // receive real voter PII — see previewContacts.utils. Resolve the district
-    // first so an ineligible org still gets the VOTER_DATA_UNAVAILABLE state a
-    // pro org would, rather than a fake preview implying data exists.
+    // receive real voter PII — see previewContacts.utils. The rows are
+    // fabricated, but the pagination total stays real (the district count is an
+    // aggregate, not PII, and the unblurred "Total Voters" stat card reads it)
+    // so the number a non-pro user sees doesn't regress. District resolution
+    // runs first so an ineligible org still gets the VOTER_DATA_UNAVAILABLE
+    // state a pro org would, rather than a preview implying data exists.
     if (!isPro) {
-      return this.withOrgDistrictResolution(organization, () =>
-        Promise.resolve(buildPreviewContacts(resultsPerPage)),
+      return this.withOrgDistrictResolution(
+        organization,
+        async ({ districtId }) =>
+          buildPreviewContacts({
+            resultsPerPage,
+            page,
+            totalResults: (await this.fetchStatsByDistrictId(districtId))
+              .totalConstituents,
+          }),
       )
     }
 

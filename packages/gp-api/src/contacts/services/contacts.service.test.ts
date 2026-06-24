@@ -169,22 +169,33 @@ describe('ContactsService', () => {
         ).rejects.toThrow(PRO_FEATURE_MSG)
       })
 
-      it('returns a synthetic preview (no people-api call) for the default "all" segment when not pro', async () => {
+      it('returns a synthetic preview with the real total when not pro', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+        mockHttpService.get.mockReturnValue(
+          of({
+            data: {
+              districtId: OVERRIDE_DISTRICT_ID,
+              totalConstituents: 1234,
+              buckets: {},
+            },
+          }),
+        )
 
         const result = await service.findContacts(
           { resultsPerPage: 10, page: 1, segment: 'all' },
           org,
         )
 
-        // Non-pro must never reach people-api for real voter PII; the base list
-        // is fabricated preview data the UI blurs (ENG-10508).
+        // No real voter PII: the people-rows POST is never made. Only the
+        // aggregate stats GET runs, to keep the real total truthful so the
+        // unblurred stat card doesn't regress (ENG-10508).
         expect(mockHttpService.post).not.toHaveBeenCalled()
         expect(result.people).toHaveLength(10)
+        expect(result.pagination.totalResults).toBe(1234)
       })
 
       it('allows search when organization is an elected office (eo- slug)', async () => {
@@ -224,14 +235,21 @@ describe('ContactsService', () => {
         ).resolves.toBeDefined()
       })
 
-      it('does not check access when search is not provided', async () => {
+      it('does not check the search/pro gate when search is not provided', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
-
-        mockHttpService.post.mockReturnValue(
-          of({ data: { people: [], pagination: {} } }),
+        // Non-pro (no campaign) base list takes the synthetic-preview path,
+        // which reads the aggregate stats for the real total.
+        mockHttpService.get.mockReturnValue(
+          of({
+            data: {
+              districtId: OVERRIDE_DISTRICT_ID,
+              totalConstituents: 10,
+              buckets: {},
+            },
+          }),
         )
 
         await expect(
@@ -794,6 +812,15 @@ describe('ContactsService', () => {
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue(null)
+        mockHttpService.get.mockReturnValue(
+          of({
+            data: {
+              districtId: OVERRIDE_DISTRICT_ID,
+              totalConstituents: 42,
+              buckets: {},
+            },
+          }),
+        )
 
         const result = await service.findContacts(
           { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
@@ -804,6 +831,7 @@ describe('ContactsService', () => {
         // real voter PII from people-api — it serves the synthetic preview.
         expect(mockHttpService.post).not.toHaveBeenCalled()
         expect(result.people).toHaveLength(10)
+        expect(result.pagination.totalResults).toBe(42)
       })
     })
 

@@ -93,22 +93,35 @@ const buildPreviewPerson = (index: number): Person => {
   }
 }
 
-// Single-page synthetic preview: the upsell teaser shows one page of blurred
-// fake rows and no pagination, so a non-pro user can't page through to imply a
-// real dataset exists behind it.
-export const buildPreviewContacts = (count: number): PeopleListResponse => {
-  const safeCount = Math.max(0, count)
-  const people = Array.from({ length: safeCount }, (_, index) =>
-    buildPreviewPerson(index),
+// A page of synthetic rows wrapped in a truthful pagination envelope. The
+// totalResults is the real (aggregate, non-PII) district count so the unblurred
+// "Total Voters" stat card — which reads list pagination.totalResults — shows
+// the real number a non-pro user saw before, while every row stays fabricated.
+export const buildPreviewContacts = ({
+  resultsPerPage,
+  page,
+  totalResults,
+}: {
+  resultsPerPage: number
+  page: number
+  totalResults: number
+}): PeopleListResponse => {
+  const total = Math.max(0, totalResults)
+  const pageSize = Math.max(0, resultsPerPage)
+  const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0
+  const startIndex = (page - 1) * pageSize
+  const rowCount = Math.min(pageSize, Math.max(0, total - startIndex))
+  const people = Array.from({ length: rowCount }, (_, i) =>
+    buildPreviewPerson(startIndex + i),
   )
   return {
     pagination: {
-      totalResults: people.length,
-      currentPage: 1,
-      pageSize: safeCount,
-      totalPages: 1,
-      hasNextPage: false,
-      hasPreviousPage: false,
+      totalResults: total,
+      currentPage: page,
+      pageSize,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
     },
     people,
   }
