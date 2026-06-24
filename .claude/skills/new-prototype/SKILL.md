@@ -100,25 +100,25 @@ All of these are importable directly from `lucide-react` in prototype code
 - **Screens use only `@goodparty_org/styleguide` + hardcoded content.** No
   `fetch`, no service imports, no Prisma, no `gp-api` calls, no auth, no env
   vars. All data is inline.
-- **`tabs` entries follow the `PrototypeTab` shape:**
+- **`tabs` entries follow the `PrototypeTab` shape** (from `@/shared/AppShell`):
   ```ts
   type PrototypeTab = {
-    slug: string; // kebab-case, unique within the prototype
-    label: string; // display label in the sidebar
-    icon: LucideIcon; // lucide-react component (not a string)
-    component: ReactNode;
-  };
+    slug: string // kebab-case, unique within the prototype
+    label: string // display label in the sidebar
+    icon: LucideIcon // lucide-react component (not a string)
+    component: ReactNode
+  }
   ```
-- **`meta.ts` follows `Omit<PrototypeMeta, 'slug'>`:**
+- **`meta.ts` exports `Omit<PrototypeMeta, 'slug'>`** (from `@/shared/prototypeMeta`):
   ```ts
   type PrototypeMeta = {
-    slug: string; // derived from the folder name at build time; omitted here
-    title: string;
-    description: string;
-    author: string; // email of the person creating this prototype
-    createdAt: string; // ISO date string YYYY-MM-DD
-    status: "draft" | "handoff-ready" | "shipped";
-  };
+    slug: string // derived from the folder name at build time; omitted here
+    title: string
+    description: string
+    author: string // email of the person creating this prototype
+    createdAt: string // ISO date string YYYY-MM-DD
+    status: 'draft' | 'handoff-ready' | 'shipped'
+  }
   ```
 
 ## 4. File templates
@@ -128,50 +128,54 @@ Use these templates exactly. Replace ALL-CAPS placeholders with real values.
 ### `meta.ts`
 
 ```ts
-import type { PrototypeMeta } from "../../shared/types";
+import type { PrototypeMeta } from '@/shared/prototypeMeta'
 
-export const meta: Omit<PrototypeMeta, "slug"> = {
-  title: "TITLE",
-  description: "DESCRIPTION",
-  author: "AUTHOR_EMAIL",
-  createdAt: "YYYY-MM-DD",
-  status: "draft",
-};
+const meta: Omit<PrototypeMeta, 'slug'> = {
+  title: 'TITLE',
+  description: 'DESCRIPTION',
+  author: 'AUTHOR_EMAIL',
+  createdAt: 'YYYY-MM-DD',
+  status: 'draft',
+}
+
+export default meta
 ```
 
 ### `page.tsx` (example: three tabs — Overview, Contacts, Messages)
 
 ```tsx
-"use client";
+'use client'
 
-import { LayoutDashboard, UsersRound, Send } from "lucide-react";
-import { AppShell } from "../../shared/AppShell";
-import { Overview } from "./screens/Overview";
-import { Contacts } from "./screens/Contacts";
-import { Messages } from "./screens/Messages";
+import { LayoutDashboard, UsersRound, Send } from 'lucide-react'
+import { AppShell } from '@/shared/AppShell'
+import { Overview } from './screens/Overview'
+import { Contacts } from './screens/Contacts'
+import { Messages } from './screens/Messages'
 
 const tabs = [
   {
-    slug: "overview",
-    label: "Overview",
+    slug: 'overview',
+    label: 'Overview',
     icon: LayoutDashboard,
     component: <Overview />,
   },
   {
-    slug: "contacts",
-    label: "Contacts",
+    slug: 'contacts',
+    label: 'Contacts',
     icon: UsersRound,
     component: <Contacts />,
   },
   {
-    slug: "messages",
-    label: "Messages",
+    slug: 'messages',
+    label: 'Messages',
     icon: Send,
     component: <Messages />,
   },
-];
+]
 
-export default () => <AppShell title="TITLE" tabs={tabs} />;
+const Page = () => <AppShell title="TITLE" tabs={tabs} />
+
+export default Page
 ```
 
 Generate `tabs` from the actual tab list the user provided. Import the
@@ -185,7 +189,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@goodparty_org/styleguide";
+} from '@goodparty_org/styleguide'
 
 export const Overview = () => (
   <div className="p-6 space-y-4">
@@ -198,7 +202,7 @@ export const Overview = () => (
       </CardContent>
     </Card>
   </div>
-);
+)
 ```
 
 Create one stub per tab. Name the file and the exported component after the
