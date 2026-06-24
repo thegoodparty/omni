@@ -178,8 +178,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 If the change you are working on **removes** a `trackEvent` call (a frontend/client event is being deleted), that event still reads as in use in Amplitude until its metadata says otherwise — and "no recent data" alone cannot tell an intentional removal from a silent break. So when you see a client `EVENTS` entry / `trackEvent` literal being deleted:
 
-1. Confirm with the human that it is an intentional removal.
-2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = a one-line why. `event-metadata` stamps `not in use` with the date and PR.
+1. Confirm with the human that it is an intentional removal, and ask the human for a one-line reason (e.g. "feature removed", "replaced by new flow"). Block until they supply it — the handoff path trusts the incoming `reason` and will not re-prompt for it.
+2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = the one-line reason the human gave. `event-metadata` stamps `not in use` with the date and PR.
 
 Adds and removes are **independent**. A removal happening in the same change as an addition does *not* mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
