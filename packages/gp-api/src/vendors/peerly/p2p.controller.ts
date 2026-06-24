@@ -44,11 +44,18 @@ export class P2pController {
   @Get('phone-list/:token/status')
   @UseCampaign()
   async checkPhoneListStatus(
+    @ReqCampaign() campaign: Campaign,
     @Param('token') token: string,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<
     CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
   > {
+    // Verify the caller owns this token before proxying to Peerly — otherwise
+    // gp-api is a confused deputy disclosing another campaign's list state and
+    // lead count. Kept outside the try below so the 403 propagates instead of
+    // being remapped to a 502.
+    await this.phoneListOwnership.assertCampaignOwnsToken(campaign.id, token)
+
     try {
       const statusResponse =
         await this.peerlyPhoneListService.checkPhoneListStatus(token)

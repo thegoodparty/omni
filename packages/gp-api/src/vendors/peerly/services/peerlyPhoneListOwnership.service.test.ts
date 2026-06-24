@@ -104,4 +104,33 @@ describe('PeerlyPhoneListOwnershipService', () => {
       await expect(service.linkListId('tok-abc', 42)).resolves.toBeUndefined()
     })
   })
+
+  describe('assertCampaignOwnsToken', () => {
+    it('resolves when the caller campaign owns the token', async () => {
+      findUnique.mockResolvedValue({ id: 1, campaignId: 7, token: 'tok-abc' })
+
+      await expect(
+        service.assertCampaignOwnsToken(7, 'tok-abc'),
+      ).resolves.toBeUndefined()
+      expect(create).not.toHaveBeenCalled()
+    })
+
+    it('throws ForbiddenException when a different campaign owns the token', async () => {
+      findUnique.mockResolvedValue({ id: 1, campaignId: 99, token: 'tok-abc' })
+
+      await expect(
+        service.assertCampaignOwnsToken(7, 'tok-abc'),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      expect(create).not.toHaveBeenCalled()
+    })
+
+    it('fails closed (403) and never claims when no ownership record exists', async () => {
+      findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.assertCampaignOwnsToken(7, 'tok-abc'),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      expect(create).not.toHaveBeenCalled()
+    })
+  })
 })

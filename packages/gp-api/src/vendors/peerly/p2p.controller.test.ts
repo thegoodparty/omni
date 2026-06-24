@@ -1,5 +1,9 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { BadGatewayException, ConflictException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { Campaign } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -54,6 +58,7 @@ describe('P2pController', () => {
   }
   let mockPhoneListOwnership: {
     linkListId: ReturnType<typeof vi.fn>
+    assertCampaignOwnsToken: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -70,6 +75,7 @@ describe('P2pController', () => {
     }
     mockPhoneListOwnership = {
       linkListId: vi.fn().mockResolvedValue(undefined),
+      assertCampaignOwnsToken: vi.fn().mockResolvedValue(undefined),
     }
     mockRes = createMockReply()
     controller = new P2pController(
@@ -88,6 +94,7 @@ describe('P2pController', () => {
       ).mockResolvedValue(null)
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -106,6 +113,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -125,6 +133,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -143,6 +152,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -161,10 +171,10 @@ describe('P2pController', () => {
       })
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Phone list is active but no list_id was returned',
       })
@@ -176,10 +186,10 @@ describe('P2pController', () => {
       ).mockRejectedValue(new Error('Unexpected failure'))
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Failed to check phone list status.',
       })
@@ -216,6 +226,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -231,6 +242,33 @@ describe('P2pController', () => {
         'test-token',
         123,
       )
+    })
+
+    it('verifies token ownership before proxying to Peerly', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue(null)
+
+      await controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes)
+
+      expect(
+        mockPhoneListOwnership.assertCampaignOwnsToken,
+      ).toHaveBeenCalledWith(mockCampaign.id, 'test-token')
+    })
+
+    it('propagates 403 and never calls Peerly when the token belongs to another campaign', async () => {
+      mockPhoneListOwnership.assertCampaignOwnsToken.mockRejectedValue(
+        new ForbiddenException('Phone list does not belong to this campaign'),
+      )
+
+      await expect(
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      // The 403 must propagate (not be remapped to 502) and Peerly must not be
+      // hit for a list the caller does not own.
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
     })
   })
 

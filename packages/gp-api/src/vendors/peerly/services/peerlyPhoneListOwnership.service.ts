@@ -83,4 +83,28 @@ export class PeerlyPhoneListOwnershipService extends createPrismaBase(
       throw new ForbiddenException(NOT_OWNED_MESSAGE)
     }
   }
+
+  // Gate for the phone-list status lookup: verify the caller's campaign owns the
+  // upload token before gp-api proxies the status check to Peerly (which would
+  // otherwise act as a confused deputy and disclose another campaign's list
+  // state / lead count). Fails closed like assertCampaignOwnsList — a token with
+  // no ownership record is rejected, not claimed.
+  async assertCampaignOwnsToken(
+    campaignId: number,
+    token: string,
+  ): Promise<void> {
+    const existing = await this.model.findUnique({ where: { token } })
+
+    if (!existing) {
+      this.logger.warn(
+        { campaignId, token },
+        'P2P phone list token has no ownership record; denying access',
+      )
+      throw new ForbiddenException(NOT_OWNED_MESSAGE)
+    }
+
+    if (existing.campaignId !== campaignId) {
+      throw new ForbiddenException(NOT_OWNED_MESSAGE)
+    }
+  }
 }
