@@ -441,6 +441,17 @@ strong {
   margin: 20mm;
 }
 
+/*
+ * The HubSpot chat/help bubble (#hubspot-messages-iframe-container) is injected
+ * with a near-max inline z-index, so an open Radix overlay (Sheet/Dialog) can't
+ * out-stack it by raising its own z-index. Radix locks the body while a modal is
+ * open (data-scroll-locked), so hide the bubble for that window — it reappears
+ * when the overlay closes. ENG-10515.
+ */
+body[data-scroll-locked] #hubspot-messages-iframe-container {
+  visibility: hidden !important;
+}
+
 .pac-container {
   z-index: 9999 !important;
   border-radius: 8px;
