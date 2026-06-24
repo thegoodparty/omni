@@ -24,7 +24,12 @@ export const tcrComplianceBaseShape = {
   // fields; SubmitToPeerlyDto omits them (it reuses the persisted address).
   placeId: z.string().trim().min(1, 'A candidate address is required'),
   formattedAddress: z.string().trim().min(1, 'A candidate address is required'),
-  committeeName: z.string(),
+  // committeeName is sent to Peerly's 10DLC brand approval and interpolated
+  // into the sample SMS messages, so a whitespace-only value produces a
+  // malformed sample that fails the paid Peerly step. Trim + min like the
+  // address fields. SubmitToPeerlyDto reuses this field; the agent always sends
+  // the campaign's persisted (non-empty) committee name.
+  committeeName: z.string().trim().min(1, 'A committee name is required'),
   filingUrl: UrlOrDomainSchema.refine(urlIncludesPath, {
     message:
       'Filing URL must include path (e.g. https://example.com/filing, not just https://example.com)',

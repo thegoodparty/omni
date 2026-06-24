@@ -60,6 +60,18 @@ describe('tcrComplianceBaseShape address fields', () => {
       ).success,
     ).toBe(true)
   })
+
+  it('rejects an empty or whitespace-only committeeName', () => {
+    expect(tcrComplianceBaseShape.committeeName.safeParse('').success).toBe(
+      false,
+    )
+    expect(tcrComplianceBaseShape.committeeName.safeParse('   ').success).toBe(
+      false,
+    )
+    expect(
+      tcrComplianceBaseShape.committeeName.safeParse('Friends of Jane').success,
+    ).toBe(true)
+  })
 })
 
 describe('tcrComplianceSuperRefine — fecCommitteeId', () => {
