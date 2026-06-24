@@ -157,6 +157,20 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
   })
 })
 
+describe('getDashboardMenuItems — Website tab retired (ENG-10505)', () => {
+  it('never includes the Website nav item for a pro campaign', () => {
+    const items = links(proCampaign)
+    expect(items.some((i) => i.id === 'website-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/website')).toBe(false)
+  })
+
+  it('never includes the Website nav item for a free campaign', () => {
+    const items = links(freeCampaign)
+    expect(items.some((i) => i.id === 'website-dashboard')).toBe(false)
+    expect(items.some((i) => i.link === '/dashboard/website')).toBe(false)
+  })
+})
+
 describe('getDashboardMenuItems — Community Issues nav gating', () => {
   it('shows the Community Issues nav for an elected office when the flag is on', () => {
     const items = links(proCampaign, {
