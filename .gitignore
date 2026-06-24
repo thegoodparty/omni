@@ -24,3 +24,8 @@ CLAUDE.local.md
 
 .claude/worktrees
 docs/superpowers
+
+# Agent worktrees and scratch artifacts (local only)
+.worktrees/
+scratch/
+.playwright-mcp/
