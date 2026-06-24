@@ -13,7 +13,7 @@ export type TimelineItem = {
   quoteAttribution?: string
   items?: string[]
   link?: { label: string; href: string }
-  source?: string
+  source?: { organization: string; title: string; url?: string }
   /** Only used in `variant="steps"` */
   status?: TimelineStatus
   /** Only used in `variant="steps"` */
@@ -85,15 +85,6 @@ export default function ChatTimeline({
                 <p className="text-sm leading-normal text-foreground">{item.description}</p>
               )}
 
-              {item.quote && (
-                <blockquote className="border-l-2 border-border pl-3">
-                  <p className="text-sm italic leading-normal text-foreground">{item.quote}</p>
-                  {item.quoteAttribution && (
-                    <cite className="mt-1 block not-italic text-xs text-foreground">{item.quoteAttribution}</cite>
-                  )}
-                </blockquote>
-              )}
-
               {item.items && item.items.length > 0 && (
                 <ul className="flex flex-col gap-0.5 pl-3">
                   {item.items.map((it) => (
@@ -116,8 +107,31 @@ export default function ChatTimeline({
                 </a>
               )}
 
+              {item.quote && (
+                <blockquote className="flex flex-col gap-1 border-l-2 border-border pl-3">
+                  <p className="text-sm italic leading-normal text-foreground">{item.quote}</p>
+                  {item.quoteAttribution && (
+                    <p className="text-xs text-muted-foreground">{item.quoteAttribution}</p>
+                  )}
+                </blockquote>
+              )}
+
               {item.source && (
-                <p className="text-xs leading-normal tracking-wide text-foreground"><span className="font-medium">Source:</span> {item.source}</p>
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium">Source:</span>{' '}
+                  {item.source.url && isSafeHref(item.source.url) ? (
+                    <a
+                      href={item.source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {item.source.organization} — {item.source.title}
+                    </a>
+                  ) : (
+                    <>{item.source.organization} — {item.source.title}</>
+                  )}
+                </p>
               )}
             </div>
           </div>

@@ -551,53 +551,49 @@ const TIMELINE_MARKER = '__timeline__'
 const TIMELINE_ITEMS: TimelineItem[] = [
   {
     label: 'Step 1',
-    title: 'File your candidacy paperwork',
+    title: 'You announced your candidacy',
     status: 'done',
-    icon: CheckIcon,
     description:
-      'Submit your declaration of candidacy to the county elections office. Bring a valid ID and the $150 filing fee.',
-    source: 'County Elections Office — Filing Guide 2024',
+      'You filed your declaration of candidacy and your name is officially on the ballot. This is a big deal — most people never take this step.',
   },
   {
     label: 'Step 2',
-    title: 'Collect voter signatures',
+    title: 'Collect 250 ballot signatures',
     status: 'active',
-    icon: ArrowRightIcon,
-    description: 'Gather 250 valid signatures from registered voters in your district.',
+    description:
+      'You need 250 valid signatures from registered voters in District 7 to secure your spot on the ballot. You have 6 weeks.',
     items: [
-      'Only residents of District 7 qualify',
-      'Signatures must be collected in person',
-      'Use the official petition form from the elections office',
+      'Set a daily goal of 10–15 signatures to stay on track',
+      'Farmers markets and community events are your best bet',
+      'Every signer is a potential volunteer — ask them',
     ],
+    source: { organization: 'County Elections Office', title: 'Petition requirements for District 7' },
   },
   {
     label: 'Step 3',
-    title: 'Set up your campaign committee',
+    title: 'Raise your first $5,000',
     status: 'upcoming',
     description:
-      'Register a committee with the state ethics board before accepting any donations or spending any money.',
-    link: { label: 'Register online at ethics.state.gov', href: '#' },
-    source: 'State Ethics Board — Campaign Finance FAQ',
+      'Early money signals viability. Start with your personal network — friends, family, former colleagues. A small fundraiser at someone\'s home can get you there fast.',
+    items: [
+      '50 people × $100 = $5,000',
+      'Set up your GoodParty donation page first so every ask has a link',
+    ],
   },
   {
     label: 'Step 4',
-    title: 'Launch your GoodParty campaign page',
+    title: 'Knock 1,000 doors before summer',
     status: 'upcoming',
     description:
-      'Activate your free candidate profile so supporters can find you, donate, and volunteer.',
-    link: { label: 'Set up your profile', href: '#' },
+      'Door-knocking is the highest-converting voter contact method for local races. Candidates who knock 1,000+ doors before Labor Day win at twice the rate of those who don\'t.',
+    source: { organization: 'GoodParty Research', title: 'Win rate analysis, 2022–2024' },
   },
   {
     label: 'Step 5',
-    title: 'File your first financial disclosure',
+    title: 'Win on November 4th',
     status: 'upcoming',
     description:
-      'Report all donations and expenditures within 30 days of your committee registration.',
-    items: [
-      'Late filings result in a $50/day penalty',
-      'Include all in-kind contributions',
-    ],
-    source: 'State Ethics Board — Disclosure Calendar',
+      'Your target is 2,840 votes — about 38% of expected turnout in District 7. GoodParty will help you track every voter contact and remind your supporters to show up.',
   },
 ]
 
@@ -615,7 +611,7 @@ const HISTORY_ITEMS: TimelineItem[] = [
     description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
     quote: '"We want neighborhoods to be stable, not frozen, but the protections came first."',
     quoteAttribution: 'Councilor Alvarez',
-    source: 'Maplewood Council minutes, 1978',
+    source: { organization: 'Maplewood City Council', title: 'Council minutes, 1978' },
   },
   {
     label: '2003',
@@ -623,7 +619,7 @@ const HISTORY_ITEMS: TimelineItem[] = [
     description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
     quote: '"This is the smallest step toward more housing we can take without rewriting the whole code."',
     quoteAttribution: 'Councilor Kim',
-    source: 'Maplewood Council minutes, 2003',
+    source: { organization: 'Maplewood City Council', title: 'Council minutes, 2003' },
   },
   {
     label: '2019',
@@ -631,7 +627,7 @@ const HISTORY_ITEMS: TimelineItem[] = [
     description: 'Owner-occupancy ADU rule removed. No broader missing-middle reform attempted.',
     quote: '"We did not have the political room for triplexes. A future council should pick that up."',
     quoteAttribution: 'Councilor Park',
-    source: 'Maplewood Council minutes, 2019',
+    source: { organization: 'Maplewood City Council', title: 'Council minutes, 2019' },
   },
 ]
 
