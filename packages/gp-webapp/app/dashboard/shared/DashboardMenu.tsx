@@ -64,7 +64,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { ListChecksIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -250,7 +250,7 @@ const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
   label: 'Community Issues',
   link: '/dashboard/community-issues',
   icon: <MdFactCheck />,
-  v2Icon: ListChecksIcon,
+  v2Icon: FlagIcon,
   v2Category: 'elected-office',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
 }

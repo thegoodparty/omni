@@ -10,7 +10,7 @@ import {
 } from '@shared/briefings/displaySource'
 
 const PILL_CLASS =
-  'inline-flex max-w-[180px] items-center gap-1 rounded-sm bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground'
+  'inline-flex max-w-[180px] items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground'
 
 const SourcePill = ({ source }: { source: DisplaySource }) => {
   const [open, setOpen] = useState(false)

@@ -2,31 +2,20 @@
 
 import { useState } from 'react'
 import { Button } from '@styleguide'
-import { StarIcon, CheckIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface Props {
   issueId: string
-  initialPrioritized: boolean
+  onPrioritized: () => void
 }
 
 const PrioritizeButton = ({
   issueId,
-  initialPrioritized,
+  onPrioritized,
 }: Props): React.JSX.Element => {
-  const [prioritized, setPrioritized] = useState(initialPrioritized)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  if (prioritized) {
-    return (
-      <span className="flex items-center gap-1.5 text-sm text-success-dark">
-        <CheckIcon className="size-4" aria-hidden />
-        Added to priorities
-      </span>
-    )
-  }
 
   const handleClick = async () => {
     trackEvent(EVENTS.CommunityIssues.PrioritizeClicked, { issueId })
@@ -36,7 +25,7 @@ const PrioritizeButton = ({
       await clientRequest('POST /v1/community-issues/:id/prioritize', {
         id: issueId,
       })
-      setPrioritized(true)
+      onPrioritized()
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -45,14 +34,8 @@ const PrioritizeButton = ({
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <Button
-        variant="outline"
-        onClick={handleClick}
-        disabled={loading}
-        className="flex items-center gap-1.5"
-      >
-        <StarIcon className="size-4" aria-hidden />
+    <div className="flex flex-col items-end gap-1">
+      <Button onClick={handleClick} disabled={loading}>
         Add to my priorities
       </Button>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
