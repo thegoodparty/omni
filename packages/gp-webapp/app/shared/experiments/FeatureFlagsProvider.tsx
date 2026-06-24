@@ -136,6 +136,12 @@ export const FeatureFlagsProvider = ({
         },
       },
     })
+    // clientRef is a ref, so creating the client doesn't re-render. Bump rev so
+    // the value memo recomputes and reads/exposes through the live client —
+    // otherwise a seeded, immediately-authenticated session (whose fetch effect
+    // early-returns without calling refresh) would stay bound to the null-client
+    // closure: reads served only from the static seed, exposure()/clear() no-op.
+    setRev((v) => v + 1)
   }, [hasSeed, initialVariants])
 
   // Fetch only once the user identity is settled. Gating on isUserLoading

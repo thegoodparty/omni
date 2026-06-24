@@ -6,8 +6,12 @@ import type { Page, Route } from '@playwright/test'
 const FLAG_OVERRIDE_COOKIE = 'ff-overrides'
 
 const baseURL = process.env.BASE_URL ?? ''
-const COOKIE_DOMAIN =
+// Strip protocol, path, AND port: cookie domains never include a port, so
+// Playwright's addCookies silently rejects `localhost:4000` and the override
+// cookie never gets set.
+const host =
   baseURL.replace('http://', '').replace('https://', '').split('/')[0] ?? ''
+const COOKIE_DOMAIN = host.split(':')[0] ?? ''
 
 // Forces Amplitude flag variants for this browser context via the non-prod
 // `ff-overrides` seam, so flag-gated UX is deterministic without depending on
