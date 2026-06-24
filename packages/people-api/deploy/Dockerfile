@@ -73,6 +73,11 @@ WORKDIR /app
 # Copy package files for production dependencies
 COPY package.json package-lock.json ./
 COPY packages/people-api/package.json ./packages/people-api/package.json
+# The compiled dist imports @goodparty_org/contracts, so the prebuilt workspace
+# package must be present for npm to link it into node_modules — otherwise the
+# container crashes on boot with "Cannot find module '@goodparty_org/contracts'".
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/contracts/dist ./packages/contracts/dist
 # Install only production dependencies with --ignore-scripts
 RUN npm ci --omit=dev --ignore-scripts --workspace people-api
 

@@ -28,3 +28,10 @@ export function isAdmin(user: User) {
 
 export const isTestUser = (params: { email: string }) =>
   params.email.endsWith('@test.goodparty.org')
+
+export const isTestCampaign = (
+  campaign: { user?: { email?: string | null } | null } | null,
+): boolean => {
+  const email = campaign?.user?.email
+  return !!email && isTestUser({ email })
+}

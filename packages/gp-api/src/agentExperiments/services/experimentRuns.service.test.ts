@@ -26,6 +26,7 @@ describe('ExperimentRunsService', () => {
     findMany: ReturnType<typeof vi.fn>
   }
   let mockSlack: { errorMessage: ReturnType<typeof vi.fn> }
+  let campaignFindUnique: ReturnType<typeof vi.fn>
   const logger = createMockLogger()
 
   beforeEach(() => {
@@ -55,6 +56,11 @@ describe('ExperimentRunsService', () => {
       get: () => logger,
       configurable: true,
     })
+    campaignFindUnique = vi.fn().mockResolvedValue(null)
+    Object.defineProperty(service, '_prisma', {
+      value: { campaign: { findUnique: campaignFindUnique } },
+      configurable: true,
+    })
   })
 
   afterEach(() => {
@@ -62,6 +68,33 @@ describe('ExperimentRunsService', () => {
   })
 
   describe('dispatchRun', () => {
+    it('skips dispatch (no row, no SQS) for a test-user campaign', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+      campaignFindUnique.mockResolvedValue({
+        user: { email: 'jane@test.goodparty.org' },
+      })
+
+      const result = await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+      })
+
+      expect(campaignFindUnique).toHaveBeenCalledWith({
+        where: { organizationSlug: 'org-1' },
+        select: { user: { select: { email: true } } },
+      })
+      expect(result).toBeUndefined()
+      expect(mockModel.create).not.toHaveBeenCalled()
+      expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+    })
+
     it('creates a QUEUED row and sends an SQS dispatch message', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 

@@ -10,7 +10,6 @@ import {
   MdPeople,
   MdPoll,
   MdSensorDoor,
-  MdWeb,
 } from 'react-icons/md'
 import {
   BookOpen,
@@ -21,7 +20,6 @@ import {
   DoorClosed,
   ExternalLink,
   FileText,
-  Globe,
   LayoutDashboard,
   LogOut,
   Send,
@@ -64,7 +62,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { ListChecksIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -100,16 +98,6 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
   id: 'upgrade-pro-dashboard',
 }
 
-const WEBSITE_MENU_ITEM: MenuItem = {
-  label: 'Website',
-  icon: <MdWeb />,
-  v2Icon: Globe,
-  v2Category: 'campaign',
-  link: '/dashboard/website',
-  id: 'website-dashboard',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickWebsite),
-}
-
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
     label: 'Campaign Manager',
@@ -130,7 +118,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterOutreach),
   },
   VOTER_DATA_UPGRADE_ITEM,
-  WEBSITE_MENU_ITEM,
   {
     label: 'My Profile',
     icon: <MdAccountCircle />,
@@ -250,7 +237,7 @@ const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
   label: 'Community Issues',
   link: '/dashboard/community-issues',
   icon: <MdFactCheck />,
-  v2Icon: ListChecksIcon,
+  v2Icon: FlagIcon,
   v2Category: 'elected-office',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
 }

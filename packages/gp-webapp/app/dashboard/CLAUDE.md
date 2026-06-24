@@ -22,13 +22,14 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 ## Gotchas
 
-- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `election-result/`, `pro-sign-up/`, `profile/`, `purchase/`, `questions/`, `upgrade-to-pro/`, `voter-records/`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists."
+- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `election-result/`, `pro-upgrade/`, `profile/`, `purchase/`, `questions/`, `voter-records/`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists." (`pro-upgrade/` is the pre-payment Pro upgrade wizard; it superseded the now-deleted `pro-sign-up/` + `upgrade-to-pro/` trees — see `pro-upgrade/CLAUDE.md`.)
 - `dashboard/shared/` and `dashboard/components/` overlap in spirit. Convention: `shared/` = layout, access, modals reused across features; `components/` = card-style widgets composed onto pages. Check both before adding a new file.
 - `DashboardLayout` enforces auth. Pages don't need their own redirect-to-login logic.
 
 ## Related
 
 - Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, etc.
+- **Pro upgrade / 10DLC compliance** — `pro-upgrade/CLAUDE.md` (the pre-payment wizard) + its gp-api counterpart `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md` (the agentic `compliance_setup` flow).
 - `app/shared/user/UserProvider.tsx` — auth state the layout reads.
 - `app/shared/hooks/CampaignProvider.tsx` — current campaign context.
 - **Adding analytics to a feature here** — fire events per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).

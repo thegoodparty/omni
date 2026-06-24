@@ -1,6 +1,6 @@
 # Styleguide
 
-Design system components integrated directly into gp-webapp, built on **shadcn/ui** and styled to match our **Figma Design System**.
+Standalone design system package (`@goodparty_org/styleguide`), built on **shadcn/ui** and styled to match our **Figma Design System**.
 
 ---
 

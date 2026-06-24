@@ -34,7 +34,11 @@ export default async function Page({
   }
 
   return (
-    <DashboardLayout pathname="/dashboard/community-issues" showAlert={false}>
+    <DashboardLayout
+      pathname="/dashboard/community-issues"
+      showAlert={false}
+      wrapperClassName="!p-0"
+    >
       <IssueDetail issue={result.data} />
     </DashboardLayout>
   )
