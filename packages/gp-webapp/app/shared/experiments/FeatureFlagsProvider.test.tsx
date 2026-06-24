@@ -98,27 +98,24 @@ describe('server-seeded initialVariants', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('re-resolves instead of trusting a stale seed when the session is gone at hydration', async () => {
-    // The seed was rendered for an authed user server-side, but the client
-    // hydrates with no user (session expired between SSR and hydration). The
-    // provider must NOT keep serving the authed seed — it re-resolves through
-    // gp-api, which returns empty for an anonymous request. (The effect only
-    // runs after isUserLoading is false, so a null user here is definitively
-    // gone, not transitionally missing.)
+  it('keeps the seed when the client reports no user (ad-blocker-degraded Clerk)', async () => {
+    // The server produced the seed (it authenticated the request), but the
+    // client reports no user — e.g. an ad blocker broke Clerk's client SDK so
+    // useUser reads signed-out while the server session is still valid. The
+    // provider must KEEP serving the seed and must NOT fetch; discarding it here
+    // reintroduces the ad-blocker bug this change fixes.
     mockUser = null
     mockIsUserLoading = false
-    serverVariants = {}
 
     const { result } = renderHook(() => useFlagOn('campaign-story'), {
       wrapper: seededWrapper,
     })
 
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
-        credentials: 'include',
-      }),
-    )
-    await waitFor(() => expect(result.current.on).toBe(false))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.on).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('re-resolves through gp-api when the identity changes after seeding', async () => {

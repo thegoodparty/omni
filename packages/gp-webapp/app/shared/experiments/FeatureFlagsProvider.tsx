@@ -138,19 +138,16 @@ export const FeatureFlagsProvider = ({
     if (!resolvedRef.current) {
       resolvedRef.current = true
       resolvedKeyRef.current = key
-      // Trust the SSR seed only when the client confirms the same authed user.
-      // A genuinely anonymous visitor (no seed, no user) likewise skips the
-      // fetch and stays empty. But if the session expired between SSR and
-      // hydration (seed present, user gone), the seed is for the wrong identity
-      // — discard it and re-resolve through gp-api, which is cookie-authed
-      // server-side and so returns the right answer even during Clerk's brief
-      // anonymous flash (the old client-Amplitude refetch couldn't, which is why
-      // the seed used to be kept here).
-      if (hasSeed && user) {
-        setReady(true)
-        return
-      }
-      if (!hasSeed && !user) {
+      // Trust the SSR seed whenever the server produced one, or stay empty for a
+      // genuinely anonymous visitor — either way, no fetch. Critically, do NOT
+      // discard the seed just because the client reports no user yet: an ad
+      // blocker can break Clerk's client SDK (its frontend API is a tracker-list
+      // domain) so useUser reports signed-out even while the server session that
+      // produced the seed is valid. The seed is the server's authoritative
+      // answer; discarding it on a client-only signal reintroduces the exact
+      // ad-blocker failure this whole change exists to fix. Re-resolution still
+      // happens on an observed identity change (below).
+      if (hasSeed || !user) {
         setReady(true)
         return
       }
