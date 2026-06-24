@@ -233,107 +233,125 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         startDate,
       )
 
-      // Delete existing records only if we're doing a full sync
-      if (!startDate) {
-        await this.model.update({
-          where: { id: ecanvasser.id },
-          data: {
-            contacts: { deleteMany: {} },
-            houses: { deleteMany: {} },
-            interactions: { deleteMany: {} },
-          },
-        })
-      }
+      // The full sync deletes every child row and re-populates it. Run that
+      // delete and the repopulating upserts in one transaction so a mid-loop
+      // failure rolls back to the pre-sync rows instead of leaving the tables
+      // emptied (the outer catch only logs and resets lastSync). The delta sync
+      // (startDate set) skips the delete and only upserts, so its writes are
+      // independently safe and don't need the wrapping transaction, but routing
+      // both through the same block keeps the write path single.
+      await this.client.$transaction(
+        async (tx) => {
+          if (!startDate) {
+            await tx.ecanvasserContact.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+            await tx.ecanvasserHouse.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+            await tx.ecanvasserInteraction.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+          }
 
-      // Upsert each record keyed on (ecanvasserId, externalId) rather than
-      // appending. The delta sync overlaps its window on each run, so the same
-      // eCanvasser record can be re-fetched; upserting updates it in place
-      // instead of inserting a duplicate that would violate the unique index.
-      for (const contact of contacts) {
-        const data = {
-          firstName: contact.first_name,
-          lastName: contact.last_name,
-          type: contact.type,
-          gender: contact.gender || null,
-          dateOfBirth: contact.date_of_birth
-            ? new Date(contact.date_of_birth)
-            : null,
-          yearOfBirth: contact.year_of_birth?.toString() || null,
-          houseId: contact.house_id || null,
-          uniqueIdentifier: contact.unique_identifier || null,
-          organization: contact.organization || null,
-          volunteer: contact.volunteer,
-          deceased: contact.deceased,
-          donor: contact.donor,
-          homePhone: contact.contact_details?.home || null,
-          mobilePhone: contact.contact_details?.mobile || null,
-          email: contact.contact_details?.email || null,
-          actionId: contact.action_id || null,
-          lastInteractionId: contact.last_interaction_id || null,
-          createdBy: contact.created_by || 0,
-        }
-        await this.client.ecanvasserContact.upsert({
-          where: {
-            ecanvasserId_externalId: {
-              ecanvasserId: ecanvasser.id,
-              externalId: contact.id,
-            },
-          },
-          create: {
-            ...data,
-            externalId: contact.id,
-            ecanvasserId: ecanvasser.id,
-          },
-          update: data,
-        })
-      }
+          // Upsert each record keyed on (ecanvasserId, externalId) rather than
+          // appending. The delta sync overlaps its window on each run, so the
+          // same eCanvasser record can be re-fetched; upserting updates it in
+          // place instead of inserting a duplicate that violates the unique
+          // index. A falsy id (the API client casts responses without a runtime
+          // id check) would collapse every such record onto external_id 0 and
+          // silently overwrite, so skip those rather than corrupt the row.
+          for (const contact of contacts) {
+            if (!contact.id) continue
+            const data = {
+              firstName: contact.first_name,
+              lastName: contact.last_name,
+              type: contact.type,
+              gender: contact.gender || null,
+              dateOfBirth: contact.date_of_birth
+                ? new Date(contact.date_of_birth)
+                : null,
+              yearOfBirth: contact.year_of_birth?.toString() || null,
+              houseId: contact.house_id || null,
+              uniqueIdentifier: contact.unique_identifier || null,
+              organization: contact.organization || null,
+              volunteer: contact.volunteer,
+              deceased: contact.deceased,
+              donor: contact.donor,
+              homePhone: contact.contact_details?.home || null,
+              mobilePhone: contact.contact_details?.mobile || null,
+              email: contact.contact_details?.email || null,
+              actionId: contact.action_id || null,
+              lastInteractionId: contact.last_interaction_id || null,
+              createdBy: contact.created_by || 0,
+            }
+            await tx.ecanvasserContact.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: contact.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: contact.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
 
-      for (const house of houses) {
-        const data = {
-          address: house.address,
-          latitude: house.latitude || null,
-          longitude: house.longitude || null,
-        }
-        await this.client.ecanvasserHouse.upsert({
-          where: {
-            ecanvasserId_externalId: {
-              ecanvasserId: ecanvasser.id,
-              externalId: house.id,
-            },
-          },
-          create: {
-            ...data,
-            externalId: house.id,
-            ecanvasserId: ecanvasser.id,
-          },
-          update: data,
-        })
-      }
+          for (const house of houses) {
+            if (!house.id) continue
+            const data = {
+              address: house.address,
+              latitude: house.latitude || null,
+              longitude: house.longitude || null,
+            }
+            await tx.ecanvasserHouse.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: house.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: house.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
 
-      for (const interaction of interactions) {
-        const data = {
-          type: interaction.type,
-          status: interaction.status?.name ?? 'Unknown',
-          contactId: interaction.contact_id || 0,
-          createdBy: interaction.created_by || 0,
-          date: interaction.created_at,
-          rating: interaction.rating || null,
-        }
-        await this.client.ecanvasserInteraction.upsert({
-          where: {
-            ecanvasserId_externalId: {
-              ecanvasserId: ecanvasser.id,
-              externalId: interaction.id,
-            },
-          },
-          create: {
-            ...data,
-            externalId: interaction.id,
-            ecanvasserId: ecanvasser.id,
-          },
-          update: data,
-        })
-      }
+          for (const interaction of interactions) {
+            if (!interaction.id) continue
+            const data = {
+              type: interaction.type,
+              status: interaction.status?.name ?? 'Unknown',
+              contactId: interaction.contact_id || 0,
+              createdBy: interaction.created_by || 0,
+              date: interaction.created_at,
+              rating: interaction.rating || null,
+            }
+            await tx.ecanvasserInteraction.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: interaction.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: interaction.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
+        },
+        { timeout: 60_000 },
+      )
 
       const updated = await this.model.update({
         where: { id: ecanvasser.id },
