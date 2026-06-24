@@ -14,7 +14,7 @@ import {
   Bot,
   FileText,
 } from 'lucide-react'
-import { AppShell, type ShellMode } from '@/shared/AppShell'
+import { AppShell, type ShellOrg } from '@/shared/AppShell'
 import { Overview } from './screens/Overview'
 import { Contacts } from './screens/Contacts'
 import { Placeholder } from './screens/Placeholder'
@@ -138,16 +138,16 @@ const winTabs = [
   },
 ]
 
-const modes: ShellMode[] = [
+const orgs: ShellOrg[] = [
   {
     id: 'serve',
-    label: 'Serve',
-    role: 'Serve – City Council',
+    name: 'Pittsboro Town Council',
+    isPro: false,
     tabs: serveTabs,
   },
-  { id: 'win', label: 'Win', role: 'Win – 2026 Campaign', tabs: winTabs },
+  { id: 'win', name: '2026 Campaign', isPro: true, tabs: winTabs },
 ]
 
-const Page = () => <AppShell userName="Renee Wells" modes={modes} />
+const Page = () => <AppShell userName="Renee Wells" orgs={orgs} />
 
 export default Page
