@@ -12,6 +12,8 @@ export const CAMPAIGN_STORY_SECTIONS: CampaignStorySection[] = [
       'The moment, the people, the breaking point: your stump-speech opener.',
     placeholder:
       'Tap to write: what pushed you to put your name on the ballot?',
+    example:
+      'I spent fifteen years running the family hardware store on Main Street, and I watched our downtown empty out while the council handed tax breaks to out-of-town developers. The last straw was when they cut funding for the after-school program my own kids relied on. I decided I was done complaining at the kitchen table and ready to do something about it.',
   },
   {
     id: 'background',
@@ -19,6 +21,8 @@ export const CAMPAIGN_STORY_SECTIONS: CampaignStorySection[] = [
     description:
       'Childhood, career, community ties. The human story behind the candidate.',
     placeholder: 'Tap to write: your background, career, and what shaped you.',
+    example:
+      "I grew up here, graduated from Lincoln High, and put myself through community college working nights. For the last decade I've run a small business, coached youth soccer, and served on the parks advisory board. I'm not a career politician. I'm a neighbor who knows what it takes to make a budget work and show up when people need help.",
   },
   {
     id: 'issues',
@@ -26,5 +30,7 @@ export const CAMPAIGN_STORY_SECTIONS: CampaignStorySection[] = [
     description: 'Two to four concrete fights for your first term.',
     placeholder:
       "Tap to write: the 2-4 issues you'd spend political capital on.",
+    example:
+      "First, fix our roads and aging water lines before they fail. Second, back local small businesses instead of big out-of-town developers. Third, make sure every neighborhood has safe parks and after-school options for kids. These are what I hear at every door, and they're where I'd spend my energy in my first term.",
   },
 ]

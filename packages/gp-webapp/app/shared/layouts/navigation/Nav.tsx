@@ -9,7 +9,13 @@ import { usePathname } from 'next/navigation'
 const Nav = (): React.JSX.Element => {
   const pathname = usePathname()
   const hideGlobalNav =
-    pathname?.startsWith('/dashboard') || pathname?.startsWith('/onboarding')
+    pathname?.startsWith('/dashboard') ||
+    pathname?.startsWith('/onboarding') ||
+    // The elected-official ("serve") flow is a focused, full-screen experience
+    // with its own logo + stepper chrome (mirroring /onboarding), so the global
+    // marketing nav is suppressed here too — pairs with isProductRoute, which
+    // already hides the global footer on /serve.
+    pathname?.startsWith('/serve')
 
   return (
     <>

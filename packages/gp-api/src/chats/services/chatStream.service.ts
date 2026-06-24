@@ -6,11 +6,10 @@ import {
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
-import { z } from 'zod'
 import {
   LlmService,
   LlmStreamResult,
-  LlmStreamTool,
+  LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
@@ -38,7 +37,7 @@ export interface StreamArgs {
   conversationId: string
   ownerUserId: number
   systemPrompt: string
-  tools: Record<string, LlmStreamTool<z.ZodTypeAny>>
+  tools: Record<string, LlmTool>
   userMessage: string
   signal?: AbortSignal
   clientMessageId?: string

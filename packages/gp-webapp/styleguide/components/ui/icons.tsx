@@ -60,6 +60,7 @@ export {
   LogOut as ExportIcon,
   User as UserIcon,
   UserCog as UserCogIcon,
+  UserRound as UserRoundIcon,
   UsersRound as UsersRoundIcon,
   Volume2 as Volume2Icon,
   X as XMarkIcon,

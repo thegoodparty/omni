@@ -409,6 +409,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       committeeType,
     } = tcrComplianceCreatePayload
 
+    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // campaign.placeId via Google Places (peerlyIdentity.service
+    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // compliance agent treats as transient and retries forever (campaign
+    // 325553). A 10DLC brand can't be registered without an address, so fail
+    // fast with a non-recoverable 4xx that names the real cause instead.
+    if (!campaign.placeId?.trim()) {
+      throw new BadRequestException(
+        'Cannot submit TCR registration to Peerly: the campaign has no ' +
+          'address on file (placeId missing). The candidate must add their ' +
+          'address before TCR registration can proceed.',
+      )
+    }
+
     const userFullName = getUserFullName(user)
     const { ballotLevel } = campaign.details as { ballotLevel?: string }
 
@@ -968,7 +982,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
     const campaign = await this.campaignsService.findUnique({
       where: { id: campaignId },
-      include: { user: true },
+      include: {
+        user: true,
+        campaignPositions: { include: { topIssue: true } },
+      },
     })
     if (!campaign || !campaign.user) {
       this.logger.warn(
@@ -1005,6 +1022,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       })
       return
     }
+
+    // The agent buys a domain and publishes this campaign's website but can't
+    // create one or author missing copy. Legacy-Pro candidates reach this flow
+    // without the pre-payment candidate-profile step that builds the site, so
+    // guarantee a publishable site before dispatch. Runs before the claim:
+    // same-campaign kickoffs are serialized by the FIFO message group, and a
+    // failure here redelivers cleanly with no claim to roll back.
+    await this.websitesService.ensureCompliancePublishableWebsite(
+      campaign.user,
+      campaign,
+    )
 
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
     // at-least-once SQS delivery (consumer crashes, redelivery, concurrent

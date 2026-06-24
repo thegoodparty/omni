@@ -309,6 +309,7 @@
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
   --component-card-border: var(--tw-neutral-600);
+  --color-components-card-border: var(--component-card-border);
   --component-input-active: var(--color-brand-blue-300);
   --component-input-foreground: var(--tw-white);
   --component-input-base: var(--tw-neutral-950);
