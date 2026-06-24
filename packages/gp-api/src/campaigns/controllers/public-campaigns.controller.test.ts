@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import { WebsiteStatus } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -159,6 +160,57 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.data.details.einNumber).toBeUndefined()
     expect(res.data.details.subscriptionId).toBeUndefined()
     expect(res.data.details.campaignCommittee).toBeUndefined()
+  })
+
+  it('omits an unpublished (draft) website from the public response', async () => {
+    await seedCampaign({
+      id: 7,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+    await service.prisma.website.create({
+      data: {
+        campaignId: 7,
+        vanityPath: 'monica-draft',
+        status: WebsiteStatus.unpublished,
+        content: { contact: { email: 'draft@example.com' } },
+      },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    // A draft site (and its pre-seeded contact/bio content) must not leak via
+    // this @PublicAccess() path.
+    expect(res.data.website).toBeNull()
+  })
+
+  it('returns the website once it is published', async () => {
+    await seedCampaign({
+      id: 8,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+    await service.prisma.website.create({
+      data: {
+        campaignId: 8,
+        vanityPath: 'monica-live',
+        status: WebsiteStatus.published,
+        content: { contact: { email: 'live@example.com' } },
+      },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.website).not.toBeNull()
+    expect(res.data.website.status).toBe('published')
+    // Published content must round-trip intact (the gate only suppresses drafts).
+    expect(res.data.website.content).toMatchObject({
+      contact: { email: 'live@example.com' },
+    })
   })
 
   it('400s when a required query param is missing', async () => {
