@@ -18,10 +18,12 @@ export const tcrComplianceBaseShape = {
   // A resolved address is a hard precondition: the Peerly submission derives
   // the candidate's postal address from placeId, so starting compliance with a
   // blank address only fails several paid steps later at the submit. Reject it
-  // at the boundary. Only the create DTOs pick these fields; SubmitToPeerlyDto
-  // omits them (it reuses the address already persisted on the campaign).
-  placeId: z.string().min(1, 'A candidate address is required'),
-  formattedAddress: z.string().min(1, 'A candidate address is required'),
+  // at the boundary. `.trim()` runs before `.min(1)` so a whitespace-only value
+  // can't slip through and get persisted to the campaign by createAgentic ahead
+  // of the service-level `.trim()` guards. Only the create DTOs pick these
+  // fields; SubmitToPeerlyDto omits them (it reuses the persisted address).
+  placeId: z.string().trim().min(1, 'A candidate address is required'),
+  formattedAddress: z.string().trim().min(1, 'A candidate address is required'),
   committeeName: z.string(),
   filingUrl: UrlOrDomainSchema.refine(urlIncludesPath, {
     message:

@@ -45,6 +45,10 @@ describe('tcrComplianceBaseShape address fields', () => {
     )
   })
 
+  it('rejects a whitespace-only placeId (trim runs before min)', () => {
+    expect(tcrComplianceBaseShape.placeId.safeParse('   ').success).toBe(false)
+  })
+
   it('accepts a resolved placeId and address', () => {
     expect(
       tcrComplianceBaseShape.placeId.safeParse('ChIJYTIMy9dP1oAR_sLgDF5Xg04')
