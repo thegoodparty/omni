@@ -171,11 +171,12 @@ The caller passes a payload; honor it instead of re-asking:
   `supersedes` **only** if the human explicitly named a predecessor (never inferred from
   a co-occurring removal). Skip Q1; prefill purpose and product tag (still confirm); ask
   net-new-vs-supersedes only if `supersedes` was not passed.
-- **RETIRE**: `mode=retire`, `event`, `reason`. Fetch the event and parse any existing
-  `gp-meta` block; if there is no `supersession:` line yet, set one first (net-new
-  standalone → `original`; replaced by another event → `superseded by <event>`) so the
-  block is never left without explicit lineage. Then stamp
-  `not in use: <today> (<reason>, #PR)`, keeping the existing or newly set lineage.
+- **RETIRE**: `mode=retire`, `event`, `reason`. This is the no-successor case by
+  definition — a removal that *replaces* an event comes through the ADD path's
+  `supersedes` instead, so there is never a successor to name here. Fetch the event and
+  parse any existing `gp-meta` block: preserve its `supersession:` line if present,
+  otherwise set `supersession: original` (so the block is never left without explicit
+  lineage). Then stamp `not in use: <today> (<reason>, #PR)`.
 
 Adds and removes are routed independently — the caller never pairs a removal with an add.
 
