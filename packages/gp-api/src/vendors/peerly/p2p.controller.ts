@@ -25,6 +25,7 @@ import {
 import { P2pPhoneListRequestSchema } from './schemas/p2pPhoneListRequest.schema'
 import { P2pPhoneListResponseSchema } from './schemas/p2pPhoneListResponse.schema'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
+import { PeerlyPhoneListOwnershipService } from './services/peerlyPhoneListOwnership.service'
 import { PinoLogger } from 'nestjs-pino'
 
 @Controller('p2p')
@@ -33,6 +34,7 @@ export class P2pController {
   constructor(
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly p2pPhoneListUploadService: P2pPhoneListUploadService,
+    private readonly phoneListOwnership: PeerlyPhoneListOwnershipService,
     private readonly organizationsService: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -78,6 +80,10 @@ export class P2pController {
 
       const detailsResponse =
         await this.peerlyPhoneListService.getPhoneListDetails(listId)
+
+      // Stamp the resolved Peerly list_id onto this campaign's upload row so the
+      // P2P outreach gate can verify list_id ownership. Best-effort.
+      await this.phoneListOwnership.linkListId(token, listId)
 
       return {
         phoneListId: listId,

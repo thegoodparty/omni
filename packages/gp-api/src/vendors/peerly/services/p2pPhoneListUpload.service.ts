@@ -18,6 +18,7 @@ import {
   P2P_CSV_COLUMN_MAPPINGS,
 } from '../utils/audienceMapping.util'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { PeerlyPhoneListOwnershipService } from './peerlyPhoneListOwnership.service'
 
 @Injectable()
 export class P2pPhoneListUploadService {
@@ -25,6 +26,7 @@ export class P2pPhoneListUploadService {
     private readonly voterDatabaseService: VoterDatabaseService,
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly phoneListOwnership: PeerlyPhoneListOwnershipService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
@@ -93,6 +95,10 @@ export class P2pPhoneListUploadService {
     this.logger.debug(
       `P2P phone list uploaded successfully for campaign ${campaign.id}, token: ${token}`,
     )
+
+    // Bind this list to the uploading campaign so later P2P-job assignment can
+    // verify ownership (the list_id is resolved later, at status-check time).
+    await this.phoneListOwnership.recordUpload(campaign.id, token)
 
     return { token, listName }
   }

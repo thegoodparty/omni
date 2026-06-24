@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -19,6 +20,7 @@ import { PrismaService } from 'src/prisma/prisma.service'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyPhoneListOwnershipService } from 'src/vendors/peerly/services/peerlyPhoneListOwnership.service'
 import type {
   CampaignGeographyInput,
   ResolveP2pJobGeographyServices,
@@ -38,6 +40,7 @@ const mockNotifySuccess = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
 const mockRecordSegmentAttribution = vi.fn()
+const mockAssertCampaignOwnsList = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -99,6 +102,8 @@ describe('OutreachService', () => {
     mockFilterAccessCheck.mockResolvedValue(undefined)
     mockRecordSegmentAttribution.mockReset()
     mockRecordSegmentAttribution.mockResolvedValue(undefined)
+    mockAssertCampaignOwnsList.mockReset()
+    mockAssertCampaignOwnsList.mockResolvedValue(undefined)
 
     const mockPrismaService = {
       outreach: {
@@ -144,6 +149,10 @@ describe('OutreachService', () => {
           useValue: {
             recordSegmentAttribution: mockRecordSegmentAttribution,
           },
+        },
+        {
+          provide: PeerlyPhoneListOwnershipService,
+          useValue: { assertCampaignOwnsList: mockAssertCampaignOwnsList },
         },
         OutreachService,
       ],
@@ -369,7 +378,39 @@ describe('OutreachService', () => {
         mockCampaign,
         created,
       )
+      // Ownership of the phone list is verified before the job is created.
+      expect(mockAssertCampaignOwnsList).toHaveBeenCalledWith(
+        mockCampaign.id,
+        p2pCreateDto.phoneListId,
+      )
       expect(result).toEqual(created)
+    })
+
+    it('blocks P2P creation when the phone list belongs to another campaign', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: 'identity-123',
+      })
+      mockAssertCampaignOwnsList.mockRejectedValue(
+        new ForbiddenException('Phone list does not belong to this campaign'),
+      )
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+
+      // The gate fires before any Peerly job creation or DB write.
+      expect(mockAssertCampaignOwnsList).toHaveBeenCalledWith(
+        mockCampaign.id,
+        p2pCreateDto.phoneListId,
+      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
     it('throws BadRequest when P2P flow has no peerlyIdentityId', async () => {

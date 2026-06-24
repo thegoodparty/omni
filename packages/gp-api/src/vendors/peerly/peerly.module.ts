@@ -18,6 +18,7 @@ import { PeerlyIdentityService } from './services/peerlyIdentity.service'
 import { PeerlyMediaService } from './services/peerlyMedia.service'
 import { PeerlyP2pJobService } from './services/peerlyP2pJob.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
+import { PeerlyPhoneListOwnershipService } from './services/peerlyPhoneListOwnership.service'
 import { PeerlyScheduleService } from './services/peerlySchedule.service'
 
 @Module({
@@ -44,12 +45,14 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyScheduleService,
     P2pPhoneListUploadService,
     PeerlyP2pJobService,
+    PeerlyPhoneListOwnershipService,
   ],
   exports: [
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyMediaService,
     PeerlyP2pJobService,
+    PeerlyPhoneListOwnershipService,
   ],
 })
 export class PeerlyModule {}
