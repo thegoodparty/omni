@@ -8,10 +8,10 @@ Standalone design system package (`@goodparty_org/styleguide`), built on **shadc
 
 ```tsx
 // Import components
-import { Button, Card, Input } from "@/styleguide";
+import { Button, Card, Input } from '@/styleguide'
 
 // Import utilities
-import { cn } from "@/styleguide/lib/utils";
+import { cn } from '@/styleguide/lib/utils'
 ```
 
 ---
@@ -132,10 +132,10 @@ We use **Tailwind CSS v4** with a pure CSS-first configuration — no `tailwind.
 
 ```css
 /* 1. Raw CSS variables that @theme will reference */
-@import "../styleguide/design-tokens.css";
+@import '../styleguide/design-tokens.css';
 
 /* 2. Core Tailwind — MUST come before @theme, @plugin, @source */
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* 3. Plugin (replaces plugins[] in tailwind.config.js) */
 @plugin "@tailwindcss/typography";
@@ -146,12 +146,12 @@ We use **Tailwind CSS v4** with a pure CSS-first configuration — no `tailwind.
 @source "../styleguide";
 
 /* 5. @theme block — MUST come AFTER @import "tailwindcss" */
-@import "../styleguide/tailwind-theme.css";
+@import '../styleguide/tailwind-theme.css';
 
 /* 6. Additional CSS */
-@import "../styleguide/typography.css";
-@import "../styleguide/styleguide-scope.css";
-@import "tw-animate-css";
+@import '../styleguide/typography.css';
+@import '../styleguide/styleguide-scope.css';
+@import 'tw-animate-css';
 ```
 
 **Why this order?**
@@ -313,7 +313,7 @@ export function MyPage() {
       {/* Styleguide - uses styleguide colors */}
       <Button variant="default">Styleguide</Button>
     </div>
-  );
+  )
 }
 ```
 
@@ -392,10 +392,10 @@ Update both light and dark sections when adding dark mode support.
 
 ```tsx
 // ❌ OLD
-import { Button } from "goodparty-styleguide";
+import { Button } from 'goodparty-styleguide'
 
 // ✅ NEW
-import { Button } from "@/styleguide";
+import { Button } from '@/styleguide'
 ```
 
 ---

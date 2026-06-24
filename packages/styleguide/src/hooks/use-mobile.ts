@@ -1,8 +1,8 @@
-"use client";
+'use client'
 
-import { useState, useEffect } from "react";
+import { useState, useEffect } from 'react'
 
-type Breakpoint = "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+type Breakpoint = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 
 /**
  * Tailwind v4 breakpoint values (matches @theme in tailwind-theme.css)
@@ -15,31 +15,34 @@ const BREAKPOINTS: Record<Breakpoint, number> = {
   md: 768,
   lg: 1024,
   xl: 1280,
-  "2xl": 1536,
-};
+  '2xl': 1536,
+}
 
 const getBreakpoint = (): Breakpoint => {
-  const width = window.innerWidth;
-  if (width >= BREAKPOINTS["2xl"]) return "2xl";
-  if (width >= BREAKPOINTS.xl) return "xl";
-  if (width >= BREAKPOINTS.lg) return "lg";
-  if (width >= BREAKPOINTS.md) return "md";
-  if (width >= BREAKPOINTS.sm) return "sm";
-  return "xs";
-};
+  const width = window.innerWidth
+  if (width >= BREAKPOINTS['2xl']) return '2xl'
+  if (width >= BREAKPOINTS.xl) return 'xl'
+  if (width >= BREAKPOINTS.lg) return 'lg'
+  if (width >= BREAKPOINTS.md) return 'md'
+  if (width >= BREAKPOINTS.sm) return 'sm'
+  return 'xs'
+}
 
 export const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(false);
+  // Default to true ("assume mobile") to match the prior useTailwindBreakpoints
+  // default of 'sm'; defaulting to desktop flashes the full sidebar before the
+  // mobile Sheet on the first client render.
+  const [isMobile, setIsMobile] = useState(true)
 
   useEffect(() => {
     const check = () => {
-      const bp = getBreakpoint();
-      setIsMobile(bp === "xs" || bp === "sm" || bp === "md");
-    };
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
+      const bp = getBreakpoint()
+      setIsMobile(bp === 'xs' || bp === 'sm' || bp === 'md')
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
-  return isMobile;
-};
+  return isMobile
+}
