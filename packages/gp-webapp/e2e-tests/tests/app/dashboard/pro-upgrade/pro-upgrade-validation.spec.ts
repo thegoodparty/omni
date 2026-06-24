@@ -164,7 +164,12 @@ test.describe('pro-upgrade front-end validation gates', () => {
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await expect(page.getByText('Filing Address')).toBeVisible()
+    // `exact` so this matches only the banner's field label, not the helper
+    // copy below the inputs ("Your filing address is required…"), which also
+    // contains the phrase (getByText is case-insensitive substring by default).
+    await expect(
+      page.getByText('Filing Address', { exact: true }),
+    ).toBeVisible()
     expect(new URL(page.url()).pathname).toBe(
       `${PRO_UPGRADE_PATH}/filing-details`,
     )
