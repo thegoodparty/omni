@@ -2,7 +2,7 @@
 
 # Trending Issues
 
-Given an elected official's district, produce a ranked list of up to 10 community issues that are actively trending in local news and public discourse right now. Draws exclusively from recent local news and web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's district, produce a ranked list of up to 10 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## BEFORE YOU START
 
@@ -17,7 +17,7 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 
 1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
 2. Call `GET_v1_community-issue-feed` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
-3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms to identify candidate trending topics.
+3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
 5. Select up to 10 issues with the strongest recent signal (recency + coverage breadth).
 6. Match each output issue against the existing feed: carry `existing_issue_id` when the issue maps to an existing record.
@@ -63,12 +63,13 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 
 **No social scraping**:
 
-- Draw from recent local news and government/official web sources only. Do NOT attempt to scrape social media platforms (Twitter/X, Facebook, NextDoor, Reddit, etc.) — those platforms block automated access and the signal is unreliable.
+- Draw from recent local news, government/official web sources, and the public web pages of community advocacy groups (association newsletters, BIA pages, neighborhood-council minutes — these are org/gov sites, not social platforms). Do NOT attempt to scrape social media platforms (Twitter/X, Facebook, NextDoor, Reddit, etc.) — those platforms block automated access and the signal is unreliable.
 
 **Source integrity**:
 
 - Every `source_id` referenced in `detail.overview.source_ids`, `detail.history.source_ids`, `detail.research.source_ids`, `detail.legislation.source_ids`, and `detail.quotes[].items[].source_id` MUST resolve to an entry in `detail.sources[]` with a matching `id`.
 - Deduplicate `detail.sources[]` by URL before assembling.
+- `source_type` is one of `news` (incl. letters/op-eds), `advocacy_org` (community associations, BIAs, neighborhood councils, coalitions), `government_website`, `poll`, or `research`. There is no `social_media` value — trending draws from news, official, and advocacy-group sources only.
 - `detail.overview` is always required — never omit it.
 
 **Output**:
@@ -99,13 +100,15 @@ Call `GET_v1_community-issue-feed` with `organization_slug=ORG_SLUG`. Record eve
 
 ### Step 3 — Broad news discovery
 
-Run 2-3 `WebSearch` queries:
+Run a handful of `WebSearch` queries:
 
 - `"<DISTRICT>" local issues news 2026`
 - `"<DISTRICT>" community concerns site:*.gov OR site:*.org 2026`
 - `"<DISTRICT>" <OFFICE> agenda 2026`
+- `"<DISTRICT>" neighborhood association OR community association OR BIA OR neighborhood council`
+- `"<DISTRICT>" letter to the editor OR op-ed 2026`
 
-Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 10.
+Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 10. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
 
 ### Step 4 — Verify and retrieve sources per candidate
 
@@ -171,7 +174,8 @@ After validation passes, verify:
 - **`detail.overview` is present on every issue.** It is always required.
 - **`list` is set to `"trending"`.** Not `"top_community"`.
 - **No fabricated news URLs.** Verify at least 3 issue URLs returned HTTP 200 via `head`.
-- **No social media sources in `detail.sources[]`.** `source_type` must not be `"social_media"` — trending draws from news and government sources only.
+- **No social media sources in `detail.sources[]`.** Sources are news, government/official, or `advocacy_org` (community-group web pages) only — never scraped social platforms.
+- **Advocacy-group framing is nonpartisan or flagged.** Any partisan group's claim is corroborated by an independent source before it becomes a trending issue.
 
 ## Failure modes
 
