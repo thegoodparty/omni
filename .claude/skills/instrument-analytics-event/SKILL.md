@@ -16,6 +16,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 ## Procedure
 
+**Before step 1 — is this a pure removal?** If the change only **removes** a frontend `trackEvent` call and adds no new event, skip steps 1–5 (they are addition-oriented and will conclude "nothing to instrument") and go straight to "When a change removes an event" to complete the RETIRE handoff, then to step 7 (Verify).
+
 1. **Decide whether to instrument.**
 
    The rule everything serves: **every event must answer a question you would put on a dashboard. If you cannot name the question, do not fire the event.** More events is not more insight; un-asked events are noise.

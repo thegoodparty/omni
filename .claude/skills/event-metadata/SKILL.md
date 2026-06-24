@@ -81,7 +81,9 @@ status source of truth.
 
 Ask which it is. If called by `instrument-analytics-event`, the payload's `mode`
 answers this (skip the question). A code signal pre-selects when standalone: a new
-literal → NEW; a removed literal → EXISTING (retire). Resolve the PR number once up
+literal → NEW; a removed literal → EXISTING (retire); **both in the same diff → treat
+them as two independent operations (handle NEW first, then EXISTING/retire) — never
+merge them or infer a supersession from co-occurrence.** Resolve the PR number once up
 front.
 
 ### Mode: NEW (add)
@@ -169,8 +171,11 @@ The caller passes a payload; honor it instead of re-asking:
   `supersedes` **only** if the human explicitly named a predecessor (never inferred from
   a co-occurring removal). Skip Q1; prefill purpose and product tag (still confirm); ask
   net-new-vs-supersedes only if `supersedes` was not passed.
-- **RETIRE**: `mode=retire`, `event`, `reason`. Go straight to the EXISTING/retire
-  transition; stamp `not in use: <today> (<reason>, #PR)`.
+- **RETIRE**: `mode=retire`, `event`, `reason`. Fetch the event and parse any existing
+  `gp-meta` block; if there is no `supersession:` line yet, set one first (net-new
+  standalone → `original`; replaced by another event → `superseded by <event>`) so the
+  block is never left without explicit lineage. Then stamp
+  `not in use: <today> (<reason>, #PR)`, keeping the existing or newly set lineage.
 
 Adds and removes are routed independently — the caller never pairs a removal with an add.
 
