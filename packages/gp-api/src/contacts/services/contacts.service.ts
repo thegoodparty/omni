@@ -36,14 +36,16 @@ import {
   convertVoterFileFilterToFilters,
   type FilterObject,
 } from '../utils/voterFileFilter.utils'
+import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
 const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 
 // The default, unfiltered view. It (and the district stats) are visible to any
-// Win campaign with the flag on, pro or not, so a non-pro candidate sees the
-// aggregates and a blurred preview before being upsold. Search, custom/named
+// Win campaign with the flag on, pro or not. A non-pro candidate sees the real
+// district aggregates but a synthetic (fake) people preview — never real voter
+// PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
 
@@ -75,9 +77,10 @@ export class ContactsService {
   // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
   // are reachable when win-voter-data is on for the user — pro and non-pro
   // alike, so a non-pro candidate lands on the page and sees the district
-  // aggregates and a blurred preview. Pro is NOT gated here; it is enforced
-  // per-action instead (search and named/custom segments in findContacts,
-  // download in downloadContacts) so those surface the upgrade prompt. Ownership
+  // aggregates and a synthetic people preview. Pro is NOT gated here; it is
+  // enforced per-action instead (real people data on the base list, search and
+  // named/custom segments in findContacts, download in downloadContacts) so
+  // those surface the upgrade prompt. Ownership
   // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
   // consumer) call the service methods directly and are intentionally not gated.
   async assertContactsAccess(
@@ -176,9 +179,20 @@ export class ContactsService {
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
-    if (wantsProOnlyView && !(await this.isProAccess(organization))) {
+    const isPro = await this.isProAccess(organization)
+    if (wantsProOnlyView && !isPro) {
       throw new BadRequestException(
         'Search and segments are only available for pro campaigns',
+      )
+    }
+
+    // A non-pro requester (a Win candidate on the base-list upsell) must never
+    // receive real voter PII — see previewContacts.utils. Resolve the district
+    // first so an ineligible org still gets the VOTER_DATA_UNAVAILABLE state a
+    // pro org would, rather than a fake preview implying data exists.
+    if (!isPro) {
+      return this.withOrgDistrictResolution(organization, () =>
+        Promise.resolve(buildPreviewContacts(resultsPerPage)),
       )
     }
 
@@ -274,9 +288,10 @@ export class ContactsService {
     id: string,
     organization: Organization,
   ): Promise<PersonOutput> {
-    // Opening a person record is a pro action (the list shows non-pro a blurred
-    // preview and the modal fires on row-click). Gate it like search/segments
-    // so a direct call can't read full person detail without pro.
+    // Opening a person record is a pro action (the list shows non-pro a
+    // synthetic preview and the modal fires on row-click). Gate it like
+    // search/segments so a direct call can't read real person detail without
+    // pro.
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(
         'Viewing contact details is only available for pro campaigns',
