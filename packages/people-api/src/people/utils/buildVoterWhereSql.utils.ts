@@ -58,10 +58,13 @@ export const buildVoterWhereSql = (args: {
       // "Last First", and middle-name noise. `lower(col) LIKE lower(tok) || '%'`
       // is the form the Voter_firstname_lower_idx / Voter_lastname_lower_idx
       // functional indexes can serve; ILIKE would seq-scan the 200M-row table.
+      // LIKE metacharacters in the user token are escaped so a `_`/`%` can't
+      // widen the match or turn the anchored prefix into a non-prefix pattern
+      // that seq-scans the 200M-row table.
       for (const token of tokens) {
-        const prefix = token.toLowerCase() + '%'
+        const prefix = token.toLowerCase().replace(/[%_\\]/g, '\\$&') + '%'
         parts.push(
-          Prisma.sql`(lower(v."FirstName") LIKE ${prefix} OR lower(v."LastName") LIKE ${prefix})`,
+          Prisma.sql`(lower(v."FirstName") LIKE ${prefix} ESCAPE '\\' OR lower(v."LastName") LIKE ${prefix} ESCAPE '\\')`,
         )
       }
     }

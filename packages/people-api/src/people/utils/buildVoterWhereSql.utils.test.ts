@@ -17,9 +17,22 @@ describe('buildVoterWhereSql name search', () => {
 
     expect(sql).toContain('lower(v."FirstName") LIKE')
     expect(sql).toContain('lower(v."LastName") LIKE')
+    expect(sql).toContain(" ESCAPE '\\'")
     expect(sql).toContain(' OR ')
     expect(values).toContain('jane%')
     expect(values).not.toContain('jane')
+  })
+
+  it('escapes LIKE metacharacters in the token so they cannot widen the match or defeat the prefix index', () => {
+    const underscore = build('o_brien')
+    // `_` is escaped to a literal, keeping the pattern an anchored prefix.
+    expect(underscore.values).toContain('o\\_brien%')
+    expect(underscore.values).not.toContain('o_brien%')
+    expect(underscore.sql).toContain(" ESCAPE '\\'")
+
+    const percent = build('50%off')
+    expect(percent.values).toContain('50\\%off%')
+    expect(percent.values).not.toContain('50%off%')
   })
 
   it('lowercases the token so an uppercase query still matches via the lower() index', () => {
@@ -34,7 +47,7 @@ describe('buildVoterWhereSql name search', () => {
 
     // Each token becomes its own (FirstName OR LastName) prefix group.
     const orGroups = sql.match(
-      /lower\(v\."FirstName"\) LIKE \? OR lower\(v\."LastName"\) LIKE \?/g,
+      /lower\(v\."FirstName"\) LIKE \? ESCAPE '\\' OR lower\(v\."LastName"\) LIKE \? ESCAPE '\\'/g,
     )
     expect(orGroups).toHaveLength(2)
 
@@ -51,7 +64,7 @@ describe('buildVoterWhereSql name search', () => {
     const { sql, values } = build('mary jane watson')
 
     const orGroups = sql.match(
-      /lower\(v\."FirstName"\) LIKE \? OR lower\(v\."LastName"\) LIKE \?/g,
+      /lower\(v\."FirstName"\) LIKE \? ESCAPE '\\' OR lower\(v\."LastName"\) LIKE \? ESCAPE '\\'/g,
     )
     expect(orGroups).toHaveLength(3)
     expect(values).toEqual(
