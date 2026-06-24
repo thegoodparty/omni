@@ -123,17 +123,44 @@ async function completeOfficeStep(page: Page): Promise<void> {
   await clickContinue(page)
 }
 
+/**
+ * Pick a date in one term-date popover. The fields are popover date pickers (a
+ * labelled trigger button — stable id `term-start-date` / `term-end-date` — that
+ * opens a brand calendar with native month/year dropdowns), not free-text
+ * inputs. Drive it the way a user would: open the popover, navigate via the
+ * dropdowns (selected by option value so it's locale-independent), then click
+ * the day cell (the gridcell carries the ISO `data-day`).
+ */
+async function pickTermDate(
+  page: Page,
+  triggerId: string,
+  isoDate: string,
+): Promise<void> {
+  const [year, month] = isoDate.split('-')
+  await page.locator(`#${triggerId}`).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  // The month/year dropdowns each re-render the calendar; Playwright locators
+  // re-resolve per action, so just drive them in order: year (value = year),
+  // then month (value = 0-based index).
+  await dialog.getByRole('combobox').nth(1).selectOption(year!)
+  await dialog
+    .getByRole('combobox')
+    .nth(0)
+    .selectOption(String(Number(month) - 1))
+  await dialog.locator(`td[data-day="${isoDate}"] button`).click()
+  // The popover closes once a day is picked.
+  await expect(dialog).toBeHidden()
+}
+
 async function completeTermDatesStep(page: Page): Promise<void> {
   console.log('Serve step: term dates')
   await expect(
     page.getByRole('heading', { level: 1, name: /when does your term run/i }),
   ).toBeVisible()
 
-  // Two DateInputCalendar text inputs (start, end); both share the
-  // `mm/dd/yyyy` placeholder. Typed MM/dd/yyyy is parsed on change.
-  const dateInputs = page.getByPlaceholder('mm/dd/yyyy')
-  await dateInputs.first().fill('01/01/2023')
-  await dateInputs.nth(1).fill('01/01/2027')
+  await pickTermDate(page, 'term-start-date', '2023-01-01')
+  await pickTermDate(page, 'term-end-date', '2027-01-01')
 
   await clickContinue(page)
 }
