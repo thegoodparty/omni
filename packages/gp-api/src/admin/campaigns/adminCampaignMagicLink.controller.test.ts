@@ -75,8 +75,8 @@ describe('AdminCampaignMagicLinkController.createMagicLink', () => {
     // them into the serve flow instead.
     expect(ctx.analytics.track).toHaveBeenCalledWith(
       1,
-      'Win Onboarding - Magic Link Sent',
-      expect.objectContaining({ email: 'candidate@example.com' }),
+      'Onboarding - Magic Link Sent',
+      expect.objectContaining({ email: 'candidate@example.com', type: 'win' }),
     )
   })
 })

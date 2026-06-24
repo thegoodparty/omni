@@ -85,7 +85,7 @@ test.describe('pro-upgrade front-end validation gates', () => {
     )
   })
 
-  test('filing-details gate requires both email and phone; address optional', async ({
+  test('filing-details gate requires email, phone, and a filing address', async ({
     page,
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
@@ -101,9 +101,8 @@ test.describe('pro-upgrade front-end validation gates', () => {
     })
 
     // Fill committee name + a valid filing link + email, but leave phone blank.
-    // Peerly requires both email and phone, so the front end requires both
-    // (86aj5bqvw); submit must be blocked and the summary must name Filing
-    // Phone. The address is optional, so it must never block.
+    // Email + phone are both required (Peerly delivers the PIN to one of them),
+    // so submit must be blocked and the summary must name Filing Phone.
     await page.getByLabel('Campaign committee name').fill('Jane for Council')
     await page
       .getByLabel('Campaign filing link')
@@ -120,18 +119,28 @@ test.describe('pro-upgrade front-end validation gates', () => {
       `${PRO_UPGRADE_PATH}/filing-details`,
     )
 
-    // Fill a valid US phone. With committee + filing link + email + phone (and
-    // no address), Continue advances to candidate-profile.
+    // Fill the phone but leave the address blank. The filing address is now
+    // required (the agentic Peerly submission resolves the postal address from
+    // it), so submit must still be blocked and the summary must name Filing
+    // Address.
     await page.getByPlaceholder('(555) 555-5555').fill('4155551234')
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await page.waitForURL(`**${PRO_UPGRADE_PATH}/candidate-profile`, {
-      timeout: 30_000,
-    })
+    // `exact` so this matches only the banner's field label, not the helper
+    // copy below the inputs ("Your filing address is required…"), which also
+    // contains the phrase (getByText is case-insensitive substring by default).
+    await expect(
+      page.getByText('Filing Address', { exact: true }),
+    ).toBeVisible()
     expect(new URL(page.url()).pathname).toBe(
-      `${PRO_UPGRADE_PATH}/candidate-profile`,
+      `${PRO_UPGRADE_PATH}/filing-details`,
     )
+    // This test proves the gate *blocks* (its stated purpose). The happy-path
+    // advance is intentionally not asserted here: it would require a live
+    // createAgentic submit plus a Google Places selection, and advance-on-valid
+    // is already covered by the EIN step (advances to filing-details) and the
+    // bio step (advances to payment) in this same file.
   })
 
   test('bio gate blocks a <500-char bio and a >=500-char bio advances', async ({

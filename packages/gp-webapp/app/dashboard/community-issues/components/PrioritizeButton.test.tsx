@@ -30,34 +30,21 @@ beforeEach(() => {
 })
 
 describe('<PrioritizeButton>', () => {
-  it('renders "Added to priorities" immediately when already prioritized without calling the API', () => {
-    render(<PrioritizeButton issueId="issue-1" initialPrioritized={true} />)
-
-    expect(screen.getByText('Added to priorities')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /add to my priorities/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('calls the API on click then renders "Added to priorities"', async () => {
+  it('calls the API on click then fires onPrioritized', async () => {
     api.mock('POST /v1/community-issues/:id/prioritize', {
       status: 200,
       data: mockPriority,
     })
     const user = userEvent.setup()
+    const onPrioritized = vi.fn()
 
-    render(<PrioritizeButton issueId="issue-1" initialPrioritized={false} />)
+    render(<PrioritizeButton issueId="issue-1" onPrioritized={onPrioritized} />)
 
     await user.click(
       screen.getByRole('button', { name: /add to my priorities/i }),
     )
 
-    await waitFor(() =>
-      expect(screen.getByText('Added to priorities')).toBeInTheDocument(),
-    )
-    expect(
-      screen.queryByRole('button', { name: /add to my priorities/i }),
-    ).not.toBeInTheDocument()
+    await waitFor(() => expect(onPrioritized).toHaveBeenCalledTimes(1))
   })
 
   it('fires PrioritizeClicked event on click', async () => {
@@ -68,7 +55,7 @@ describe('<PrioritizeButton>', () => {
     const user = userEvent.setup()
     const { trackEvent } = await import('helpers/analyticsHelper')
 
-    render(<PrioritizeButton issueId="issue-1" initialPrioritized={false} />)
+    render(<PrioritizeButton issueId="issue-1" onPrioritized={vi.fn()} />)
 
     await user.click(
       screen.getByRole('button', { name: /add to my priorities/i }),
@@ -77,6 +64,24 @@ describe('<PrioritizeButton>', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.CommunityIssues.PrioritizeClicked,
       { issueId: 'issue-1' },
+    )
+  })
+
+  it('shows an error message when the request fails', async () => {
+    api.mock('POST /v1/community-issues/:id/prioritize', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    const user = userEvent.setup()
+
+    render(<PrioritizeButton issueId="issue-1" onPrioritized={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add to my priorities/i }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
     )
   })
 })

@@ -12,8 +12,8 @@
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["app/shared/*"],
-      "@styleguide": ["styleguide"],
-      "@styleguide/*": ["styleguide/*"]
+      "@styleguide": ["../styleguide/src"],
+      "@styleguide/*": ["../styleguide/src/*"]
     },
     "jsx": "react-jsx",
     "allowJs": true,
@@ -47,5 +47,5 @@
     "types/**/*.d.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", "e2e-tests", "styleguide/stories"]
+  "exclude": ["node_modules", ".next", "e2e-tests"]
 }
