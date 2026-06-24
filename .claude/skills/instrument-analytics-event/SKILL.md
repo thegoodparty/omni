@@ -132,6 +132,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 6. **Record the event's metadata (frontend/client events).**
 
+   **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff, then go to step 7.
+
    A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
 
    - `mode=add`,
