@@ -165,7 +165,22 @@ describe('getFlagVariants', () => {
     })
   })
 
-  it('does not let an override bypass the anonymous (no token) gate', async () => {
+  it('honors the override without a server token (preview test user)', async () => {
+    // Preview e2e users authenticate via a cookie the Clerk server session
+    // can't read, so getServerToken returns nothing for them. The override must
+    // still apply — otherwise the no-token early return would drop it.
+    mockGetServerToken.mockResolvedValue(undefined)
+    setOverrideCookie(JSON.stringify({ 'serve-access': { value: 'on' } }))
+
+    expect(await getFlagVariants()).toEqual({
+      'serve-access': { value: 'on' },
+    })
+    expect(mockServerRequest).not.toHaveBeenCalled()
+  })
+
+  it('returns null with no token when overrides are not enabled for the env', async () => {
+    envFlags.IS_PREVIEW = false
+    envFlags.IS_LOCAL = false
     mockGetServerToken.mockResolvedValue(undefined)
     setOverrideCookie(JSON.stringify({ 'serve-access': { value: 'on' } }))
 
