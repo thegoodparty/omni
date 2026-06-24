@@ -262,6 +262,15 @@ export const redeemServeTicket = async (
   welcomeUrl: string,
 ): Promise<void> => {
   await setupClerkTestingToken({ page })
+  // The cookie-consent snackbar (`app/shared/layouts/CookiesSnackbar.tsx`)
+  // renders `fixed bottom-4 … w-full` on every page and overlays the onboarding
+  // footer, intercepting the welcome step's Continue click. Pre-seed the
+  // accepted cookie so the banner never mounts (it reads `cookiesAccepted` from
+  // document.cookie once on mount) — more robust than racing a dismiss click
+  // after each navigation.
+  await page
+    .context()
+    .addCookies([{ name: 'cookiesAccepted', value: 'true', url: baseURL }])
   await page.goto(welcomeUrl)
   await page
     .getByRole('button', { name: /continue to goodparty/i })
