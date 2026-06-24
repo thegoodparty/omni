@@ -35,6 +35,43 @@ type CampaignEinState = {
   }
 }
 
+// Drive the Google Places AddressAutocomplete without the CI-unreliable widget:
+// find the address input, walk its React fiber to the `onSelect` prop, and call
+// it with a fixed place. Mirrors the website.spec.ts pattern.
+const selectFilingAddress = async (page: Page) => {
+  await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="Address"]')
+    if (!input) throw new Error('Filing address input not found')
+    const fiberKey = Object.keys(input).find((key) =>
+      key.startsWith('__reactFiber$'),
+    )
+    if (!fiberKey) {
+      throw new Error('React fiber key not found for address input')
+    }
+    let fiber: unknown = (input as unknown as Record<string, unknown>)[fiberKey]
+    while (fiber) {
+      const props = (fiber as { memoizedProps?: Record<string, unknown> })
+        .memoizedProps
+      const onSelect =
+        props && typeof props.onSelect === 'function'
+          ? (props.onSelect as (place: {
+              formatted_address: string
+              place_id: string
+            }) => void)
+          : null
+      if (onSelect) {
+        onSelect({
+          formatted_address: '525 Montano Dr, San Luis, AZ 85349',
+          place_id: 'ChIJYTIMy9dP1oAR_sLgDF5Xg04',
+        })
+        return
+      }
+      fiber = (fiber as { return?: unknown }).return
+    }
+    throw new Error('onSelect handler not found on address autocomplete')
+  })
+}
+
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
@@ -85,7 +122,7 @@ test.describe('pro-upgrade front-end validation gates', () => {
     )
   })
 
-  test('filing-details gate requires both email and phone; address optional', async ({
+  test('filing-details gate requires email, phone, and a filing address', async ({
     page,
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
@@ -101,9 +138,8 @@ test.describe('pro-upgrade front-end validation gates', () => {
     })
 
     // Fill committee name + a valid filing link + email, but leave phone blank.
-    // Peerly requires both email and phone, so the front end requires both
-    // (86aj5bqvw); submit must be blocked and the summary must name Filing
-    // Phone. The address is optional, so it must never block.
+    // Email + phone are both required (Peerly delivers the PIN to one of them),
+    // so submit must be blocked and the summary must name Filing Phone.
     await page.getByLabel('Campaign committee name').fill('Jane for Council')
     await page
       .getByLabel('Campaign filing link')
@@ -120,9 +156,23 @@ test.describe('pro-upgrade front-end validation gates', () => {
       `${PRO_UPGRADE_PATH}/filing-details`,
     )
 
-    // Fill a valid US phone. With committee + filing link + email + phone (and
-    // no address), Continue advances to candidate-profile.
+    // Fill the phone but leave the address blank. The filing address is now
+    // required (the agentic Peerly submission resolves the postal address from
+    // it), so submit must still be blocked and the summary must name Filing
+    // Address.
     await page.getByPlaceholder('(555) 555-5555').fill('4155551234')
+
+    await page.getByRole('button', { name: 'Continue' }).click()
+
+    await expect(page.getByText('Filing Address')).toBeVisible()
+    expect(new URL(page.url()).pathname).toBe(
+      `${PRO_UPGRADE_PATH}/filing-details`,
+    )
+
+    // Select a real address by invoking the autocomplete's onSelect directly
+    // (the Google Places widget is unreliable in CI; the fiber walk mirrors
+    // website.spec.ts). With every required field set, Continue advances.
+    await selectFilingAddress(page)
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
