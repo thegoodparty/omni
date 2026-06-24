@@ -42,9 +42,17 @@ export class S2SAuthGuard implements CanActivate {
       }
 
       try {
-        const payload = jwt.verify(token, secret)
-        // Optionally, enforce issuer/audience if we later standardize
-        // e.g., (payload as any).iss === 'gp-api'
+        // Pin the algorithm (a string secret already restricts jsonwebtoken to
+        // HMAC, but pin it explicitly), bind issuer/audience to the gp-api↔
+        // people-api pair, and enforce a bounded lifetime via maxAge so a token
+        // minted without (or with a far-future) exp can't be replayed
+        // indefinitely — jsonwebtoken only checks exp when present (CWE-613).
+        const payload = jwt.verify(token, secret, {
+          algorithms: ['HS256'],
+          issuer: 'gp-api',
+          audience: 'people-api',
+          maxAge: '5m',
+        })
         request.s2s = payload
         return true
       } catch (err) {

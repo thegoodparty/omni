@@ -23,6 +23,14 @@ const TOP_CRON_JOB = 'top_community_issues'
 
 type DispatchSummary = { dispatched: number; skipped: number }
 
+type ResolvedDispatchContext = {
+  clerkUserId: string
+  state: string
+  positionName: string
+  districtDescriptor: string
+  isServeIcp?: boolean | null
+}
+
 @Injectable()
 export class CommunityIssueDispatchService extends createPrismaBase(
   MODELS.ExperimentRun,
@@ -39,8 +47,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * Called when a new elected office is created. Dispatches one run of each
    * community-issue experiment type for the org. A FAILED-only prior run is
    * not blocking: the first attempt did not succeed and nothing else
-   * re-dispatches it (crons are flagged off at launch; sweepStaleRuns only
-   * marks stale runs FAILED). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
+   * re-dispatches it (crons are flagged off at launch; a dead run is only
+   * marked FAILED by the gp-ai-projects ECS task-reaper, which does not
+   * re-dispatch). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
    * COMPLETED to avoid spawning a duplicate live run.
    */
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {
@@ -125,45 +134,90 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       }
 
       for (const experimentType of EXPERIMENT_TYPES) {
-        const inFlight = await this.client.experimentRun.findFirst({
-          where: {
-            organizationSlug: orgSlug,
-            experimentType,
-            status: {
-              in: [
-                ExperimentRunStatus.QUEUED,
-                ExperimentRunStatus.RUNNING,
-                ExperimentRunStatus.AWAITING_RESUME,
-              ],
-            },
-          },
-          select: { runId: true },
-        })
-        if (inFlight) {
-          this.logger.info(
-            { orgSlug, experimentType, runId: inFlight.runId },
-            'dispatchForCohort: skipping org with in-flight run',
-          )
+        const didDispatch = await this.dispatchTypeForOrg(
+          orgSlug,
+          experimentType,
+          ctx,
+        )
+        if (didDispatch) {
+          dispatched++
+        } else {
           skipped++
-          continue
         }
-
-        await this.experimentRuns.dispatchRun({
-          type: experimentType,
-          organizationSlug: orgSlug,
-          clerkUserId: ctx.clerkUserId,
-          params: {
-            organization_slug: orgSlug,
-            state: ctx.state,
-            office: ctx.positionName,
-            district_descriptor: ctx.districtDescriptor,
-          },
-        })
-        dispatched++
       }
     }
 
     return { dispatched, skipped }
+  }
+
+  /**
+   * Staff self-serve path: dispatch a single experiment type for the staff
+   * user's own org. Applies the same serve-ICP gate and in-flight check as
+   * the admin cohort path. Returns the same summary shape so the caller can
+   * tell whether the run actually fired or was skipped (gated / in-flight).
+   */
+  async dispatchSelfServe(
+    orgSlug: string,
+    experimentType: CommunityIssueExperimentType,
+  ): Promise<DispatchSummary> {
+    const ctx = await this.resolveContext(orgSlug)
+    if (!ctx || ctx.isServeIcp !== true) {
+      this.logger.info(
+        { orgSlug, isServeIcp: ctx?.isServeIcp ?? null },
+        'dispatchSelfServe: skipping org not serve-ICP',
+      )
+      return { dispatched: 0, skipped: 1 }
+    }
+
+    const didDispatch = await this.dispatchTypeForOrg(
+      orgSlug,
+      experimentType,
+      ctx,
+    )
+    return didDispatch
+      ? { dispatched: 1, skipped: 0 }
+      : { dispatched: 0, skipped: 1 }
+  }
+
+  private async dispatchTypeForOrg(
+    orgSlug: string,
+    experimentType: CommunityIssueExperimentType,
+    ctx: ResolvedDispatchContext,
+  ): Promise<boolean> {
+    const inFlight = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: orgSlug,
+        experimentType,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      select: { runId: true },
+    })
+    if (inFlight) {
+      this.logger.info(
+        { orgSlug, experimentType, runId: inFlight.runId },
+        'dispatchTypeForOrg: skipping org with in-flight run',
+      )
+      return false
+    }
+
+    await this.experimentRuns.dispatchRun({
+      type: experimentType,
+      organizationSlug: orgSlug,
+      clerkUserId: ctx.clerkUserId,
+      params: {
+        organization_slug: orgSlug,
+        state: ctx.state,
+        office: ctx.positionName,
+        district_descriptor: ctx.districtDescriptor,
+      },
+    })
+    return true
   }
 
   /**
@@ -289,13 +343,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     }
   }
 
-  private async resolveContext(organizationSlug: string): Promise<{
-    clerkUserId: string
-    state: string
-    positionName: string
-    districtDescriptor: string
-    isServeIcp?: boolean | null
-  } | null> {
+  private async resolveContext(
+    organizationSlug: string,
+  ): Promise<ResolvedDispatchContext | null> {
     const [eo, organization] = await Promise.all([
       this.client.electedOffice.findFirst({
         where: { organizationSlug },

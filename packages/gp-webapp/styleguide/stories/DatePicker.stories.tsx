@@ -123,6 +123,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Single: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const [date, setDate] = useState<Date | undefined>()
@@ -160,6 +161,7 @@ export const Single: Story = {
 }
 
 export const Range: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const [range, setRange] = useState<

@@ -41,6 +41,12 @@ const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
 const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 
+// The default, unfiltered view. It (and the district stats) are visible to any
+// Win campaign with the flag on, pro or not, so a non-pro candidate sees the
+// aggregates and a blurred preview before being upsold. Search, custom/named
+// segments, and download stay pro-only.
+const ALL_CONTACTS_SEGMENT = 'all'
+
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
 }
@@ -67,10 +73,13 @@ export class ContactsService {
 
   // Authz gate for the user-facing Contacts surface. Elected-office (Serve)
   // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
-  // are reachable only when win-voter-data is on for the user AND the campaign
-  // is pro. Ownership is enforced upstream by @UseOrganization(). Internal
-  // callers (polls, queue consumer) call the service methods directly and are
-  // intentionally not gated here.
+  // are reachable when win-voter-data is on for the user — pro and non-pro
+  // alike, so a non-pro candidate lands on the page and sees the district
+  // aggregates and a blurred preview. Pro is NOT gated here; it is enforced
+  // per-action instead (search and named/custom segments in findContacts,
+  // download in downloadContacts) so those surface the upgrade prompt. Ownership
+  // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
+  // consumer) call the service methods directly and are intentionally not gated.
   async assertContactsAccess(
     organization: Organization,
     user: User,
@@ -83,10 +92,6 @@ export class ContactsService {
     })
     if (!flagEnabled) {
       throw new ForbiddenException('Voter data access is not enabled')
-    }
-
-    if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException('Campaign is not pro')
     }
   }
 
@@ -169,9 +174,11 @@ export class ContactsService {
     { resultsPerPage, page, search, segment }: ListContactsDTO,
     organization: Organization,
   ) {
-    if (search && !(await this.isProAccess(organization))) {
+    const wantsProOnlyView =
+      !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
+    if (wantsProOnlyView && !(await this.isProAccess(organization))) {
       throw new BadRequestException(
-        'Search is only available for pro campaigns',
+        'Search and segments are only available for pro campaigns',
       )
     }
 
@@ -267,6 +274,15 @@ export class ContactsService {
     id: string,
     organization: Organization,
   ): Promise<PersonOutput> {
+    // Opening a person record is a pro action (the list shows non-pro a blurred
+    // preview and the modal fires on row-click). Gate it like search/segments
+    // so a direct call can't read full person detail without pro.
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Viewing contact details is only available for pro campaigns',
+      )
+    }
+
     const fetchPerson = async (districtParams: { districtId: string }) => {
       try {
         const response = await lastValueFrom(
@@ -494,6 +510,8 @@ export class ContactsService {
 
     const payload = {
       iss: 'gp-api',
+      // Bind the token to people-api so the verifier can require this audience.
+      aud: 'people-api',
       iat: now,
       exp: now + 300,
     }
@@ -507,7 +525,7 @@ export class ContactsService {
     segment: string | undefined,
     organization: Organization,
   ): Promise<FilterObject> {
-    const resolvedSegment = segment || 'all'
+    const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return builtInFilters
 

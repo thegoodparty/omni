@@ -66,6 +66,7 @@ export {
   Upload as UploadIcon,
   User as UserIcon,
   UserCog as UserCogIcon,
+  UserRound as UserRoundIcon,
   UsersRound as UsersRoundIcon,
   Volume2 as Volume2Icon,
   X as XMarkIcon,
@@ -90,4 +91,5 @@ export {
   BookOpen as BookOpenIcon,
   WandSparkles as WandSparklesIcon,
   ListChecks as ListChecksIcon,
+  RotateCw as RefreshIcon,
 } from 'lucide-react'

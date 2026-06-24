@@ -1,7 +1,9 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import {
   CommunityIssueCategory,
   CommunityIssueList,
@@ -440,6 +442,89 @@ describe('POST /v1/community-issues/:id/prioritize — archived', () => {
     )
     expect(second.status).toBe(HttpStatus.CREATED)
     expect(second.data.id).toBe(res.data.id)
+  })
+})
+
+describe('POST /v1/community-issues/self-dispatch', () => {
+  const mockServeContext = (isServeIcp: boolean) =>
+    vi
+      .spyOn(service.app.get(OrganizationsService), 'resolveServeContext')
+      .mockResolvedValue({
+        state: 'TX',
+        positionName: 'City Council',
+        isServeIcp,
+      })
+
+  const mockDispatchRun = () =>
+    vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+  it('dispatches a single run for a serve-ICP org owned by a goodparty user', async () => {
+    const serveSpy = mockServeContext(true)
+    const dispatchSpy = mockDispatchRun()
+
+    const res = await service.client.post<{
+      dispatched: number
+      skipped: number
+    }>(`${BASE}/self-dispatch`, { type: 'top_community_issues' }, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.dispatched).toBe(1)
+    expect(res.data.skipped).toBe(0)
+
+    const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+    expect(types).toEqual(['top_community_issues'])
+
+    serveSpy.mockRestore()
+    dispatchSpy.mockRestore()
+  })
+
+  it('returns 403 when the caller email is not @goodparty.org', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'candidate@example.com' },
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    const res = await service.client.post(
+      `${BASE}/self-dispatch`,
+      { type: 'top_community_issues' },
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(dispatchSpy).not.toHaveBeenCalled()
+
+    dispatchSpy.mockRestore()
+  })
+
+  it('returns 404 when the caller has no elected office for the org', async () => {
+    const res = await service.client.post(
+      `${BASE}/self-dispatch`,
+      { type: 'trending_issues' },
+      { headers: { 'x-organization-slug': `no-eo-${uuidv7()}` } },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('skips (does not dispatch) when the org is not serve-ICP', async () => {
+    const serveSpy = mockServeContext(false)
+    const dispatchSpy = mockDispatchRun()
+
+    const res = await service.client.post<{
+      dispatched: number
+      skipped: number
+    }>(`${BASE}/self-dispatch`, { type: 'trending_issues' }, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.dispatched).toBe(0)
+    expect(res.data.skipped).toBe(1)
+    expect(dispatchSpy).not.toHaveBeenCalled()
+
+    serveSpy.mockRestore()
+    dispatchSpy.mockRestore()
   })
 })
 

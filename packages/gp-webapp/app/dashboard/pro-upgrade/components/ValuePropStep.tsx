@@ -132,7 +132,7 @@ const ValuePropStep = (): React.JSX.Element => {
                 align="start"
                 sideOffset={8}
                 showArrow={false}
-                className="flex w-[428px] max-w-[calc(100vw-2rem)] items-start gap-4 rounded-xl bg-white p-4 text-left text-components-card-foreground shadow-md"
+                className="flex w-[428px] max-w-[calc(100vw-2rem)] items-start gap-4 rounded-xl bg-card p-4 text-left text-card-foreground shadow-md"
               >
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-bright-yellow-200">
                   <Icon className="h-6 w-6" />

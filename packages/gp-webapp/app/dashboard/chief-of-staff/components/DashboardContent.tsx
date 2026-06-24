@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { useUser } from '@shared/hooks/useUser'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffArchiveHref } from '../routes'
-import SupportHero from './SupportHero'
 import OnboardingCards from './OnboardingCards'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
@@ -47,8 +46,13 @@ export default function DashboardContent(): React.JSX.Element {
   return (
     <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
       <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 p-4 pb-40 lg:p-6 lg:pb-40">
-        <SupportHero />
-
+        {/*
+         * Support-estimate hero hidden for now: the underlying number is only
+         * available for ~half of offices, so showing it (or an empty state) is
+         * misleading. The SupportHero component + useSupportEstimate hook are
+         * intentionally left in place — re-render this once data coverage is
+         * broad enough.
+         */}
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-foreground">

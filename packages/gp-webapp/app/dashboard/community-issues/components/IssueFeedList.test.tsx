@@ -6,6 +6,18 @@ import IssueFeedList from './IssueFeedList'
 
 vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
 
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [null, vi.fn(), false],
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 const makeCard = (
   overrides: Partial<CommunityIssueCard> = {},
 ): CommunityIssueCard => ({

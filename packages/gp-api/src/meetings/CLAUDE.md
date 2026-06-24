@@ -146,7 +146,7 @@ Built per request in `buildToolsForUser()`. Availability depends on env vars and
 | Tool                   | Provider                    | Available when                                                                                                                                                                                  |
 | ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_artifacts`        | `BriefingArtifactsProvider` | Always.                                                                                                                                                                                         |
-| `web_search`           | `TavilySearchProvider`      | `TAVILY_API_KEY` is set.                                                                                                                                                                        |
+| `web_search`           | Anthropic native (`webSearch_20250305`) | `ANTHROPIC_API_KEY` is set (chat is Claude-only). Runs inside the enterprise Anthropic agreement — no third-party search provider. |
 | `district_insights`    | `DatabricksSqlProvider`     | Databricks env vars are set **and** `DistrictResolverService.resolveByUserId()` returns a district. Locked to the `int__l2_nationwide_uniform_w_haystaq` table with mandatory district filters. |
 | `list_district_topics` | Static                      | Same condition as `district_insights`.                                                                                                                                                          |
 | `get_my_notes`         | `LazyNotesProvider`         | Only when `BriefingNotesService.countNotesForUser()` > 0. The count check is up-front; the actual notes load is deferred to first tool call.                                                    |
@@ -178,10 +178,11 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 
 ## Cron jobs
 
-| Cron                         | Service / method                                 | Schedule        |
-| ---------------------------- | ------------------------------------------------ | --------------- |
-| Daily briefing dispatch      | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
-| Stale experiment-run sweeper | `ExperimentRunsService.sweepStaleRuns`           | `*/15 * * * *`  |
+| Cron                    | Service / method                                 | Schedule        |
+| ----------------------- | ------------------------------------------------ | --------------- |
+| Daily briefing dispatch | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
+
+There is no time-based stale-run sweeper: a `RUNNING` experiment_run whose Fargate task dies is reconciled to `FAILED` by the gp-ai-projects ECS task-reaper (a `failed` callback keyed on `startedBy=run_id`), not by a gp-api cron.
 
 In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
 

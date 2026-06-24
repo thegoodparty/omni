@@ -25,6 +25,12 @@ const preview: Preview = {
       const isDark = context.globals['colorScheme'] === 'dark'
       if (typeof document !== 'undefined') {
         document.documentElement.classList.toggle('sb-dark', isDark)
+        // Radix portals (dropdown, select, popover, tooltip) mount to
+        // document.body — outside the story wrapper below — so the wrapper's
+        // `.dark` class never reaches them and the scoped dark-mode tokens
+        // (`.dark [data-slot]…`) don't apply. Toggling `.dark` on body too lets
+        // portaled content pick up dark mode like the rest of the story.
+        document.body.classList.toggle('dark', isDark)
       }
       return React.createElement(
         'div',
@@ -45,6 +51,7 @@ const preview: Preview = {
     layout: 'fullscreen',
     options: {
       storySort: {
+        method: 'alphabetical',
         order: [
           'Foundations',
           [

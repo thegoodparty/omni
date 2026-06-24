@@ -6,7 +6,7 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import { z } from 'zod'
-import type { LlmStreamTool } from '@/llm/services/llm.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import { buildDistrictInsightsTool } from '@/llm/tools/districtInsights.tool'
 import { buildDistrictTopicsTool } from '@/llm/tools/districtTopics.tool'
 import {
@@ -20,7 +20,6 @@ import {
   buildGetArtifactsTool,
 } from '@/llm/tools/getArtifacts.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { buildWebSearchTool, SearchProvider } from '@/llm/tools/webSearch.tool'
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
 import { BriefingArtifactsProvider } from './briefingArtifactsProvider'
 import { BriefingContextService } from './briefingContext.service'
@@ -68,7 +67,6 @@ class LazyNotesProvider implements NotesProvider {
   }
 }
 
-export const BRIEFING_CHATS_SEARCH_PROVIDER = 'BRIEFING_CHATS_SEARCH_PROVIDER'
 export const BRIEFING_CHATS_DATABRICKS_PROVIDER =
   'BRIEFING_CHATS_DATABRICKS_PROVIDER'
 
@@ -109,9 +107,6 @@ export class BriefingChatsService {
     private readonly chatStore: ChatStoreService,
     private readonly chatStream: ChatStreamService,
     private readonly notesService: BriefingNotesService,
-    @Optional()
-    @Inject(BRIEFING_CHATS_SEARCH_PROVIDER)
-    private readonly searchProvider?: SearchProvider,
     @Optional()
     @Inject(BRIEFING_CHATS_DATABRICKS_PROVIDER)
     private readonly databricks?: DatabricksProvider,
@@ -218,17 +213,20 @@ export class BriefingChatsService {
     artifactContent: string
     parsed: ParsedBriefing | null
   }): Promise<{
-    tools: Record<string, LlmStreamTool<z.ZodTypeAny>>
+    tools: Record<string, LlmTool>
     availableToolNames: string[]
     notesCount: number
   }> {
     const { userId, briefingId, artifactContent, parsed } = args
-    const tools: Record<string, LlmStreamTool<z.ZodTypeAny>> = {}
+    const tools: Record<string, LlmTool> = {}
     const artifactsProvider = new BriefingArtifactsProvider(parsed, briefingId)
     tools.get_artifacts = buildGetArtifactsTool({ provider: artifactsProvider })
 
-    if (this.searchProvider) {
-      tools.web_search = buildWebSearchTool({ provider: this.searchProvider })
+    // Web search via Anthropic's native tool (briefing chat is Claude-only), so
+    // queries stay within the enterprise agreement. Gated on the key here too
+    // so the system prompt never advertises a tool that wasn't registered.
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
     }
 
     if (this.databricks && this.districtResolver) {
@@ -267,4 +265,4 @@ export class BriefingChatsService {
   }
 }
 
-export type { Artifact, ArtifactsProvider, SearchProvider }
+export type { Artifact, ArtifactsProvider }

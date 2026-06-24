@@ -61,7 +61,7 @@ describe('ComplianceModal', () => {
     expect(screen.getByText('Registration error')).toBeInTheDocument()
   })
 
-  it('routes the registration prompt into the Pro upgrade wizard', () => {
+  it('routes the registration prompt to the election-filing form', () => {
     render(
       <ComplianceModal open tcrComplianceStatus={null} onClose={vi.fn()} />,
     )
@@ -74,8 +74,14 @@ describe('ComplianceModal', () => {
         /You'll need your Campaign EIN and your official filing link\. Ready/,
       ),
     ).toBeInTheDocument()
+    // Already-Pro candidates with no TCR record must land on the registration
+    // form, not the pre-payment Pro-upgrade wizard, which dead-ends Pro users
+    // on its SUCCESS surface and loops them back to the dashboard (ENG-10441).
     expect(
       screen.getByRole('link', { name: 'Start Registration' }),
-    ).toHaveAttribute('href', '/dashboard/pro-upgrade')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
   })
 })

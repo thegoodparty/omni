@@ -7,6 +7,7 @@ import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import IssueCard, { issueHref } from './IssueCard'
 import IssuesNavHeader from './IssuesNavHeader'
 import CommunityIssuesChatDock from './CommunityIssuesChatDock'
+import StaffDispatchButtons from './StaffDispatchButtons'
 
 type CommunityIssueListResponse = {
   issues: CommunityIssueCard[]
@@ -137,6 +138,7 @@ const IssueFeedList = ({
     <div className="flex min-h-screen flex-col">
       <IssuesNavHeader />
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-8 px-6 pb-28 pt-6">
+        <StaffDispatchButtons />
         <section className="flex flex-col gap-3">
           <SectionHeader
             title="Trending community issues"

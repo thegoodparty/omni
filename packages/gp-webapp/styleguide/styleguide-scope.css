@@ -41,6 +41,12 @@
   --input: var(--brand-surface-tertiary); /* #EEF3F6 */
   --color-border: var(--brand-border-primary);
   --color-input: var(--brand-surface-tertiary);
+  --color-base-border: var(--base-border);
+  --color-components-input-base: var(--component-input-base);
+  --color-components-input-border: var(--component-input-border);
+  --color-components-input-active: var(--component-input-active);
+  --color-components-input-focus: var(--component-input-focus);
+  --color-destructive-focus: var(--theme-destructive-focus);
 
   /* Ring (focus) */
   --ring: var(--semantic-border-focus); /* #1B6AFC */
@@ -77,6 +83,7 @@
   --popover-foreground: var(--brand-text-primary); /* #000000 */
   --color-popover: var(--brand-surface-primary);
   --color-popover-foreground: var(--brand-text-primary);
+  --color-base-surface: var(--base-surface);
 
   /* Radius */
   --radius: 0.5rem;
@@ -214,7 +221,7 @@
   --base-foreground: #ffffff;
   --base-background: var(--tw-neutral-950);
   --base-muted-foreground: var(--tw-neutral-400);
-  --base-muted: var(--tw-neutral-800);
+  --base-muted: var(--tw-neutral-900);
   --base-inactive: var(--tw-neutral-700);
   --color-inactive: var(--tw-neutral-700);
   --base-border: var(--tw-neutral-600);
@@ -302,9 +309,16 @@
   --component-card-base: var(--tw-neutral-900);
   --component-card-foreground: #ffffff;
   --component-card-border: var(--tw-neutral-600);
+  --color-components-card-border: var(--component-card-border);
   --component-input-active: var(--color-brand-blue-300);
   --component-input-foreground: var(--tw-white);
   --component-input-base: var(--tw-neutral-950);
+  --component-input-border: var(--tw-neutral-600);
+  --component-input-focus: color-mix(
+    in srgb,
+    var(--color-brand-blue-300) 30%,
+    transparent
+  );
   --component-input-inactive: var(--tw-neutral-300);
   --component-input-inactive-focus: color-mix(
     in srgb,
@@ -385,6 +399,12 @@
   --input: var(--component-input-base);
   --color-border: var(--base-border);
   --color-input: var(--component-input-base);
+  --color-base-border: var(--base-border);
+  --color-components-input-base: var(--component-input-base);
+  --color-components-input-border: var(--component-input-border);
+  --color-components-input-active: var(--component-input-active);
+  --color-components-input-focus: var(--component-input-focus);
+  --color-destructive-focus: var(--theme-destructive-focus);
 
   /* Ring */
   --ring: var(--base-focus-ring);
@@ -395,6 +415,8 @@
   --muted-foreground: var(--base-muted-foreground);
   --color-muted: var(--base-muted);
   --color-muted-foreground: var(--base-muted-foreground);
+  --color-base-muted: var(--base-muted);
+  --color-base-muted-foreground: var(--base-muted-foreground);
 
   /* Accent */
   --accent: var(--base-accent);
@@ -448,6 +470,7 @@
   --popover-foreground: var(--base-surface-foreground);
   --color-popover: var(--base-surface);
   --color-popover-foreground: var(--base-surface-foreground);
+  --color-base-surface: var(--base-surface);
 
   /* Charts */
   --chart-1: var(--data-chart-1);
