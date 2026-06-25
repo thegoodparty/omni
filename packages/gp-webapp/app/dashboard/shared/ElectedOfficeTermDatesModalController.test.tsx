@@ -87,13 +87,15 @@ describe('ElectedOfficeTermDatesModalController', () => {
     expect(await screen.findByText(TITLE)).toBeInTheDocument()
   })
 
-  it('does not prompt an office that has not completed onboarding (e.g. just won)', async () => {
-    // A just-won EO has no term dates yet but supplies them via the onboarding
-    // term-dates step; prompting here would block the dashboard mid-flow.
+  it('does not prompt a genuine serve lead still mid-onboarding (no campaign)', async () => {
+    // A net-new serve lead (no campaign) that hasn't completed onboarding has no
+    // term dates yet but supplies them via the onboarding term-dates step;
+    // prompting here would block the dashboard / double-prompt mid-flow.
     mockMine([
       office({
         id: 'eo-1',
         onboardingCompletedAt: null,
+        campaignId: null,
         termStartDate: null,
         termEndDate: null,
       }),
@@ -103,6 +105,24 @@ describe('ElectedOfficeTermDatesModalController', () => {
 
     await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('prompts a win-origin office (campaign-created) missing dates even before onboarding completes', async () => {
+    // A just-won official reached the dashboard without serve onboarding, so the
+    // modal is their only term-date gap-filler. The campaignId marks win-origin.
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: null,
+        campaignId: 7,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
   })
 
   it('does not prompt when a settled office already has both term dates', async () => {

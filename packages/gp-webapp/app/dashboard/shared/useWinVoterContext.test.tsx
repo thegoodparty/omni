@@ -37,6 +37,7 @@ const electedOfficeFixture: ElectedOffice = {
   onboardingCompletedAt: null,
   selfReported: false,
   onboardingStep: null,
+  campaignId: null,
 }
 
 const makeOrg = (slug: string): Organization =>

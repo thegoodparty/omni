@@ -24,6 +24,7 @@ const electedOfficeFixture: ElectedOffice = {
   onboardingCompletedAt: null,
   selfReported: false,
   onboardingStep: null,
+  campaignId: null,
 }
 
 // The provider reads all four navigation hooks; the global setup only mocks
