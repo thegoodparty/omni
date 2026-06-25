@@ -15,6 +15,13 @@ Scope: **client (Amplitude) events only** — those in
 `packages/gp-webapp/helpers/analyticsHelper.ts`. Backend `segment.types.ts` events are
 out of scope (see ClickUp 86aj7bdkp).
 
+The CSV provenance artifact in omni
+(`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`) is
+the **code-provenance** sibling of this Amplitude `gp-meta` block: it records when a literal
+appeared/vanished in code (written by `instrument-analytics-event`), a different question
+from this block's human-asserted governance status. They are allowed to disagree; DATA-1952
+reconciles them.
+
 Two ways it runs:
 
 - **Called by `instrument-analytics-event`** (the change scanner) with a handoff payload
