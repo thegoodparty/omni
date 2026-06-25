@@ -19,13 +19,13 @@ import CampaignStrategyPhase from './CampaignStrategyPhase'
 // data contract).
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const { tasks, isGeneratingDynamic } = useTrackerTasks()
+  const { tasks, isPending, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
 
   // Completion only persists for real tracker rows; the catalog fallback has no
   // backing rows to toggle, so the circle stays a plain status marker there.
   const onToggleComplete =
-    tasks.length > 0
+    !isPending && tasks.length > 0
       ? (id: string, completed: boolean) =>
           toggleComplete.mutate({ id, completed })
       : undefined
@@ -49,7 +49,10 @@ const CampaignStrategySection = (): React.JSX.Element => {
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    if (tasks.length > 0) {
+    // Only fall back to the client-side catalog once the fetch has settled and
+    // confirmed there are no tracker rows — otherwise the pending window would
+    // flash the wrong (non-interactive) content for a campaign that has rows.
+    if (!isPending && tasks.length > 0) {
       return buildTrackerStrategy(tasks, { electionDate })
     }
     return buildCampaignStrategy({
@@ -59,6 +62,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
       uniqueLandlines: metrics?.uniqueLandlines ?? null,
     })
   }, [
+    isPending,
     tasks,
     electionDateIso,
     campaignStartIso,
@@ -91,28 +95,37 @@ const CampaignStrategySection = (): React.JSX.Element => {
           You are here
         </span>
       </div>
-      {isGeneratingDynamic && (
-        <Card className="mb-4 flex items-center gap-3 p-4">
-          <div className="size-4 shrink-0 animate-spin rounded-full border-b-2 border-primary" />
-          <p className="text-muted-foreground text-sm">
-            Finding local events and personalizing the rest of your weekly
-            tasks. They will appear here automatically in a few minutes.
-          </p>
+      {isPending ? (
+        <Card className="flex items-center gap-3 p-4">
+          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
+          <p className="text-muted-foreground text-sm">Loading your tasks…</p>
         </Card>
+      ) : (
+        <>
+          {isGeneratingDynamic && (
+            <Card className="mb-4 flex items-center gap-3 p-4">
+              <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
+              <p className="text-muted-foreground text-sm">
+                Finding local events and personalizing the rest of your weekly
+                tasks. They will appear here automatically in a few minutes.
+              </p>
+            </Card>
+          )}
+          <Accordion
+            type="multiple"
+            defaultValue={defaultOpen}
+            className="space-y-4"
+          >
+            {strategy.phases.map((phase) => (
+              <CampaignStrategyPhase
+                key={phase.key}
+                phase={phase}
+                onToggleComplete={onToggleComplete}
+              />
+            ))}
+          </Accordion>
+        </>
       )}
-      <Accordion
-        type="multiple"
-        defaultValue={defaultOpen}
-        className="space-y-4"
-      >
-        {strategy.phases.map((phase) => (
-          <CampaignStrategyPhase
-            key={phase.key}
-            phase={phase}
-            onToggleComplete={onToggleComplete}
-          />
-        ))}
-      </Accordion>
     </section>
   )
 }

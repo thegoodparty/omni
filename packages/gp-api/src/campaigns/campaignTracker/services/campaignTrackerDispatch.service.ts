@@ -74,7 +74,12 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
     campaign: CampaignWith<'user'>,
     now: Date,
   ): Promise<void> {
-    if (!isDateTodayOrFuture(campaign.details?.electionDate, now)) return
+    // Primary-only campaigns have no general electionDate yet; fall back to the
+    // primary so the weekly cron still re-prioritizes them (mirrors
+    // dispatchGeneration / resolveElectionDate).
+    const effectiveDate =
+      campaign.details?.electionDate ?? campaign.details?.primaryElectionDate
+    if (!isDateTodayOrFuture(effectiveDate, now)) return
 
     // Coverage dedup: skip if a non-failed run already fired for this org this
     // week. A FAILED run is ignored so a stuck week still retries (it produced

@@ -22,6 +22,11 @@ export const isTrackerGenerating = (tasks: CampaignTrackerTask[]): boolean =>
   tasks.length > 0 && !tasks.some((t) => !t.isDefaultTask)
 
 const POLL_INTERVAL_MS = 20 * 1000
+// Once initial generation settles, keep a slow background poll. Weekly regen
+// appends a new generation (rows are never deleted, so isTrackerGenerating
+// can't detect it), and refetchOnWindowFocus is off — without this a page left
+// open across the Sunday cron would show last week's tasks indefinitely.
+const BACKGROUND_POLL_MS = 5 * 60 * 1000
 
 const trackerTasksQueryOptions = () =>
   queryOptions({
@@ -29,12 +34,13 @@ const trackerTasksQueryOptions = () =>
     queryFn: () => clientRequest(TRACKER_TASKS_ROUTE, {}).then((r) => r.data),
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
-    // Poll while the dynamic tasks/events are still generating so they appear
-    // without a manual refresh; stop once any dynamic row lands.
+    // Poll fast while the dynamic tasks/events are still generating so they
+    // appear without a manual refresh; once they land, drop to a slow
+    // background poll so a later weekly regen still gets picked up.
     refetchInterval: (query) =>
       query.state.data && isTrackerGenerating(query.state.data)
         ? POLL_INTERVAL_MS
-        : false,
+        : BACKGROUND_POLL_MS,
   })
 
 export type TrackerTasksResult = {

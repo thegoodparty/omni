@@ -1,13 +1,16 @@
 import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common'
+import { z } from 'zod'
 import { Campaign } from '../../generated/prisma'
 import { CampaignTrackerTasksService } from './services/campaignTrackerTasks.service'
 import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   completeTaskBodySchema,
   CompleteTaskBodySchema,
 } from '../tasks/schemas/completeTaskBody.schema'
+import { CampaignTrackerTaskResponseSchema } from './schemas/trackerTaskResponse.schema'
 
 @Controller('campaigns/tracker-tasks')
 @UseCampaign()
@@ -25,6 +28,7 @@ export class CampaignTrackerController {
       'tasks the candidate already finished, so you can carry forward ' +
       'incomplete-but-important work and avoid repeating completed tasks.',
   })
+  @ResponseSchema(z.array(CampaignTrackerTaskResponseSchema))
   listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
   }
