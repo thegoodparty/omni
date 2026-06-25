@@ -9,6 +9,7 @@ import {
   clerkBackend,
   mintApiToken,
   withGatewayRetry,
+  type Race,
 } from './headless-user'
 
 const baseURL = process.env.BASE_URL
@@ -62,26 +63,6 @@ export type AuthenticatedUser = {
   zip: string
   phone: string
   password: string
-}
-
-type Race = {
-  id: string
-  brPositionId: string
-  filingPeriods?: { startOn: string; endOn: string }[]
-  election: {
-    id?: string
-    electionDay: string
-    name?: string
-    state?: string
-  }
-  position: {
-    id?: string
-    hasPrimary?: boolean
-    partisanType?: string
-    level: string
-    name: string
-    state: string
-  }
 }
 
 type BootstrappedUser = {
