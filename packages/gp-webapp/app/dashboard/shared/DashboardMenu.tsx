@@ -68,7 +68,6 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useKnowYourOpponentFlag } from '@shared/experiments/knowYourOpponentFlag'
@@ -285,7 +284,6 @@ export const getDashboardMenuItems = (
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
   winVoterDataReady: boolean,
   winVoterDataEnabled: boolean,
@@ -330,10 +328,8 @@ export const getDashboardMenuItems = (
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
-  // chief-of-staff flag so it can ramp to internal staff independently.
-  const chiefOfStaffShown =
-    serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled
+  // Briefing Assistant. Gated on the same serve-access + elected-office check.
+  const chiefOfStaffShown = serveAccessEnabled && isElectedOffice
   if (chiefOfStaffShown) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
@@ -381,7 +377,6 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
   // Master gate for the Win voter-data rollout. When on, a pro Win campaign
   // sees the Contacts item (reusing the Serve route) in place of the legacy
   // Voter Data item. Read with trackExposure=false — the page is the treatment
@@ -405,7 +400,6 @@ export default function DashboardMenu({
       serveAccessEnabled,
       !!electedOffice,
       isElectedOfficeLoading,
-      chiefOfStaffEnabled,
       campaignStrategyExists,
       winVoterDataReady,
       winVoterDataEnabled,
@@ -425,7 +419,6 @@ export default function DashboardMenu({
     ecanvasser,
     electedOffice,
     isElectedOfficeLoading,
-    chiefOfStaffEnabled,
     campaignStrategyExists,
     winVoterDataReady,
     winVoterDataEnabled,

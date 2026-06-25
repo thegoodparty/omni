@@ -33,7 +33,6 @@ const links = (
     isElectedOffice,
     isElectedOfficeLoading,
     false,
-    false,
     winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
@@ -144,7 +143,6 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       false, // serveAccessEnabled
       false, // isElectedOffice
       false, // isElectedOfficeLoading
-      false, // chiefOfStaffEnabled
       true, // campaignStrategyExists
       true, // winVoterDataReady
       false, // winVoterDataEnabled

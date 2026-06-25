@@ -34,15 +34,13 @@ export default async function serveAccess(): Promise<void> {
     // Preserve the page the user actually asked for (set by the middleware on
     // the `x-pathname` / `x-search` headers) so we return them to e.g. a
     // specific briefing or a polls route with its query intact. Fall back to
-    // Briefing Assistant when the pathname is missing or isn't a serve route:
-    // it's an always-available serve route, whereas the Chief of Staff home is
-    // behind a client-side feature-flag guard that would bounce a flag-off
-    // elected-office user straight back out (a double redirect).
+    // the Chief of Staff home (the default Serve landing page) when the
+    // pathname is missing or isn't a serve route.
     const pathname = headerStore.get('x-pathname') ?? ''
     const search = headerStore.get('x-search') ?? ''
     const next = isServeRoutePath(pathname)
       ? `${pathname}${search}`
-      : '/dashboard/briefings'
+      : '/dashboard/chief-of-staff'
     return redirect(`/post-auth-redirect?next=${encodeURIComponent(next)}`)
   }
 
