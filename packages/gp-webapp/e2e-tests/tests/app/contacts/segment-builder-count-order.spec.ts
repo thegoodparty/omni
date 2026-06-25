@@ -104,11 +104,15 @@ test.describe('Segment builder count + order @dev-only', () => {
     const voterLikelyHeading = sheet.locator('h4', { hasText: 'Voter Likely' })
     await expect(voterLikelyHeading).toBeVisible({ timeout: 10000 })
     const voterLikelyContainer = voterLikelyHeading.locator('xpath=../..')
-    // Each option label renders in its own `p.font-medium` row; reading them in
-    // DOM order and matching the canonical list asserts the EXACT order.
+    // Each option label is a Body2, which renders a `<div>` (not a `<p>`)
+    // carrying the passed-in `font-medium` class (Body2.tsx). Within this field
+    // container the only other text node is the "Select All" control, which
+    // uses `font-semibold` (not `font-medium`) — so `div.font-medium` selects
+    // exactly the five option-label rows. Reading them in DOM order and
+    // matching the canonical list asserts the EXACT order.
     const renderedLabels = (
       await voterLikelyContainer
-        .locator('p.font-medium')
+        .locator('div.font-medium')
         .filter({ hasText: /\S/ })
         .allTextContents()
     ).map((t) => t.trim())
