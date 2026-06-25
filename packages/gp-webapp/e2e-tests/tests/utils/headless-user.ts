@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import axios, { type AxiosInstance } from 'axios'
 import { createClerkClient } from '@clerk/backend'
-import { TestDataHelper } from 'src/helpers/data.helper'
+import { TestDataHelper } from '../../src/helpers/data.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 
 // Playwright-free test-user creation. Everything here runs against the API with
