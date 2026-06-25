@@ -759,10 +759,22 @@ def read_watermark(state_path: str = DEFAULT_STATE_PATH) -> dict | None:
 
 
 def resolve_omni_repo(arg: str | None, env: dict[str, str]) -> str:
-    """The omni checkout to walk: --repo, else $OMNI_REPO. Must be an existing dir."""
+    """The omni checkout to walk: --repo arg, else $OMNI_REPO, else the git repo containing
+    this module (detected via ``git rev-parse --show-toplevel``). Must be an existing git dir."""
     root = arg or env.get("OMNI_REPO")
     if not root:
-        raise SystemExit("ERROR: pass --repo or set OMNI_REPO to an omni checkout path.")
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                "ERROR: could not detect repo root via git rev-parse --show-toplevel. "
+                "Pass --repo or set OMNI_REPO to an omni checkout path."
+            )
+        root = result.stdout.strip()
     root = os.path.expanduser(root)
     if not os.path.isdir(os.path.join(root, ".git")) and not os.path.exists(os.path.join(root, ".git")):
         raise SystemExit(f"ERROR: {root} is not a git checkout (no .git).")

@@ -481,11 +481,18 @@ def test_resolve_omni_repo_falls_back_to_env(tmp_path):
     assert resolve_omni_repo(None, {"OMNI_REPO": str(tmp_path)}) == str(tmp_path)
 
 
-def test_resolve_omni_repo_errors_when_unset():
-    import pytest
+def test_resolve_omni_repo_defaults_to_in_repo_root():
+    import amplitude_event_provenance_backfill as bf
+    from pathlib import Path
 
-    with pytest.raises(SystemExit):
-        resolve_omni_repo(None, {})
+    result = resolve_omni_repo(None, {})
+    assert result, "expected a non-empty path"
+    assert os.path.exists(os.path.join(result, ".git")), (
+        f"resolved root {result!r} has no .git"
+    )
+    assert Path(bf.__file__).resolve().is_relative_to(result), (
+        f"module {bf.__file__!r} is not under resolved root {result!r}"
+    )
 
 
 def test_resolve_omni_repo_errors_when_not_a_checkout(tmp_path):
