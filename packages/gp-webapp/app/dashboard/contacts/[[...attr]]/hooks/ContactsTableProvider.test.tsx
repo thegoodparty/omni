@@ -30,9 +30,10 @@ const electedOfficeFixture: ElectedOffice = {
 // useRouter/usePathname, so provide the rest here. params is mutable so a test
 // can select a person (drives the engagement queries).
 let mockParams: Record<string, string | string[]> = {}
+let mockPush = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockPush }),
   usePathname: () => '/dashboard/contacts',
   useSearchParams: () => new URLSearchParams(),
   useParams: () => mockParams,
@@ -42,10 +43,17 @@ vi.mock('@shared/experiments/winVoterDataFlag', () => ({
   useWinVoterDataFlag: vi.fn(),
 }))
 
+// The provider and useElectedOffice both read the active org from here to
+// org-scope their query keys (ENG-10511); outside a provider it would throw.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-one' }),
+}))
+
 const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 
 beforeEach(() => {
   mockParams = {}
+  mockPush = vi.fn()
   mockedUseWinVoterDataFlag.mockReset()
   mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
 })
@@ -220,5 +228,86 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
     await waitFor(() => expect(capturedIds).toContain('p_1'))
     expect(capturedIds).not.toContain('lal_1')
+  })
+})
+
+describe('ContactsTableProvider — selectSegment re-applies a saved search', () => {
+  const mockContactsList = () =>
+    api.mock('GET /v1/contacts', {
+      status: 200,
+      data: {
+        people: [],
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      },
+    })
+
+  // Selecting a saved list created from a search must re-issue the contacts
+  // query with that search (ENG-10518). The provider drives this through the
+  // URL `query` param, so assert what it pushes to the router.
+  const SelectProbe = ({ segmentId }: { segmentId: string }) => {
+    const { selectSegment, customSegments } = useContactsTable()
+    return (
+      <button
+        data-testid="select"
+        data-loaded={String(customSegments.length > 0)}
+        onClick={() => selectSegment(segmentId)}
+      >
+        select
+      </button>
+    )
+  }
+
+  const renderSelectProbe = (segmentId: string) =>
+    render(
+      <CampaignContext.Provider value={[null]}>
+        <ContactsTableProvider>
+          <SelectProbe segmentId={segmentId} />
+        </ContactsTableProvider>
+      </CampaignContext.Provider>,
+    )
+
+  it('puts the saved list search into the query param when the list is selected', async () => {
+    mockContactsList()
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 55, name: 'Smith voters', search: 'smith' }],
+    })
+
+    renderSelectProbe('55')
+
+    const button = await screen.findByTestId('select')
+    await waitFor(() => expect(button).toHaveAttribute('data-loaded', 'true'))
+    button.click()
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled())
+    const pushedUrl = mockPush.mock.calls.at(-1)?.[0] as string
+    expect(pushedUrl).toContain('segment=55')
+    expect(pushedUrl).toContain('query=smith')
+  })
+
+  it('clears the query param when selecting a list saved without a search', async () => {
+    mockContactsList()
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 56, name: 'Door knockers' }],
+    })
+
+    renderSelectProbe('56')
+
+    const button = await screen.findByTestId('select')
+    await waitFor(() => expect(button).toHaveAttribute('data-loaded', 'true'))
+    button.click()
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled())
+    const pushedUrl = mockPush.mock.calls.at(-1)?.[0] as string
+    expect(pushedUrl).toContain('segment=56')
+    expect(pushedUrl).not.toContain('query=')
   })
 })

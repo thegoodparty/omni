@@ -1,11 +1,11 @@
 ---
 name: instrument-analytics-event
-description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it.
+description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it. For frontend events it then hands off to the event-metadata skill to record governance metadata, and it also handles client events a change removes (routing them to retirement).
 ---
 
 # Instrument an analytics event
 
-Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it.
+Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it. For frontend events it then hands off to the `event-metadata` skill to record the event's governance metadata in Amplitude (step 6); and when a change **removes** a client event, it routes that event to retirement (see "When a change removes an event").
 
 Background: events flow app/api → Segment → Amplitude (and HubSpot). There are two registries:
 
@@ -15,6 +15,8 @@ Background: events flow app/api → Segment → Amplitude (and HubSpot). There a
 Naming and governance are adopted from the Analytics Event Tracking Guide (product-os `processes/analytics-standards.md`, owner: Bryan Levine), which remains the source of truth.
 
 ## Procedure
+
+**Before step 1 — is this a pure removal?** If the change only **removes** a frontend `trackEvent` call and adds no new event, skip steps 1–5 (they are addition-oriented and will conclude "nothing to instrument") and go straight to "When a change removes an event" to complete the RETIRE handoff, then to step 7 (Verify).
 
 1. **Decide whether to instrument.**
 
@@ -130,7 +132,23 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    `await` the call only when the outcome must propagate — e.g. a payment must not be considered tracked if Segment failed. `track` already merges in the user's email/hubspotId context and the impersonation flag.
 
-6. **Verify.**
+6. **Record the event's metadata (frontend/client events).**
+
+   **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff, then go to step 7.
+
+   A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
+
+   - `mode=add`,
+   - `event` = the Title Case event-name string you just registered (e.g. `Briefing Assistant - Agenda Submitted`),
+   - `purposeDraft` = the one-line question this event answers (you already reasoned about this when naming it),
+   - `productHint` = `win | serve | shared` (from the nav area you used to name it),
+   - `supersedes` = the event it replaces — **only** if this event explicitly replaces a named one. Never infer a supersession from an unrelated event being removed in the same change.
+
+   Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
+
+   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff before moving to step 7.
+
+7. **Verify.**
 
    **Frontend** (from the repo root):
 
@@ -155,6 +173,15 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 - The event already exists in the relevant `EVENTS` map — reuse it, do not mint a near-duplicate.
 - It is a variation of an existing event — add a property instead of a new event.
 - It is a user attribute, not an action — use `identifyUser` (frontend) or `AnalyticsService.identify` (backend), not a track call.
+
+## When a change removes an event
+
+If the change you are working on **removes** a `trackEvent` call (a frontend/client event is being deleted), that event still reads as in use in Amplitude until its metadata says otherwise — and "no recent data" alone cannot tell an intentional removal from a silent break. So when you see a client `EVENTS` entry / `trackEvent` literal being deleted:
+
+1. Confirm with the human that it is an intentional removal, and ask the human for a one-line reason (e.g. "feature removed", "replaced by new flow"). Block until they supply it — the handoff path trusts the incoming `reason` and will not re-prompt for it.
+2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = the one-line reason the human gave. `event-metadata` stamps `not in use` with the date and PR.
+
+Adds and removes are **independent**. A removal happening in the same change as an addition does *not* mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
 ## Common mistakes
 

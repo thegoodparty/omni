@@ -206,6 +206,35 @@ export const resolveServeResumeStep = (
 }
 
 /**
+ * Prompt-first gating for the prefill `confirm` hub. The confirm screen is only
+ * ever shown once the office AND valid term dates are present, so whenever the
+ * flow wants to land the user on `confirm` (resume, the prefill party Continue,
+ * or returning from a detour) we first route them to fill any missing/invalid
+ * piece — office, then term dates — instead of surfacing a red error on the hub.
+ *
+ *  - `officeReady` — a real office is resolvable (a fresh pick or a prefilled
+ *    position name), not the default placeholder label.
+ *  - `datesReady` — both bounds are present, the end is after the start, and the
+ *    term does not overlap an existing one (the flow's term-date invariants).
+ *
+ * The caller arms the return-to-confirm detour flag when this returns a
+ * collection step, so the step's Continue brings the user back to re-evaluate.
+ */
+export interface ServeConfirmReadiness {
+  officeReady: boolean
+  datesReady: boolean
+}
+
+export const resolveConfirmEntryStep = ({
+  officeReady,
+  datesReady,
+}: ServeConfirmReadiness): ServeStepId => {
+  if (!officeReady) return 'office'
+  if (!datesReady) return 'term-dates'
+  return 'confirm'
+}
+
+/**
  * Whether the resolved resume step is past the intro screens (`welcome` /
  * `inOffice`), in which case the UX-only `inOffice` answer should be seeded so
  * backing up to the inOffice step isn't a dead end (its Continue gate needs a
@@ -277,6 +306,8 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     title: 'Does this look right?',
     description:
       'We pulled this from public records. Confirm your office and term dates, or change anything that looks off.',
+    whyWeAsk:
+      'These details ensure we pull the right information and data to help you serve your community',
   },
   constituents: {
     title: "Here's everything to know about your constituents",

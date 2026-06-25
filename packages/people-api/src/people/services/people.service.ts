@@ -19,6 +19,7 @@ import {
 } from '../people.select'
 import { resolveDistrict } from '../utils/resolveDistrict.utils'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
+import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 
 export const DATABASE_SCHEMA = 'green'
 
@@ -64,20 +65,10 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
   async findPeople(dto: ListPeopleDTO) {
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
-    const { filters, search, resultsPerPage, page } = dto
+    const { filters, search, resultsPerPage, page, groupByHousehold } = dto
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
-    // TODO: This executes count and data query in parallel
-    // for latency, but the data query uses the requested page offset while
-    // currentPage is clamped from totalResults below. If requested page is out
-    // of bounds, pagination metadata and returned rows can diverge.
-    const [totalResults, people] = await Promise.all([
-      this.rawCountForDistrict({
-        state,
-        districtId: effectiveDistrictId,
-        filters,
-        search,
-      }),
+    const buildData = (skip: number) =>
       this.client.$queryRaw<Array<BaseDbPerson>>(
         this.buildRawPeopleQuery({
           districtId: effectiveDistrictId,
@@ -88,10 +79,44 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
             search,
           }),
           take: resultsPerPage,
-          skip: (page - 1) * resultsPerPage,
+          skip,
+          groupByHousehold,
         }),
-      ),
-    ])
+      )
+
+    const countArgs = {
+      state,
+      districtId: effectiveDistrictId,
+      filters,
+      search,
+      groupByHousehold,
+    }
+
+    let totalResults: number
+    let people: Array<BaseDbPerson>
+
+    if (groupByHousehold) {
+      // Household count is far smaller than the voter count, so a client that
+      // was on a high voter-list page and switches to door knocking would page
+      // past the end. Resolve the count first, clamp the offset to the last
+      // household page, then fetch — otherwise the request deterministically
+      // returns an empty page (no caller clamps `page`).
+      totalResults = await this.rawCountForDistrict(countArgs)
+      const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
+      const clampedPage = Math.min(Math.max(1, page), totalPages)
+      people = await buildData((clampedPage - 1) * resultsPerPage)
+    } else {
+      // Ungrouped path keeps the parallel count/data fetch. Its pre-existing
+      // out-of-bounds-page divergence (TODO below) is unchanged here.
+      // TODO: This executes count and data query in parallel for latency, but
+      // the data query uses the requested page offset while currentPage is
+      // clamped from totalResults below. If requested page is out of bounds,
+      // pagination metadata and returned rows can diverge.
+      ;[totalResults, people] = await Promise.all([
+        this.rawCountForDistrict(countArgs),
+        buildData((page - 1) * resultsPerPage),
+      ])
+    }
 
     const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
     const currentPage = Math.min(Math.max(1, page), totalPages)
@@ -120,10 +145,18 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     districtId: string | null
     filters: FilterData
     search?: string
+    groupByHousehold?: boolean
   }): Promise<number> {
-    const { state, districtId, search } = args
+    const { state, districtId, search, groupByHousehold } = args
 
-    if (districtId && !args.search && args.filters.filters.length === 0) {
+    // The pre-computed stats shortcut counts voters; it does not know household
+    // counts, so it is only valid for the ungrouped path.
+    if (
+      districtId &&
+      !groupByHousehold &&
+      !args.search &&
+      args.filters.filters.length === 0
+    ) {
       const { totalConstituents } =
         await this.statsService.getTotalCounts(districtId)
       return totalConstituents
@@ -136,9 +169,15 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       filters: args.filters,
     })
 
+    // COUNT(DISTINCT <household key>) so totalResults/totalPages reflect
+    // households, not voters — matching the DISTINCT ON data query.
+    const countExpr = groupByHousehold
+      ? Prisma.sql`COUNT(DISTINCT ${buildHouseholdKeySql('v')})::bigint`
+      : Prisma.sql`COUNT(*)::bigint`
+
     if (districtId) {
       const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-        Prisma.sql`SELECT COUNT(*)::bigint AS voter_count
+        Prisma.sql`SELECT ${countExpr} AS voter_count
           FROM "green"."DistrictVoter" dv
           JOIN "green"."Voter" v
             ON v."State" = dv."State"
@@ -149,7 +188,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       return Number(count)
     }
     const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-      Prisma.sql`SELECT COUNT(*)::bigint AS voter_count
+      Prisma.sql`SELECT ${countExpr} AS voter_count
         FROM "green"."Voter" v
         ${whereClause}`,
     )
@@ -163,10 +202,38 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     take: number
     skip: number
     extraFields?: ExtraSelectedField[]
+    groupByHousehold?: boolean
   }): Prisma.Sql {
-    const { districtId, whereClause, take, skip } = args
+    const { districtId, whereClause, take, skip, groupByHousehold } = args
 
-    const selectSql = buildVoterSelectSql(args.extraFields)
+    const householdKey = buildHouseholdKeySql('v')
+    // Grouped mode: expose the household key + how many of the *matching*
+    // voters share the address. The window count is evaluated after the WHERE
+    // clause, so when a filter is active (e.g. hasCellPhone) it counts only the
+    // voters at that address who match — i.e. how many matching contacts the
+    // canvasser will find there, NOT raw occupancy. It runs before DISTINCT ON,
+    // so the retained representative row keeps the full partition count.
+    // DISTINCT ON keeps one representative voter per household; the leading
+    // ORDER BY must match the DISTINCT ON expression, with v."id" as the
+    // deterministic tiebreaker that also keeps pagination stable.
+    const computedColumns = groupByHousehold
+      ? [
+          Prisma.sql`${householdKey} AS "householdId"`,
+          Prisma.sql`COUNT(*) OVER (PARTITION BY ${householdKey})::bigint AS "householdSize"`,
+        ]
+      : []
+    const distinctClause = groupByHousehold
+      ? Prisma.sql`DISTINCT ON (${householdKey}) `
+      : Prisma.empty
+    const orderByClause = groupByHousehold
+      ? Prisma.sql`ORDER BY ${householdKey}, v."id"`
+      : Prisma.sql`ORDER BY v."id"`
+
+    const selectSql = buildVoterSelectSql(
+      args.extraFields,
+      computedColumns,
+      distinctClause,
+    )
     const voterTable = Prisma.raw(`"${DATABASE_SCHEMA}"."${VOTER_TABLENAME}"`)
     const dvTable = Prisma.raw(
       `"${DATABASE_SCHEMA}"."${DISTRICTVOTER_TABLENAME}"`,
@@ -180,7 +247,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
           FROM ${voterTable} v
           ${joinClause}
           ${whereClause}
-          ORDER BY v."id"
+          ${orderByClause}
           LIMIT ${take} OFFSET ${skip}`
   }
 }

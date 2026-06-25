@@ -35,6 +35,12 @@ if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   Element.prototype.hasPointerCapture = () => false
 }
 
+// jsdom doesn't implement scrollIntoView; Radix Select calls it when its
+// listbox opens, otherwise throwing an async uncaught error in tests.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = (): void => undefined
+}
+
 // jsdom doesn't implement elementFromPoint; input-otp calls it from a timer to
 // position its fake caret, which otherwise throws an async uncaught error.
 if (typeof document !== 'undefined' && !document.elementFromPoint) {
