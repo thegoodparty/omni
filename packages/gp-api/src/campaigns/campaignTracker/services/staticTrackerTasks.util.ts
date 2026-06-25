@@ -6,24 +6,9 @@ import {
   subDays,
   subWeeks,
 } from 'date-fns'
-import {
-  CAMPAIGN_TASK_CATALOG,
-  TaskChannel,
-  TaskTiming,
-} from '@goodparty_org/contracts'
-import { CampaignTaskType, Prisma } from '../../../generated/prisma'
-
-// Catalog channels map onto the existing CampaignTaskType enum where one
-// exists; setup/admin channels (directMail, general) have no enum value and
-// stay null.
-const CHANNEL_TO_FLOW_TYPE: Partial<Record<TaskChannel, CampaignTaskType>> = {
-  text: CampaignTaskType.text,
-  robocall: CampaignTaskType.robocall,
-  doorKnocking: CampaignTaskType.doorKnocking,
-  phoneBanking: CampaignTaskType.phoneBanking,
-  event: CampaignTaskType.events,
-  awareness: CampaignTaskType.awareness,
-}
+import { CAMPAIGN_TASK_CATALOG, TaskTiming } from '@goodparty_org/contracts'
+import { Prisma } from '../../../generated/prisma'
+import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
 
 // Resolve a catalog task's structured timing to a concrete date. The column is
 // NOT NULL, so undated kinds (jurisdiction/recurring/perItem) anchor to `start`

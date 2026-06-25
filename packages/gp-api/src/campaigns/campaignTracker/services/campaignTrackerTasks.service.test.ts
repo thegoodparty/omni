@@ -15,13 +15,26 @@ const makeService = () => {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      update: vi.fn().mockResolvedValue({ id: 't1' }),
     },
-    campaign: { findFirst: vi.fn().mockResolvedValue({ id: 42 }) },
+    campaign: {
+      findFirst: vi.fn().mockResolvedValue({ id: 42 }),
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 42, data: {} }),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    campaignUpdateHistory: {
+      create: vi.fn().mockResolvedValue({ id: 99 }),
+      delete: vi.fn().mockResolvedValue({}),
+      findUniqueOrThrow: vi
+        .fn()
+        .mockResolvedValue({ id: 99, type: 'text', quantity: 5 }),
+    },
     campaignStory: { findUnique: vi.fn().mockResolvedValue(null) },
     campaignStrategy: {
       findUnique: vi.fn().mockResolvedValue(null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    $executeRaw: vi.fn().mockResolvedValue(1),
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   }
   const experimentRuns = {
@@ -157,6 +170,21 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     await h.service.bootstrapForCampaign(campaign())
     expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
   })
+
+  it('releases the claim and rethrows when bootstrap work fails', async () => {
+    h.prisma.campaignTrackerTask.createMany.mockRejectedValueOnce(
+      new Error('db down'),
+    )
+    await expect(h.service.bootstrapForCampaign(campaign())).rejects.toThrow(
+      'db down',
+    )
+    // claim flips false->true, then the failure resets it back to false
+    expect(h.prisma.campaignStrategy.updateMany).toHaveBeenCalledTimes(2)
+    expect(h.prisma.campaignStrategy.updateMany).toHaveBeenLastCalledWith({
+      where: { campaignId: 42 },
+      data: { trackerBootstrapped: false },
+    })
+  })
 })
 
 describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
@@ -264,5 +292,95 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     await h.service.onExperimentRunCompleted(run())
     expect(h.s3.getFile).not.toHaveBeenCalled()
     expect(h.prisma.$transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignTrackerTasksService.completeTask', () => {
+  let h: ReturnType<typeof makeService>
+  const caller = { id: 42, userId: 7 } as never
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  it('marks the task completed without voter contact', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      completed: false,
+    })
+    await h.service.completeTask(caller, 't1')
+    expect(h.prisma.campaignUpdateHistory.create).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: { completed: true },
+    })
+  })
+
+  it('logs history and bumps reported goals with voter contact', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      completed: false,
+    })
+    await h.service.completeTask(caller, 't1', {
+      type: 'text',
+      quantity: 5,
+    } as never)
+    expect(h.prisma.$executeRaw).toHaveBeenCalled()
+    expect(h.prisma.campaignUpdateHistory.create).toHaveBeenCalled()
+    expect(h.prisma.campaign.update).toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: { completed: true, updateHistoryId: 99 },
+    })
+  })
+
+  it('is idempotent when the task is already completed', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      completed: true,
+    })
+    await h.service.completeTask(caller, 't1')
+    expect(h.prisma.campaignTrackerTask.update).not.toHaveBeenCalled()
+  })
+
+  it('throws when the task is not found', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce(null)
+    await expect(h.service.completeTask(caller, 'missing')).rejects.toThrow()
+  })
+})
+
+describe('CampaignTrackerTasksService.unCompleteTask', () => {
+  let h: ReturnType<typeof makeService>
+  const caller = { id: 42 } as never
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  it('clears completion and reverses the logged history', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      completed: true,
+      updateHistoryId: 99,
+    })
+    h.prisma.campaign.findUniqueOrThrow.mockResolvedValueOnce({
+      id: 42,
+      data: { reportedVoterGoals: { text: 5 } },
+    })
+    await h.service.unCompleteTask(caller, 't1')
+    expect(h.prisma.campaignUpdateHistory.delete).toHaveBeenCalledWith({
+      where: { id: 99 },
+    })
+    expect(h.prisma.campaignTrackerTask.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: { completed: false, updateHistoryId: null },
+    })
+  })
+
+  it('is idempotent when the task is not completed', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      completed: false,
+    })
+    await h.service.unCompleteTask(caller, 't1')
+    expect(h.prisma.campaignTrackerTask.update).not.toHaveBeenCalled()
   })
 })

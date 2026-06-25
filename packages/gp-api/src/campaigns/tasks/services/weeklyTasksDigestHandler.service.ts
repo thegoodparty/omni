@@ -202,11 +202,21 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
         WHERE (t.is_default_task = true OR t.week = g.gen)
           -- Mirror the UI's 30-day GOTV window: don't email GOTV tasks until
           -- the election is within 30 days (the UI hides them until then).
+          -- Primary-only campaigns fall back to primaryElectionDate, matching
+          -- resolveElectionDate / the dispatch eligibility check.
           AND (
             t.phase IS DISTINCT FROM 'gotv'
             OR (
-              c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
-              AND (c.details->>'electionDate')::date - NOW()::date <= 30
+              COALESCE(
+                c.details->>'electionDate',
+                c.details->>'primaryElectionDate'
+              ) ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND (
+                COALESCE(
+                  c.details->>'electionDate',
+                  c.details->>'primaryElectionDate'
+                )
+              )::date - NOW()::date <= 30
             )
           )
       ),
@@ -218,8 +228,16 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
           COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
         FROM campaign c
         JOIN visible t ON t.campaign_id = c.id
-        WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
-          AND (c.details->>'electionDate')::date > NOW()::date
+        WHERE COALESCE(
+            c.details->>'electionDate',
+            c.details->>'primaryElectionDate'
+          ) ~ '^\\d{4}-\\d{2}-\\d{2}'
+          AND (
+            COALESCE(
+              c.details->>'electionDate',
+              c.details->>'primaryElectionDate'
+            )
+          )::date > NOW()::date
           AND t.date >= ${windowStart}
           AND t.date < ${windowEnd}
         GROUP BY c.id, c.user_id
