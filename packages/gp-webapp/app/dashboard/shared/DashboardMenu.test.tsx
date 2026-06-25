@@ -193,6 +193,32 @@ describe('getDashboardMenuItems — Know your opponent nav gating', () => {
   })
 })
 
+describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
+  it('shows the Chief of Staff item when serve-access + elected-office', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(true)
+  })
+
+  it('hides the Chief of Staff item when serve-access is off', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: false,
+      isElectedOffice: true,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
+  })
+
+  it('hides the Chief of Staff item when not elected office', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: false,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
+  })
+})
+
 describe('getDashboardMenuItems — Community Issues nav gating', () => {
   it('shows the Community Issues nav for an elected office when the flag is on', () => {
     const items = links(proCampaign, {
