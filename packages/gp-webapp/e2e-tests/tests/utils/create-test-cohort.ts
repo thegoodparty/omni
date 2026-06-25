@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import './cohort-env'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
   createHeadlessTestUser,
@@ -78,6 +78,7 @@ const run = async () => {
         product: selection.product,
         positionId: dryRun ? undefined : entry.positionId,
         race: dryRun ? undefined : entry.race,
+        skipCampaignCreation: dryRun && selection.product === 'win',
         termStartDate: selection.termStartDate,
         termEndDate: selection.termEndDate,
       })
