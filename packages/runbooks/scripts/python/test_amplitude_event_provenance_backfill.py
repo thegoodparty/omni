@@ -493,6 +493,9 @@ def test_resolve_omni_repo_defaults_to_in_repo_root():
     assert Path(bf.__file__).resolve().is_relative_to(result), (
         f"module {bf.__file__!r} is not under resolved root {result!r}"
     )
+    assert os.path.isdir(os.path.join(result, "packages")), (
+        f"resolved root {result!r} does not look like the omni repo"
+    )
 
 
 def test_resolve_omni_repo_errors_when_not_a_checkout(tmp_path):

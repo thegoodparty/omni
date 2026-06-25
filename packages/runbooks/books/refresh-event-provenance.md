@@ -15,7 +15,7 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
    It auto-detects: no state file means a full backfill, a state file means an incremental walk of `last_sha..origin/develop`. It rewrites `instrumentation_data/amplitude_event_provenance.csv` and `..._state.json`. The walk targets `origin/develop` and fetches it first.
 3. **Verify before committing.**
    - Read the stderr summary `N rows (present=…, removed=…, not_found_in_code=…)`. `N` should be ~430+. If it collapsed toward zero, stop and investigate rather than commit.
-   - `git status --porcelain` shows only the two `instrumentation_data/` files. Any other path means stop.
+   - `git status --porcelain` shows only the two `instrumentation_data/` files. Any path outside `instrumentation_data/` means stop.
    - If `git status` is clean (no new commits since the watermark), there is nothing to refresh — delete the branch and finish without a PR.
 4. **Commit and open a PR.** Commit the two data files; push; open a PR summarizing the row delta. Commit message ends with the co-author trailer:
    ```
