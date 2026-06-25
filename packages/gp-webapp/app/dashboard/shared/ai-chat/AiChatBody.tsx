@@ -4,13 +4,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Button, IconButton, Loader2Icon, MicIcon, SquareIcon } from '@styleguide'
-import { SearchIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/components/ui/icons'
+import {
+  Button,
+  IconButton,
+  Loader2Icon,
+  MicIcon,
+  SquareIcon,
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@styleguide'
+import {
+  SearchIcon,
+  SendIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+} from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
-import type { AiChatClient, AiChatConfig, ChatErrorCode, ChatMessageDto, ChatStreamEvent } from './types'
+import type {
+  AiChatClient,
+  AiChatConfig,
+  ChatErrorCode,
+  ChatMessageDto,
+  ChatStreamEvent,
+} from './types'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
+import ChatPill from './ChatPill'
 import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 
 // ---------------------------------------------------------------------------
@@ -45,12 +65,30 @@ const FRIENDLY_ERROR: Record<ChatErrorCode, string> = {
   rate_limited: 'Too many requests. Try again in a moment.',
   upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
   aborted: '',
-  conversation_not_found: 'This chat is no longer available. Try starting a new one.',
+  conversation_not_found:
+    'This chat is no longer available. Try starting a new one.',
   internal: 'Something went wrong. Try again.',
 }
 
 function friendlyError(code: ChatErrorCode): string {
   return FRIENDLY_ERROR[code] ?? 'Something went wrong. Try again.'
+}
+
+// CommonMark turns any line indented 4+ spaces into a code block, so model
+// output that leaks leading indentation renders prose as a grey code box.
+// Strip that indentation outside fenced (```) blocks before rendering.
+function normalizeMarkdown(md: string): string {
+  let inFence = false
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence
+        return line
+      }
+      return inFence ? line : line.replace(/^ {4,}/, '')
+    })
+    .join('\n')
 }
 
 function newClientMessageId(): string {
@@ -61,8 +99,10 @@ function newClientMessageId(): string {
 }
 
 function messageToItem(msg: ChatMessageDto): ChatItem | null {
-  if (msg.role === 'user') return { kind: 'user', id: msg.id, content: msg.content }
-  if (msg.role === 'assistant') return { kind: 'assistant', id: msg.id, content: msg.content }
+  if (msg.role === 'user')
+    return { kind: 'user', id: msg.id, content: msg.content }
+  if (msg.role === 'assistant')
+    return { kind: 'assistant', id: msg.id, content: msg.content }
   return null
 }
 
@@ -133,10 +173,14 @@ export default function AiChatBody({
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
   const [introProgress, setIntroProgress] = useState(0)
-  const [feedback, setFeedback] = useState<Record<string, 'up' | 'down' | undefined>>({})
+  const [feedback, setFeedback] = useState<
+    Record<string, 'up' | 'down' | undefined>
+  >({})
 
-  const onFeedback = useCallback((id: string, value: 'up' | 'down') => {
-    setFeedback((prev) => ({ ...prev, [id]: prev[id] === value ? undefined : value }))
+  // TODO: feedback is local-only and lost on close. Persist via the chat API
+  // (e.g. chatApi.submitFeedback(messageId, value)) once the endpoint exists.
+  const onFeedback = useCallback((id: string, value: 'up' | 'down' | '') => {
+    setFeedback((prev) => ({ ...prev, [id]: value || undefined }))
   }, [])
 
   const abortRef = useRef<AbortController | null>(null)
@@ -153,7 +197,11 @@ export default function AiChatBody({
   )
 
   const showIntroAnimation =
-    introMessages.length > 0 && !conversationIdOverride && history.length === 0 && !streaming && !error
+    introMessages.length > 0 &&
+    !conversationIdOverride &&
+    history.length === 0 &&
+    !streaming &&
+    !error
 
   // Type the intro in character by character on first-ever open.
   useEffect(() => {
@@ -168,14 +216,18 @@ export default function AiChatBody({
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
-      try {
-        window.localStorage.setItem(config.introSeenKey, '1')
-      } catch {
-        // private mode — still stream this session
-      }
       setIntroProgress((p) => {
         const next = Math.min(p + step, introTotal)
-        if (next >= introTotal) clearInterval(id)
+        if (next >= introTotal) {
+          clearInterval(id)
+          // Mark seen only once the animation finishes — closing mid-stream
+          // should not suppress the intro on the next open.
+          try {
+            window.localStorage.setItem(config.introSeenKey, '1')
+          } catch {
+            // private mode — still stream this session
+          }
+        }
         return next
       })
     }, 28)
@@ -209,7 +261,11 @@ export default function AiChatBody({
       }
       setHistory(items)
     } catch (err) {
-      reportErrorToSentry(err, { surface: config.title, phase: 'init', conversationIdOverride })
+      reportErrorToSentry(err, {
+        surface: config.title,
+        phase: 'init',
+        conversationIdOverride,
+      })
       loadRequestedRef.current = false
       setError({
         message: 'Could not load this chat. Try again.',
@@ -259,7 +315,9 @@ export default function AiChatBody({
       const { conversationId: id } = await chatApi.createConversation()
       setConversationId(id)
       onConversationCreated?.(id)
-      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY(config.title) })
+      void queryClient.invalidateQueries({
+        queryKey: HISTORY_QUERY_KEY(config.title),
+      })
       return id
     } catch (err) {
       reportErrorToSentry(err, { surface: config.title, phase: 'init' })
@@ -268,7 +326,13 @@ export default function AiChatBody({
       creatingRef.current = false
       setCreating(false)
     }
-  }, [conversationId, chatApi, onConversationCreated, queryClient, config.title])
+  }, [
+    conversationId,
+    chatApi,
+    onConversationCreated,
+    queryClient,
+    config.title,
+  ])
 
   const runStream = useCallback(
     async (targetId: string, content: string, clientMessageId: string) => {
@@ -295,7 +359,12 @@ export default function AiChatBody({
 
         for await (const ev of iter) {
           if (ev.type === 'text') {
-            if (breakBeforeNextText && assembled.length > 0 && !/\s$/.test(assembled) && !/^\s/.test(ev.delta)) {
+            if (
+              breakBeforeNextText &&
+              assembled.length > 0 &&
+              !/\s$/.test(assembled) &&
+              !/^\s/.test(ev.delta)
+            ) {
               assembled += '\n\n'
             }
             breakBeforeNextText = false
@@ -342,7 +411,11 @@ export default function AiChatBody({
           setStreaming(null)
         }
       } catch (err) {
-        reportErrorToSentry(err, { surface: config.title, phase: 'stream', conversationId: targetId })
+        reportErrorToSentry(err, {
+          surface: config.title,
+          phase: 'stream',
+          conversationId: targetId,
+        })
         setError({
           message: 'Stream interrupted. Try again.',
           retryable: true,
@@ -433,7 +506,9 @@ export default function AiChatBody({
     messageRenderer ? (
       messageRenderer(content)
     ) : (
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {normalizeMarkdown(content)}
+      </ReactMarkdown>
     )
 
   const busy = sending || creating
@@ -456,7 +531,10 @@ export default function AiChatBody({
 
         {showIntroAnimation &&
           introParts.map((text, i) => (
-            <div key={i} className="self-start max-w-full text-sm text-foreground">
+            <div
+              key={i}
+              className="self-start max-w-full text-sm text-foreground"
+            >
               {text}
             </div>
           ))}
@@ -470,7 +548,10 @@ export default function AiChatBody({
               {item.content}
             </div>
           ) : (
-            <div key={item.id} className="self-start max-w-full text-sm text-foreground space-y-2">
+            <div
+              key={item.id}
+              className="self-start max-w-full text-sm text-foreground space-y-2"
+            >
               {item.toolsUsed && item.toolsUsed.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {item.toolsUsed.map((t) => (
@@ -487,36 +568,42 @@ export default function AiChatBody({
               <div className={ASSISTANT_BUBBLE}>
                 {renderMessage(item.content)}
               </div>
-              <div className="-ml-2 flex gap-1">
-                <IconButton
-                  type="button"
-                  size="small"
-                  variant="ghost"
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={feedback[item.id] ?? ''}
+                onValueChange={(v) =>
+                  onFeedback(item.id, v as 'up' | 'down' | '')
+                }
+                className="-ml-1 gap-1"
+              >
+                <ToggleGroupItem
+                  value="up"
                   aria-label="Like this response"
-                  aria-pressed={feedback[item.id] === 'up'}
-                  onClick={() => onFeedback(item.id, 'up')}
-                  className={feedback[item.id] === 'up' ? 'text-primary' : 'text-muted-foreground'}
+                  className="size-7 flex-none rounded-full text-muted-foreground data-[state=on]:bg-transparent data-[state=on]:text-primary"
                 >
                   <ThumbsUpIcon className="size-3" aria-hidden />
-                </IconButton>
-                <IconButton
-                  type="button"
-                  size="small"
-                  variant="ghost"
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="down"
                   aria-label="Dislike this response"
-                  aria-pressed={feedback[item.id] === 'down'}
-                  onClick={() => onFeedback(item.id, 'down')}
-                  className={feedback[item.id] === 'down' ? 'text-destructive' : 'text-muted-foreground'}
+                  className="size-7 flex-none rounded-full text-muted-foreground data-[state=on]:bg-transparent data-[state=on]:text-destructive"
                 >
                   <ThumbsDownIcon className="size-3" aria-hidden />
-                </IconButton>
-              </div>
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           ),
         )}
 
+        {/* Announce generation status once, instead of re-reading the whole
+            streamed answer on every token. */}
+        <span className="sr-only" aria-live="polite">
+          {streaming !== null ? 'Generating response' : ''}
+        </span>
+
         {streaming !== null && (
-          <div aria-live="polite" aria-atomic="false" className="self-start max-w-full text-sm text-foreground space-y-2">
+          <div className="self-start max-w-full text-sm text-foreground space-y-2">
             {activeTools.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {activeTools.map((t) => (
@@ -531,9 +618,7 @@ export default function AiChatBody({
               </div>
             )}
             {streaming ? (
-              <div className={ASSISTANT_BUBBLE}>
-                {renderMessage(streaming)}
-              </div>
+              <div className={ASSISTANT_BUBBLE}>{renderMessage(streaming)}</div>
             ) : activeTools.length === 0 ? (
               <span className="text-muted-foreground">Thinking...</span>
             ) : null}
@@ -547,7 +632,13 @@ export default function AiChatBody({
           >
             <span>{error.message}</span>
             {error.retryable && (
-              <Button type="button" size="small" variant="outline" onClick={onRetry} disabled={busy}>
+              <Button
+                type="button"
+                size="small"
+                variant="outline"
+                onClick={onRetry}
+                disabled={busy}
+              >
                 Retry
               </Button>
             )}
@@ -556,28 +647,35 @@ export default function AiChatBody({
       </div>
 
       {/* Suggestion chips — only on a fresh chat */}
-      {suggestions.length > 0 && history.length === 0 && streaming === null && !error && (
-        <div className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2 px-3 pb-3 pt-2`}>
-          {suggestions.map((s) => (
-            <Button
-              key={s}
-              type="button"
-              variant="outline"
-              size="small"
-              disabled={busy}
-              onClick={() => void sendContent(s)}
-              className="rounded-full"
-            >
-              {s}
-            </Button>
-          ))}
-        </div>
-      )}
+      {suggestions.length > 0 &&
+        history.length === 0 &&
+        streaming === null &&
+        !error && (
+          <div
+            className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2 px-3 pb-3 pt-2`}
+          >
+            {suggestions.map((s) => (
+              <Button
+                key={s}
+                type="button"
+                variant="outline"
+                size="small"
+                disabled={busy}
+                onClick={() => void sendContent(s)}
+                className="rounded-full"
+              >
+                {s}
+              </Button>
+            ))}
+          </div>
+        )}
 
       {/* Bottom slot — between messages and composer */}
       {bottomSlot && (
         <div>
-          <div className={`mx-auto w-full ${CHAT_MAX_W} px-4 pt-3 pb-5 lg:px-6`}>
+          <div
+            className={`mx-auto w-full ${CHAT_MAX_W} px-4 pt-3 pb-5 lg:px-6`}
+          >
             {bottomSlot}
           </div>
         </div>
@@ -585,69 +683,82 @@ export default function AiChatBody({
 
       {/* Composer */}
       <div className="border-t border-border px-3 py-3">
-        <div
-          className={`relative mx-auto w-full ${CHAT_MAX_W} p-[1.5px] animate-spin-gradient transition-all ${multiline ? 'rounded-3xl' : 'rounded-full'}`}
-          style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
+        <ChatPill
+          rounded={multiline ? '3xl' : 'full'}
+          className={`mx-auto w-full ${CHAT_MAX_W} transition-all`}
+          innerClassName={`overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'items-end' : 'items-center'}`}
         >
-          <div className={`flex min-h-12 w-full gap-1 bg-card pl-1.5 pr-1 py-0.5 overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'rounded-3xl items-end' : 'rounded-full items-center'}`}>
-            {onSelectConversation && (
-              <AiChatHistoryPopover
-                chatApi={chatApi}
-                configTitle={config.title}
-                onSelect={onSelectConversation}
-              />
-            )}
-            <textarea
-              ref={textareaRef}
-              value={composer}
-              onChange={(e) => {
-                setComposer(e.target.value)
-                e.target.style.height = 'auto'
-                const sh = e.target.scrollHeight
-                setMultiline(sh > 44)
-                e.target.style.height = `${sh}px`
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void onSend()
-                }
-              }}
-              placeholder={config.placeholder ?? 'How can I help?'}
-              disabled={creating}
-              aria-label="Ask a question"
-              rows={1}
-              className={`flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36${multiline ? '' : ' whitespace-nowrap'}`}
+          {onSelectConversation && (
+            <AiChatHistoryPopover
+              chatApi={chatApi}
+              configTitle={config.title}
+              onSelect={onSelectConversation}
             />
-            <IconButton
-              type="button"
-              size="medium"
-              variant="ghost"
-              aria-label={dictation.status === 'recording' ? 'Stop dictation' : 'Dictate a message'}
-              className="shrink-0"
-              disabled={busy || dictation.status === 'stopping'}
-              onClick={() => void dictation.toggle()}
-            >
-              {dictation.busy ? (
-                <Loader2Icon className="size-5 animate-spin" aria-hidden />
-              ) : dictation.status === 'recording' ? (
-                <SquareIcon className="size-5 animate-pulse text-destructive" aria-hidden />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
-            </IconButton>
-            <IconButton
-              type="button"
-              size="medium"
-              aria-label="Send"
-              className="shrink-0 bg-primary text-primary-foreground"
-              onClick={() => void onSend()}
-              disabled={composer.trim().length === 0}
-            >
-              <SendIcon className="size-4" aria-hidden />
-            </IconButton>
-          </div>
-        </div>
+          )}
+          <textarea
+            ref={textareaRef}
+            value={composer}
+            onChange={(e) => {
+              const ta = e.target
+              setComposer(ta.value)
+              ta.style.height = 'auto'
+              const sh = ta.scrollHeight
+              // Derive the one-row threshold from the textarea's own metrics
+              // so wrapping detection doesn't rely on a magic pixel value.
+              const styles = window.getComputedStyle(ta)
+              const lineHeight = parseFloat(styles.lineHeight) || 20
+              const paddingY =
+                parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom)
+              setMultiline(sh > lineHeight + paddingY + 1)
+              ta.style.height = `${sh}px`
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void onSend()
+              }
+            }}
+            placeholder={config.placeholder ?? 'How can I help?'}
+            disabled={creating}
+            aria-label="Ask a question"
+            rows={1}
+            className="flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
+          />
+          <IconButton
+            type="button"
+            size="medium"
+            variant="ghost"
+            aria-label={
+              dictation.status === 'recording'
+                ? 'Stop dictation'
+                : 'Dictate a message'
+            }
+            className="shrink-0"
+            disabled={busy || dictation.status === 'stopping'}
+            onClick={() => void dictation.toggle()}
+          >
+            {dictation.busy ? (
+              <Loader2Icon className="size-5 animate-spin" aria-hidden />
+            ) : dictation.status === 'recording' ? (
+              <SquareIcon
+                className="size-5 animate-pulse text-destructive"
+                aria-hidden
+              />
+            ) : (
+              <MicIcon className="size-5" aria-hidden />
+            )}
+          </IconButton>
+          <IconButton
+            type="button"
+            size="medium"
+            aria-label="Send"
+            className="shrink-0 bg-primary text-primary-foreground"
+            onClick={() => void onSend()}
+            disabled={composer.trim().length === 0}
+          >
+            <SendIcon className="size-4" aria-hidden />
+          </IconButton>
+        </ChatPill>
       </div>
     </div>
   )

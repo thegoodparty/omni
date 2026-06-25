@@ -2,7 +2,22 @@
 
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Button, IconButton, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  IconButton,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@styleguide'
 import { ClockIcon, Trash2Icon } from '@styleguide/components/ui/icons'
 import { useAiChatHistory, useDeleteAiConversation } from './useAiChatHistory'
 import type { AiChatClient } from './types'
@@ -22,9 +37,17 @@ function label(title: string | null, createdAt: string): string {
   }
 }
 
-export default function AiChatHistoryPopover({ chatApi, configTitle, onSelect }: Props): React.JSX.Element {
+export default function AiChatHistoryPopover({
+  chatApi,
+  configTitle,
+  onSelect,
+}: Props): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const { data: conversations, isPending, isFetching } = useAiChatHistory(chatApi, configTitle, open)
+  const {
+    data: conversations,
+    isPending,
+    isFetching,
+  } = useAiChatHistory(chatApi, configTitle, open)
   const deleteConversation = useDeleteAiConversation(chatApi, configTitle)
   const hasConversations = !!conversations && conversations.length > 0
 
@@ -64,23 +87,47 @@ export default function AiChatHistoryPopover({ chatApi, configTitle, onSelect }:
                 >
                   {label(c.title, c.createdAt)}
                 </Button>
-                <IconButton
-                  type="button"
-                  size="small"
-                  variant="ghost"
-                  aria-label="Delete chat"
-                  onClick={() => deleteConversation.mutate(c.conversationId)}
-                  disabled={deleteConversation.isPending}
-                >
-                  <Trash2Icon className="size-4" aria-hidden />
-                </IconButton>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <IconButton
+                      type="button"
+                      size="small"
+                      variant="ghost"
+                      aria-label="Delete chat"
+                      disabled={deleteConversation.isPending}
+                    >
+                      <Trash2Icon className="size-4" aria-hidden />
+                    </IconButton>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently removes the conversation. This action
+                        cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() =>
+                          deleteConversation.mutate(c.conversationId)
+                        }
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             ))}
           </div>
         ) : isPending || isFetching ? (
           <p className="px-2 py-2 text-sm text-muted-foreground">Loading...</p>
         ) : (
-          <p className="px-2 py-2 text-sm text-muted-foreground">No past conversations yet.</p>
+          <p className="px-2 py-2 text-sm text-muted-foreground">
+            No past conversations yet.
+          </p>
         )}
       </PopoverContent>
     </Popover>

@@ -1,7 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Drawer, DrawerContent, DrawerHandle, DrawerHeader, DrawerTitle } from '@styleguide'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHandle,
+  DrawerHeader,
+  DrawerTitle,
+} from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import AiChatBody from './AiChatBody'
 import { CHAT_MAX_W } from './constants'
@@ -39,7 +45,9 @@ export default function AiChatSurface({
   container,
   bottomSlot,
 }: Props): React.JSX.Element {
-  const [selectedId, setSelectedId] = useState<string | null>(initialConversationId ?? null)
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialConversationId ?? null,
+  )
 
   useEffect(() => {
     if (open) setSelectedId(initialConversationId ?? null)
@@ -57,7 +65,9 @@ export default function AiChatSurface({
             <SparklesIcon className="size-3.5" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
-            <DrawerTitle className="text-sm font-semibold">{config.title}</DrawerTitle>
+            <DrawerTitle className="text-sm font-semibold">
+              {config.title}
+            </DrawerTitle>
           </div>
         </DrawerHeader>
 
@@ -68,7 +78,7 @@ export default function AiChatSurface({
           config={config}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
-          className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-12 overflow-y-auto px-4 py-5`}
+          className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-10 overflow-y-auto px-4 py-5`}
           messageRenderer={messageRenderer}
           bottomSlot={bottomSlot}
         />

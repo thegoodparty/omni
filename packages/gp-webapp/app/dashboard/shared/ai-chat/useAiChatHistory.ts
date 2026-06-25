@@ -1,6 +1,11 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query'
 import type { AiChatClient, ChatConversationDto } from './types'
 
 export const HISTORY_QUERY_KEY = (surface: string) =>
@@ -17,12 +22,31 @@ export const useAiChatHistory = (
     enabled,
   })
 
-export const useDeleteAiConversation = (chatApi: AiChatClient, surface: string) => {
+export const useDeleteAiConversation = (
+  chatApi: AiChatClient,
+  surface: string,
+) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => chatApi.softDelete(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY(surface) })
+    onMutate: async (id: string) => {
+      const key = HISTORY_QUERY_KEY(surface)
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<ChatConversationDto[]>(key)
+      queryClient.setQueryData<ChatConversationDto[]>(key, (old) =>
+        (old ?? []).filter((c) => c.conversationId !== id),
+      )
+      return { previous }
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(HISTORY_QUERY_KEY(surface), context.previous)
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: HISTORY_QUERY_KEY(surface),
+      })
     },
   })
 }

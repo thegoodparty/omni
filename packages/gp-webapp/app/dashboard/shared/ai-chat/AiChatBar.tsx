@@ -4,6 +4,7 @@ import { IconButton } from '@styleguide'
 import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
+import ChatPill from './ChatPill'
 import type { AiChatClient, AiChatConfig } from './types'
 
 interface Props {
@@ -18,8 +19,6 @@ interface Props {
   extraBar?: React.ReactNode
   /** Horizontal alignment of extraBar content. Default: center. */
   extraBarAlign?: 'start' | 'center' | 'end'
-  /** Optional actions rendered in the same row as the pill, to its left. */
-  inlineActions?: React.ReactNode
   /** Extra classes on the fixed container — use to offset for a sidebar, e.g. `lg:left-64`. */
   className?: string
 }
@@ -28,6 +27,11 @@ interface Props {
  * Persistent footer chat bar. Fixed to the bottom of the viewport, offset by
  * the sidebar (16rem) on lg+. Tapping the pill or any button opens the chat
  * surface.
+ *
+ * Because it is `position: fixed`, it does not reserve layout space. The host
+ * page must pad its own bottom so content is not hidden behind the bar:
+ * roughly `pb-[72px]` for the pill row alone, `pb-[120px]` when `extraBar` is
+ * set (48px extra bar + 72px pill row).
  */
 export default function AiChatBar({
   chatApi,
@@ -37,7 +41,6 @@ export default function AiChatBar({
   onOpenConversation,
   extraBar,
   extraBarAlign = 'center',
-  inlineActions,
   className,
 }: Props): React.JSX.Element {
   const placeholder = firstName
@@ -45,22 +48,25 @@ export default function AiChatBar({
     : (config.placeholder ?? 'How can I help?')
 
   return (
-    <div className={`fixed inset-x-0 bottom-0 z-[55]${className ? ` ${className}` : ''}`}>
+    <div
+      className={`fixed inset-x-0 bottom-0 z-[55]${className ? ` ${className}` : ''}`}
+    >
       {extraBar && (
         <div className="flex h-12 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
-          <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}>
+          <div
+            className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}
+          >
             {extraBar}
           </div>
         </div>
       )}
-      <div className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}>
-      <div className={`mx-auto flex w-full ${CHAT_MAX_W} items-center gap-2 px-4 py-3 lg:px-6`}>
-        {inlineActions && <div className="flex shrink-0 items-center gap-2">{inlineActions}</div>}
+      <div
+        className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}
+      >
         <div
-          className="relative min-w-0 flex-1 rounded-full p-[1.5px] animate-spin-gradient"
-          style={{ background: 'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))' }}
+          className={`mx-auto flex w-full ${CHAT_MAX_W} items-center gap-2 px-4 py-3 lg:px-6`}
         >
-          <div className="flex min-h-12 w-full items-center gap-1 rounded-full bg-card py-0.5 pl-1.5 pr-1">
+          <ChatPill className="min-w-0 flex-1" innerClassName="items-center">
             <AiChatHistoryPopover
               chatApi={chatApi}
               configTitle={config.title}
@@ -91,9 +97,8 @@ export default function AiChatBar({
             >
               <SparklesIcon className="size-4" aria-hidden />
             </IconButton>
-          </div>
+          </ChatPill>
         </div>
-      </div>
       </div>
     </div>
   )

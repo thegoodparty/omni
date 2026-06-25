@@ -7,22 +7,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
 import { Stepper } from '../components/ui/stepper'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  DownloadIcon,
-  ExportIcon,
-  ImportIcon,
-  ShareIcon,
-  UploadIcon,
-} from '../components/ui/icons'
-import { IconButton } from '../components/ui/icon-button'
+import { DownloadIcon, ShareIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
 import ChatTimeline from 'app/dashboard/shared/ai-chat/ChatTimeline'
 import { mockChatApi } from 'app/dashboard/shared/ai-chat/mock-chat-api'
-import type { AiChatClient, AiChatConfig, ChatMessageDto } from 'app/dashboard/shared/ai-chat/types'
+import type {
+  AiChatClient,
+  AiChatConfig,
+  ChatMessageDto,
+} from 'app/dashboard/shared/ai-chat/types'
 import type { TimelineItem } from 'app/dashboard/shared/ai-chat/ChatTimeline'
 
 const queryClient = new QueryClient()
@@ -58,7 +53,6 @@ function AiChatDemo({
   firstName,
   extraBar,
   extraBarAlign,
-  inlineActions,
   messageRenderer,
   bottomSlot,
 }: {
@@ -70,11 +64,12 @@ function AiChatDemo({
   firstName?: string
   extraBar?: React.ReactNode
   extraBarAlign?: 'start' | 'center' | 'end'
-  inlineActions?: React.ReactNode
   messageRenderer?: (content: string) => React.ReactNode
   bottomSlot?: React.ReactNode
 }) {
-  const [conversationId, setConversationId] = useState<string | null>(initialConversationId ?? null)
+  const [conversationId, setConversationId] = useState<string | null>(
+    initialConversationId ?? null,
+  )
 
   return (
     <div className="relative h-[300px] bg-background">
@@ -94,7 +89,6 @@ function AiChatDemo({
           }}
           extraBar={extraBar}
           extraBarAlign={extraBarAlign}
-          inlineActions={inlineActions}
         />
       )}
 
@@ -151,7 +145,7 @@ type PlaygroundArgs = {
   subtitle: string
   extraBarAlign: 'start' | 'center' | 'end'
   showExtraBar: boolean
-  timelineVariant: 'none' | 'steps' | 'timeline'
+  timelineVariant: 'none' | 'timeline'
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
@@ -184,11 +178,19 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     timelineVariant: {
       control: 'inline-radio',
-      options: ['none', 'steps', 'timeline'],
-      description: 'Show a ChatTimeline in the assistant reply. "steps" shows progress with icons and status; "timeline" shows simple equal-weight dots.',
+      options: ['none', 'timeline'],
+      description:
+        'Show a ChatTimeline in the assistant reply: equal-weight dots with quotes and sources.',
     },
   },
-  render: ({ open, firstName, subtitle, extraBarAlign, showExtraBar, timelineVariant }) => {
+  render: ({
+    open,
+    firstName,
+    subtitle,
+    extraBarAlign,
+    showExtraBar,
+    timelineVariant,
+  }) => {
     const [, updateArgs] = useArgs()
     useEffect(() => {
       if (timelineVariant !== 'none') updateArgs({ open: true })
@@ -205,11 +207,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       </Button>
     ) : undefined
 
-    const chatApi = timelineVariant === 'steps'
-      ? TIMELINE_API
-      : timelineVariant === 'timeline'
-        ? HISTORY_API
-        : mockChatApi
+    const chatApi = timelineVariant === 'timeline' ? HISTORY_API : mockChatApi
 
     const renderer = timelineVariant !== 'none' ? timelineRenderer : undefined
 
@@ -224,7 +222,9 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         extraBarAlign={extraBarAlign}
         chatApi={chatApi}
         messageRenderer={renderer}
-        initialConversationId={timelineVariant !== 'none' ? SEEDED_ID : undefined}
+        initialConversationId={
+          timelineVariant !== 'none' ? SEEDED_ID : undefined
+        }
       />
     )
   },
@@ -238,13 +238,7 @@ export const Bar: StoryObj = {
   parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(false)
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        firstName="Alex"
-      />
-    )
+    return <AiChatDemo open={open} onOpenChange={setOpen} firstName="Alex" />
   },
 }
 
@@ -273,40 +267,26 @@ export const ExtraBarSlot: StoryObj = {
   },
 }
 
-export const WithInlineActions: StoryObj = {
-  name: 'With Inline Actions',
-  parameters: { controls: { disable: true } },
-  render: () => {
-    const [open, setOpen] = useState(false)
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        inlineActions={
-          <>
-            <IconButton type="button" variant="neutral" size="medium" aria-label="Import" className="bg-slate-100 border-transparent">
-              <ImportIcon className="size-5" />
-            </IconButton>
-            <IconButton type="button" variant="neutral" size="medium" aria-label="Export" className="bg-slate-100 border-transparent">
-              <ExportIcon className="size-5" />
-            </IconButton>
-          </>
-        }
-      />
-    )
-  },
-}
-
 export const ExtraBarActions: StoryObj = {
   parameters: { controls: { disable: true } },
   render: () => {
     const [open, setOpen] = useState(false)
     const extraBar = (
       <div className="flex items-center gap-2">
-        <Button type="button" variant="ghost" size="small" icon={<ShareIcon className="size-4" />}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="small"
+          icon={<ShareIcon className="size-4" />}
+        >
           Share
         </Button>
-        <Button type="button" variant="ghost" size="small" icon={<DownloadIcon className="size-4" />}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="small"
+          icon={<DownloadIcon className="size-4" />}
+        >
           Download
         </Button>
       </div>
@@ -322,23 +302,22 @@ export const ExtraBarActions: StoryObj = {
   },
 }
 
-
 export const DrawerOpen: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        firstName="Jordan"
-      />
-    )
+    return <AiChatDemo open={open} onOpenChange={setOpen} firstName="Jordan" />
   },
 }
 
 export const CustomMessageRenderer: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
     const messageRenderer = (content: string) => (
@@ -390,7 +369,9 @@ function makeSeededApi(
     conversationId: SEEDED_ID,
     role: m.role,
     content: m.content,
-    createdAt: new Date(Date.now() - (messages.length - i) * 15_000).toISOString(),
+    createdAt: new Date(
+      Date.now() - (messages.length - i) * 15_000,
+    ).toISOString(),
   }))
   return {
     ...mockChatApi,
@@ -402,7 +383,8 @@ function makeSeededApi(
 }
 
 function radioRenderer(content: string): React.ReactNode {
-  if (content !== RADIO_MARKER) return <p className="text-sm text-foreground">{content}</p>
+  if (content !== RADIO_MARKER)
+    return <p className="text-sm text-foreground">{content}</p>
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-foreground">
@@ -445,7 +427,10 @@ const RADIO_API = makeSeededApi([
 ])
 
 export const WithRadioCards: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -465,7 +450,10 @@ export const WithRadioCards: StoryObj = {
 // ---------------------------------------------------------------------------
 
 export const WithStepper: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -505,7 +493,7 @@ const LONG_CONV_API = makeSeededApi([
   {
     role: 'assistant',
     content:
-      "The council voted **6–3 in favor** of the Eastside rezoning proposal on Monday. Councilmembers Reyes, Park, and Thompson voted against.\n\nThis is relevant to your campaign because affordable housing is your #2 issue. Voters in precincts 4 and 9 — both swing areas — were closely watching this vote.",
+      'The council voted **6–3 in favor** of the Eastside rezoning proposal on Monday. Councilmembers Reyes, Park, and Thompson voted against.\n\nThis is relevant to your campaign because affordable housing is your #2 issue. Voters in precincts 4 and 9 — both swing areas — were closely watching this vote.',
   },
   { role: 'user', content: 'Draft a response to the housing vote' },
   {
@@ -517,7 +505,7 @@ const LONG_CONV_API = makeSeededApi([
   {
     role: 'assistant',
     content:
-      "Here's a tighter version for social:\n\n> \"The Eastside rezoning passed 6–3 — good first step. Now we need to make sure it delivers real affordable housing, not just developer profits. I'll be watching the implementation closely. 🏘️\"\n\nUnder 280 characters, ready to post.",
+      'Here\'s a tighter version for social:\n\n> "The Eastside rezoning passed 6–3 — good first step. Now we need to make sure it delivers real affordable housing, not just developer profits. I\'ll be watching the implementation closely. 🏘️"\n\nUnder 280 characters, ready to post.',
   },
   { role: 'user', content: "What do I need to know for Thursday's debate?" },
   {
@@ -528,7 +516,10 @@ const LONG_CONV_API = makeSeededApi([
 ])
 
 export const LongConversation: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
@@ -546,88 +537,47 @@ export const LongConversation: StoryObj = {
 // WithTimeline
 // ---------------------------------------------------------------------------
 
-const TIMELINE_MARKER = '__timeline__'
-
-const TIMELINE_ITEMS: TimelineItem[] = [
-  {
-    label: 'Step 1',
-    title: 'You announced your candidacy',
-    status: 'done',
-    description:
-      'You filed your declaration of candidacy and your name is officially on the ballot. This is a big deal — most people never take this step.',
-  },
-  {
-    label: 'Step 2',
-    title: 'Collect 250 ballot signatures',
-    status: 'active',
-    description:
-      'You need 250 valid signatures from registered voters in District 7 to secure your spot on the ballot. You have 6 weeks.',
-    items: [
-      'Set a daily goal of 10–15 signatures to stay on track',
-      'Farmers markets and community events are your best bet',
-      'Every signer is a potential volunteer — ask them',
-    ],
-    source: { organization: 'County Elections Office', title: 'Petition requirements for District 7' },
-  },
-  {
-    label: 'Step 3',
-    title: 'Raise your first $5,000',
-    status: 'upcoming',
-    description:
-      'Early money signals viability. Start with your personal network — friends, family, former colleagues. A small fundraiser at someone\'s home can get you there fast.',
-    items: [
-      '50 people × $100 = $5,000',
-      'Set up your GoodParty donation page first so every ask has a link',
-    ],
-  },
-  {
-    label: 'Step 4',
-    title: 'Knock 1,000 doors before summer',
-    status: 'upcoming',
-    description:
-      'Door-knocking is the highest-converting voter contact method for local races. Candidates who knock 1,000+ doors before Labor Day win at twice the rate of those who don\'t.',
-    source: { organization: 'GoodParty Research', title: 'Win rate analysis, 2022–2024' },
-  },
-  {
-    label: 'Step 5',
-    title: 'Win on November 4th',
-    status: 'upcoming',
-    description:
-      'Your target is 2,840 votes — about 38% of expected turnout in District 7. GoodParty will help you track every voter contact and remind your supporters to show up.',
-  },
-]
-
-const TIMELINE_API = makeSeededApi([
-  { role: 'user', content: 'What are the steps to run for city council?' },
-  { role: 'assistant', content: TIMELINE_MARKER },
-])
-
 const HISTORY_MARKER = '__history__'
 
 const HISTORY_ITEMS: TimelineItem[] = [
   {
     label: '1978',
     title: 'Chapter 18 created',
-    description: 'Council adopts the modern zoning code, locking in single-family on most lots.',
-    quote: '"We want neighborhoods to be stable, not frozen, but the protections came first."',
+    description:
+      'Council adopts the modern zoning code, locking in single-family on most lots.',
+    quote:
+      '"We want neighborhoods to be stable, not frozen, but the protections came first."',
     quoteAttribution: 'Councilor Alvarez',
-    source: { organization: 'Maplewood City Council', title: 'Council minutes, 1978' },
+    source: {
+      organization: 'Maplewood City Council',
+      title: 'Council minutes, 1978',
+    },
   },
   {
     label: '2003',
     title: 'ADU allowance',
-    description: 'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
-    quote: '"This is the smallest step toward more housing we can take without rewriting the whole code."',
+    description:
+      'Accessory dwelling units permitted on single-family lots with owner-occupancy rule.',
+    quote:
+      '"This is the smallest step toward more housing we can take without rewriting the whole code."',
     quoteAttribution: 'Councilor Kim',
-    source: { organization: 'Maplewood City Council', title: 'Council minutes, 2003' },
+    source: {
+      organization: 'Maplewood City Council',
+      title: 'Council minutes, 2003',
+    },
   },
   {
     label: '2019',
     title: 'Last amended',
-    description: 'Owner-occupancy ADU rule removed. No broader missing-middle reform attempted.',
-    quote: '"We did not have the political room for triplexes. A future council should pick that up."',
+    description:
+      'Owner-occupancy ADU rule removed. No broader missing-middle reform attempted.',
+    quote:
+      '"We did not have the political room for triplexes. A future council should pick that up."',
     quoteAttribution: 'Councilor Park',
-    source: { organization: 'Maplewood City Council', title: 'Council minutes, 2019' },
+    source: {
+      organization: 'Maplewood City Council',
+      title: 'Council minutes, 2019',
+    },
   },
 ]
 
@@ -637,30 +587,15 @@ const HISTORY_API = makeSeededApi([
 ])
 
 function timelineRenderer(content: string): React.ReactNode {
-  if (content === TIMELINE_MARKER) return <ChatTimeline items={TIMELINE_ITEMS} variant="steps" />
-  if (content === HISTORY_MARKER) return <ChatTimeline items={HISTORY_ITEMS} variant="timeline" />
+  if (content === HISTORY_MARKER) return <ChatTimeline items={HISTORY_ITEMS} />
   return <p className="text-sm text-foreground">{content}</p>
 }
 
-export const WithStatus: StoryObj = {
-  name: 'Vertical Stepper',
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
-  render: () => {
-    const [open, setOpen] = useState(true)
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        chatApi={TIMELINE_API}
-        initialConversationId={SEEDED_ID}
-        messageRenderer={timelineRenderer}
-      />
-    )
-  },
-}
-
 export const WithTimeline: StoryObj = {
-  parameters: { controls: { disable: true }, docs: { story: { inline: false, height: '600px' } } },
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
   render: () => {
     const [open, setOpen] = useState(true)
     return (
