@@ -5,6 +5,17 @@ Epic: ENG-10406. Product context and decision log: repo `campaign-tracker-v3-con
 Prototype Link: https://snuggle-nav-kit.lovable.app/campaign-plan
 Design diagram (CAP + cron): "Option 2" — https://drive.google.com/file/d/10v4ij2idODYwWdNJdoO2Ias9yvhNOHGd/view
 
+> **Superseded by the June 2026 GA decision.** The coexistence model described
+> below (a new table for new users while existing users stay on legacy
+> `campaign_task`, with no hard switch) no longer holds. The legacy task path is
+> retired: every user goes through campaign story, then campaign plan, then the
+> new tracker generation flow, and legacy tasks are never shown or generated.
+> Wherever this doc says "existing users keep `campaign_task`" or "branch per the
+> coexistence check," read instead: every campaign is on
+> `campaign_tracker_tasks`. The `community_events` JSON column stays in place but
+> dead. The Monday digest reads the top 3 from `campaign_tracker_tasks` for all
+> users.
+
 ## Summary
 
 The Campaign Tracker renders a candidate's plan as phased, prioritized weekly tasks. The static catalog and the client-side presentation already ship. This doc designs the personalized half: a single weekly CAP experiment that finds local community events and prioritizes the candidate's top tasks for the week (events included), persisted in a **new `campaign_tracker_tasks` table** whose schema mirrors the existing `campaign_task` table plus a `phase` column — so we reuse the completion, CTA, and digest machinery while keeping the new tracker isolated from existing users.
