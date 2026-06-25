@@ -179,15 +179,39 @@ export default function FollowOnFlow({
   const isP2vBlocking = activeStep.id === 'path-to-victory' && isP2vLoading
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
+  // same-office inherits the held office; block Continue until we have its slug
+  // so we never POST a follow-on the server would 400 (e.g. a direct
+  // ?intent=same-office URL whose eligibility lookup hasn't resolved a slug).
+  const isSameOfficeMissingSlug =
+    activeStep.id === 'welcome' &&
+    answers.followOnIntent === 'same-office' &&
+    !answers.fromOrganizationSlug
   const canContinue =
     isActiveStepValid &&
     !isCreating &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking
+    !isOfficeHydrationBlocking &&
+    !isSameOfficeMissingSlug
 
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [activeStepId])
+
+  // The switcher passes the held-office slug via ?from=, but a direct
+  // ?intent=same-office URL omits it — backfill from eligibility once it
+  // resolves so both the Continue gate and the create payload have the slug.
+  useEffect(() => {
+    if (
+      intent === 'same-office' &&
+      !answers.fromOrganizationSlug &&
+      reelectionOfficeSlug
+    ) {
+      setAnswers((current) => ({
+        ...current,
+        fromOrganizationSlug: reelectionOfficeSlug,
+      }))
+    }
+  }, [intent, answers.fromOrganizationSlug, reelectionOfficeSlug])
 
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
@@ -253,14 +277,7 @@ export default function FollowOnFlow({
     try {
       const { data: campaign } = await clientRequest(
         'POST /v1/campaigns/follow-on',
-        buildFollowOnPayload({
-          ...answers,
-          // The switcher passes the held-office slug via ?from=; fall back to
-          // eligibility so a same-office run still inherits the position if the
-          // param is absent. The new-office payload ignores this field.
-          fromOrganizationSlug:
-            answers.fromOrganizationSlug ?? reelectionOfficeSlug ?? undefined,
-        }),
+        buildFollowOnPayload(answers),
       )
       setNewCampaignActive(campaign)
       return await flushEarlyAttrs(buildEarlyAttrs())
@@ -579,10 +596,11 @@ export default function FollowOnFlow({
             size="large"
             onClick={goBack}
             // Once the campaign exists, going back can't un-create it, so block
-            // back-navigation to earlier steps. On the first step (no
-            // previousStep) Back exits the flow instead of dead-ending, so it
-            // stays enabled there.
-            disabled={liveCampaign !== null}
+            // back-navigation to earlier steps. Also block while a create is in
+            // flight: on the first step Back exits to /dashboard, which would
+            // otherwise abandon the session mid-creation. On the first step (no
+            // previousStep) Back exits the flow, so it stays enabled there.
+            disabled={liveCampaign !== null || isCreating}
           >
             Back
           </Button>

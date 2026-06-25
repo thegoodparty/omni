@@ -139,18 +139,40 @@ describe('FollowOnFlow', () => {
       return { status: 200, data: { id: 4242, slug: 'campaign-4242' } as never }
     })
 
-    // Direct ?intent=same-office URL with no ?from=: the flow falls back to the
-    // held office from eligibility (reelectionOfficeSlug) so the same-office run
-    // still inherits the position rather than 400ing on a missing source org.
+    // Direct ?intent=same-office URL with no ?from=: the flow backfills the held
+    // office from eligibility (reelectionOfficeSlug) so the same-office run still
+    // inherits the position rather than 400ing on a missing source org.
     render(<FollowOnFlow intent="same-office" />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+    const continueButton = await screen.findByRole('button', {
+      name: /continue/i,
+    })
+    // Continue is gated until the slug backfills from eligibility.
+    await waitFor(() => expect(continueButton).toBeEnabled())
+    fireEvent.click(continueButton)
 
     await waitFor(() => expect(followOnBody).not.toBeNull())
     expect(followOnBody).toEqual({
       intent: 'same-office',
       fromOrganizationSlug: 'eo-1',
     })
+  })
+
+  it('keeps Continue disabled for same-office when no held-office slug resolves', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [] },
+    })
+
+    // No ?from= and no reelectionOfficeSlug to backfill from (e.g. the
+    // eligibility lookup resolved nothing): Continue must stay disabled rather
+    // than firing a follow-on the server would 400. Back still exits the flow.
+    render(<FollowOnFlow intent="same-office" />)
+
+    expect(
+      await screen.findByRole('button', { name: /continue/i }),
+    ).toBeDisabled()
   })
 
   it('recovers from a 409 by resuming on the existing campaign', async () => {
