@@ -33,11 +33,15 @@ no real users, no real data, no backend. Operate accordingly.
 - The yardstick is: "does this clearly and beautifully convey the concept?"
   Not: "is this correct, safe, or production-ready?"
 
-Pull in `frontend-design` sensibilities throughout: visual hierarchy, whitespace,
-typography scale, color semantics, interactive affordances. Build only from
-`@goodparty_org/styleguide` components and its design tokens — no raw hex values,
-no hardcoded spacing outside the token scale, no imported UI libraries outside
-the styleguide.
+**Invoke the `frontend-design` skill now — it is the bar for "good design" here.**
+Don't just gesture at design; load that skill and apply it: visual hierarchy,
+whitespace, typography scale, color semantics, motion, and choices that look
+intentional rather than templated. A prototype that's structurally correct but
+visually flat has missed the point of this surface.
+
+Build only from `@goodparty_org/styleguide` components and its design tokens — no
+raw hex values, no hardcoded spacing outside the token scale, no imported UI
+libraries outside the styleguide.
 
 ## 2. Orient onto the right prototype
 
@@ -70,36 +74,69 @@ export default meta
 Confirm the slug before any edits. Then open the prototype's `page.tsx` and any
 adjacent component files to orient on the current state before proposing changes.
 
-## 3. Get the design environment running locally
+## 3. See your work — without opening browsers
 
-Start the dev server in the background:
+Start the dev server once, in the background, and leave it running for the whole
+session:
 
 ```bash
-npm run dev -w packages/prototypes
+npm run dev -w packages/prototypes   # http://localhost:4002
 ```
 
-The app runs on port **4002**. Once the server is up, open the prototype in the
-browser:
+There are two views of the prototype. Use the right one for each audience:
 
-```
-http://localhost:4002/p/<slug>
-```
+- **The human watches the Claude Desktop preview viewer.** Point it at
+  `http://localhost:4002/p/<slug>` once. With the dev server running, HMR pushes
+  every save to that pane in ~1s — no browser windows, no agent round-trip. This is
+  the designer's live view; assume it is open and that they see saves immediately.
+  You do not need to screenshot for the human's benefit.
+- **You (the agent) self-check with the headless Playwright MCP.** When you need to
+  _see_ a result to correct your own work, use `browser_navigate` →
+  `browser_take_screenshot` against `http://localhost:4002/p/<slug>`. The MCP is
+  configured headless + isolated in `.mcp.json`, so it never opens a window and
+  reuses one session — never override it to headed, and never use `npx playwright
+screenshot`, `open <url>`, the `run` skill, or anything else that launches a
+  visible browser. Screenshot only when you genuinely need to verify layout, not
+  after every trivial edit.
+- **Reference the design system through Storybook — headlessly.** To see a
+  styleguide component or pattern in isolation, point the same headless MCP at its
+  story iframe: `https://style.goodparty.org/iframe.html?id=<story-id>&viewMode=story`
+  (story ids are in `https://style.goodparty.org/index.json`). To learn a
+  component's API, read its story source in `packages/styleguide/src/stories/`.
+  Storybook — not the component source — is the canonical catalog; details in
+  `packages/prototypes/CLAUDE.md`.
 
-Use the `run` skill or the Playwright MCP (`browser_navigate`) to open the URL
-and take a screenshot confirming the prototype renders. Verify HMR is live by
-confirming the dev server is watching — any saved change should reflect in the
-browser within a second or two without a manual reload. Reference the Playwright
-MCP for viewport screenshots after each round of edits so the user can see
-progress without switching windows.
+If the server won't start, check port 4002 isn't already in use (`lsof -i :4002`)
+and that `packages/prototypes` exists. If the package isn't there, its scaffold is
+a prerequisite — pause and ask.
 
-If the server fails to start, check that port 4002 is not already in use
-(`lsof -i :4002`) and that `packages/prototypes` exists in the workspace. If the
-package does not exist yet, its scaffold is a prerequisite — pause and ask.
+## 4. Move fast — this loop should feel instant
 
-## 4. Guardrails
+Responsiveness is the product here. Optimize the loop:
+
+- **Context is pre-loaded; don't re-explore.** `packages/prototypes/CLAUDE.md`
+  carries the reference you need every session — the `<AppShell>` API, the
+  org/tab model, and where components and tokens live. Read it once; don't re-grep
+  the styleguide each turn.
+- **Lean on HMR; skip the heavy gates.** During iteration, never run `tsc`, `lint`,
+  the test suite, or `next build` — they burn seconds the loop can't spare. Save,
+  let HMR refresh, screenshot only if you need to self-check. Run gates once, at
+  ship time.
+- **Fan out independent work to subagents.** Multiple screens, several variants, or
+  a new screen alongside a tweak should go to parallel subagents so changes land
+  together and the main loop stays snappy. Give each a tight brief (the screen, its
+  mock data, the design intent) and have it return the finished component — not a
+  transcript.
+
+## 5. Guardrails
 
 These are hard limits regardless of what the user asks for in prototype mode:
 
+- **Never launch a visible browser window.** The only way you view rendered UI is
+  the headless Playwright MCP (forced headless in `.mcp.json`). No headed browsers,
+  no `open <url>`, no `npx playwright screenshot`, no `run` skill for viewing. The
+  human's live view is the Claude Desktop preview viewer — you can't access it and
+  don't need to.
 - **No backend calls.** No `fetch`, no service calls, no auth headers, no S2S
   tokens, no Prisma imports, no SQS, no worker hooks.
 - **No auth or data fetching.** All data in prototypes is static or hardcoded.
