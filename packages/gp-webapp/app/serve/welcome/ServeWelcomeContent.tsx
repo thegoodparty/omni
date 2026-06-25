@@ -38,7 +38,7 @@ const CONSUMED_TICKET_MESSAGE =
 // Critically distinct from CONSUMED_TICKET_MESSAGE so we never tell a user the
 // link is invalid when the real problem was a temporary glitch.
 const RETRYABLE_MESSAGE =
-  'Something went wrong while signing you in. Please sign in below or request a new link.'
+  'Something went wrong while signing you in. Please go to login to try again, or request a new link from your GoodParty contact.'
 
 /**
  * Best-effort decode of the `sub` (user id) claim from the sign-in-token JWT so
@@ -189,8 +189,17 @@ export default function ServeWelcomeContent() {
       })
 
       if (result.status !== 'complete' || !result.createdSessionId) {
-        // The exchange returned without completing a sign-in: the ticket is
-        // genuinely invalid/expired/already-consumed (no session was created).
+        // Before concluding the ticket is dead, check whether a session for the
+        // ticket user already exists: clerk-js's FAPI layer can internally
+        // retry the exchange POST, so the first attempt may have established a
+        // session even though this (retried) result came back incomplete. Mirror
+        // the same recovery the outer catch performs.
+        if (isSignedInAsTicketUser()) {
+          window.location.href = POST_AUTH_REDIRECT
+          return
+        }
+        // The exchange returned without completing a sign-in and no session
+        // exists: the ticket is genuinely invalid/expired/already-consumed.
         // Show the recovery copy; the latched guard prevents a re-attempt.
         setError(CONSUMED_TICKET_MESSAGE)
         setRedeeming(false)

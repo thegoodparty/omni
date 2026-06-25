@@ -259,6 +259,26 @@ describe('ServeWelcomeContent', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('treats a non-complete exchange result as success when a session for the ticket user was nonetheless established (FAPI internal retry)', async () => {
+    mockUser = null
+    // The (internally retried) exchange comes back incomplete, but the first
+    // attempt already established the session for the ticket user. We must
+    // recover instead of declaring the link consumed.
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      return { status: 'needs_first_factor', createdSessionId: null }
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(mockSetActive).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('does NOT re-run signIn.create after the exchange has been attempted, even when it fails (guard stays latched, no double-spend)', async () => {
     mockSignInCreate.mockRejectedValue(new Error('network blip'))
 
