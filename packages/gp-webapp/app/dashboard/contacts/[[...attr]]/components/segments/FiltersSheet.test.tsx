@@ -443,6 +443,79 @@ describe('<FiltersSheet>', () => {
     expect(sentBody).toMatchObject({ name: 'Door knock list' })
   })
 
+  it('keeps the typed name when a background customSegments refetch changes the array reference', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+
+    const { rerender } = render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, 'My door list')
+
+    // Simulate a window-focus refetch handing the provider a brand-new
+    // customSegments array reference while the sheet stays open.
+    setContext({ customSegments: [editableSegment({ id: 99 })] })
+    rerender(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText(/list name/i)).toHaveValue('My door list')
+  })
+
+  it('keeps Create disabled and sends nothing when the name is only whitespace', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 12, name: 'x' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, '   ')
+    await user.click(checkboxForOption('Male'))
+
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeDisabled()
+
+    await user.click(create)
+    expect(sentBody).toBeNull()
+  })
+
   it('disables Create until a list name is entered', async () => {
     const user = userEvent.setup()
     setContext()

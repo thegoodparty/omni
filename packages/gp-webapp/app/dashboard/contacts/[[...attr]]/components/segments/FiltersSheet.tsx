@@ -181,7 +181,11 @@ export default function Filters({
       setSegmentName(nextCustomSegmentName)
       setIsEditingName(false)
     }
-  }, [mode, editSegment, open, customSegments])
+    // Seed the default name once when the sheet opens; a background
+    // customSegments refetch (e.g. window-focus) must not overwrite a
+    // name the user has already typed into the create input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, editSegment, open])
 
   const saveMutation = useMutation({
     mutationFn: async (payload: { name: string } & BackendFilters) =>
@@ -248,7 +252,7 @@ export default function Filters({
       return
     }
     saveMutation.mutate({
-      name: segmentName,
+      name: segmentName.trim(),
       ...transformFiltersForBackend(filters),
     })
   }
@@ -260,7 +264,7 @@ export default function Filters({
     }
     updateMutation.mutate({
       id: editSegment.id,
-      name: segmentName,
+      name: segmentName.trim(),
       ...transformFiltersForBackend(filters),
     })
   }
@@ -272,7 +276,8 @@ export default function Filters({
 
   const canSave = (): boolean => {
     return (
-      !!segmentName && Object.values(filters).some((value) => value === true)
+      !!segmentName.trim() &&
+      Object.values(filters).some((value) => value === true)
     )
   }
 
