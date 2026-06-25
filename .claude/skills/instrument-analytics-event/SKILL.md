@@ -146,7 +146,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
 
-   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step) before moving to step 7.
+   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step), then complete steps 7–8.
 
 7. **Record code provenance (frontend AND backend).**
 
@@ -165,7 +165,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    The engine stores the PR as a full link (`https://github.com/thegoodparty/omni/pull/1234`),
    writes today's date and status `present`, and leaves the exact merge SHA blank for the
-   periodic git-walk (`runbooks/refresh-event-provenance.md`) to fill. The skill is the freshness
+   periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
    writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
    so the file's sort and quoting stay identical to a full walk.
 
