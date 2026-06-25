@@ -20,6 +20,10 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
 }))
 
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-one' }),
+}))
+
 vi.mock('helpers/analyticsHelper', async () => {
   const actual = await vi.importActual<object>('helpers/analyticsHelper')
   return {

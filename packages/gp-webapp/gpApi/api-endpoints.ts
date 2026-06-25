@@ -507,6 +507,10 @@ export type APIEndpoints = {
     Request: {}
     Response: Person
   }
+  'POST /v1/contacts/count': {
+    Request: Record<string, unknown>
+    Response: { count: number }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob

@@ -25,6 +25,7 @@ import {
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
+import { CountContactsDTO } from '../schemas/countContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -249,6 +250,56 @@ export class ContactsService {
     return this.withOrgDistrictResolution(organization, (params) =>
       fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
+  }
+
+  // Live matching-voter count for the in-progress (unsaved) filter set the
+  // segment builder is showing (ENG-10517). Runs the same filter translation a
+  // saved segment would and reads only the people-api total — resultsPerPage: 1
+  // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
+  // requester only ever sees the base-list preview, never an arbitrary count.
+  async countContacts(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<number> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const filters = convertVoterFileFilterToFilters(filterInput)
+    // The builder counts the filter set plus any active free-text search so the
+    // number matches the list it would save (ENG-10517/10518).
+    const search = filterInput.search || undefined
+
+    const fetchCount = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: 1,
+              page: 1,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return (response.data as PeopleListResponse).pagination.totalResults
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to count from people API')
+        throw new BadGatewayException('Failed to count from people API')
+      }
+    }
+
+    return this.withOrgDistrictResolution(organization, fetchCount)
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
