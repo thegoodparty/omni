@@ -217,6 +217,18 @@ describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
     })
     expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
   })
+
+  it('renders Chief of Staff before Briefing Assistant when both are shown', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+    })
+    const cosIdx = items.findIndex((i) => i.id === 'chief-of-staff-dashboard')
+    const briefingsIdx = items.findIndex((i) => i.id === 'briefings-dashboard')
+    expect(cosIdx).toBeGreaterThanOrEqual(0)
+    expect(briefingsIdx).toBeGreaterThanOrEqual(0)
+    expect(cosIdx).toBeLessThan(briefingsIdx)
+  })
 })
 
 describe('getDashboardMenuItems — Community Issues nav gating', () => {
