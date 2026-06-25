@@ -129,6 +129,7 @@ def _base_artifact(
         "run_metadata": {
             "agenda_packet_url": None,
             "source_bundle_retrieved_at": "2026-05-26T00:00:00Z",
+            "discovered_agenda_location": None,
         },
         "items": items,
         "claims": [],

@@ -1,3 +1,4 @@
+import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
@@ -13,6 +14,7 @@ import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportA
 
 @Module({
   imports: [
+    CommunityIssuesModule,
     OrganizationsModule,
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),

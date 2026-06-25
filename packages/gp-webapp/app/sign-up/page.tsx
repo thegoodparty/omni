@@ -1,8 +1,9 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { SignUp } from '@clerk/nextjs'
 import { getPostAuthRedirectPath } from 'app/dashboard/shared/candidateAccess'
 import pageMetaData from 'helpers/metadataHelper'
+import SignUpForm from './SignUpForm'
+import MarketingPanel from './MarketingPanel'
 
 const meta = pageMetaData({
   title: 'Sign up to GoodParty.org',
@@ -18,11 +19,11 @@ export default async function SignUpPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-64px)] py-8">
-      <SignUp
-        fallbackRedirectUrl="/post-auth-redirect?source=signup"
-        routing="hash"
-      />
+    <div className="grid min-h-[calc(100vh-64px)] grid-cols-1 lg:grid-cols-[3fr_2fr]">
+      <div className="flex items-center justify-center bg-white px-6 py-12 lg:order-2 lg:py-16">
+        <SignUpForm />
+      </div>
+      <MarketingPanel className="lg:order-1" />
     </div>
   )
 }

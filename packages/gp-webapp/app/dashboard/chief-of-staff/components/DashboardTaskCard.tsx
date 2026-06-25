@@ -29,7 +29,6 @@ export default function DashboardTaskCard({
   const dueLine = formatDueDate(card.dueDate)
   return (
     <TaskCard
-      scrollSpy
       eyebrowLabel={label}
       EyebrowIcon={Icon}
       title={card.title}

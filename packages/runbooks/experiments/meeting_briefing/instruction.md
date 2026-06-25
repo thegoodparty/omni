@@ -8,8 +8,7 @@ Run a meeting briefing for one elected official's specific city council meeting.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
 3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
-5. Run `python3 /workspace/qa_checks.py` before declaring success. (The runner-written `/workspace/validate_output.py` is a generic schema-only fast check; `qa_checks.py` is the full deterministic QA — schema + cross-references + required data points + discovery-channel depth.)
-6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
+5. Perform the spot-check at the bottom — schema-valid data can still be garbage.
 
 ## EARLY EXIT CONDITIONS (gate the run before any heavy work)
 
@@ -69,8 +68,7 @@ The packet is **not** the published agenda summary page. The summary lists item 
 15. Set `briefing_status` and emit `required_data_points`.
 16. Format the constituent sentiment output per item using Step 8 results.
 17. Write artifact to `/workspace/output/meeting_briefing.json`.
-18. Run `python3 /workspace/qa_checks.py` (full deterministic QA — schema + cross-references + discovery-channel depth + source-extract presence).
-19. Spot-check.
+18. Spot-check.
 
 ## CRITICAL RULES
 
@@ -157,7 +155,6 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 ### Output rules
 
 - Write **only** to `/workspace/output/meeting_briefing.json`. The runner publishes nothing else.
-- Run `python3 /workspace/qa_checks.py` before declaring success. (Generic `/workspace/validate_output.py` does schema-only; `qa_checks.py` does schema + deterministic QA.) The runner-level validator will reject the artifact post-hoc if you skip this; in-loop validation lets you fix violations cheaply.
 
 ## Steps
 
@@ -192,6 +189,34 @@ Success: the cursor returns a one-row result with `ping = 1`. Continue with the 
 
 Failure: the call raises (connection error, scope violation, or `UpstreamError`). Do not fail the run — proceed without Haystaq. Set `haystaq_status: "no_match"` on every item that would have used it, omit haystaq sources from `sources[]`, and record the decision in `run_metadata.run_decisions[]` with reason `"databricks_credentials_unavailable: <ExceptionClassName>"` (include only the exception class name — never the raw error message, which may carry hostnames, schema paths, or driver stack hints that should not appear in the published artifact).
 
+### Step 1b — Read official's priorities and community issues (via MCP)
+
+**This step is iterate-separately guidance.** The backend now writes link rows from stamped `executive_summary.items[]` ids. Stamp each `executive_summary` item with the correct ids to activate those links.
+
+Before classifying agenda items, fetch the official's priorities and community issues over MCP. These shape both tier selection (Step 5) and the stamping rule (Step 17):
+
+```
+GET /v1/priorities          → org's durable priority list (may be empty)
+GET /v1/community-issues → latest community issues for the org (may be empty)
+```
+
+Both are `@McpTool` endpoints; call them with the org's auth context. Store the results in memory:
+
+- `PRIORITIES` — array of `{ id, title, description }` objects (non-archived, active)
+- `COMMUNITY_ISSUES` — array of `{ id, title, summary, list, category }` objects (non-archived)
+
+If either call fails or returns empty, treat that pool as empty and proceed without it. Do not abort the run — Haystaq district data is the fallback.
+
+### Step 1c — Determine the triage hierarchy for this org
+
+**Triage hierarchy (evaluated once, applied throughout classification and stamping):**
+
+1. **PRIORITIES (highest)** — the org has at least one active priority from `PRIORITIES`. Agenda items that map to a priority are featured/queued first.
+2. **COMMUNITY ISSUES (mid)** — use when `PRIORITIES` is empty. Agenda items that map to a `COMMUNITY_ISSUES` entry drive tier selection.
+3. **Haystaq district data (fallback)** — use only when both `PRIORITIES` and `COMMUNITY_ISSUES` are empty. The inline Haystaq catalog (Steps 6–8) is the sole source of constituent resonance signals.
+
+Record which tier of the hierarchy applies in `run_metadata.run_decisions[]` (e.g. `decision: "triage_source", reason: "priorities (N active)"`).
+
 ### Step 2 — Resolve agenda packet source
 
 **Target: the agenda packet, not the summary.** Re-read "WHAT COUNTS AS THE AGENDA PACKET" above before proceeding. You are looking for the substantive briefing PDFs (staff reports, ordinances, exhibits, etc.) — either one compiled file or the per-item attachments collection. If you end this step with only a summary, you have not resolved the packet and must route to `awaiting_agenda` in Step 3.
@@ -207,7 +232,7 @@ If the streaming platform shows NO meeting on `PARAMS.meetingDate` for the offic
 - Emit `meeting_time: ""` and `meeting_timezone: ""` if not provided in PARAMS; otherwise echo them.
 - Emit the single-placeholder `items[]` shape from Step 3's failure path (`item_001`, `tier: "standard"`, `tier_reason: ["placeholder"]`, etc.), and set `claims: []`.
 - Record the decision in `run_metadata.run_decisions[]` with reason `"no_meeting_on_target_date"`. Include what the platform DID show (other dates, cancellation notices) so the caller can mark the schedule for re-running.
-- Skip Steps 4–16. Write the placeholder artifact (Step 17), validate (Step 18), exit.
+- Skip Steps 4–16. Write the placeholder artifact (Step 17), self-check its shape (Step 18), exit.
 
 Record what you verified (platform URL, meeting ID/event ID if available, observed time) in `run_metadata.run_decisions[]`.
 
@@ -238,7 +263,7 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Before declaring `awaiting_agenda`, you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
 
-Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic validator (`/workspace/qa_checks.py`) extracts the `channel_<N>_` prefix from each decision and rejects any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers. Stop early ONLY when you find packet content for the target meeting. (Channel 0's `channel_0_*` entry, when emitted, is informational and ignored by the depth check.)
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting. (Channel 0's `channel_0_*` entry, when emitted, is informational and ignored by the depth check.)
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
@@ -260,7 +285,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
      For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
 
-**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic validator at `/workspace/qa_checks.py` enforces this — artifacts missing any channel number get rejected.
+**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic QA gate enforces this — an artifact missing any channel number is a quality failure.
 
 **Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–4 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
@@ -430,6 +455,8 @@ An item qualifies as featured or queued if it meets one or more of:
 Constituent resonance is a selection signal, not a mechanical threshold. For each priority-eligible item, scan the inline catalog in Step 6 for a topic whose substance maps to the item, then pick a polarized column. The chosen column feeds both tier ranking here and the sentiment section's output downstream. The actual mean score is computed once at the end via the batched AVG query in Step 8.
 
 Initial tier assignment uses qualitative signals (vote_required, public position, budget impact, topic alignment with the inline Haystaq catalog). Tier may be revised after Step 8 if district-vs-city divergence (≥10-point gap) elevates an item's importance.
+
+**Apply the triage hierarchy from Step 1c when selecting featured/queued items.** If PRIORITIES are active, items that map to a priority get first pick for featured/queued slots — they count as resonant regardless of Haystaq score. If only COMMUNITY_ISSUES are active, items that map to a community issue get first pick. Haystaq resonance still elevates items when neither pool provides a match.
 
 Full information is always extracted for all featured and queued items.
 
@@ -859,7 +886,7 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 | `briefing_ready`          | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing.                                                                                                                                    |
 | `awaiting_agenda`         | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
 | `no_meeting_found`        | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state.                                                                                                                           |
-| `agenda_provided_by_user` | The agent used a user-supplied agenda (either pre-staged at `/workspace/input/agenda.pdf` or pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                  |
+| `agenda_provided_by_user` | The agent used a user-supplied agenda (either pre-staged at `/workspace/input/agenda.pdf` or pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                 |
 | `error`                   | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail.                                                                                                                               |
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
@@ -974,6 +1001,12 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
 - `meeting_time`: start time of the meeting in 24-hour `HH:MM` format, in the local timezone given by `meeting_timezone` (e.g. `"19:00"`). Capture from the same source you used for `meeting_date` (streaming platform meeting detail, city meeting schedule, or agenda packet header). Briefings own this independently of `meeting_schedule` so the row is self-sufficient. For `no_meeting_found` or `error` status, emit an empty string.
 - `meeting_timezone`: IANA timezone name for `meeting_time` (e.g. `"America/Chicago"`). Use the timezone the governing body publishes the meeting in, not UTC. If only an abbreviation like `"CST"` or `"Eastern Time"` is visible on the source, resolve to the matching IANA zone for the city's location. For `no_meeting_found` or `error` status, emit an empty string.
 - `estimated_read_minutes`: integer; target total read time is ~8 minutes for `briefing_ready` artifacts.
+  **Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
+  - `priority_id` — the `id` of the matching Priority from `PRIORITIES` (Step 1b), if this item was surfaced via a priority match. Otherwise omit or set `null`.
+  - `community_issue_id` — the `id` of the matching CommunityIssue entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
+
+  At most one of these fields should be non-null per item. If both match (rare), prefer `priority_id`. If neither matches (item elevated via Haystaq or vote-requirement alone), leave both omitted. These ids are used by the backend to write `MeetingBriefingItemLink` rows connecting the briefing item to its source priority or issue — they must be the exact database ids returned by the MCP calls, not inferred values.
+
 - `executive_summary`: written **after** the per-featured-item deep-dive content has been authored (Steps 9–16) so each entry reflects what the deep dive actually says. A structured object with `lead_in` (a single framing sentence) and `items` (an array, one entry per **featured** item — not queued, not standard, in the same order they appear in top-level `items[]`). Each `executive_summary.items[]` entry carries: `item_id` (must match an entry in top-level `items[]` with `tier: "featured"` — the UI uses this to link the entry to its deep-dive panel), `title` (must **verbatim equal** `items[item_id].title`; do not paraphrase or shorten), and `overview` (a one-sentence distillation of `items[item_id].display.summary` — same facts, tighter framing, so the lead-of-briefing matches the deep dive). Default `lead_in` when items follow: _"The following items on your agenda require action and/or have a vote:"_ (with trailing colon). Permitted variations for ceremonial-heavy, multi-flagship, or routine-heavy meetings. When zero items qualify as featured, set `items: []` and use a standalone `lead_in` covering the case (e.g. _"This is a ceremonial agenda with no items requiring action or a vote."_). Generated, not boilerplate — adapt to what was actually found in the agenda. Per-field caps enforced by the schema: `lead_in` 300 chars, `title` 100 chars (must match `items[].title`), `overview` 300 chars; max 5 entries. Stay factual; the voice and tone rules apply (this is **not** an approved posture override). Example:
   ```json
   {
@@ -998,6 +1031,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   }
   ```
 - `run_metadata`:
+
   ```json
   {
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
@@ -1009,6 +1043,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
     ]
   }
   ```
+
   Append an entry to `run_decisions[]` every time you make a non-mechanical choice that shapes the resulting artifact — meeting selection, fallback to a different meeting, decision to skip a section, decision to proceed without a required source, decision to set `briefing_status` to anything other than `briefing_ready`. Mechanical actions (download a file, parse a PDF, run a query) do not need entries.
 
   **`discovered_agenda_location` guidance.** gp-api persists this string and passes it back as `knownAgendaLocation` on the next run for the same body. Optimize it for a future agent reading it cold.
@@ -1017,6 +1052,7 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   - **When the channel-0 hint worked.** If you arrived via the hint and it's still the best lead for next time, write it back unchanged.
   - **When the channel-0 hint was stale.** Replace it with whatever location actually worked. Do not chain "X is stale, try Y" into the prose — record the current best location only.
   - **On `awaiting_agenda` and `no_meeting_found`.** Still emit a value when the parent page was reachable; the packet just isn't published yet (or the meeting was cancelled). Set to `null` only when no plausible future-run starting point exists. Preserving the location across these runs is a feature, not an oversight — the next run on this body should not have to rediscover the platform.
+
 - `items`: per Steps 3–9. Each section that supports per-section `source_ids` (constituent_sentiment per Step 16, budget_impact per Step 12) must populate the field with ids from `sources[]`; empty `[]` is permitted when no defensible citation exists, but do not fabricate.
 - `claims`: per Step 13. May be empty when `briefing_status` is `awaiting_agenda` or `no_meeting_found`.
 - `sources`: per Step 14.
@@ -1029,15 +1065,17 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 > This briefing was generated with AI assistance and may contain errors. Inferred or synthesized content represents model-generated interpretation, not verified fact. Constituent sentiment data, where present, reflects modeled estimates for constituents in that jurisdiction.
 
-### Step 18 — Validate
+### Step 18 — Self-check the artifact shape
+
+For a fast in-loop sanity check, you may run the runner's generic schema-only shim:
 
 ```bash
-python3 /workspace/qa_checks.py
+python3 /workspace/validate_output.py
 ```
 
-If validation fails, fix the artifact in-loop and re-run before declaring success. Exit codes: `0` = schema-valid + QA passed; `1` = schema invalid; `2` = schema valid but deterministic QA failed.
+It only does JSON-schema validation — it does NOT check cross-references, required_data_points coverage, discovery-channel depth, or source-extract presence. Use it as a quick fail-fast on shape, then rely on the requirements throughout this instruction (cross-references resolve, every featured item has talking points, all 4 discovery channels recorded for `awaiting_agenda` / `no_meeting_found`, the disclosure phrases are present) to get the deeper quality right.
 
-Note: `/workspace/validate_output.py` (the runner's generic shim) only does JSON-schema validation. `qa_checks.py` (shipped as a manifest attachment) is the full deterministic validator — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence. Always use `qa_checks.py` here; `validate_output.py` is OK as a fast fail-fast schema-only check earlier in the loop, but it does not gate `awaiting_agenda` discovery depth.
+The full deterministic QA — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence — runs automatically after the run as a separate quality gate; you do not invoke it yourself. Get the requirements right in-loop so the artifact clears it.
 
 ## Spot-check
 
@@ -1061,7 +1099,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
-| `contract_violation` callback after agent claimed success                     | Validator caught a missing/wrong-typed field the agent didn't notice                                                            | Run `python3 /workspace/qa_checks.py` BEFORE declaring success                                                                             |
+| `contract_violation` callback after agent claimed success                     | The runner's schema validator caught a missing/wrong-typed field the agent didn't notice                                        | Run `python3 /workspace/validate_output.py` (schema-only shim) to catch shape errors BEFORE declaring success                              |
 | Legistar API returns 403 `"Token is required"`                                | Jurisdiction has gated their Granicus API                                                                                       | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                                           |
 | District mean suspiciously close to state mean                                | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) caused silent fall-back to state scope | Discover the exact value via a `SELECT DISTINCT` query before binding                                                                      |
 | `awaiting_agenda` placeholder item fails schema validation                    | Agent invented a custom `tier_reason` string                                                                                    | Use `["placeholder"]` exactly per Step 3                                                                                                   |

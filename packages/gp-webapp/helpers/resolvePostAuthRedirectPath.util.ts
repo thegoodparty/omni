@@ -9,6 +9,15 @@ export const SERVE_ONBOARDING_PATH = '/serve/onboarding'
 /** Public magic-link redemption landing page (ticket sign-in). */
 export const SERVE_WELCOME_PATH = '/serve/welcome'
 
+/**
+ * Entry point for the candidate ("win") onboarding flow. A lead with no
+ * campaign and no elected office resolves here, where they pick their office
+ * and their Campaign is created.
+ */
+export const WIN_ONBOARDING_PATH = '/onboarding/office-selection'
+/** Public candidate magic-link redemption landing page (ticket sign-in). */
+export const WIN_WELCOME_PATH = '/win/welcome'
+
 export const resolvePostAuthRedirectPath = (
   user: { roles?: string[] } | null,
   campaignStatus: CampaignStatus | null,

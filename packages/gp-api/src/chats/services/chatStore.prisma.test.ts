@@ -40,6 +40,46 @@ describe('ChatStoreService', () => {
     store.onModuleInit()
   })
 
+  describe('appendMessage with segments', () => {
+    it('persists ordered segments and replays them in order', async () => {
+      const convo = await createConversation(service.user.id)
+
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'Looking... Found 3 supporters.',
+        segments: [
+          { kind: 'text', text: 'Looking...' },
+          { kind: 'tool', toolName: 'web_search' },
+          { kind: 'tool', toolName: 'crud_priorities' },
+          { kind: 'text', text: 'Found 3 supporters.' },
+        ],
+      })
+
+      const [msg] = await store.listMessagesByConversation(convo.id)
+      expect(
+        msg?.segments.map((s) => [s.ordinal, s.kind, s.text, s.toolName]),
+      ).toEqual([
+        [0, 'text', 'Looking...', null],
+        [1, 'tool', null, 'web_search'],
+        [2, 'tool', null, 'crud_priorities'],
+        [3, 'text', 'Found 3 supporters.', null],
+      ])
+    })
+
+    it('writes no segments for a plain message (backwards compatible)', async () => {
+      const convo = await createConversation(service.user.id)
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'No tools here.',
+      })
+
+      const [msg] = await store.listMessagesByConversation(convo.id)
+      expect(msg?.segments).toHaveLength(0)
+    })
+  })
+
   describe('findConversationByIdAndOwner', () => {
     it('returns the row when id and ownerUserId match', async () => {
       const convo = await createConversation(service.user.id)

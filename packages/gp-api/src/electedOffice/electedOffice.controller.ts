@@ -215,6 +215,42 @@ export class ElectedOfficeController {
       )
     }
 
+    // selfReported drives serve-onboarding routing the same way
+    // onboardingCompletedAt does, so it gets the same protections.
+    //
+    // M2M write block: only the authenticated onboarding flow (user session)
+    // may promote a record to selfReported. An M2M token carries no user
+    // context; letting it set this field would let any trusted service
+    // permanently reclassify a sales/BallotReady-prefilled record as net-new,
+    // routing the holder into the net-new branch and suppressing the BR
+    // suggestion-accuracy snapshot. Provisioning never needs this (prefilled
+    // records are, by definition, not self-reported).
+    if (req.m2mToken && body.selfReported !== undefined) {
+      throw new ForbiddenException(
+        'selfReported cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
+
+    // onboardingStep is the resume checkpoint written on every "Continue" by the
+    // authenticated onboarding flow. An M2M token carries no user session, so it
+    // has no business moving another user's resume pointer (which would drop a
+    // returning holder onto the wrong step). Provisioning never sets it.
+    if (req.m2mToken && body.onboardingStep !== undefined) {
+      throw new ForbiddenException(
+        'onboardingStep cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
+    // Monotonic, one-way marker: once set, downgrading it back to false would
+    // silently reclassify a net-new record as a prefill on resume (misleading
+    // "pulled from public records" confirm hub) and fire the BR snapshot against
+    // user-entered data. Reject the true→false downgrade for any caller; setting
+    // it true, or leaving it unset, stays allowed.
+    if (body.selfReported === false && existing.selfReported === true) {
+      throw new ForbiddenException(
+        'selfReported cannot be downgraded from true to false; it is set once by the net-new onboarding flow',
+      )
+    }
+
     // Mirror create()'s no-overlap invariant: term dates are writable via PUT,
     // so an update must not push this office's term into a range another office
     // the same user holds already covers. Use the effective post-update bounds
@@ -283,6 +319,8 @@ export class ElectedOfficeController {
       party: body.party,
       pledgedAt: body.pledgedAt,
       onboardingCompletedAt: body.onboardingCompletedAt,
+      selfReported: body.selfReported,
+      onboardingStep: body.onboardingStep,
     }
     const updated = await this.electedOfficeService.update({
       where: { id },

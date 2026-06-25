@@ -127,7 +127,7 @@ export class StripeService {
   async createCheckoutSession(userId: number, email: string | null = null) {
     const session = await this.stripe.checkout.sessions.create({
       ...(await this.getProSubscriptionSessionParams(userId, email)),
-      success_url: `${WEBAPP_ROOT_URL}/dashboard/pro-sign-up/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${WEBAPP_ROOT_URL}/dashboard`,
     })
 

@@ -10,6 +10,10 @@ interface Props {
   onOpenChange: (open: boolean) => void
   /** When set, open directly into this conversation (from history). */
   initialConversationId?: string | null
+  /** Display-only assistant opener to play (e.g. from an onboarding card). */
+  opener?: string[]
+  /** Identity of the opener — changes remount the body for a fresh chat. */
+  openerKey?: string | null
 }
 
 /**
@@ -21,6 +25,8 @@ export default function ChiefOfStaffChatSurface({
   open,
   onOpenChange,
   initialConversationId,
+  opener,
+  openerKey,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -51,11 +57,13 @@ export default function ChiefOfStaffChatSurface({
         </DrawerHeader>
 
         <ChiefOfStaffChatBody
-          // Remount on conversation switch so the body picks up the right
-          // conversation (or a clean deferred-create state for `new`).
-          key={selectedId ?? 'new'}
+          // Remount on conversation switch (or onboarding-card switch) so the
+          // body picks up the right conversation / a clean deferred-create
+          // state with the right opener.
+          key={selectedId ?? openerKey ?? 'new'}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
+          opener={opener}
           onSelectConversation={setSelectedId}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />

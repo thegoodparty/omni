@@ -19,7 +19,7 @@ const Page = async (): Promise<React.JSX.Element> => {
   const campaign = await fetchUserCampaign()
 
   if (!campaign || !campaign.isPro) {
-    redirect('/dashboard/upgrade-to-pro')
+    redirect('/dashboard/pro-upgrade')
   }
 
   const [user, website] = await Promise.all([

@@ -28,10 +28,7 @@ export const BiasAnalysisResponseSchema = z.object({
   rewritten_text: z.string().min(1),
 })
 
-export const POLL_BIAS_MODELS: string[] = [
-  'Qwen/Qwen3.5-397B-A17B',
-  'MiniMaxAI/MiniMax-M2.5',
-]
+export const POLL_BIAS_MODELS: string[] = ['Qwen/Qwen3.5-397B-A17B']
 
 export type SpanInput = z.infer<typeof SpanInputSchema>
 export type BiasAnalysisInput = z.infer<typeof BiasAnalysisInputSchema>

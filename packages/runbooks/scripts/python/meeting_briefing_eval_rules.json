@@ -1,0 +1,8 @@
+[
+  {"pattern": "contract_schema\\.json", "label": "schema_read"},
+  {"pattern": "qa_checks\\.py|validate_output\\.py", "label": "qa"},
+  {"pattern": "http\\.get|pdf\\.download|http\\.download|http\\.head", "label": "http_fetch"},
+  {"pattern": "databricks|sql\\.connect|hs_", "label": "databricks"},
+  {"pattern": "pdftotext", "label": "pdf_extract"},
+  {"pattern": "build_artifact|meeting_briefing\\.json", "label": "artifact_build"}
+]

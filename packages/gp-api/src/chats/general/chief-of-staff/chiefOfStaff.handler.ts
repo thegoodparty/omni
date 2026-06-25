@@ -1,7 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
-import { z } from 'zod'
 import { ChatScope } from '../../../generated/prisma'
-import type { LlmStreamTool } from '@/llm/services/llm.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -9,7 +8,6 @@ import {
   CONSTITUENT_DATA_TOOL_FLAG,
 } from '@/llm/tools/queryConstituentData.tool'
 import { FeaturesService } from '@/features/services/features.service'
-import { buildWebSearchTool, SearchProvider } from '@/llm/tools/webSearch.tool'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -33,6 +31,11 @@ import {
   buildListBriefingsTool,
 } from './services/briefingReadTools'
 import { PRIORITIES_PORT, PrioritiesToolPort } from './services/prioritiesPort'
+import {
+  COMMUNITY_ISSUE_READ_PORT,
+  CommunityIssueReadPort,
+} from './services/communityIssueRead.port'
+import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -41,8 +44,6 @@ export const CHIEF_OF_STAFF_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
 ] as const
-
-export const COS_SEARCH_PROVIDER = 'COS_SEARCH_PROVIDER'
 
 // Token for the aggregate-only Databricks provider. Bound to a factory that
 // reads the SAME shared DATABRICKS_* credential the briefing chat uses, so the
@@ -75,15 +76,15 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Inject(CONSTITUENT_TABLES_CONFIG)
     private readonly constituentTables: ConstituentTableConfig[],
     @Optional()
-    @Inject(COS_SEARCH_PROVIDER)
-    private readonly searchProvider?: SearchProvider,
-    @Optional()
     @Inject(CONSTITUENT_DATA_PROVIDER)
     private readonly constituentProvider?: DatabricksProvider,
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    @Inject(COMMUNITY_ISSUE_READ_PORT)
+    private readonly communityIssueRead?: CommunityIssueReadPort,
   ) {}
 
   async resolveConversation(
@@ -99,6 +100,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,
       scope: ChatScope.chief_of_staff,
+      ...(params.anchor && {
+        anchor: params.anchor,
+        title: params.anchor.snapshot.title,
+      }),
     })
     return { conversationId: created.id, created: true }
   }
@@ -154,16 +159,12 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     })
   }
 
-  buildTools(
-    ctx: ChiefOfStaffContext,
-  ): Record<string, LlmStreamTool<z.ZodTypeAny>> {
+  buildTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
     return this.assembleTools(ctx)
   }
 
-  private assembleTools(
-    ctx: ChiefOfStaffContext,
-  ): Record<string, LlmStreamTool<z.ZodTypeAny>> {
-    const tools: Record<string, LlmStreamTool<z.ZodTypeAny>> = {}
+  private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
+    const tools: Record<string, LlmTool> = {}
 
     tools.crud_priorities = buildCrudPrioritiesTool({
       port: this.priorities,
@@ -178,8 +179,12 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     })
     tools.get_briefing = buildGetBriefingTool({ provider: briefingProvider })
 
-    if (this.searchProvider) {
-      tools.web_search = buildWebSearchTool({ provider: this.searchProvider })
+    // Web search runs through Anthropic's native tool (the chat is Claude-only)
+    // so queries stay within the enterprise agreement rather than going to a
+    // third party. Gated on the key here too (not just in the LLM layer) so the
+    // system prompt never advertises a tool that wasn't registered.
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
     }
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
@@ -205,6 +210,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           scope,
         })
       }
+    }
+
+    if (this.communityIssueRead) {
+      tools.read_community_issues = buildReadCommunityIssuesTool({
+        port: this.communityIssueRead,
+        organizationSlug: ctx.organizationSlug,
+        electedOfficeId: ctx.electedOfficeId,
+      })
     }
 
     return tools

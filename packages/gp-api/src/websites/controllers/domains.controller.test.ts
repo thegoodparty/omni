@@ -4,6 +4,7 @@ import {
   ConflictException,
   HttpStatus,
   ModuleMetadata,
+  NotFoundException,
   RequestMethod,
 } from '@nestjs/common'
 import { DomainSource, DomainStatus } from '../../generated/prisma'
@@ -317,5 +318,88 @@ describe('DomainsController.purchaseDomain MCP discoverability', () => {
     )
     expect(purchase!.inputDeclarations.query.declared).toBe(false)
     expect(purchase!.inputDeclarations.params.declared).toBe(false)
+  })
+})
+
+describe('DomainsController.configureDomain', () => {
+  let controller: DomainsController
+  let mockDomains: { configureDomain: ReturnType<typeof vi.fn> }
+  let mockWebsites: { findUnique: ReturnType<typeof vi.fn> }
+
+  beforeEach(async () => {
+    mockDomains = {
+      configureDomain: vi.fn().mockResolvedValue({
+        domain: 'voteforjane.run',
+        status: 'configured',
+        message: 'Domain configured successfully with Vercel',
+      }),
+    }
+    mockWebsites = {
+      findUnique: vi.fn().mockResolvedValue({ id: 42 }),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DomainsController],
+      providers: [
+        { provide: DomainsService, useValue: mockDomains },
+        { provide: WebsitesService, useValue: mockWebsites },
+      ],
+    })
+      .overrideGuard(UseCampaignGuard)
+      .useValue({ canActivate: () => true })
+      .compile()
+
+    controller = module.get<DomainsController>(DomainsController)
+  })
+
+  it('resolves the website from the caller campaign and configures by website.id, never the campaign id', async () => {
+    // campaign.id (7) and website.id (42) are deliberately different. The bug
+    // passed campaignId where a websiteId is expected, so configureDomain
+    // resolved whichever tenant's Domain happened to have websiteId === 7.
+    // The fix must look the website up by campaignId first and configure that
+    // website's own id.
+    const campaign = { ...createMockCampaign(), id: 7 }
+
+    const result = await controller.configureDomain(campaign)
+
+    expect(mockWebsites.findUnique).toHaveBeenCalledWith({
+      where: { campaignId: 7 },
+      select: { id: true },
+    })
+    expect(mockDomains.configureDomain).toHaveBeenCalledWith(42)
+    expect(mockDomains.configureDomain).not.toHaveBeenCalledWith(7)
+    expect(result).toEqual({
+      domain: 'voteforjane.run',
+      status: 'configured',
+      message: 'Domain configured successfully with Vercel',
+    })
+  })
+
+  it('throws NotFoundException and never configures when the caller has no website', async () => {
+    mockWebsites.findUnique.mockResolvedValue(null)
+    const campaign = { ...createMockCampaign(), id: 7 }
+
+    await expect(controller.configureDomain(campaign)).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(mockDomains.configureDomain).not.toHaveBeenCalled()
+  })
+
+  it('handler is registered for POST /configure with @UseCampaign()', () => {
+    // Guards the IDOR fix: @UseCampaign() is what binds the request to the
+    // caller's own campaign. Dropping it would leave every other test green
+    // while silently re-exposing the cross-tenant path this PR closed.
+    const reflector = new Reflector()
+
+    const path = Reflect.getMetadata('path', controller.configureDomain)
+    const method = Reflect.getMetadata('method', controller.configureDomain)
+    expect(path).toBe('configure')
+    expect(method).toBe(RequestMethod.POST)
+
+    const meta = reflector.get(
+      REQUIRE_CAMPAIGN_META_KEY,
+      controller.configureDomain,
+    )
+    expect(meta).toBeDefined()
   })
 })

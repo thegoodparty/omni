@@ -15,7 +15,8 @@ publish where one experiment was updated and another wasn't.
 The contract documented by the meta-schema + each `manifest.json` is the
 source of truth; a hand-edited `experiments/index.json` would silently lose
 any extra fields on the next publish (the script only emits a fixed set:
-`{id, version, manifest_key, instruction_key, hash}`).
+`{id, version, manifest_key, instruction_key, attachment_keys, hash}` plus
+optional `qa_manifest_key` + `qa_keys` when the experiment has a `qa/` folder).
 
 Usage:
     AWS_PROFILE=work uv run python publish_experiments.py --env=dev
@@ -49,6 +50,7 @@ from jsonschema import Draft7Validator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "manifest.schema.json"
+QA_META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "qa.schema.json"
 
 VALID_ENVS = {"dev", "qa", "prod"}
 
@@ -57,6 +59,12 @@ VALID_ENVS = {"dev", "qa", "prod"}
 # runner's pre-task workspace-write step. Pick conservatively — bumping later
 # is a one-line change; loosening too early invites a 100 MB sidecar.
 ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES = 5 * 1024 * 1024
+
+# Total bytes cap across all qa/ files for a single experiment. SEPARATE budget
+# from the 5 MiB attachment cap — qa files (manifest + a check script + a rubric)
+# are tiny; a tight cap keeps the broker's qa envelope and the gate's private
+# materialization dir bounded. 1 MiB.
+QA_TOTAL_SIZE_LIMIT_BYTES = 1 * 1024 * 1024
 
 
 class AttachmentValidationError(ValueError):
@@ -67,8 +75,21 @@ class AttachmentValidationError(ValueError):
     """
 
 
+class QaValidationError(ValueError):
+    """Raised when a qa/ folder fails publisher-side validation.
+
+    Distinct subclass (parallel to AttachmentValidationError) so callers/tests
+    can match the specific qa failure surface without catching unrelated
+    ValueErrors from JSON parsing, jsonschema, or attachment validation.
+    """
+
+
 def _load_meta_schema() -> dict:
     return json.loads(META_SCHEMA_PATH.read_text())
+
+
+def _load_qa_meta_schema() -> dict:
+    return json.loads(QA_META_SCHEMA_PATH.read_text())
 
 
 def _experiment_dirs() -> list[Path]:
@@ -82,17 +103,27 @@ def _hash_pair(
     manifest_bytes: bytes,
     instruction_bytes: bytes,
     attachments: list[tuple[str, bytes]] | None = None,
+    qa: list[tuple[str, bytes]] | None = None,
 ) -> str:
     """Hash the published bytes for an experiment.
 
-    Attachments must be passed in stable order (relpath-sorted) — the hash is
-    used by consumers to detect a publish drift, so the same inputs must
-    always produce the same digest.
+    Attachments and qa files must be passed in stable order (relpath-sorted) —
+    the hash is used by consumers to detect a publish drift, so the same inputs
+    must always produce the same digest.
+
+    qa bytes are folded in AFTER attachments using the same (relpath utf-8 +
+    NUL + body) framing, so a qa-only change flips the drift digest
+    (contract F). An empty/None qa list contributes nothing, keeping a no-qa
+    experiment byte-identical to its pre-gate hash (decision 10).
     """
     h = hashlib.sha256()
     h.update(manifest_bytes)
     h.update(instruction_bytes)
     for relpath, body in (attachments or []):
+        h.update(relpath.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(body)
+    for relpath, body in sorted(qa or [], key=lambda item: item[0]):
         h.update(relpath.encode("utf-8"))
         h.update(b"\x00")
         h.update(body)
@@ -104,6 +135,123 @@ def _attachment_files(exp_dir: Path) -> list[Path]:
     if not att_dir.is_dir():
         return []
     return sorted(p for p in att_dir.rglob("*") if p.is_file())
+
+
+# Control chars (0x00-0x1f, 0x7f) and the backslash separator are rejected in
+# relpaths: a backslash means "directory separator" to a Windows-flavored or
+# naive downstream consumer, and a control char (newline, tab, NUL) in an S3
+# key or a generated path is a known injection / log-forging vector. POSIX
+# filesystems happily allow both in a filename, so the publisher refuses them
+# explicitly rather than trusting every downstream to sanitize.
+_ILLEGAL_RELPATH_CHARS = frozenset(chr(c) for c in range(0x20)) | {"\x7f", "\\"}
+
+
+def _walk_safe_subdir(
+    exp_dir: Path,
+    subdir_name: str,
+    files: list[Path],
+    size_cap: int,
+    error_cls: type[ValueError],
+) -> list[tuple[str, bytes]]:
+    """Validate the files under experiments/<id>/<subdir_name>/ and return
+    (relpath, body) tuples sorted by relpath. Shared by `_validate_attachments`
+    and `_validate_qa` so the eight path-safety checks live in exactly one
+    place; the DISTINCT failure surface is preserved via `error_cls`
+    (AttachmentValidationError vs QaValidationError) and the dir name is
+    parameterized into every message.
+
+    Checks, in order: reject absolute paths, '..' segments, 'output/' prefix,
+    illegal characters (backslash / ASCII control), nested subdirs, symlinks,
+    and resolved-containment escape; enforce `size_cap` via a single bounded
+    open+read (no stat()-then-read TOCTOU window, no unbounded slurp); require
+    UTF-8-decodable bodies.
+
+    Fails loudly on the first violation — partial publishes are never safe.
+    """
+    sub_dir = exp_dir / subdir_name
+    out: list[tuple[str, bytes]] = []
+    total_bytes = 0
+    for f in files:
+        relpath = f.relative_to(sub_dir).as_posix()
+        # Path safety: only basenames, no traversal, no absolute paths.
+        if relpath.startswith("/"):
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: absolute paths are not allowed"
+            )
+        segments = relpath.split("/")
+        if any(seg == ".." for seg in segments):
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: '..' path segments are not allowed"
+            )
+        # `output/` prefix is checked BEFORE the nested-dir rule so that if
+        # nested dirs are ever allowed in the future, this rule still fires —
+        # the runtime risk (clobbering an in-flight artifact under
+        # /workspace/output/) is independent of layout policy.
+        if relpath.startswith("output/"):
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: 'output/' is reserved for "
+                "runtime artifacts and must not appear in " + f"{subdir_name}/"
+            )
+        # Backslash / control-char defense for downstream separator-sensitive
+        # consumers (Windows paths, S3-key log lines). Checked before the
+        # nested rule so a `a\b` name can't masquerade as a flat basename.
+        bad = sorted(c for c in set(relpath) if c in _ILLEGAL_RELPATH_CHARS)
+        if bad:
+            shown = ", ".join(repr(c) for c in bad)
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath!r}: illegal character(s) "
+                f"in path ({shown}) — backslash and control chars are not allowed"
+            )
+        if len(segments) > 1:
+            # Nested dirs are deliberately deferred — the runner writes these
+            # files directly as basenames, so a nested source would have an
+            # ambiguous target shape.
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: nested subdirectories under "
+                f"{subdir_name}/ are not allowed (use a flat layout for now)"
+            )
+        # Reject symlinks: a symlink is an arbitrary-file-read vector — a read
+        # would happily slurp the link target. Resolve and re-check containment
+        # as belt-and-braces against any future path-resolution quirk (a file
+        # whose parents contain a link, bind mounts, etc.).
+        if f.is_symlink():
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: symlinks are not allowed "
+                "(arbitrary-file-read risk)"
+            )
+        resolved = f.resolve()
+        sub_root = sub_dir.resolve()
+        try:
+            resolved.relative_to(sub_root)
+        except ValueError as e:
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: resolves outside {subdir_name}/ dir"
+            ) from e
+        # Single bounded open+read: read at most (remaining budget + 1) bytes.
+        # If the read returns more than the remaining budget, the file pushes
+        # the experiment over the cap — reject. This is TOCTOU-free (no
+        # stat()-then-read race) and never slurps an over-cap file into memory.
+        remaining = size_cap - total_bytes
+        with open(f, "rb") as fh:
+            body = fh.read(remaining + 1)
+        if len(body) > remaining:
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/: total size exceeds cap "
+                f"{size_cap} bytes"
+            )
+        # Broker streams these files as text envelopes; binary 500s every
+        # fetch. Refuse non-UTF-8 at publish so the failure is visible in CI.
+        try:
+            body.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise error_cls(
+                f"{exp_dir.name}/{subdir_name}/{relpath}: not valid UTF-8 "
+                "(binary files not supported)"
+            ) from e
+        total_bytes += len(body)
+        out.append((relpath, body))
+    out.sort(key=lambda item: item[0])
+    return out
 
 
 # Attachments are guaranteed UTF-8 text by `_validate_attachments`, so a
@@ -119,87 +267,139 @@ def _validate_attachments(exp_dir: Path) -> list[tuple[str, bytes]]:
     """Walk experiments/<id>/attachments/, validate each entry, return
     (relpath, body) tuples sorted by relpath.
 
+    Delegates the eight shared path-safety + size + UTF-8 checks to
+    `_walk_safe_subdir`; the attachment-specific 5 MiB cap and the
+    AttachmentValidationError surface are wired in here.
+
     Fails loudly on the first violation — partial publishes are never safe.
     """
-    att_dir = exp_dir / "attachments"
-    files = _attachment_files(exp_dir)
-    out: list[tuple[str, bytes]] = []
-    total_bytes = 0
-    for f in files:
-        relpath = f.relative_to(att_dir).as_posix()
-        # Path safety: only basenames, no traversal, no absolute paths.
-        if relpath.startswith("/"):
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: absolute paths are not allowed"
-            )
-        segments = relpath.split("/")
-        if any(seg == ".." for seg in segments):
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: '..' path segments are not allowed"
-            )
-        # `output/` prefix is checked BEFORE the nested-dir rule so that if
-        # nested dirs are ever allowed in the future, this rule still fires
-        # — the runtime risk (clobbering an in-flight artifact under
-        # /workspace/output/) is independent of layout policy.
-        if relpath.startswith("output/"):
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: 'output/' is reserved for "
-                "runtime artifacts and must not appear in attachments"
-            )
-        if len(segments) > 1:
-            # Nested dirs under attachments/ are deliberately deferred — the
-            # runner writes attachments directly under /workspace/ as
-            # basenames, so a nested source would have ambiguous target shape.
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: nested subdirectories under "
-                "attachments/ are not allowed (use a flat layout for now)"
-            )
-        # Reject symlinks: a symlink inside attachments/ is an arbitrary-file-
-        # read vector — `read_bytes()` would happily slurp the link target.
-        # Also resolve and re-check containment as belt-and-braces against any
-        # future path-resolution quirk (a file whose parents contain a link,
-        # bind mounts, etc.).
-        if f.is_symlink():
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: symlinks are not allowed "
-                "(arbitrary-file-read risk)"
-            )
-        resolved = f.resolve()
-        att_root = att_dir.resolve()
-        try:
-            resolved.relative_to(att_root)
-        except ValueError as e:
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: resolves outside attachments/ dir"
-            ) from e
-        # Size check BEFORE read: a stray multi-GB file would OOM us before
-        # the cap-after-read could reject it. stat() is O(1).
-        size = f.stat().st_size
-        if total_bytes + size > ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES:
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/: total size {total_bytes + size} bytes "
-                f"exceeds cap {ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES} bytes (5 MB)"
-            )
-        body = f.read_bytes()
-        # Broker streams attachments as text envelopes; binary 500s every
-        # fetch. Refuse non-UTF-8 at publish so the failure is visible in CI.
-        try:
-            body.decode("utf-8")
-        except UnicodeDecodeError as e:
-            raise AttachmentValidationError(
-                f"{exp_dir.name}/attachments/{relpath}: not valid UTF-8 "
-                "(binary attachments not supported)"
-            ) from e
-        total_bytes += size
-        out.append((relpath, body))
-    out.sort(key=lambda item: item[0])
+    return _walk_safe_subdir(
+        exp_dir,
+        "attachments",
+        _attachment_files(exp_dir),
+        ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES,
+        AttachmentValidationError,
+    )
+
+
+def _qa_files(exp_dir: Path) -> list[Path]:
+    qa_dir = exp_dir / "qa"
+    if not qa_dir.is_dir():
+        return []
+    return sorted(p for p in qa_dir.rglob("*") if p.is_file())
+
+
+def _validate_qa(
+    exp_dir: Path,
+    qa_validator: Draft7Validator | dict,
+    manifest: dict,
+) -> list[tuple[str, bytes]] | None:
+    """Walk experiments/<id>/qa/, validate each entry, return (relpath, body)
+    tuples sorted by relpath. Returns None when no qa/ folder exists (decision
+    10: the gate does not run and the run is byte-identical to today).
+
+    Applies the SAME path-safety rules as `_validate_attachments` (no absolute
+    paths, no '..', no 'output/' prefix, flat layout, no symlinks, resolved
+    containment, UTF-8 only) but capped at QA_TOTAL_SIZE_LIMIT_BYTES (1 MiB, a
+    separate budget from the 5 MiB attachment cap). PLUS qa-only rules:
+
+      (a) manifest.json is REQUIRED whenever a qa/ folder exists.
+      (b) qa/manifest.json must validate against qa.schema.json.
+      (c) non-fatal stderr WARNINGS (publish still proceeds):
+          - the qa/ folder has neither main.py nor eval.md (a `skipped`
+            verdict at runtime — an authoring mistake, not a no-op);
+          - blocking == true (any experiment) — accepted but treated as
+            false (observe-only) until the enforcement path ships.
+
+    Fails loudly on the first hard violation — partial publishes are never safe.
+
+    `qa_validator` is a pre-compiled Draft7Validator for the qa meta-schema
+    (compiled ONCE by the caller, not per experiment). A raw schema dict is
+    also accepted for test convenience and wrapped on the spot.
+    """
+    if not isinstance(qa_validator, Draft7Validator):
+        qa_validator = Draft7Validator(qa_validator)
+    qa_dir = exp_dir / "qa"
+    if not qa_dir.is_dir():
+        return None
+
+    # Shared path-safety + 1 MiB cap + UTF-8 checks. The qa-only rules below
+    # (required manifest, schema validation, warnings) layer on top of this.
+    out = _walk_safe_subdir(
+        exp_dir,
+        "qa",
+        _qa_files(exp_dir),
+        QA_TOTAL_SIZE_LIMIT_BYTES,
+        QaValidationError,
+    )
+    relpaths = {relpath for relpath, _ in out}
+
+    # (a) manifest.json is required whenever the qa/ folder exists.
+    if "manifest.json" not in relpaths:
+        raise QaValidationError(
+            f"{exp_dir.name}/qa/manifest.json: required when a qa/ folder exists "
+            "(it carries the one decision: blocking)"
+        )
+
+    # (b) validate qa/manifest.json against qa.schema.json.
+    qa_manifest_body = next(body for rp, body in out if rp == "manifest.json")
+    try:
+        qa_manifest = json.loads(qa_manifest_body.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise QaValidationError(
+            f"{exp_dir.name}/qa/manifest.json: invalid JSON: {e}"
+        ) from e
+    errors = sorted(
+        qa_validator.iter_errors(qa_manifest),
+        key=lambda e: [str(p) for p in e.absolute_path],
+    )
+    if errors:
+        detail = "; ".join(
+            f"{'.'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.message}"
+            for e in errors
+        )
+        raise QaValidationError(
+            f"{exp_dir.name}/qa/manifest.json: {len(errors)} schema violation(s): {detail}"
+        )
+
+    # (c) non-fatal warnings — publish still proceeds.
+    if "main.py" not in relpaths and "eval.md" not in relpaths:
+        print(
+            f"  ⚠ {exp_dir.name}/qa/: neither main.py nor eval.md present — "
+            "the gate will produce a 'skipped' verdict at runtime",
+            file=sys.stderr,
+        )
+    if qa_manifest.get("blocking") is True:
+        print(
+            f"  ⚠ {exp_dir.name}/qa/manifest.json: blocking:true is accepted but "
+            "treated as false (observe-only) until the enforcement path ships",
+            file=sys.stderr,
+        )
+
     return out
 
 
-def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
-    """Fail loudly on any meta-schema violation BEFORE any S3 write."""
+def _validate_all(
+    meta_schema: dict, dirs: list[Path]
+) -> dict[str, tuple[dict, list[tuple[str, bytes]], list[tuple[str, bytes]] | None]]:
+    """Validate every experiment BEFORE any S3 write and RETURN the validated
+    results keyed by experiment name: name -> (manifest, attachments, qa).
+
+    This is the ONE place validation (and its author warnings) runs per publish.
+    `_build_index` consumes this map instead of re-walking — eliminating the
+    double walk that printed every warning twice and recompiled the qa
+    validator per experiment. Both Draft7Validators (manifest + qa meta-schema)
+    are compiled ONCE here, outside the per-experiment loop.
+
+    Fails loudly (sys.exit(1)) on any violation — partial publishes are never
+    safe.
+    """
     validator = Draft7Validator(meta_schema)
+    qa_validator = Draft7Validator(_load_qa_meta_schema())
     failed_names: list[str] = []
+    validated: dict[
+        str, tuple[dict, list[tuple[str, bytes]], list[tuple[str, bytes]] | None]
+    ] = {}
     for d in dirs:
         manifest_path = d / "manifest.json"
         instruction_path = d / "instruction.md"
@@ -245,8 +445,19 @@ def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
             print(f"  ✗ {d.name}: attachment validation failed: {e}", file=sys.stderr)
             failed_names.append(d.name)
             continue
+        # qa validation runs in the same pre-flight wave. This is the SOLE
+        # invocation per experiment per publish (warnings emit here exactly
+        # once); the result is threaded into _build_index.
+        try:
+            qa = _validate_qa(d, qa_validator, manifest)
+        except QaValidationError as e:
+            print(f"  ✗ {d.name}: qa validation failed: {e}", file=sys.stderr)
+            failed_names.append(d.name)
+            continue
         att_summary = f", {len(attachments)} attachment(s)" if attachments else ""
-        print(f"  ✓ {d.name} v{manifest['version']}{att_summary}")
+        qa_summary = f", {len(qa)} qa file(s)" if qa else ""
+        print(f"  ✓ {d.name} v{manifest['version']}{att_summary}{qa_summary}")
+        validated[d.name] = (manifest, attachments, qa)
     if failed_names:
         # A bare `sys.exit(1)` left operators scrolling back through the
         # ✗ lines counting failures by hand. Surface the count + names so
@@ -257,6 +468,7 @@ def _validate_all(meta_schema: dict, dirs: list[Path]) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    return validated
 
 
 def _resolve_json_pointer(root: dict, pointer: str):
@@ -311,47 +523,92 @@ def _publishable_manifest_bytes(manifest_path: Path, defs: dict) -> bytes:
 
 
 def _build_index(
-    env: str, dirs: list[Path], meta: dict
-) -> tuple[dict, dict[str, list[tuple[str, bytes]]]]:
+    env: str,
+    dirs: list[Path],
+    meta: dict,
+    validated: dict[
+        str, tuple[dict, list[tuple[str, bytes]], list[tuple[str, bytes]] | None]
+    ] | None = None,
+) -> tuple[
+    dict,
+    dict[str, list[tuple[str, bytes]]],
+    dict[str, list[tuple[str, bytes]]],
+]:
     """Build index.json — every experiment in `dirs` becomes an entry.
 
-    Returns both the index dict AND a per-experiment attachments map. The
-    map lets `publish()` upload the EXACT bytes that fed the hash digest;
-    re-reading from disk at upload time created a TOCTOU window where a
-    concurrent edit could ship bytes that don't match the published digest.
+    Returns the index dict AND a per-experiment attachments map AND a
+    per-experiment qa map. The maps let `publish()` upload the EXACT bytes
+    that fed the hash digest; re-reading from disk at upload time created a
+    TOCTOU window where a concurrent edit could ship bytes that don't match
+    the published digest.
+
+    `validated` is the map returned by `_validate_all` (name -> (manifest,
+    attachments, qa)). When passed (the publish path), validation+warnings are
+    NOT re-run here — the validated bytes are reused, so each author warning
+    prints exactly once and the qa validator is never recompiled per
+    experiment. When omitted (test convenience), this validates on the fly,
+    compiling the qa validator once for the whole call.
 
     The hash field covers the *published* manifest bytes (post-$ref-inlining)
-    + instruction + every attachment body. Attachments contribute to the hash
-    in relpath-sorted order so the digest is stable across machines.
+    + instruction + every attachment body + every qa file body. Attachments
+    and qa files contribute in relpath-sorted order so the digest is stable
+    across machines. A qa-only change flips the digest (contract F); an
+    experiment with no qa/ folder hashes exactly as it did pre-gate
+    (decision 10).
+
+    `qa_manifest_key` ("<id>/qa/manifest.json") and `qa_keys` (the sorted
+    non-manifest "<id>/qa/<file>" list) are added to an entry ONLY when a qa/
+    folder exists; both are omitted otherwise (contract F).
     """
     defs = meta.get("$defs", {})
+    # Compile the qa validator ONCE for the whole call when we have to validate
+    # on the fly (no `validated` passed). On the publish path `validated` is
+    # supplied and this is never used.
+    fallback_qa_validator = (
+        None if validated is not None else Draft7Validator(_load_qa_meta_schema())
+    )
     entries = []
     attachments_by_id: dict[str, list[tuple[str, bytes]]] = {}
+    qa_by_id: dict[str, list[tuple[str, bytes]]] = {}
     for d in dirs:
         manifest_path = d / "manifest.json"
         instruction_path = d / "instruction.md"
         manifest_bytes = _publishable_manifest_bytes(manifest_path, defs)
         instruction_bytes = instruction_path.read_bytes()
-        attachments = _validate_attachments(d)
+        if validated is not None:
+            # Reuse the validated bytes/results — do NOT re-walk or re-warn.
+            _vmanifest, attachments, qa = validated[d.name]
+        else:
+            attachments = _validate_attachments(d)
+            qa = _validate_qa(d, fallback_qa_validator, json.loads(manifest_bytes))
         manifest = json.loads(manifest_bytes)
         attachment_keys = sorted(
             f"{manifest['id']}/attachments/{relpath}" for relpath, _ in attachments
         )
         attachments_by_id[manifest["id"]] = attachments
-        entries.append({
+        entry = {
             "id": manifest["id"],
             "version": manifest["version"],
             "manifest_key": f"{manifest['id']}/manifest.json",
             "instruction_key": f"{manifest['id']}/instruction.md",
             "attachment_keys": attachment_keys,
-            "hash": _hash_pair(manifest_bytes, instruction_bytes, attachments),
-        })
+            "hash": _hash_pair(manifest_bytes, instruction_bytes, attachments, qa),
+        }
+        if qa is not None:
+            qa_by_id[manifest["id"]] = qa
+            entry["qa_manifest_key"] = f"{manifest['id']}/qa/manifest.json"
+            entry["qa_keys"] = sorted(
+                f"{manifest['id']}/qa/{relpath}"
+                for relpath, _ in qa
+                if relpath != "manifest.json"
+            )
+        entries.append(entry)
     index = {
         "published_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "experiments": entries,
     }
-    return index, attachments_by_id
+    return index, attachments_by_id, qa_by_id
 
 
 def _git_sha() -> str:
@@ -382,7 +639,67 @@ def _upload(s3, bucket: str, key: str, body: bytes, content_type: str) -> None:
         raise
 
 
-def publish(env: str, dry_run: bool = False) -> int:
+def _reclaim_orphans(
+    s3,
+    bucket: str,
+    index: dict,
+    *,
+    dry_run: bool,
+) -> None:
+    """Delete S3 objects under each published experiment's `<id>/qa/` and
+    `<id>/attachments/` prefixes that are NOT in this publish's emitted key
+    set. The publisher is otherwise PUT-only, so a removed/renamed qa or
+    attachment file would leave an unreferenced object forever (data-lifecycle).
+
+    Called AFTER index.json is written — index.json is the atomic switch, so
+    reclaiming BEFORE it would transiently dangle keys the still-live OLD index
+    still references. After the switch, the new index never references the
+    stale keys, so deleting them is safe.
+
+    FAIL-SAFE: list/delete are wrapped per-experiment in try/except ClientError
+    and degrade to a warning — a missing s3:ListBucket / s3:DeleteObject
+    permission must NEVER fail the publish. In --dry-run, deletes are skipped
+    and the would-be-deleted keys are printed instead.
+
+    Scope: only experiments PRESENT in this publish. A wholly-deleted
+    experiment's objects (its prefix isn't in `index`) are out of scope and
+    remain as residual — see the deploy note in the PR report.
+    """
+    for entry in index["experiments"]:
+        exp_id = entry["id"]
+        emitted = set(entry["attachment_keys"])
+        if entry.get("qa_manifest_key") is not None:
+            emitted.add(entry["qa_manifest_key"])
+        if entry.get("qa_keys") is not None:
+            emitted.update(entry["qa_keys"])
+        for prefix in (f"{exp_id}/qa/", f"{exp_id}/attachments/"):
+            try:
+                resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+                live_keys = {obj["Key"] for obj in resp.get("Contents", [])}
+                stale = sorted(live_keys - emitted)
+                if not stale:
+                    continue
+                if dry_run:
+                    print(f"   [DRY RUN] would reclaim: {', '.join(stale)}")
+                    continue
+                s3.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": k} for k in stale]},
+                )
+                print(f"   ⤺ reclaimed {len(stale)} orphan(s) under {prefix}: "
+                      f"{', '.join(stale)}")
+            except ClientError as e:
+                # A missing list/delete permission must not fail the publish —
+                # index.json is already live. Warn and continue.
+                print(
+                    f"  ⚠ could not reclaim orphans under s3://{bucket}/{prefix} "
+                    f"({e}); grant s3:ListBucket + s3:DeleteObject to the publish "
+                    "role to enable cleanup",
+                    file=sys.stderr,
+                )
+
+
+def publish(env: str, dry_run: bool = False, s3=None) -> int:
     if env not in VALID_ENVS:
         print(f"error: --env must be one of {sorted(VALID_ENVS)}", file=sys.stderr)
         return 1
@@ -398,16 +715,19 @@ def publish(env: str, dry_run: bool = False) -> int:
 
     print(f"== validating {len(dirs)} experiment(s) against meta-schema ==")
     meta = _load_meta_schema()
-    _validate_all(meta, dirs)
+    # Validation + author warnings run EXACTLY ONCE here; the validated results
+    # are threaded into _build_index so it never re-walks (no double warnings,
+    # no per-experiment validator recompile).
+    validated = _validate_all(meta, dirs)
 
-    index, attachments_by_id = _build_index(env, dirs, meta)
+    index, attachments_by_id, qa_by_id = _build_index(env, dirs, meta, validated)
     defs = meta.get("$defs", {})
 
     print(f"\n== publish target: s3://{bucket}/  (env={env}, git={index['git_sha']}) ==")
     print(f"   {len(index['experiments'])} experiment(s) to publish")
 
     if dry_run:
-        print("\n[DRY RUN] would upload (manifest.json + instruction.md + attachments per experiment):")
+        print("\n[DRY RUN] would upload (manifest.json + instruction.md + attachments + qa per experiment):")
         for entry in index["experiments"]:
             # `entry['hash']` is "sha256:<64 hex chars>"; an unconditional
             # [:23] slice cut the prefix mid-word ("sha256:xxxxxxxxxxxxxxxx").
@@ -430,10 +750,31 @@ def publish(env: str, dry_run: bool = False) -> int:
                     f"     (attachments subtotal: {att_total:,} bytes of "
                     f"{ATTACHMENTS_TOTAL_SIZE_LIMIT_BYTES:,} cap)"
                 )
+            # qa files: print every qa body ONCE (manifest.json included) with
+            # byte counts + subtotal against the 1 MiB qa cap. manifest.json is
+            # carried on qa_manifest_key at publish time but is part of `qa`
+            # here, so the loop already lists it — no separate header line (that
+            # double-printed manifest.json).
+            qa = qa_by_id.get(entry["id"], [])
+            if qa:
+                qa_total = 0
+                for relpath, body in qa:
+                    size = len(body)
+                    qa_total += size
+                    print(f"     - {entry['id']}/qa/{relpath} ({size:,} bytes)")
+                print(
+                    f"     (qa subtotal: {qa_total:,} bytes of "
+                    f"{QA_TOTAL_SIZE_LIMIT_BYTES:,} cap)"
+                )
         print("\n[DRY RUN] would write index.json LAST as atomic switch")
+        # Show what reclamation WOULD delete after the (dry) switch — never
+        # issues a real delete in dry-run. Only possible against a live client.
+        if s3 is not None:
+            _reclaim_orphans(s3, bucket, index, dry_run=True)
         return 0
 
-    s3 = boto3.client("s3")
+    if s3 is None:
+        s3 = boto3.client("s3")
 
     # Upload per-experiment files in parallel, then index.json LAST so readers
     # never see a partial publish. The executor join (`as_completed` loop)
@@ -464,19 +805,38 @@ def publish(env: str, dry_run: bool = False) -> int:
                     _upload, s3, bucket, ak,
                     body, ATTACHMENT_CONTENT_TYPE,
                 ))
+            # qa files ride the SAME upload wave BEFORE index.json. The qa map
+            # holds every qa body (manifest.json included), keyed by
+            # "<id>/qa/<relpath>" — covering both qa_manifest_key and qa_keys.
+            # Guarded by qa_keys presence so a no-qa experiment is byte-identical.
+            if entry.get("qa_keys") is not None:
+                qa = qa_by_id.get(entry["id"], [])
+                for relpath, body in qa:
+                    futures.append(ex.submit(
+                        _upload, s3, bucket, f"{entry['id']}/qa/{relpath}",
+                        body, ATTACHMENT_CONTENT_TYPE,
+                    ))
         for f in as_completed(futures):
             f.result()  # surface failures before writing index.json
 
     for entry in index["experiments"]:
         att_count = len(entry["attachment_keys"])
         att_summary = f" + {att_count} attachment(s)" if att_count else ""
-        print(f"   ✓ {entry['id']} v{entry['version']}{att_summary}")
+        # qa file count = qa_keys + the separately-tracked qa manifest.
+        qa_count = len(entry["qa_keys"]) + 1 if entry.get("qa_keys") is not None else 0
+        qa_summary = f" + {qa_count} qa file(s)" if qa_count else ""
+        print(f"   ✓ {entry['id']} v{entry['version']}{att_summary}{qa_summary}")
 
     print("\n== writing index.json (atomic switch) ==")
     _upload(s3, bucket, "index.json",
             (json.dumps(index, indent=2) + "\n").encode(),
             "application/json")
     print(f"   ✓ s3://{bucket}/index.json ({len(index['experiments'])} experiments live)")
+
+    # Reclaim orphaned qa/attachment objects AFTER the atomic switch — see
+    # _reclaim_orphans. Fail-safe: a missing list/delete permission warns and
+    # the publish still succeeds (index.json is already live).
+    _reclaim_orphans(s3, bucket, index, dry_run=False)
     return 0
 
 

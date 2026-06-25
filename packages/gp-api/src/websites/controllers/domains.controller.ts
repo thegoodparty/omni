@@ -46,6 +46,8 @@ import {
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 
+const NO_WEBSITE_FOUND_MESSAGE = 'No website found for this campaign'
+
 @Controller('domains')
 @UsePipes(ZodValidationPipe)
 export class DomainsController {
@@ -142,7 +144,7 @@ export class DomainsController {
     })
 
     if (!website) {
-      throw new NotFoundException('No website found for this campaign')
+      throw new NotFoundException(NO_WEBSITE_FOUND_MESSAGE)
     }
 
     const domain = await this.domains.getDomainWithPayment(website.id)
@@ -198,7 +200,21 @@ export class DomainsController {
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
   async configureDomain(@ReqCampaign() { id: campaignId }: Campaign) {
-    return this.domains.configureDomain(campaignId)
+    // Resolve the caller's own website first. configureDomain looks up a Domain
+    // by websiteId; passing campaignId straight through conflates two
+    // independent autoincrement id spaces and lets the caller operate on
+    // another tenant's domain (the one whose websiteId equals this campaignId).
+    // Mirror deleteDomain, which resolves website.id from campaignId.
+    const website = await this.websites.findUnique({
+      where: { campaignId },
+      select: { id: true },
+    })
+
+    if (!website) {
+      throw new NotFoundException(NO_WEBSITE_FOUND_MESSAGE)
+    }
+
+    return this.domains.configureDomain(website.id)
   }
 
   @Delete()
@@ -214,7 +230,7 @@ export class DomainsController {
     })
 
     if (!website) {
-      throw new NotFoundException('No website found for this campaign')
+      throw new NotFoundException(NO_WEBSITE_FOUND_MESSAGE)
     }
 
     if (!website.domain) {

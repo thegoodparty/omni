@@ -7,9 +7,26 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
  * changed, onboarding completed).
  */
 export const SERVE_ONBOARDING_EVENTS = {
-  Activated: EVENTS.ServeOnboarding.LinkActivated,
   SuggestionChanged: EVENTS.ServeOnboarding.BrSuggestionChanged,
   Completed: EVENTS.ServeOnboarding.NetNewCompleted,
+  // Disqualification: the user picked a major party (Democrat/Republican) on the
+  // party step, mirroring the Win flow's `PartyDesignationBlocked` event.
+  PartyBlocked: EVENTS.ServeOnboarding.PartyDesignationBlocked,
+  // Per-screen funnel stages. Each "Viewed" fires once per view; the three
+  // selection screens (Office Status, Party Designation, Office) carry the
+  // user's chosen card title, and the *Completed events fire on Continue.
+  WelcomeViewed: EVENTS.ServeOnboarding.WelcomeViewed,
+  OfficeStatusViewed: EVENTS.ServeOnboarding.OfficeStatusViewed,
+  PartyDesignationViewed: EVENTS.ServeOnboarding.PartyDesignationViewed,
+  OfficeViewed: EVENTS.ServeOnboarding.OfficeViewed,
+  OfficeCompleted: EVENTS.ServeOnboarding.OfficeCompleted,
+  ConfirmViewed: EVENTS.ServeOnboarding.ConfirmViewed,
+  TermDatesViewed: EVENTS.ServeOnboarding.TermDatesViewed,
+  KnowYourConstituentsViewed: EVENTS.ServeOnboarding.KnowYourConstituentsViewed,
+  KnowYourConstituentsCompleted:
+    EVENTS.ServeOnboarding.KnowYourConstituentsCompleted,
+  PledgeViewed: EVENTS.ServeOnboarding.PledgeViewed,
+  PledgeCompleted: EVENTS.ServeOnboarding.PledgeCompleted,
 } as const
 
 type ServeOnboardingEventProperties =
@@ -19,10 +36,11 @@ type ServeOnboardingEventProperties =
 export const trackServeOnboarding = (
   name: string,
   properties?: ServeOnboardingEventProperties,
-): void => {
+): Promise<void> => {
   // Spread into a fresh object so a typed payload (an interface, which lacks an
   // implicit index signature) is accepted by trackEvent's Record parameter.
-  trackEvent(name, properties ? { ...properties } : undefined)
+  // Return the promise so callers can await the event before a redirect.
+  return trackEvent(name, properties ? { ...properties } : undefined)
 }
 
 /**

@@ -22,6 +22,7 @@ import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.
 import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { z } from 'zod'
 import { ElectedOffice, Priority, PrioritySource } from '../generated/prisma'
 import { toDateOnlyString } from 'src/shared/util/date.util'
@@ -52,6 +53,7 @@ export class PrioritiesController {
   constructor(private readonly prioritiesService: PrioritiesService) {}
 
   @Get()
+  @McpTool({ description: 'List priorities for the elected office.' })
   @ResponseSchema(z.array(PrioritySchema))
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
     const priorities = await this.prioritiesService.listActive(electedOffice.id)

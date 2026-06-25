@@ -1,32 +1,48 @@
-enum IssueChannel {
-  inPersonMeeting
-  phoneCall
-  email
-  socialMedia
-  letterMail
+model CommunityIssue {
+  id               String            @id @default(uuid(7))
+  organizationSlug String            @map("organization_slug")
+  organization     Organization      @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+
+  list     CommunityIssueList
+  category CommunityIssueCategory
+  priority CommunityIssuePriority
+  title    String
+  summary  String                  @db.Text
+  detail   Json?                   @db.JsonB
+  rank     Int?
+
+  archivedAt         DateTime? @map("archived_at")
+  lastRefreshedRunId String?   @map("last_refreshed_run_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  priorities        Priority[]
+  briefingItemLinks MeetingBriefingItemLink[]
+
+  @@index([organizationSlug, list, archivedAt, rank])
+  @@map("community_issue")
+}
+
+enum CommunityIssueList {
+  top_community
+  trending
+}
+
+enum CommunityIssueCategory {
+  infrastructure_and_transportation
+  public_safety
+  education
+  housing_and_development
+  health_and_human_services
+  economic_development
+  quality_of_life
+  government_operations
   other
 }
 
-enum IssueStatus {
-  newIssue
-  accepted
-  inProgress
-  wontDo
-  completed
-}
-
-model CommunityIssue {
-  uuid        String                    @id @default(cuid())
-  createdAt   DateTime                  @default(now()) @map("created_at")
-  updatedAt   DateTime                  @updatedAt @map("updated_at")
-  title       String
-  description String
-  status      IssueStatus
-  channel     IssueChannel
-  attachments String[]                  @default([])
-  campaign    Campaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId  Int
-  statusLogs  CommunityIssueStatusLog[]
-
-  @@map("community_issue")
+enum CommunityIssuePriority {
+  low
+  medium
+  high
 }

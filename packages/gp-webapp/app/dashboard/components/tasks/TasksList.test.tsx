@@ -1,13 +1,5 @@
 import type { ReactNode } from 'react'
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeAll,
-  beforeEach,
-  afterEach,
-} from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -23,11 +15,6 @@ import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
 import { differenceInDays } from 'date-fns'
 import { router } from 'helpers/test-utils/router-mocking'
-import { useProUpgrade3Flag } from '@shared/experiments/proUpgrade3Flag'
-
-vi.mock('@shared/experiments/proUpgrade3Flag', () => ({
-  useProUpgrade3Flag: vi.fn(() => ({ ready: true, enabled: false })),
-}))
 
 const mockClientFetch = vi.fn()
 const mockUseUser = vi.fn()
@@ -1360,8 +1347,7 @@ describe('TasksList text task 10DLC compliance lock', () => {
   )
 })
 
-describe('TasksList - pro-upgrade3 locked-item routing', () => {
-  const mockUseProUpgrade3Flag = vi.mocked(useProUpgrade3Flag)
+describe('TasksList - locked-item routing', () => {
   const mockPush = vi.mocked(router.push!)
 
   beforeEach(() => {
@@ -1369,13 +1355,8 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  afterEach(() => {
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
-  })
-
-  it('routes a locked Pro action into the wizard for the flag-on cohort', async () => {
+  it('routes a locked Pro texting action into the wizard', async () => {
     const user = userEvent.setup()
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
 
     render(
       <TasksList
@@ -1394,26 +1375,8 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
     )
   })
 
-  it('does NOT route to the wizard for the off cohort', async () => {
+  it('routes a non-text Pro-gated action (robocall) into the wizard', async () => {
     const user = userEvent.setup()
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: false })
-
-    render(
-      <TasksList
-        campaign={makeCampaign({ isPro: false })}
-        tasks={[makeTask({ flowType: TASK_TYPES.text, proRequired: true })]}
-        tcrCompliance={null}
-      />,
-    )
-
-    await user.click(screen.getByRole('button', { name: /Test Task/i }))
-
-    expect(mockPush).not.toHaveBeenCalledWith('/dashboard/pro-upgrade')
-  })
-
-  it('routes a non-text Pro-gated action (robocall) into the wizard for the flag-on cohort', async () => {
-    const user = userEvent.setup()
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: true, enabled: true })
 
     render(
       <TasksList
@@ -1432,20 +1395,25 @@ describe('TasksList - pro-upgrade3 locked-item routing', () => {
     )
   })
 
-  it('does NOT route while the flag is still resolving (not ready)', async () => {
+  it('normalizes a non-Pro p2pDisabledText action to text and routes it into the wizard', async () => {
     const user = userEvent.setup()
-    mockUseProUpgrade3Flag.mockReturnValue({ ready: false, enabled: true })
 
     render(
       <TasksList
         campaign={makeCampaign({ isPro: false })}
-        tasks={[makeTask({ flowType: TASK_TYPES.robocall, proRequired: true })]}
+        tasks={[makeTask({ flowType: TASK_TYPES.p2pDisabledText })]}
         tcrCompliance={null}
       />,
     )
 
     await user.click(screen.getByRole('button', { name: /Test Task/i }))
 
-    expect(mockPush).not.toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    // p2pDisabledText normalizes to text before the upgrade guard, so a non-Pro
+    // candidate is intercepted and routed into the wizard (not the task flow).
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.LockedItemClicked,
+      { type: TASK_TYPES.text },
+    )
   })
 })

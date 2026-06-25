@@ -12,7 +12,16 @@ interface TopVoterIssuesSectionProps {
   state?: string
   office?: string
   headingsAsSubsections?: boolean
+  // Copy overrides for non-candidate contexts (e.g. the elected-official
+  // "serve" flow, which addresses constituents rather than voters). Default to
+  // the Win/candidate wording so existing call sites are unaffected.
+  heading?: string
+  description?: string
 }
+
+const DEFAULT_TOP_ISSUES_HEADING = 'Top issues for your voters'
+const DEFAULT_TOP_ISSUES_DESCRIPTION =
+  'The issues voters in your district care about most right now.'
 
 const VOTER_ISSUES_QUERY_KEY = 'onboarding-voter-issues'
 const VOTER_ISSUES_ROUTE = 'GET /v1/onboarding/voter-issues'
@@ -62,6 +71,8 @@ export const TopVoterIssuesSection = ({
   state,
   office,
   headingsAsSubsections = false,
+  heading = DEFAULT_TOP_ISSUES_HEADING,
+  description = DEFAULT_TOP_ISSUES_DESCRIPTION,
 }: TopVoterIssuesSectionProps): React.JSX.Element | null => {
   const query = useQuery(
     voterIssuesQueryOptions({
@@ -106,12 +117,8 @@ export const TopVoterIssuesSection = ({
   return (
     <div className="space-y-4 text-left">
       <div className="space-y-1">
-        <HeadingTag className={headingClass}>
-          Top issues for your voters
-        </HeadingTag>
-        <p className="text-sm leading-6 text-slate-500">
-          The issues voters in your district care about most right now.
-        </p>
+        <HeadingTag className={headingClass}>{heading}</HeadingTag>
+        <p className="text-sm leading-6 text-slate-500">{description}</p>
       </div>
 
       {query.isPending ? (

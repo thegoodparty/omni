@@ -51,6 +51,10 @@ const mockCampaignModel = {
   update: vi.fn(),
 }
 
+const mockUserModel = {
+  findUnique: vi.fn().mockResolvedValue(null),
+}
+
 const mockExecuteRaw = vi.fn()
 const mockTransaction = vi.fn(
   async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -134,6 +138,7 @@ describe('CampaignTasksService', () => {
         campaignTask: mockModel,
         campaign: mockCampaignModel,
         campaignUpdateHistory: mockCampaignUpdateHistoryModel,
+        user: mockUserModel,
         $transaction: mockTransaction,
       }),
       configurable: true,
@@ -516,6 +521,35 @@ describe('CampaignTasksService', () => {
       )
       expect(mockTransaction).not.toHaveBeenCalled()
       expect(mockAiGeneration.triggerEventGeneration).not.toHaveBeenCalled()
+    })
+
+    it('skips event generation for a test-user campaign', async () => {
+      const existingTasks = [makeDbTask({ id: 'existing-1' })]
+
+      mockModel.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(existingTasks)
+      mockTxModel.count.mockResolvedValueOnce(1)
+      mockUserModel.findUnique.mockResolvedValueOnce({
+        email: 'jane@test.goodparty.org',
+      })
+
+      const observable = service.generateTasksStream(
+        campaignWithFutureElection(),
+      )
+      const events = await firstValueFrom(observable.pipe(toArray()))
+
+      expect(mockUserModel.findUnique).toHaveBeenCalledWith({
+        where: { id: 123 },
+        select: { email: true },
+      })
+      expect(mockAiGeneration.triggerEventGeneration).not.toHaveBeenCalled()
+      const completeEvent = events.find(
+        (e) => (e.data as { type: string }).type === 'complete',
+      )
+      expect((completeEvent!.data as { tasks: unknown[] }).tasks).toEqual(
+        existingTasks,
+      )
     })
 
     it('returns existing tasks immediately when not triggered', async () => {

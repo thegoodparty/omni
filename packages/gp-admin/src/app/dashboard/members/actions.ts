@@ -109,7 +109,15 @@ export async function revokeInvitation(
 export async function getOrganizationMembers(): Promise<
   ActionResultWithData<OrganizationMembership[]>
 > {
-  const { orgId } = await auth()
+  const { orgId, has } = await auth()
+
+  if (!has?.({ permission: PERMISSIONS.MANAGE_INVITES })) {
+    return {
+      success: false,
+      error: 'Unauthorized: Missing manage_invites permission',
+      data: [],
+    }
+  }
 
   if (!orgId) {
     return { success: false, error: 'No active organization', data: [] }

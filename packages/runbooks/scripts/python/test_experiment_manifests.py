@@ -16,19 +16,54 @@ from jsonschema import Draft7Validator, ValidationError
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "manifest.schema.json"
+QA_META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "qa.schema.json"
 
 
 def _load_meta_schema() -> dict:
     return json.loads(META_SCHEMA_PATH.read_text())
 
 
+def _load_qa_meta_schema() -> dict:
+    return json.loads(QA_META_SCHEMA_PATH.read_text())
+
+
 def _all_manifest_paths() -> list[Path]:
     return sorted(p for p in EXPERIMENTS_DIR.glob("*/manifest.json") if "_schema" not in p.parts)
+
+
+def _all_qa_manifest_paths() -> list[Path]:
+    return sorted(p for p in EXPERIMENTS_DIR.glob("*/qa/manifest.json") if "_schema" not in p.parts)
 
 
 def test_meta_schema_is_valid_draft7():
     meta = _load_meta_schema()
     Draft7Validator.check_schema(meta)
+
+
+def test_qa_meta_schema_is_valid_draft7():
+    """`_schema/qa.schema.json` must itself be a well-formed Draft-07 schema —
+    Draft7Validator.check_schema raises on a malformed meta-schema."""
+    Draft7Validator.check_schema(_load_qa_meta_schema())
+
+
+@pytest.mark.parametrize(
+    "qa_manifest_path",
+    _all_qa_manifest_paths(),
+    ids=lambda p: p.parent.parent.name,
+)
+def test_qa_manifest_validates_against_qa_schema(qa_manifest_path: Path):
+    """Every checked-in experiments/*/qa/manifest.json must validate against
+    the qa meta-schema. Parametrization is empty until the first qa folder
+    lands, in which case this test is a no-op (pytest collects zero params)."""
+    qa_meta = _load_qa_meta_schema()
+    manifest = json.loads(qa_manifest_path.read_text())
+    errors = sorted(
+        Draft7Validator(qa_meta).iter_errors(manifest),
+        key=lambda e: [str(p) for p in e.absolute_path],
+    )
+    if errors:
+        msgs = [f"  - {'.'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.message}" for e in errors]
+        pytest.fail(f"{qa_manifest_path.relative_to(REPO_ROOT)} fails qa meta-schema:\n" + "\n".join(msgs))
 
 
 def test_at_least_one_experiment_exists():
@@ -376,6 +411,8 @@ def test_compliance_setup_output_schema_accepts_recovery_loop_exits():
         **_empty_subobjects(),
         "domain": {"name": "votedoeNov2026.run", "registrar": "route53",
                    "purchased_at": "2026-05-23T10:01:00Z", "auto_renew": True, "price_usd": 10},
+        "website": {"url": "https://votedoeNov2026.run", "vanity_path": "votedoe",
+                    "published_at": "2026-05-23T10:01:30Z", "verified_live_at": ""},
         "completed_steps": ["compliance_state_read", "domain_search", "domain_purchase",
                             "publish_website"],
         "skipped_steps": [],

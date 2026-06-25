@@ -10,7 +10,7 @@ import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { useProUpgradeEntryHref } from '@shared/experiments/proUpgrade3Flag'
+import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
 
 export const VIABILITY_SCORE_THRESHOLD = 2
 
@@ -46,11 +46,6 @@ export function ProUpgradeModal({
 }: ProUpgradeModalProps): React.JSX.Element {
   const [user] = useUser()
   const [campaign] = useCampaign()
-  // pro-upgrade3 cohort enters the new wizard; off-cohort keeps the legacy
-  // upgrade splash.
-  const { href: upgradeHref } = useProUpgradeEntryHref(
-    '/dashboard/upgrade-to-pro',
-  )
   const sessionCount = user?.metaData?.sessionCount || 0
   const vendorP2v = campaign?.vendorTsData?.['pathToVictory'] as
     | { viability?: { score?: number } }
@@ -207,7 +202,7 @@ export function ProUpgradeModal({
           onClick={handleUpgradeLinkClick}
           {...trackingAttrs}
         >
-          <Link href={upgradeHref}>{cta}</Link>
+          <Link href={PRO_UPGRADE_ENTRY_PATH}>{cta}</Link>
         </Button>
       </div>
     </Modal>

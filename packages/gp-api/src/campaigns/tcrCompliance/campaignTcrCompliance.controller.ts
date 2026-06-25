@@ -56,15 +56,7 @@ export class CampaignTcrComplianceController {
   @Get('mine')
   @UseCampaign()
   async getMyTcrCompliance(@ReqCampaign() campaign: Campaign) {
-    const tcrCompliance = await this.tcrComplianceService.fetchByCampaignId(
-      campaign.id,
-    )
-    if (!tcrCompliance) {
-      throw new NotFoundException(
-        'TCR compliance does not exist for this campaign',
-      )
-    }
-    return tcrCompliance
+    return this.tcrComplianceService.fetchByCampaignId(campaign.id)
   }
 
   @Get('mine/compliance-state')

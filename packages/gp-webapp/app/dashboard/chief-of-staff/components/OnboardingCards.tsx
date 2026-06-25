@@ -1,64 +1,59 @@
 'use client'
 
-import { useState } from 'react'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import TaskCard from './TaskCard'
+import {
+  useOnboardingCards,
+  useSkipOnboardingCard,
+} from '../data/use-dashboard'
+import {
+  ONBOARDING_CARDS,
+  ONBOARDING_CARD_ORDER,
+} from './onboardingCardsConfig'
+import type { OnboardingCardKey } from '../data/contracts'
 
 interface Props {
-  /** Opens the chat surface (the onboarding CTAs are chat entry points). */
-  onOpenChat: () => void
-  /**
-   * When true, show the "Personalize" card. The office has no stated
-   * priorities yet, so the CoS onboarding asks for them. Defaults to true
-   * until priorities data is wired at integration.
-   */
-  showPersonalize?: boolean
+  /** Open the chat with the agent opener tailored to the clicked card. */
+  onOpenCard: (key: OnboardingCardKey) => void
 }
 
 /**
- * The two onboarding cards at the top of the dashboard list. Each is locally
- * dismissible (Skip) and opens the chat (Meet / Personalize). These are UI
- * onboarding prompts, not `DashboardCard` rows, so Skip is local state.
+ * The two get-started cards at the top of the dashboard list. Each is shown
+ * only while its server-derived status is `active` — skipping persists (and the
+ * card moves to the archive's Skipped list), and the card disappears once its
+ * goal is met (you've chatted with the agent / stated a priority). Clicking the
+ * CTA opens a fresh chat where the agent prompts you.
  */
 export default function OnboardingCards({
-  onOpenChat,
-  showPersonalize = true,
+  onOpenCard,
 }: Props): React.JSX.Element | null {
-  const [metSkipped, setMetSkipped] = useState(false)
-  const [personalizeSkipped, setPersonalizeSkipped] = useState(false)
+  const { data: cards } = useOnboardingCards()
+  const skip = useSkipOnboardingCard()
 
-  const showMeet = !metSkipped
-  const showPersonalizeCard = showPersonalize && !personalizeSkipped
-
-  if (!showMeet && !showPersonalizeCard) return null
+  if (!cards) return null
+  const active = ONBOARDING_CARD_ORDER.filter((key) =>
+    cards.some((c) => c.key === key && c.status === 'active'),
+  )
+  if (active.length === 0) return null
 
   return (
     <div className="flex flex-col gap-4">
-      {showMeet && (
-        <TaskCard
-          highlighted
-          scrollSpy
-          eyebrowLabel="Get started"
-          EyebrowIcon={SparklesIcon}
-          title="Meet your virtual chief of staff"
-          summary="See how your Chief of Staff can help you prepare for meetings, track priorities, and stay on top of your district."
-          ctaLabel="Meet my Chief of Staff"
-          onCta={onOpenChat}
-          onSkip={() => setMetSkipped(true)}
-        />
-      )}
-      {showPersonalizeCard && (
-        <TaskCard
-          scrollSpy
-          eyebrowLabel="Get started"
-          EyebrowIcon={SparklesIcon}
-          title="Tell us more about the most important issues you're facing"
-          summary="Share the priorities that matter most so your Chief of Staff can tailor its help to your district."
-          ctaLabel="Personalize my Chief of Staff"
-          onCta={onOpenChat}
-          onSkip={() => setPersonalizeSkipped(true)}
-        />
-      )}
+      {active.map((key) => {
+        const config = ONBOARDING_CARDS[key]
+        return (
+          <TaskCard
+            key={key}
+            eyebrowLabel={config.eyebrowLabel}
+            EyebrowIcon={SparklesIcon}
+            title={config.title}
+            summary={config.summary}
+            ctaLabel={config.ctaLabel}
+            onCta={() => onOpenCard(key)}
+            onSkip={() => skip.mutate(key)}
+            skipDisabled={skip.isPending}
+          />
+        )
+      })}
     </div>
   )
 }

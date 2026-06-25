@@ -3,10 +3,15 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { FilterPill, FilterPillGroup, IconButton } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { ArrowLeftIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffHref } from '../../routes'
-import { useDashboardCards } from '../../data/use-dashboard'
+import { useDashboardCards, useOnboardingCards } from '../../data/use-dashboard'
 import DashboardTaskCard from '../../components/DashboardTaskCard'
+import TaskCard from '../../components/TaskCard'
+import {
+  ONBOARDING_CARDS,
+  ONBOARDING_CARD_ORDER,
+} from '../../components/onboardingCardsConfig'
 import type { DashboardCardBucket } from '../../data/contracts'
 
 type ArchiveBucket = Extract<
@@ -28,6 +33,15 @@ const EMPTY_COPY: Record<ArchiveBucket, string> = {
 
 function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   const { data: cards, isPending, isError } = useDashboardCards(bucket)
+  const { data: onboarding } = useOnboardingCards()
+
+  // Skipped onboarding cards live in the Skipped bucket alongside task cards.
+  const skippedOnboarding =
+    bucket === 'skipped'
+      ? ONBOARDING_CARD_ORDER.filter((key) =>
+          onboarding?.some((c) => c.key === key && c.status === 'skipped'),
+        )
+      : []
 
   if (isPending) {
     return <p className="text-sm text-muted-foreground">Loading...</p>
@@ -39,7 +53,7 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
       </p>
     )
   }
-  if (!cards || cards.length === 0) {
+  if ((!cards || cards.length === 0) && skippedOnboarding.length === 0) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="archive-empty">
         {EMPTY_COPY[bucket]}
@@ -48,9 +62,21 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   }
   return (
     <div className="flex flex-col gap-4">
-      {cards.map((card) => (
+      {cards?.map((card) => (
         <DashboardTaskCard key={card.id} card={card} />
       ))}
+      {skippedOnboarding.map((key) => {
+        const config = ONBOARDING_CARDS[key]
+        return (
+          <TaskCard
+            key={key}
+            eyebrowLabel={config.eyebrowLabel}
+            EyebrowIcon={SparklesIcon}
+            title={config.title}
+            summary={config.summary}
+          />
+        )
+      })}
     </div>
   )
 }

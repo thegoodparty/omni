@@ -8,6 +8,20 @@ Adding or editing an experiment requires zero code deploys. See
 `books/convert-runbook-to-experiment.md` for the runbook → experiment
 translation procedure.
 
+## Eval artifacts live in the sibling `experiment-evals/` tree (NOT here)
+
+Keep `experiments/<id>/` purely operational — the publisher walks it and ships
+`manifest.json` + `instruction.md` + `attachments/` to S3, and the runtime agent
+reads only that. An experiment's **output-quality rubric** and its evidence do
+NOT belong here; they live in the sibling top-level **`experiment-evals/<id>/`**
+tree, which the publisher never touches and the runtime agent never sees:
+`quality_rubric.md` (the eval contract), `validation_log.md`, and an example
+`rubric_scores.tsv`. They're applied by cold-judge subagents per
+`books/build-output-quality-rubric.md`, tallied by
+`scripts/python/rubric_verdict.py`. Per-run eval evidence stays in gitignored
+`outputs/rubric-runs/`; an *adopted* rubric graduates into `experiment-evals/<id>/`
+in its own PR (eval artifacts are reviewed separately from the system that builds them).
+
 ## Lifecycle: every experiment starts as a runbook
 
 The path from "I have an idea" to "candidates can run this from their
@@ -185,20 +199,49 @@ substantial.
 
 ## Subdirectory layout
 
-Each experiment dir holds exactly two files:
+Each experiment dir holds two required files plus an optional `qa/` folder:
 
 ```
 experiments/
 ├── _schema/
-│   └── manifest.schema.json       ← meta-schema (validates every manifest)
+│   ├── manifest.schema.json       ← meta-schema (validates every manifest)
+│   └── qa.schema.json             ← validates each qa/manifest.json
 ├── <experiment_id>/
 │   ├── manifest.json              ← routing config + contract schema + scope
-│   └── instruction.md             ← agent's system prompt (steps + rules)
+│   ├── instruction.md             ← agent's system prompt (steps + rules)
+│   └── qa/                        ← OPTIONAL QA gate (published when present)
+│       ├── manifest.json          ← gate config (blocking, budgets) — required if qa/ exists
+│       ├── main.py                ← deterministic checks (schema, grounding, integrity)
+│       └── eval.md                ← LLM evaluator instruction (editorial scoring)
 ├── index.json                     ← built by publish_experiments.py (do NOT hand-edit)
 └── CLAUDE.md                      ← this file
 ```
 
-Anything else in an experiment dir gets ignored by the publish script.
+The publisher uploads `manifest.json`, `instruction.md`, and the whole `qa/`
+folder (validating `qa/manifest.json` against `qa.schema.json`). Other stray files
+in an experiment dir are ignored.
+
+## The QA folder (qa/) — two entrypoints, two jobs
+
+When an experiment has a `qa/` folder, the gate runs **two stages** with a strict
+division of labor. Keep them in their lanes:
+
+| File | Job | Does NOT do |
+|---|---|---|
+| `qa/main.py` | **Deterministic, mechanical checks** — schema validity, cross-reference integrity, claim grounding (each `source_extract` substring-checked against its cited source), discovery completeness, disclosure presence. Cheap, exact, repeatable. | Editorial judgment, quality scoring. |
+| `qa/eval.md` | **Lightweight editorial scoring** by a single LLM judge — eligibility gate + a small set of 1-5 quality dimensions, scored against the artifact's OWN embedded content in one read. | Per-claim grounding, source re-fetch, web search, or fact-checking against reality — those are individual checks owned by `main.py` and other processes. |
+
+**The rule for eval.md: keep it lightweight and editorial.** The evaluator scores
+quality; it does NOT verify facts. It must not web-search, re-fetch cited sources, or
+re-do per-claim grounding — individual claim-level checks belong to `main.py`'s
+deterministic stage (and any downstream verification process), not the judge. Every
+turn the judge spends re-investigating is a turn stolen from its bounded budget, and
+it duplicates work the deterministic stage already did exactly. Give the judge `Bash`
+only, point it at the embedded artifact, and ask it to read once and score.
+
+This split is why the gate is fast and trustworthy: the cheap deterministic stage
+catches the mechanical/grounding failures with zero ambiguity, leaving the expensive
+LLM to do only the thing code cannot — judge editorial quality.
 
 ## Validation
 
@@ -232,3 +275,5 @@ LAST as an atomic switch. New dispatches see the new bytes within ~60s
   `experiments/district_issue_pulse/`)
 - `_schema/manifest.schema.json` — the meta-schema, source of truth for
   manifest validation
+- `_schema/qa.schema.json` — the QA-gate config schema (validates each
+  `<experiment_id>/qa/manifest.json`)

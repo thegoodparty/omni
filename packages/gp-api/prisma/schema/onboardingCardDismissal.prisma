@@ -1,0 +1,16 @@
+model OnboardingCardDismissal {
+  id              String        @id @default(cuid())
+  electedOfficeId String        @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  cardKey     OnboardingCardKey @map("card_key")
+  dismissedAt DateTime          @default(now()) @map("dismissed_at")
+
+  @@unique([electedOfficeId, cardKey])
+  @@map("onboarding_card_dismissal")
+}
+
+enum OnboardingCardKey {
+  meet
+  priorities
+}

@@ -1,0 +1,11 @@
+{
+  "uid": "win_magic_link_card",
+  "type": "card",
+  "config": {
+    "name": "Send Candidate Magic Link (Internal)",
+    "description": "Internal/testing tool. Generates a candidate onboarding magic link for this contact and returns a URL the rep can copy.",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/WinMagicLinkCard.tsx",
+    "objectTypes": ["CONTACT"]
+  }
+}

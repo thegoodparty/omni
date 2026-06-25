@@ -56,6 +56,17 @@ jobs:
     needs: discover-stale-stacks
     if: needs.discover-stale-stacks.outputs.stacks != '[]'
     runs-on: ubuntu-latest
+    # Serialize on the preview stack name (shared with the deploy job in
+    # gp-api.yml and gp-api-teardown-preview.yml) so this never runs `pulumi
+    # cancel`/`destroy` against a stack a PR-close teardown is already
+    # destroying — concurrent cancels would clear each other's locks and both
+    # could fail, stranding the ALB.
+    concurrency:
+      group: gp-api-preview-${{ matrix.stack }}
+      cancel-in-progress: false
+    env:
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -76,28 +87,67 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
-      - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
-        with:
-          pulumi-version: "^3"
-
       - name: Destroy stack
-        working-directory: ${{ env.WORKSPACE }}/deploy
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        uses: ./.github/actions/destroy-preview-stack
+        with:
+          stack-name: ${{ matrix.stack }}
+          working-directory: ${{ env.WORKSPACE }}/deploy
+
+      # fail-fast: false already lets the other matrix legs finish, but a
+      # failed destroy is otherwise only visible to whoever opens the run.
+      # Surface it so a stranded ALB doesn't silently sit against the quota.
+      - name: Notify Slack on destroy failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,job
+          text: >-
+            gp-api preview cleanup failed to destroy `${{ matrix.stack }}`.
+            Its load balancer may still be holding ELB quota — check the run.
+
+  check-elb-quota:
+    # Run after the destroys (always(), so it still runs when destroy is
+    # skipped for an empty stale set or when a leg fails) so the count
+    # reflects post-cleanup reality — and so it still fires when a failed
+    # destroy leaves an ALB stranded.
+    needs: [destroy]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Check ALB count against quota
+        id: check
+        # L-53DA6B97 is the per-region "Application Load Balancers" quota.
         run: |
-          pulumi login s3://goodparty-iac-state
+          QUOTA=$(aws service-quotas get-service-quota \
+            --service-code elasticloadbalancing --quota-code L-53DA6B97 \
+            --region us-west-2 --query 'Quota.Value' --output text)
+          QUOTA=${QUOTA%.*}
+          COUNT=$(aws elbv2 describe-load-balancers --region us-west-2 \
+            --query 'length(LoadBalancers)' --output text)
+          THRESHOLD=$(( QUOTA * 80 / 100 ))
+          echo "Load balancers in use: $COUNT / $QUOTA (warn at >= $THRESHOLD)"
+          {
+            echo "count=$COUNT"
+            echo "quota=$QUOTA"
+            echo "threshold=$THRESHOLD"
+            echo "near_quota=$([ "$COUNT" -ge "$THRESHOLD" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
 
-          STACK_NAME="${{ matrix.stack }}"
-          echo "Destroying stack: $STACK_NAME"
-
-          if pulumi stack select "$STACK_NAME"; then
-            echo "Stack found. Destroying..."
-            pulumi destroy --yes --skip-preview
-            # This log group is created by ECS automatically and needs to be deleted manually
-            aws logs delete-log-group --log-group-name "/aws/ecs/containerinsights/gp-pr-${STACK_NAME#gp-api-pr-}-fargateCluster/performance" || true
-            pulumi stack rm --yes
-            echo "Stack $STACK_NAME destroyed successfully"
-          else
-            echo "Stack $STACK_NAME not found. Skipping."
-          fi
+      - name: Notify Slack when near quota
+        if: steps.check.outputs.near_quota == 'true' && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "text": ":warning: AWS ELB usage in us-west-2 is ${{ steps.check.outputs.count }}/${{ steps.check.outputs.quota }} (>= ${{ steps.check.outputs.threshold }}). New PR-preview deploys may fail with TooManyLoadBalancers — clear stale preview stacks or request a quota increase."
+            }

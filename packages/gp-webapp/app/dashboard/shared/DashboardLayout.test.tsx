@@ -31,7 +31,6 @@ vi.mock('@shared/hooks/EcanvasserProvider', () => ({
   EcanvasserProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
-vi.mock('../components/AlertSection', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
 vi.mock('@styleguide/components/ui/icons', () => ({

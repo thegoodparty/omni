@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://runbooks.goodparty.org/experiments/_schema/qa.schema.json",
+  "title": "PMF Experiment QA Manifest",
+  "description": "Validates experiments/<slug>/qa/manifest.json — the one decision an experiment author makes about its QA gate, plus optional budgets. What to check is defined by the folder's auto-detected entrypoints (qa/main.py deterministic, qa/eval.md evaluator), not declared here, so there is no manifest-to-code drift. The two optional blocks are budget overrides: `deterministic` bounds the qa/main.py subprocess and `agent` carries the model and budgets for the qa/eval.md evaluator. Platform defaults are applied by the runner-image engine at runtime (JSON Schema `default` is documentation/editor hints only and is NOT injected by the validator, so a bare {\"blocking\": false} is valid).",
+  "type": "object",
+  "required": ["blocking"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this meta-schema. Lets editors auto-complete fields. Not consumed by runtime."
+    },
+    "blocking": {
+      "type": "boolean",
+      "description": "The one decision: does a failing verdict block the artifact? false (observe) is the only posture v1 enforces — the artifact always publishes and the verdict rides along. true (blocking) is accepted but treated as false with a published warning until the deferred enforcement path ships."
+    },
+    "deterministic": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional overrides for the deterministic stage (qa/main.py subprocess). Omitted = platform defaults.",
+      "properties": {
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120,
+          "description": "Wall-clock cap on the qa/main.py subprocess. Default 120."
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional overrides for the evaluator stage (qa/eval.md judge). Omitted = platform defaults. Used only when qa/eval.md is present; harmless on a deterministic-only folder. The runner-image engine applies the defaults at runtime and clamps max_turns to its own ceiling. Defaults are documentation/editor hints only and are NOT injected by the validator. The evaluator is meant to be lightweight and editorial — it scores quality against the artifact's own embedded content in a single read and does NOT web-search, re-fetch sources, or re-verify per-claim grounding (those are the deterministic qa/main.py stage's job), so a small budget is intentional. See experiments/CLAUDE.md, 'The QA folder'.",
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": ["sonnet", "opus", "haiku"],
+          "default": "sonnet",
+          "description": "Model the evaluator agent runs under. Default sonnet."
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Turn budget for the evaluator agent, clamped to the engine ceiling. Default 20."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 300,
+          "description": "Wall-clock cap on the evaluator agent (enforced via asyncio.wait_for). Default 300."
+        }
+      }
+    }
+  }
+}

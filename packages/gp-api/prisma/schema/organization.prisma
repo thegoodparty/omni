@@ -10,8 +10,9 @@ model Organization {
   campaign           Campaign?
   electedOffice      ElectedOffice?
   voterFileFilters   VoterFileFilter[]
-  experimentRuns     ExperimentRun[]
-  artifactFeedbacks  ArtifactFeedback[]
+  experimentRuns       ExperimentRun[]
+  artifactFeedbacks    ArtifactFeedback[]
+  communityIssues      CommunityIssue[]
 
   @@index([ownerId])
   @@map("organization")

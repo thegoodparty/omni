@@ -168,8 +168,12 @@ jobs:
     name: Deploy PR preview
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Keyed on the full preview stack name so deploy, teardown
+    # (gp-api-teardown-preview.yml), and the cron cleanup destroy
+    # (gp-api-cleanup-preview.yml) all serialize on the same stack and never
+    # run concurrent Pulumi operations against it.
     concurrency:
-      group: gp-api-deploy-pr-${{ github.event.number }}
+      group: gp-api-preview-gp-api-pr-${{ github.event.number }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5

@@ -12,9 +12,15 @@ const primaryCtx = {
   candidate_count: 3,
   candidates: [{ full_name: 'Jane Doe' }, { full_name: 'Sam Roe' }],
 }
+const story = {
+  why: 'To fix the roads',
+  background: 'Lifelong resident',
+  issues: null,
+}
 
 const campaign = (details: unknown) =>
   ({
+    id: 42,
     details,
     user: {
       email: 'rob@example.com',
@@ -28,6 +34,7 @@ describe('StrategicLandscapeParamsService', () => {
   let service: StrategicLandscapeParamsService
   let electionApi: { getStrategyContext: ReturnType<typeof vi.fn> }
   let races: { getPrimaryRaceId: ReturnType<typeof vi.fn> }
+  let campaignStory: { getForCampaign: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     electionApi = {
@@ -36,9 +43,13 @@ describe('StrategicLandscapeParamsService', () => {
       ),
     }
     races = { getPrimaryRaceId: vi.fn() }
+    campaignStory = { getForCampaign: vi.fn(async () => story) }
+    const logger = { setContext: vi.fn(), warn: vi.fn() }
     service = new StrategicLandscapeParamsService(
       electionApi as never,
       races as never,
+      campaignStory as never,
+      logger as never,
     )
   })
 
@@ -88,5 +99,24 @@ describe('StrategicLandscapeParamsService', () => {
 
     expect(out.user_party_affiliation).toBeNull()
     expect(out.other_party).toBeNull()
+  })
+
+  it('hydrates the campaign story for the candidate', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(campaignStory.getForCampaign).toHaveBeenCalledWith(42)
+    expect(out.campaign_story).toEqual(story)
+  })
+
+  it('omits the story (without failing the build) when its read errors', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    campaignStory.getForCampaign.mockRejectedValue(new Error('db down'))
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story).toBeUndefined()
+    expect(out.campaign_strategy_context).toBe(generalCtx)
   })
 })

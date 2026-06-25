@@ -10,6 +10,7 @@
  * Real implementation lives in `chat-api.ts`.
  */
 
+import type { ChatAnchor } from '@goodparty_org/contracts'
 import type {
   ChatConversationDto,
   ChatMessageDto,
@@ -22,7 +23,7 @@ export interface ChiefOfStaffChatClient {
    * office/owner. Called lazily on the first send. Returns the conversation
    * id to use for subsequent `streamMessage` / `listMessages` calls.
    */
-  createConversation(): Promise<{ conversationId: string }>
+  createConversation(anchor?: ChatAnchor): Promise<{ conversationId: string }>
 
   /**
    * Replay the prior messages for a conversation, oldest first. Returns an

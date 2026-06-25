@@ -24,6 +24,7 @@ import {
 } from 'date-fns'
 import { Observable, Subscriber } from 'rxjs'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isTestCampaign } from '@/users/util/users.util'
 import {
   DateFormats,
   formatDate,
@@ -284,8 +285,20 @@ export class CampaignTasksService extends createPrismaBase(
 
       await this.generateDefaultTasks(campaign, today)
 
-      const triggered =
-        await this.aiGenerationService.triggerEventGeneration(campaign)
+      const owner = await this.client.user.findUnique({
+        where: { id: campaign.userId },
+        select: { email: true },
+      })
+      const skipForTest = isTestCampaign({ user: owner })
+      if (skipForTest) {
+        this.logger.info(
+          { campaignId: campaign.id },
+          'Skipping event generation for test-user campaign',
+        )
+      }
+      const triggered = skipForTest
+        ? false
+        : await this.aiGenerationService.triggerEventGeneration(campaign)
 
       // Something bad happened, let's close the stream.
       if (!triggered) {

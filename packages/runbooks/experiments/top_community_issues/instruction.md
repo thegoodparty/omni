@@ -41,7 +41,7 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 ## TODO CHECKLIST
 
 1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
-2. Call `GET_v1_community-issue-feed` with `organization_slug` to retrieve the current issue list. Record existing issue IDs, titles, categories.
+2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs, titles, categories.
 3. `WebSearch` the **local civic news + letters/op-eds** for the jurisdiction. Identify candidate named issues residents are raising, with dollars/dates/locations.
 4. `WebSearch` the **community advocacy groups** (associations, BIAs, neighborhood councils, coalitions). Record each group's name and any party affiliation; prefer nonpartisan; pull the issues they are pushing.
 5. `WebSearch` **petitions / organized campaigns**, then **311 / service requests** and a **resident survey** if discoverable. Flag any layer not found.
@@ -63,7 +63,7 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 
 **Existing issue feed**:
 
-- Call `GET_v1_community-issue-feed` FIRST, before any research. The API returns the complete current issue list for the organization.
+- Call `GET_community_issues` FIRST, before any research. The API returns the complete current issue list for the organization.
 - When an output issue corresponds to an issue already in the feed, set `existing_issue_id` to that issue's ID. Never drop a prioritized existing issue unless it is clearly resolved.
 - Prefer carrying an existing ID over creating a net-new issue for the same underlying concern.
 - A 404 means no feed yet — treat as empty, set no `existing_issue_id`, and state "feed empty/404" in `data_quality_reason`.
@@ -141,7 +141,7 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
-Call `GET_v1_community-issue-feed` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
+Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
 
 ### Step 3 — Resident-demand discovery (the salience signal)
 
@@ -272,4 +272,4 @@ After validation passes, verify:
 | Partisan group's claim ranked as resident salience | Skipped the nonpartisan-corroboration rule | Flag affiliation; require a second independent source |
 | `source_id` not found in `detail.sources[]` | Referenced a source you never added | Add the matching entry to `detail.sources[]` |
 | Validator: missing/empty `overview` | `detail.overview.summary` omitted or empty | Always emit a substantive `overview.summary`; it is required |
-| `GET_v1_community-issue-feed` 404 | Organization has no feed yet | Treat as empty feed; note it in `data_quality_reason` |
+| `GET_community_issues` 404 | Organization has no feed yet | Treat as empty feed; note it in `data_quality_reason` |

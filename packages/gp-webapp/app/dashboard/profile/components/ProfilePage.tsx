@@ -3,7 +3,7 @@ import ContactInfoSection from './ContactInfoSection'
 import { AccountSettingsSection } from 'app/dashboard/profile/components/AccountSettingsSection'
 import { User, Website, TcrCompliance, Campaign } from 'helpers/types'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
-import TextingComplianceFeatureFlag from 'app/dashboard/profile/texting-compliance-agentic/components/TextingComplianceFeatureFlag'
+import ProUpgrade3Compliance from 'app/dashboard/profile/texting-compliance-agentic/components/ProUpgrade3Compliance'
 import { WebsiteSunsetBanner } from 'app/dashboard/shared/WebsiteSunsetBanner'
 import { isWebsiteSunsetEligible } from 'app/dashboard/shared/websiteSunset'
 
@@ -22,8 +22,6 @@ export default function ProfilePage({
   campaign,
   isPro,
   website,
-  domainStatus,
-  tcrCompliance,
 }: ProfilePageProps): React.JSX.Element {
   return (
     <DashboardLayout pathname="/dashboard/profile">
@@ -34,15 +32,7 @@ export default function ProfilePage({
           />
           <ContactInfoSection user={user} />
           {!!campaign && <AccountSettingsSection />}
-          {!!campaign && isPro && (
-            <TextingComplianceFeatureFlag
-              {...{
-                website,
-                domainStatus,
-                tcrCompliance,
-              }}
-            />
-          )}
+          {!!campaign && isPro && <ProUpgrade3Compliance />}
           {!!campaign && <NotificationSection />}
         </div>
       </div>

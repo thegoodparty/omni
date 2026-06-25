@@ -22,13 +22,29 @@ type Props = {
 
 type PendingVerdict = 'passed' | 'failed' | null
 
+const SCORING_GUIDELINES_URL =
+  'https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-109293/2ky4jq2q-90393'
+
+export const FAIL_REASON_TEMPLATE = [
+  '- Voice & tone: pass/fail/na',
+  '  - ↳ If fail, explain: ',
+  '- Grounding & traceability: pass/fail/na',
+  '  - ↳ If fail, explain: ',
+  '- Coverage: pass/fail/na',
+  '  - ↳ If fail, explain: ',
+  '- Prioritization: pass/fail/na',
+  '  - ↳ If fail, explain: ',
+  '- Constituent data match: pass/fail/na',
+  '  - ↳ If fail, explain: ',
+].join('\n')
+
 export default function ReviewVerdictControls({
   meetingDate,
   reviewsCount,
 }: Props): React.JSX.Element {
   const { signOut } = useClerk()
   const [pending, setPending] = useState<PendingVerdict>(null)
-  const [failReason, setFailReason] = useState('')
+  const [failReason, setFailReason] = useState(FAIL_REASON_TEMPLATE)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,7 +52,7 @@ export default function ReviewVerdictControls({
 
   const close = () => {
     setPending(null)
-    setFailReason('')
+    setFailReason(FAIL_REASON_TEMPLATE)
     setSubmitting(false)
     setError(null)
   }
@@ -46,6 +62,15 @@ export default function ReviewVerdictControls({
     setSubmitting(true)
     setError(null)
     const reason = failReason.trim()
+    // When review comments exist the overall reason is optional, so an
+    // untouched template means "no reason given" — omit it rather than
+    // recording the blank rubric. With no comments a reason is required, so
+    // the template is sent as-is.
+    const untouchedTemplate = reason === FAIL_REASON_TEMPLATE.trim()
+    const includeReason =
+      pending === 'failed' &&
+      !!reason &&
+      !(reviewsCount > 0 && untouchedTemplate)
     let ok = false
     try {
       const res = await clientRequest(
@@ -53,7 +78,7 @@ export default function ReviewVerdictControls({
         {
           date: meetingDate,
           verdict: pending,
-          ...(pending === 'failed' && reason ? { failReason: reason } : {}),
+          ...(includeReason ? { failReason: reason } : {}),
         },
         { ignoreResponseError: true },
       )
@@ -112,13 +137,28 @@ export default function ReviewVerdictControls({
           </DialogHeader>
 
           {failing && (
-            <Textarea
-              aria-label="Fail reason"
-              placeholder="Why is this briefing failing?"
-              maxLength={2000}
-              value={failReason}
-              onChange={(e) => setFailReason(e.target.value)}
-            />
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">
+                Not sure how to grade this? See the{' '}
+                <a
+                  href={SCORING_GUIDELINES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  scoring guidelines
+                </a>
+                .
+              </p>
+              <Textarea
+                aria-label="Fail reason"
+                placeholder="Why is this briefing failing?"
+                rows={11}
+                maxLength={2000}
+                value={failReason}
+                onChange={(e) => setFailReason(e.target.value)}
+              />
+            </div>
           )}
 
           {error && (

@@ -6,7 +6,6 @@ import Link from 'next/link'
 import ProfileDropdown from './ProfileDropdown'
 import DashboardOrContinue from './DashboardOrContinue'
 import { useUser } from '@shared/hooks/useUser'
-import { ExitToDashboardButton } from '@shared/layouts/navigation/ExitToDashboardButton'
 import NavButton from './NavButton'
 import { Button } from '@styleguide'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
@@ -48,7 +47,6 @@ const RightSide = (): React.JSX.Element => {
     <div className="hidden lg:flex justify-end items-center">
       {user ? (
         <>
-          <ExitToDashboardButton />
           <ProfileDropdown
             open={profileOpen}
             toggleCallback={toggleProfile}

@@ -7,13 +7,15 @@ import { Button } from '@styleguide'
 import Link from 'next/link'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrComplianceStatus } from 'helpers/types'
-import { useProUpgradeFlag } from '@shared/experiments/proUpgradeFlag'
-import {
-  useProUpgrade3Flag,
-  PRO_UPGRADE_ENTRY_PATH,
-} from '@shared/experiments/proUpgrade3Flag'
 
-const PROFILE_COMPLIANCE_PATH = '/dashboard/profile#texting-compliance'
+const SUBMIT_PIN_PATH = '/dashboard/profile/texting-compliance/submit-pin'
+// The registration form (not the pre-payment Pro-upgrade wizard). An
+// already-Pro candidate with no TCR record routed into the wizard dead-ends on
+// its SUCCESS surface and loops back to the dashboard (ENG-10441); the
+// election-filing form calls createAgentic and is the correct entry for them,
+// matching ProUpgrade3Compliance's no-record branch.
+const ELECTION_FILING_PATH =
+  '/dashboard/profile/texting-compliance/election-filing'
 
 interface ComplianceModalProps {
   open: boolean
@@ -26,36 +28,6 @@ export function ComplianceModal({
   tcrComplianceStatus,
   onClose,
 }: ComplianceModalProps): React.JSX.Element {
-  const { ready, enabled } = useProUpgradeFlag()
-  const phase1Enabled = ready && enabled
-
-  // Only the default "Start Registration" branch links into the
-  // compliance/upgrade flow. The pending/submitted/rejected/error statuses are
-  // not registration prompts: pending/rejected/error use a mailto or no href,
-  // and submitted (no dedicated case) falls through to the default branch, so
-  // it must be excluded here to avoid mislabeling an already-submitted user as
-  // needing to register.
-  const isRegistrationCase =
-    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.PENDING &&
-    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.SUBMITTED &&
-    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.REJECTED &&
-    tcrComplianceStatus !== TCR_COMPLIANCE_STATUS.ERROR
-
-  // The callers mount this modal unconditionally (open or not), so only count
-  // experiment exposure when the registration CTA is actually rendered and on
-  // screen.
-  const { ready: proUpgrade3Ready, enabled: proUpgrade3Enabled } =
-    useProUpgrade3Flag(open && isRegistrationCase)
-
-  // pro-upgrade3 cohort enters the new wizard; the off cohort and the
-  // not-yet-resolved window both keep the profile texting-compliance section
-  // (routing through the wizard before the flag resolves would bounce an
-  // off-cohort user to pro-sign-up, not back here).
-  const registrationHref =
-    isRegistrationCase && proUpgrade3Ready && proUpgrade3Enabled
-      ? PRO_UPGRADE_ENTRY_PATH
-      : PROFILE_COMPLIANCE_PATH
-
   const helpTrailer = (
     <>
       <br />
@@ -82,6 +54,20 @@ export function ComplianceModal({
     ctaHref: string | undefined
 
   switch (tcrComplianceStatus) {
+    case TCR_COMPLIANCE_STATUS.SUBMITTED:
+      title = 'Submit your PIN to finish texting registration'
+      description = (
+        <>
+          Your registration is in. To verify your identity, CampaignVerify will
+          send a PIN within 2-3 business days to the email, phone, or address
+          that matches your election filing. Enter it here to finish and start
+          texting.
+          {helpTrailer}
+        </>
+      )
+      cta = 'Enter PIN'
+      ctaHref = SUBMIT_PIN_PATH
+      break
     case TCR_COMPLIANCE_STATUS.PENDING:
       title = 'Texting registration under review'
       description =
@@ -107,14 +93,14 @@ export function ComplianceModal({
       title = 'Action required: register for texting compliance'
       description = (
         <>
-          {phase1Enabled
-            ? "Carrier requirements mean you must register before sending your first text. You'll need your Campaign EIN and your official filing link. Ready? Click Start Your Registration to get started."
-            : "Carrier requirements mean you must register before sending your first text. You'll need your Campaign EIN, your official filing link, and an active website purchased through GoodParty.org. Don't have a site yet? You can build and launch one right from your dashboard before getting started."}
+          Carrier requirements mean you must register before sending your first
+          text. You&apos;ll need your Campaign EIN and your official filing
+          link. Ready? Click Start Your Registration to get started.
           {helpTrailer}
         </>
       )
       cta = 'Start Registration'
-      ctaHref = registrationHref
+      ctaHref = ELECTION_FILING_PATH
       break
   }
 

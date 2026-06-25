@@ -1,5 +1,19 @@
 import { z } from 'zod'
 
+// Residence-address columns (Voter table) that compose a physical-household
+// key for door-knocking de-duplication. Chosen as the canvassing-correct key
+// (where a door-knocker physically stands), NOT Mailing_Families_FamilyID
+// (which keys mailing households). people-api builds the grouping key by
+// UPPER(TRIM(COALESCE(col,''))) over exactly these columns in this order;
+// gp-api forwards `groupByHousehold` to opt in. Living here keeps the producer
+// (people-api) and the contract in lockstep so the key definition can't drift.
+export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
+  'Residence_Addresses_AddressLine',
+  'Residence_Addresses_City',
+  'Residence_Addresses_State',
+  'Residence_Addresses_Zip',
+] as const
+
 // Shared person/voter shape sourced from people-api, surfaced through gp-api's
 // /v1/contacts and consumed by gp-webapp. Field names and nullability mirror
 // people-api's PersonOutput exactly — keep them in lockstep to avoid drift.
@@ -57,6 +71,15 @@ export const PersonSchema = z.object({
     .enum(['Asian', 'European', 'Hispanic', 'African American', 'Other'])
     .nullable(),
   language: z.enum(['English', 'Spanish', 'Other']),
+  // Populated only when people-api runs in household-grouped mode (door
+  // knocking). `householdId` is a normalized residence-address composite (see
+  // HOUSEHOLD_KEY_RESIDENCE_COLUMNS) shared by every voter at the same physical
+  // address; `householdSize` is how many of the voters MATCHING the current
+  // segment/filters share that address (filter-scoped, not raw occupancy — a
+  // hasCellPhone segment counts only the matching contacts at the address).
+  // null on the ungrouped (one-row-per-voter) path.
+  householdId: z.string().nullable().optional(),
+  householdSize: z.number().int().nullable().optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

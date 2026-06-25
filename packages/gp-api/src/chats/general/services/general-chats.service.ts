@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatMessage, ChatScope } from '../../../generated/prisma'
-import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { ChatScope } from '../../../generated/prisma'
+import {
+  ChatMessageWithSegments,
+  ChatStoreService,
+} from '@/chats/services/chatStore.prisma'
 import {
   ChatStreamChunk,
   ChatStreamService,
@@ -26,7 +29,7 @@ export interface LoadedConversation {
   conversationId: string
   scope: ChatScope
   title: string | null
-  messages: ChatMessage[]
+  messages: ChatMessageWithSegments[]
 }
 
 export interface SendMessageArgs {

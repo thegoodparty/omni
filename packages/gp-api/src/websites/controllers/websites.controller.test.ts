@@ -779,7 +779,7 @@ describe('WebsitesController', () => {
 
   describe('verifyLive', () => {
     it('normalizes Decimal domain.price to number on GET /mine', async () => {
-      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+      mockWebsitesService.findUnique.mockResolvedValue({
         id: 1,
         campaignId: mockCampaign.id,
         status: WebsiteStatus.unpublished,
@@ -807,9 +807,9 @@ describe('WebsitesController', () => {
         id: mockCampaign.id,
       } as never)
 
-      expect(result.domain).not.toBeNull()
-      expect(typeof result.domain!.price).toBe('number')
-      expect(result.domain!.price).toBe(11.25)
+      expect(result?.domain).not.toBeNull()
+      expect(typeof result?.domain!.price).toBe('number')
+      expect(result?.domain!.price).toBe(11.25)
 
       const parsed = MyWebsiteResponseSchema.safeParse(result)
       expect(parsed.success).toBe(true)
@@ -862,7 +862,7 @@ describe('WebsitesController', () => {
     })
 
     it('returns domain: null untouched when no domain is attached', async () => {
-      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+      mockWebsitesService.findUnique.mockResolvedValue({
         id: 1,
         campaignId: mockCampaign.id,
         status: WebsiteStatus.unpublished,
@@ -878,7 +878,17 @@ describe('WebsitesController', () => {
         id: mockCampaign.id,
       } as never)
 
-      expect(result.domain).toBeNull()
+      expect(result?.domain).toBeNull()
+    })
+
+    it('returns null when the campaign has no website yet', async () => {
+      mockWebsitesService.findUnique.mockResolvedValue(null)
+
+      const result = await controller.getMyWebsite({
+        id: mockCampaign.id,
+      } as never)
+
+      expect(result).toBeNull()
     })
 
     it('delegates to WebsitesService.verifyLive with the calling campaign id', async () => {
@@ -1004,11 +1014,12 @@ describe('WebsitesController MCP discoverability', () => {
 
     const getMine = tools.find((t) => t.toolName === 'GET_websites_mine')
     expect(getMine).toBeDefined()
-    expect(getMine!.outputSchema).toBe(MyWebsiteResponseSchema)
+    expect(getMine!.outputSchema!.safeParse(null).success).toBe(true)
 
     const putMine = tools.find((t) => t.toolName === 'PUT_websites_mine')
     expect(putMine).toBeDefined()
     expect(putMine!.outputSchema).toBe(MyWebsiteResponseSchema)
+    expect(putMine!.outputSchema!.safeParse(null).success).toBe(false)
 
     const verify = tools.find(
       (t) => t.toolName === 'POST_websites_mine_verify_live',

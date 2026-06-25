@@ -15,6 +15,7 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
@@ -32,6 +33,8 @@ export type CreateElectedOfficeArgs = {
   party?: string | null
   pledgedAt?: Date | null
   onboardingCompletedAt?: Date | null
+  selfReported?: boolean
+  onboardingStep?: string | null
   userId: number
   campaignId?: number
   orgData?: {
@@ -90,6 +93,7 @@ export class ElectedOfficeService extends createPrismaBase(
     private readonly meetingBriefings: MeetingBriefingsService,
     @Inject(forwardRef(() => PrioritiesService))
     private readonly priorities: PrioritiesService,
+    private readonly communityIssueDispatch: CommunityIssueDispatchService,
   ) {
     super()
   }
@@ -186,6 +190,10 @@ export class ElectedOfficeService extends createPrismaBase(
             party: args.party,
             pledgedAt: args.pledgedAt,
             onboardingCompletedAt: args.onboardingCompletedAt,
+            // undefined leaves the placeholder's existing value untouched, so a
+            // prefill completion never clobbers it; a net-new completion sets it.
+            selfReported: args.selfReported,
+            onboardingStep: args.onboardingStep,
           },
         })
       }
@@ -246,6 +254,8 @@ export class ElectedOfficeService extends createPrismaBase(
           party: args.party,
           pledgedAt: args.pledgedAt,
           onboardingCompletedAt: args.onboardingCompletedAt,
+          selfReported: args.selfReported ?? false,
+          onboardingStep: args.onboardingStep ?? null,
           userId: args.userId,
           campaignId: args.campaignId,
           organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
@@ -276,6 +286,15 @@ export class ElectedOfficeService extends createPrismaBase(
         this.logger.error(
           { err, electedOfficeId: electedOffice.id },
           'meeting schedule dispatch failed after EO created',
+        )
+      })
+
+    await this.communityIssueDispatch
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'community issue dispatch failed after EO created',
         )
       })
   }

@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useFormData } from '@shared/hooks/useFormData'
 import TextingComplianceForm from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceForm'
-import { EinCheckInput } from 'app/dashboard/pro-sign-up/committee-check/components/EinCheckInput'
+import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
 import {
   checkEinSanity,
   einIndicatorState,
@@ -47,6 +47,17 @@ export type ValidationField =
   | 'email'
   | 'fecCommitteeId'
   | 'committeeType'
+  | 'contactChannel'
+
+// Which of the filing-contact channels the candidate has marked as appearing on
+// their official filing. Only selected channels are collected and validated; at
+// least one must be selected (ENG-10357). The selected set also tells the
+// backend which channels Peerly may send the CV PIN to.
+export interface ContactChannelSelection {
+  email: boolean
+  phone: boolean
+  address: boolean
+}
 
 type ValidationMessages = Record<ValidationField, string>
 
@@ -61,6 +72,7 @@ export const fieldDisplayNames: ValidationMessages = {
   email: 'Filing Email',
   fecCommitteeId: 'FEC Committee ID',
   committeeType: 'Committee Type',
+  contactChannel: 'Filing Contact',
 }
 
 export const getValidationMessage = (
@@ -82,6 +94,8 @@ export const getValidationMessage = (
     email: 'Valid email address as it appears on your election filing',
     fecCommitteeId: 'Must be "C" followed by 8 digits (e.g., C00123456)',
     committeeType: 'Select House, Senate, or Presidential',
+    contactChannel:
+      'Select at least one of email, phone, or address from your filing',
   }
   return messages[field]
 }
@@ -129,13 +143,18 @@ interface ValidateOpts {
   // When false, allows blank `website` (new agentic flow purchases the domain
   // after this form submits, before sending to peerly).
   requireWebsite?: boolean
+  // When provided, email/phone/address are each only required if their channel
+  // is selected, and at least one channel must be selected (ENG-10357). When
+  // omitted (legacy register + profile election-filing flows), all three remain
+  // individually required, exactly as before.
+  contactSelection?: ContactChannelSelection
 }
 
 export const validateRegistrationForm = (
   data: FormDataState,
   opts: ValidateOpts = {},
 ): ValidationResult => {
-  const { requireWebsite = true } = opts
+  const { requireWebsite = true, contactSelection } = opts
   const {
     electionFilingLink,
     campaignCommitteeName,
@@ -160,6 +179,14 @@ export const validateRegistrationForm = (
   const fecCommitteeIdValue = getStringValue(fecCommitteeId)
   const committeeTypeValue = getStringValue(committeeType)
 
+  // When `contactSelection` is supplied, an unselected channel has no visible
+  // input, so it must validate as `true` (not required); a selected channel
+  // validates its format as normal. With no selection (legacy flows), all three
+  // stay individually required.
+  const emailRequired = contactSelection ? contactSelection.email : true
+  const phoneRequired = contactSelection ? contactSelection.phone : true
+  const addressRequired = contactSelection ? contactSelection.address : true
+
   const baseValidations: Record<ValidationField, boolean> = {
     electionFilingLink:
       isURL(electionFilingLinkValue) &&
@@ -167,17 +194,25 @@ export const validateRegistrationForm = (
     campaignCommitteeName: isFilled(campaignCommitteeNameValue),
     officeLevel: ['federal', 'state', 'local'].includes(officeLevelValue),
     ein: checkEinSanity(einValue).valid,
-    phone: isMobilePhone(phoneValue, 'en-US'),
+    phone: phoneRequired ? isMobilePhone(phoneValue, 'en-US') : true,
     // TODO: We should do idiomatic "recommended address" validation flow here,
     //  and elsewhere, to have higher degree of confidence that the address
     //  entered is valid
-    address: validateAddress(addressValue),
+    address: addressRequired ? validateAddress(addressValue) : true,
     website: requireWebsite
       ? isFilled(websiteValue) && isURL(websiteValue)
       : !isFilled(websiteValue) || isURL(websiteValue),
-    email: isEmail(emailValue),
+    email: emailRequired ? isEmail(emailValue) : true,
     fecCommitteeId: true, // Not required for non-federal
     committeeType: true, // Not required for non-federal
+    // Only meaningful when `contactSelection` is in play: at least one of the
+    // three filing-contact channels must be selected. Always `true` for the
+    // legacy flows, which require all three by other means.
+    contactChannel: contactSelection
+      ? contactSelection.email ||
+        contactSelection.phone ||
+        contactSelection.address
+      : true,
   }
 
   // Add federal-specific validations

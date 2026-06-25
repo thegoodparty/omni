@@ -108,9 +108,11 @@ const DateInputCalendar = ({
     >
       {showTextInput && (
         <div className="flex flex-col gap-1 w-full">
-          <label htmlFor="date-input" className="text-sm font-normal">
-            {label}
-          </label>
+          {label && (
+            <label htmlFor="date-input" className="text-sm font-normal">
+              {label}
+            </label>
+          )}
           <Input
             type="text"
             placeholder={placeholder}

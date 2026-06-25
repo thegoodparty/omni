@@ -16,7 +16,7 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 ## TODO CHECKLIST
 
 1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
-2. Call `GET_v1_community-issue-feed` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
+2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
 3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
 5. Select up to 10 issues with the strongest recent signal (recency + coverage breadth).
@@ -33,7 +33,7 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 
 **Existing issue feed**:
 
-- Call `GET_v1_community-issue-feed` FIRST, before any research. The API returns the complete current issue list for the organization.
+- Call `GET_community_issues` FIRST, before any research. The API returns the complete current issue list for the organization.
 - When an output issue corresponds to an issue already in the feed, set `existing_issue_id` to that issue's ID. Never drop a prioritized existing issue unless it is clearly resolved.
 - Prefer carrying an existing ID over creating a net-new issue for the same underlying concern.
 
@@ -96,7 +96,7 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
-Call `GET_v1_community-issue-feed` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
+Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
 
 ### Step 3 — Broad news discovery
 
@@ -186,4 +186,4 @@ After validation passes, verify:
 | `source_id` not found in `detail.sources[]`  | Forgot to add the source entry after referencing it         | Add matching entry to `detail.sources[]`                                 |
 | Validator: missing required field `overview` | `detail.overview` was omitted                               | Always emit `overview`; it is required                                   |
 | `WebFetch` returns domain-safety error       | Used `WebFetch` instead of `WebSearch` + `pmf_runtime.http` | Use `WebSearch` for discovery; `pmf_runtime.http.head/get` for retrieval |
-| `GET_v1_community-issue-feed` 404            | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |
+| `GET_community_issues` 404            | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |

@@ -1,6 +1,6 @@
-import { z } from 'zod'
 import { ChatScope } from '../../../generated/prisma'
-import type { LlmStreamTool } from '@/llm/services/llm.service'
+import type { LlmTool } from '@/llm/services/llm.service'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // Params a client sends to resolve (find-or-create) a conversation. Scope is
 // always present; the rest is scope-specific. CoS keys on the authed user +
@@ -8,6 +8,7 @@ import type { LlmStreamTool } from '@/llm/services/llm.service'
 export interface ResolveConversationParams {
   scope: ChatScope
   organizationSlug: string | null
+  anchor?: ChatAnchor
 }
 
 export interface ResolveConversationResult {
@@ -35,7 +36,7 @@ export interface ChatScopeHandler<
   ) => Promise<ResolveConversationResult>
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
-  buildTools: (ctx: TContext) => Record<string, LlmStreamTool<z.ZodTypeAny>>
+  buildTools: (ctx: TContext) => Record<string, LlmTool>
 }
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'

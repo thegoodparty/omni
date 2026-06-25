@@ -5,6 +5,8 @@ enum ArtifactReviewVerdict {
 
 enum ArtifactReviewResourceType {
   briefing
+  community_issues_top
+  community_issues_trending
 }
 
 // Polymorphic pass/fail verdict on a reviewable artifact. No FK to the

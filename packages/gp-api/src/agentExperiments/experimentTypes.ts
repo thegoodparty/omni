@@ -9,4 +9,6 @@
 export const NON_RESUMABLE_EXPERIMENT_TYPES = [
   'meeting_briefing',
   'meeting_schedule',
+  'top_community_issues',
+  'trending_issues',
 ] as const

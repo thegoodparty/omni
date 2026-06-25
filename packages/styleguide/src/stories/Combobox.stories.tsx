@@ -1,0 +1,289 @@
+import * as React from 'react'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
+import { useArgs } from 'storybook/preview-api'
+import { useState } from 'react'
+import { Combobox } from '../components/ui/combobox'
+
+type Office = {
+  value: string
+  label: string
+  branch: string
+}
+
+const offices: Office[] = [
+  { value: 'mayor', label: 'Mayor', branch: 'Local' },
+  { value: 'city-council', label: 'City Council', branch: 'Local' },
+  { value: 'school-board', label: 'School Board', branch: 'Local' },
+  { value: 'state-senate', label: 'State Senate', branch: 'State' },
+  { value: 'state-house', label: 'State House', branch: 'State' },
+  { value: 'us-house', label: 'US House', branch: 'Federal' },
+  { value: 'us-senate', label: 'US Senate', branch: 'Federal' },
+]
+
+const meta: Meta<typeof Combobox<Office>> = {
+  title: 'Components/Combobox',
+  component: Combobox,
+  tags: ['autodocs'],
+  parameters: {
+    docs: {
+      description: {
+        component:
+          'Searchable single-select built on `Popover` (open/close), `Command` (filterable list with keyboard nav) and a button trigger. Generic over the option type — pass `getOptionLabel` to render labels and `groupBy` to render grouped sections.',
+      },
+    },
+  },
+  argTypes: {
+    onChange: { table: { disable: true } },
+    getOptionLabel: { table: { disable: true } },
+    getOptionKey: { table: { disable: true } },
+    groupBy: { table: { disable: true } },
+    onInputChange: { table: { disable: true } },
+    inputValue: { table: { disable: true } },
+    loading: { table: { disable: true } },
+    loadingText: { table: { disable: true } },
+    options: { table: { disable: true } },
+  },
+}
+
+export default meta
+type Story = StoryObj<typeof Combobox<Office>>
+
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    {children}
+  </p>
+)
+
+type PlaygroundArgs = {
+  value: string
+  disabled: boolean
+  clearable: boolean
+  placeholder: string
+  searchPlaceholder: string
+  emptyText: string
+}
+
+export const Playground: StoryObj<PlaygroundArgs> = {
+  args: {
+    value: '',
+    disabled: false,
+    clearable: true,
+    placeholder: 'Select an office',
+    searchPlaceholder: 'Search offices...',
+    emptyText: 'No office found',
+  },
+  argTypes: {
+    value: {
+      control: 'select',
+      options: ['', ...offices.map((o) => o.value)],
+      description: 'Controlled selection. Empty string means nothing selected.',
+    },
+    disabled: { control: 'boolean' },
+    clearable: {
+      control: 'boolean',
+      description:
+        'Shows an × button when a value is selected, letting the user clear back to the empty/placeholder state.',
+    },
+    placeholder: { control: 'text' },
+    searchPlaceholder: { control: 'text' },
+    emptyText: { control: 'text' },
+  },
+  render: ({
+    value,
+    disabled,
+    clearable,
+    placeholder,
+    searchPlaceholder,
+    emptyText,
+  }) => {
+    const [, updateArgs] = useArgs()
+    const selected = offices.find((o) => o.value === value) ?? null
+    return (
+      <div className="w-64">
+        <Combobox
+          options={offices}
+          value={selected}
+          onChange={(next) => updateArgs({ value: next ? next.value : '' })}
+          getOptionLabel={(o) => o.label}
+          getOptionKey={(o) => o.value}
+          disabled={disabled}
+          clearable={clearable}
+          placeholder={placeholder}
+          searchPlaceholder={searchPlaceholder}
+          emptyText={emptyText}
+        />
+      </div>
+    )
+  },
+}
+
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const Flat = () => {
+      const [value, setValue] = useState<Office | null>(null)
+      return (
+        <Combobox
+          options={offices}
+          value={value}
+          onChange={setValue}
+          getOptionLabel={(o) => o.label}
+          getOptionKey={(o) => o.value}
+          placeholder="Select an office"
+          searchPlaceholder="Search offices..."
+        />
+      )
+    }
+    const Grouped = () => {
+      const [value, setValue] = useState<Office | null>(null)
+      return (
+        <Combobox
+          options={offices}
+          value={value}
+          onChange={setValue}
+          getOptionLabel={(o) => o.label}
+          getOptionKey={(o) => o.value}
+          groupBy={(o) => o.branch}
+          placeholder="Select an office"
+          searchPlaceholder="Search offices..."
+        />
+      )
+    }
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <SectionLabel>Flat list</SectionLabel>
+          <div className="w-64">
+            <Flat />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Grouped</SectionLabel>
+          <div className="w-64">
+            <Grouped />
+          </div>
+        </div>
+      </div>
+    )
+  },
+}
+
+// Active and Focus are interactive pseudo-states (:focus / :focus-visible) that
+// can't be forced statically, so those two rows simulate the trigger's output
+// with explicit token classes. Active = mouse focus (border only). Focus =
+// keyboard focus (border + ring). The real trigger applies these via
+// focus:/focus-visible: variants on the same tokens.
+export const States: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const Preselected = () => {
+      const [value, setValue] = useState<Office | null>(offices[3] ?? null)
+      return (
+        <Combobox
+          options={offices}
+          value={value}
+          onChange={setValue}
+          getOptionLabel={(o) => o.label}
+          getOptionKey={(o) => o.value}
+          placeholder="Select an office"
+        />
+      )
+    }
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <SectionLabel>Default</SectionLabel>
+          <div className="w-64">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              placeholder="Select an office"
+            />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Active (mouse)</SectionLabel>
+          <div className="w-64">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              placeholder="Select an office"
+              className="border-components-input-active"
+            />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Focus (keyboard)</SectionLabel>
+          <div className="w-64">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              placeholder="Select an office"
+              className="border-components-input-active ring-[3px] ring-components-input-focus"
+            />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Preselected</SectionLabel>
+          <div className="w-64">
+            <Preselected />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Disabled</SectionLabel>
+          <div className="w-64">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              disabled
+              placeholder="Select an office"
+            />
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Error</SectionLabel>
+          <div className="grid w-64 gap-1.5">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              placeholder="Select an office"
+              aria-invalid
+            />
+            <p className="text-sm text-destructive">Please select an office.</p>
+          </div>
+        </div>
+        <div>
+          <SectionLabel>Error focused (keyboard)</SectionLabel>
+          <div className="grid w-64 gap-1.5">
+            <Combobox
+              options={offices}
+              value={null}
+              onChange={() => undefined}
+              getOptionLabel={(o) => o.label}
+              getOptionKey={(o) => o.value}
+              placeholder="Select an office"
+              aria-invalid
+              className="ring-[3px] ring-destructive-focus"
+            />
+            <p className="text-sm text-destructive">Please select an office.</p>
+          </div>
+        </div>
+      </div>
+    )
+  },
+}

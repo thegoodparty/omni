@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -11,6 +11,7 @@ import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
+import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -49,7 +50,15 @@ describe('ChiefOfStaffHandler', () => {
   let context: ChiefOfStaffContextService
   let port: PrioritiesToolPort
 
+  // The CoS chat is Claude-only and requires this key to run; web_search is
+  // gated on it, so set it for the tool-set assertions.
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+  })
+
   beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
     port = buildPort()
     store = {
       createScopedConversation: vi.fn(),
@@ -59,13 +68,16 @@ describe('ChiefOfStaffHandler', () => {
         Promise.resolve({
           conversationId: 'c1',
           electedOfficeId: 'office-1',
+          organizationSlug: ORG,
           userFirstName: 'Jordan',
           userLastName: 'Lee',
           officeTitle: 'Council Member',
           jurisdiction: null,
           swornInDate: null,
           priorities: [],
+          anchor: null,
           districtFilters: null,
+          constituentToolEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -118,11 +130,13 @@ describe('ChiefOfStaffHandler', () => {
       USER_ID,
     )
     expect(result).toEqual({ conversationId: 'fresh', created: true })
-    expect(store.createScopedConversation).toHaveBeenCalledWith({
-      ownerUserId: USER_ID,
-      organizationSlug: ORG,
-      scope: ChatScope.chief_of_staff,
-    })
+    expect(store.createScopedConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUserId: USER_ID,
+        organizationSlug: ORG,
+        scope: ChatScope.chief_of_staff,
+      }),
+    )
   })
 
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
@@ -135,22 +149,23 @@ describe('ChiefOfStaffHandler', () => {
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
-    // No search provider injected -> web_search omitted.
+    // web_search is always present now (Anthropic native, gated at the LLM
+    // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
       'crud_priorities',
       'get_briefing',
       'list_briefings',
+      'web_search',
     ])
   })
 
-  it('includes web_search when a search provider is present', async () => {
+  it('includes web_search (Anthropic native, no provider needed)', async () => {
     const handler = new ChiefOfStaffHandler(
       store,
       context,
       buildBriefings(),
       port,
       [],
-      { search: vi.fn(() => Promise.resolve([])) },
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
@@ -177,7 +192,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildFeatures(true),
@@ -195,7 +209,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildFeatures(false),
@@ -214,7 +227,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
       buildThrowingFeatures(),
@@ -234,7 +246,6 @@ describe('ChiefOfStaffHandler', () => {
       port,
       TEST_TABLES,
       undefined,
-      undefined,
       buildResolver(),
     )
     const ctx = await handler.loadContext('c1', USER_ID)
@@ -250,7 +261,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       [],
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
     )
@@ -271,7 +281,6 @@ describe('ChiefOfStaffHandler', () => {
       buildBriefings(),
       port,
       TEST_TABLES,
-      undefined,
       new InMemoryDatabricksProvider(new Map()),
       resolver,
     )
@@ -280,5 +289,150 @@ describe('ChiefOfStaffHandler', () => {
     expect(Object.keys(handler.buildTools(ctx))).not.toContain(
       'query_constituent_data',
     )
+  })
+
+  describe('anchor + community issues tool', () => {
+    const ANCHOR = {
+      resourceType: 'community_issue' as const,
+      resourceId: 'issue-abc',
+      url: 'https://goodparty.org/issues/issue-abc',
+      snapshot: {
+        title: 'Fix the potholes on Main Street',
+        summary: 'Residents have complained about road conditions.',
+      },
+    }
+
+    it('passes anchor and title to createScopedConversation', async () => {
+      store.createScopedConversation = vi.fn(() =>
+        Promise.resolve({ id: 'anchored' }),
+      ) as never
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const result = await handler.resolveConversation(
+        {
+          scope: ChatScope.chief_of_staff,
+          organizationSlug: ORG,
+          anchor: ANCHOR,
+        },
+        USER_ID,
+      )
+      expect(result).toEqual({ conversationId: 'anchored', created: true })
+      expect(store.createScopedConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: ANCHOR,
+          title: 'Fix the potholes on Main Street',
+        }),
+      )
+    })
+
+    it('prompt contains anchored_issue block with snapshot title and summary', async () => {
+      const contextWithAnchor = {
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            userFirstName: 'Jordan',
+            userLastName: 'Lee',
+            officeTitle: 'Council Member',
+            jurisdiction: null,
+            swornInDate: null,
+            priorities: [],
+            anchor: ANCHOR,
+            districtFilters: null,
+            constituentToolEnabled: false,
+          }),
+        ),
+      } as unknown as ChiefOfStaffContextService
+      const handler = new ChiefOfStaffHandler(
+        store,
+        contextWithAnchor,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('<anchored_issue>')
+      expect(prompt).toContain('Fix the potholes on Main Street')
+      expect(prompt).toContain(
+        'Residents have complained about road conditions',
+      )
+    })
+
+    it('prompt includes highlightedText when present in anchor snapshot', async () => {
+      const anchorWithHighlight = {
+        ...ANCHOR,
+        snapshot: { ...ANCHOR.snapshot, highlightedText: 'key excerpt here' },
+      }
+      const contextWithAnchor = {
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            userFirstName: null,
+            userLastName: null,
+            officeTitle: null,
+            jurisdiction: null,
+            swornInDate: null,
+            priorities: [],
+            anchor: anchorWithHighlight,
+            districtFilters: null,
+            constituentToolEnabled: false,
+          }),
+        ),
+      } as unknown as ChiefOfStaffContextService
+      const handler = new ChiefOfStaffHandler(
+        store,
+        contextWithAnchor,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('Highlighted: key excerpt here')
+    })
+
+    it('registers read_community_issues tool when port is provided', async () => {
+      const communityPort: CommunityIssueReadPort = {
+        getDetail: vi.fn(),
+      }
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        communityPort,
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'read_community_issues',
+      )
+    })
+
+    it('omits read_community_issues tool when port is absent', async () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'read_community_issues',
+      )
+    })
   })
 })

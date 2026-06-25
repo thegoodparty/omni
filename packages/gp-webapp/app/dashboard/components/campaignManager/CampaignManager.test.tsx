@@ -33,6 +33,10 @@ vi.mock('./FailedToGenerate', () => ({
 }))
 vi.mock('../tasks/TasksList', () => ({ default: () => <div>Tasks list</div> }))
 vi.mock('../EmptyState', () => ({ default: () => <div>Empty state</div> }))
+vi.mock('./ProUpgradeBanner', () => ({
+  default: () => <div>Pro upgrade banner</div>,
+}))
+vi.mock('./ProUpgrade3ComplianceCard', () => ({ default: () => null }))
 vi.mock('@shared/hooks/VoterContactsProvider', () => ({
   VoterContactsProvider: ({ children }: { children: ReactNode }) => (
     <>{children}</>

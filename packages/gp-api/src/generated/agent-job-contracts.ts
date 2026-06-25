@@ -395,7 +395,7 @@ export interface MeetingBriefingFull {
       | []
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -413,7 +413,7 @@ export interface MeetingBriefingFull {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -429,57 +429,7 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-        ]
-      | [
-          {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -497,7 +447,7 @@ export interface MeetingBriefingFull {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -513,7 +463,7 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -529,23 +479,7 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -563,7 +497,7 @@ export interface MeetingBriefingFull {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -579,7 +513,7 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -595,7 +529,7 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -611,7 +545,25 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+        ]
+      | [
+          {
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -627,7 +579,55 @@ export interface MeetingBriefingFull {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1266,7 +1266,7 @@ export interface MeetingBriefingPlaceholder {
       | []
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1284,7 +1284,7 @@ export interface MeetingBriefingPlaceholder {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1300,57 +1300,7 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-        ]
-      | [
-          {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1368,7 +1318,7 @@ export interface MeetingBriefingPlaceholder {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1384,7 +1334,7 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1400,23 +1350,7 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
-            /**
-             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
-             */
-            item_id: string
-            /**
-             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
-             */
-            overview: string
-            priority_id?: string
-            /**
-             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
-             */
-            title: string
-          },
-          {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1434,7 +1368,7 @@ export interface MeetingBriefingPlaceholder {
         ]
       | [
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1450,7 +1384,7 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1466,7 +1400,7 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1482,7 +1416,25 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+        ]
+      | [
+          {
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -1498,7 +1450,55 @@ export interface MeetingBriefingPlaceholder {
             title: string
           },
           {
-            community_issue_feed_id?: string
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
+            /**
+             * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
+             */
+            item_id: string
+            /**
+             * One-sentence distillation of items[item_id].display.summary (the Step 9 Overview) — same facts, tighter framing.
+             */
+            overview: string
+            priority_id?: string
+            /**
+             * Item title shown before the em-dash. Must verbatim equal items[item_id].title (denormalized for renderer convenience).
+             */
+            title: string
+          },
+          {
+            community_issue_id?: string
             /**
              * Must resolve to an entry in top-level items[] with tier='featured'. UI uses this to link the entry to the corresponding deep-dive panel.
              */
@@ -3530,6 +3530,23 @@ export interface OpportunitiesAndChallengesInputParams {
     }[]
   } | null
   /**
+   * The candidate's own campaign story, captured on the Campaign Story page and hydrated by gp-api before dispatch: why they're running, their background, and the issues they'll fight for. First-person positioning context for the candidate ('you'). A field is null when the candidate hasn't written it yet - treat null or empty as 'not provided' and never invent content.
+   */
+  campaign_story?: {
+    /**
+     * The candidate's background: career, community ties, and the personal story behind the candidacy.
+     */
+    background: string | null
+    /**
+     * The concrete issues the candidate will fight for in their first term.
+     */
+    issues: string | null
+    /**
+     * Why the candidate is running - the moment, people, or conviction behind the campaign.
+     */
+    why: string | null
+  }
+  /**
    * The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is the source of the race numbers the opportunities/challenges are derived from. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.
    */
   campaign_strategy_context: {
@@ -3590,6 +3607,7 @@ export interface OpportunitiesAndChallengesInputParams {
    * Party label, or null. 'Other' means the real value is in other_party.
    */
   user_party_affiliation?: string | null
+  [k: string]: unknown
 }
 export interface OpportunitiesAndChallengesArtifact {
   /**
@@ -3627,6 +3645,23 @@ export interface OppositionResearchInputParams {
       website_url?: string | null
     }[]
   } | null
+  /**
+   * The candidate's own campaign story, captured on the Campaign Story page and hydrated by gp-api before dispatch: why they're running, their background, and the issues they'll fight for. First-person positioning context for the candidate ('you'). A field is null when the candidate hasn't written it yet - treat null or empty as 'not provided' and never invent content. This is the candidate's own framing, NOT opponent data.
+   */
+  campaign_story?: {
+    /**
+     * The candidate's background: career, community ties, and the personal story behind the candidacy.
+     */
+    background: string | null
+    /**
+     * The concrete issues the candidate will fight for in their first term.
+     */
+    issues: string | null
+    /**
+     * Why the candidate is running - the moment, people, or conviction behind the campaign.
+     */
+    why: string | null
+  }
   /**
    * The election-api campaign-strategy-context result, hydrated by gp-api before dispatch. The agent does NOT call election-api; this is its only roster source besides web search. This object reflects the GENERAL election stage; the primary stage (when one exists) is in campaign_primary_strategy_context.
    */
@@ -3688,6 +3723,7 @@ export interface OppositionResearchInputParams {
    * Party label, or null. 'Other' means the real value is in other_party.
    */
   user_party_affiliation?: string | null
+  [k: string]: unknown
 }
 export interface OppositionResearchArtifact {
   /**

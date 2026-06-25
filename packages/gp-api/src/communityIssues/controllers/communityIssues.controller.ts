@@ -1,109 +1,138 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common'
-import { CommunityIssuesService } from '../services/communityIssues.service'
-import { CommunityIssueStatusLogService } from '../services/communityIssueStatusLog.service'
-import { Campaign, IssueStatus } from '../../generated/prisma'
-import { ReqCampaign } from 'src/campaigns/decorators/ReqCampaign.decorator'
-import { UseCampaign } from 'src/campaigns/decorators/UseCampaign.decorator'
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UsePipes,
+} from '@nestjs/common'
+import {
+  Priority as PriorityDto,
+  PrioritySchema,
+} from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { CreateCommunityIssueSchema } from '../schemas/CreateCommunityIssue.schema'
-import { UpdateCommunityIssueSchema } from '../schemas/UpdateCommunityIssue.schema'
-import { PinoLogger } from 'nestjs-pino'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
+import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { McpTool } from '@/mcp/decorators/McpTool.decorator'
+import { ElectedOffice, Priority, User } from '../../generated/prisma'
+import { toDateOnlyString } from 'src/shared/util/date.util'
+import {
+  CommunityIssueDetailSchema,
+  CommunityIssueListQueryDto,
+  CommunityIssueListResponseSchema,
+  DispatchRequestDto,
+  DispatchResponseSchema,
+  IssueIdParamDto,
+  SelfDispatchRequestDto,
+} from '../schemas/communityIssues.schema'
+import { CommunityIssueDispatchService } from '../services/communityIssueDispatch.service'
+import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
+import { CommunityIssueReadService } from '../services/communityIssueRead.service'
+
+const toApi = (record: Priority): PriorityDto => ({
+  id: record.id,
+  electedOfficeId: record.electedOfficeId,
+  title: record.title,
+  description: record.description,
+  source: record.source,
+  sourceCampaignPositionId: record.sourceCampaignPositionId,
+  targetDate: toDateOnlyString(record.targetDate) ?? null,
+  createdAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString(),
+})
 
 @Controller('community-issues')
+@UsePipes(ZodValidationPipe)
+@UseInterceptors(ZodResponseInterceptor)
 export class CommunityIssuesController {
   constructor(
-    private readonly communityIssuesService: CommunityIssuesService,
-    private readonly statusLogService: CommunityIssueStatusLogService,
-    private readonly logger: PinoLogger,
-  ) {
-    this.logger.setContext(CommunityIssuesController.name)
+    private readonly read: CommunityIssueReadService,
+    private readonly prioritize: CommunityIssuePrioritizeService,
+    private readonly dispatch: CommunityIssueDispatchService,
+  ) {}
+
+  @Post('dispatch')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(DispatchResponseSchema)
+  async dispatchCohort(@Body() body: DispatchRequestDto) {
+    return this.dispatch.dispatchForCohort(body.orgSlugs)
   }
 
-  @Post()
-  @UseCampaign()
-  async createCommunityIssue(
-    @ReqCampaign() { id: campaignId }: Campaign,
-    @Body(ZodValidationPipe) body: CreateCommunityIssueSchema,
+  @Post('self-dispatch')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(DispatchResponseSchema)
+  async selfDispatch(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SelfDispatchRequestDto,
   ) {
-    const issue = await this.communityIssuesService.create(campaignId, body)
-
-    await this.statusLogService.logInitialStatus(
-      issue.uuid,
-      body.status ?? IssueStatus.newIssue,
+    if (!user.email.toLowerCase().endsWith('@goodparty.org')) {
+      throw new ForbiddenException()
+    }
+    return this.dispatch.dispatchSelfServe(
+      electedOffice.organizationSlug,
+      body.type,
     )
-
-    return issue
   }
 
   @Get()
-  @UseCampaign()
-  getCommunityIssues(@ReqCampaign() { id: campaignId }: Campaign) {
-    return this.communityIssuesService.findMany({
-      where: { campaignId },
-    })
-  }
-
-  @Get(':uuid')
-  @UseCampaign()
-  getCommunityIssue(
-    @ReqCampaign() { id: campaignId }: Campaign,
-    @Param('uuid') uuid: string,
+  @UseElectedOffice()
+  @McpTool({
+    description:
+      'List community issues for the elected office.' +
+      ' Use the list param to select top_community or trending issues.',
+  })
+  @ResponseSchema(CommunityIssueListResponseSchema)
+  async list(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Query() query: CommunityIssueListQueryDto,
   ) {
-    return this.communityIssuesService.findByUuid(uuid, campaignId)
-  }
-
-  @Get(':uuid/status-history')
-  @UseCampaign()
-  async getCommunityIssueStatusHistory(
-    @ReqCampaign() { id: campaignId }: Campaign,
-    @Param('uuid') uuid: string,
-  ) {
-    const issue = await this.communityIssuesService.findByUuid(uuid, campaignId)
-    return this.statusLogService.getStatusHistory(issue.uuid)
-  }
-
-  @Put(':uuid')
-  @UseCampaign()
-  async updateCommunityIssue(
-    @ReqCampaign() { id: campaignId }: Campaign,
-    @Param('uuid') uuid: string,
-    @Body(ZodValidationPipe) body: UpdateCommunityIssueSchema,
-  ) {
-    const currentIssue = await this.communityIssuesService.findByUuid(
-      uuid,
-      campaignId,
+    return this.read.listForOrg(
+      electedOffice.organizationSlug,
+      electedOffice.id,
+      query.list,
     )
-
-    const updatedIssue = await this.communityIssuesService.update({
-      where: {
-        uuid,
-        campaignId,
-      },
-      data: body,
-    })
-
-    if (body.status && currentIssue.status !== body.status) {
-      await this.statusLogService.createStatusLog(
-        currentIssue.uuid,
-        currentIssue.status,
-        body.status,
-      )
-    }
-
-    return updatedIssue
   }
 
-  @Delete(':uuid')
-  @UseCampaign()
-  deleteCommunityIssue(
-    @ReqCampaign() { id: campaignId }: Campaign,
-    @Param('uuid') uuid: string,
+  @Get(':id')
+  @UseElectedOffice()
+  @ResponseSchema(CommunityIssueDetailSchema)
+  async detail(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { id }: IssueIdParamDto,
   ) {
-    return this.communityIssuesService.delete({
-      where: {
-        uuid,
-        campaignId,
-      },
-    })
+    return this.read.getDetailForOrg(
+      id,
+      electedOffice.organizationSlug,
+      electedOffice.id,
+    )
+  }
+
+  @Post(':id/prioritize')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(PrioritySchema)
+  async prioritizeIssue(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { id }: IssueIdParamDto,
+  ) {
+    const priority = await this.prioritize.prioritize(
+      id,
+      electedOffice.organizationSlug,
+      electedOffice.id,
+    )
+    return toApi(priority)
   }
 }

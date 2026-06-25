@@ -624,7 +624,11 @@ def _valid_full_artifact() -> dict:
                 {"item_id": "item_001", "title": "Stadium Bond", "overview": "A bond vote."}
             ],
         },
-        "run_metadata": {"agenda_packet_url": None, "source_bundle_retrieved_at": "2026-05-30T00:00:00Z"},
+        "run_metadata": {
+            "agenda_packet_url": None,
+            "source_bundle_retrieved_at": "2026-05-30T00:00:00Z",
+            "discovered_agenda_location": None,
+        },
         "items": [{
             "id": "item_001", "item_number": "1", "title": "Stadium Bond",
             "tier": "featured", "vote_required": True, "tier_reason": ["vote_required"],

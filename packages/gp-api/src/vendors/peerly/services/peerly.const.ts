@@ -5,6 +5,11 @@ import { PeerlyCommitteeType } from '../peerly.types'
 export const PEERLY_ENTITY_TYPE = 'NON_PROFIT'
 export const PEERLY_USECASE = 'POLITICAL'
 
+// Peerly identity profile status before the 10DLC usecase is submitted. Once
+// approve10DLCBrand runs, the profile advances to `waiting_to_finalize` and then
+// `finalized`, so `pending` is the marker that a usecase still needs submitting.
+export const PEERLY_PROFILE_STATUS_PENDING = 'pending'
+
 export enum PeerlyLocalities {
   local = 'local',
   state = 'state',

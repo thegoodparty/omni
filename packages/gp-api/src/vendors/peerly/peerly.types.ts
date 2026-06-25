@@ -252,6 +252,10 @@ export type PeerlyCreateCVTokenResponse = {
 export enum PeerlyCvVerificationStatus {
   REQUESTED = 'REQUESTED',
   IN_REVIEW = 'IN_REVIEW',
+  // The candidate's PIN has been verified; a CV token can now be minted and the
+  // usecase submitted. (Distinct from APPROVED, which the CV authority can reach
+  // before the candidate has completed PIN verification.)
+  VERIFIED = 'VERIFIED',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
   WITHDRAWN = 'WITHDRAWN',
