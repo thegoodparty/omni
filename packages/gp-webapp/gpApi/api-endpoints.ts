@@ -718,6 +718,35 @@ export type APIEndpoints = {
     Request: {}
     Response: { runId: string | null; status: RaceOpponentCollectionStatus }
   }
+
+  // Preview/dev-only deterministic test seeding (gp-api disables it on qa/prod).
+  // Used by the Community Issues e2e suite; not called from product code.
+  'POST /v1/community-issues/seed': {
+    Request: {
+      issues: Array<{
+        list: 'top_community' | 'trending'
+        category: string
+        priority: 'low' | 'medium' | 'high'
+        title: string
+        summary: string
+        rank: number
+        detail: CommunityIssueContent
+        relatedBriefing?: {
+          meetingDate: string
+          briefingItemId: string
+          content: string
+        }
+      }>
+    }
+    Response: {
+      issues: Array<{
+        id: string
+        list: string
+        rank: number | null
+        title: string
+      }>
+    }
+  }
 }
 
 // Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors

@@ -1,5 +1,10 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import {
+  CommunityIssueCategory,
+  CommunityIssuePriority,
+} from '../../generated/prisma'
+import { DetailSchema } from '../communityIssueArtifact.validation'
 
 const CommunityIssueListQuerySchema = z.object({
   list: z.enum(['top_community', 'trending']),
@@ -64,3 +69,41 @@ export class SelfDispatchRequestDto extends createZodDto(
 const IssueIdParamSchema = z.object({ id: z.string() })
 
 export class IssueIdParamDto extends createZodDto(IssueIdParamSchema) {}
+
+// Preview/dev-only deterministic seeding for e2e tests. Mirrors the shape an
+// agent run ultimately persists (the issue rows reach the DB via the same
+// upsertFromArtifact path the SQS completion handler calls), plus an optional
+// related meeting briefing link. Disabled on qa/prod by the service.
+const SeedRelatedBriefingSchema = z.object({
+  meetingDate: z.string(),
+  briefingItemId: z.string(),
+  content: z.string(),
+})
+
+const SeedIssueSchema = z.object({
+  list: z.enum(['top_community', 'trending']),
+  category: z.nativeEnum(CommunityIssueCategory),
+  priority: z.nativeEnum(CommunityIssuePriority),
+  title: z.string(),
+  summary: z.string(),
+  rank: z.number().int(),
+  detail: DetailSchema,
+  relatedBriefing: SeedRelatedBriefingSchema.optional(),
+})
+
+export const SeedRequestSchema = z.object({
+  issues: z.array(SeedIssueSchema).min(1).max(50),
+})
+
+export class SeedRequestDto extends createZodDto(SeedRequestSchema) {}
+
+export const SeedResponseSchema = z.object({
+  issues: z.array(
+    z.object({
+      id: z.string(),
+      list: z.string(),
+      rank: z.number().int().nullable(),
+      title: z.string(),
+    }),
+  ),
+})
