@@ -8,7 +8,10 @@ const mockSetActive = vi.fn()
 const mockSignInCreate = vi.fn()
 
 // `user` mirrors Clerk's active-session signal: truthy (with an `id`) when a
-// session is already active in the browser, null on a fresh visit.
+// session is already active in the browser, null on a fresh visit. Exposed via
+// a getter so it behaves like the real Clerk singleton's live `.user` — a
+// session established mid-redeem (e.g. the ticket exchange succeeded but a
+// later step threw) is observable from within the same `redeem()` closure.
 let mockUser: { id: string } | null = null
 
 vi.mock('@clerk/nextjs', () => ({
@@ -17,9 +20,30 @@ vi.mock('@clerk/nextjs', () => ({
     setActive: mockSetActive,
     signOut: mockSignOut,
     loaded: true,
-    user: mockUser,
+    get user() {
+      return mockUser
+    },
   }),
 }))
+
+// `isClerkAPIResponseError` matches when the error's constructor exposes
+// `kind === 'ClerkAPIResponseError'`, so this stand-in is recognized as a real
+// Clerk API error by the component's error-classification helper.
+class FakeClerkAPIResponseError extends Error {
+  static kind = 'ClerkAPIResponseError'
+  clerkError = true
+  errors: { code: string; message: string; longMessage: string }[]
+  constructor(
+    errors: { code: string; message: string; longMessage: string }[],
+  ) {
+    super('clerk api response error')
+    this.name = 'ClerkAPIResponseError'
+    this.errors = errors
+  }
+}
+
+const makeClerkApiError = (code: string, message: string) =>
+  new FakeClerkAPIResponseError([{ code, message, longMessage: message }])
 
 let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
@@ -168,6 +192,98 @@ describe('ServeWelcomeContent', () => {
     expect(loginLink).toHaveAttribute('href', '/login')
     expect(mockSetActive).not.toHaveBeenCalled()
     expect(window.location.href).toBe('')
+  })
+
+  it('navigates to post-auth when setActive fails after a completed exchange (post-exchange failure is never an expired link)', async () => {
+    // The ticket exchange completed (ticket spent, session created), but
+    // setActive keeps failing transiently. The user actually signed in, so we
+    // must continue — never surface the consumed/expired copy.
+    mockSetActive.mockRejectedValue(new Error('network blip'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    // setActive is retried once before we proceed to the redirect.
+    expect(mockSetActive).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it('treats a thrown "already consumed" exchange as success when a session for the ticket user now exists (FAPI auto-retry)', async () => {
+    // clerk-js can auto-retry the exchange POST after a transient blip; the
+    // first attempt already consumed the ticket AND established the session, so
+    // the retry throws "already consumed" even though sign-in succeeded. Mirror
+    // that by flipping the active user to the ticket's user as the throw fires.
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw makeClerkApiError(
+        'sign_in_token_already_used',
+        'The sign-in token has already been used.',
+      )
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT re-run signIn.create after the exchange has been attempted, even when it fails (guard stays latched, no double-spend)', async () => {
+    mockSignInCreate.mockRejectedValue(new Error('network blip'))
+
+    render(<ServeWelcomeContent />)
+    const button = continueButton()
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    // The one-time ticket exchange is attempted at most once, and no Continue
+    // button remains, so a frustrated user cannot re-fire it on a spent ticket.
+    expect(mockSignInCreate).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByRole('button', { name: /continue to goodparty/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the consumed message for a genuinely expired/consumed ticket error when not signed in as the ticket user', async () => {
+    mockSignInCreate.mockRejectedValue(
+      makeClerkApiError(
+        'sign_in_token_expired',
+        'This sign-in token has expired.',
+      ),
+    )
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/already been used or has expired/i),
+      ).toBeInTheDocument(),
+    )
+    expect(window.location.href).toBe('')
+  })
+
+  it('shows a retryable (not consumed) message for a transient non-Clerk error during the exchange', async () => {
+    mockSignInCreate.mockRejectedValue(new Error('Network request failed'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
   })
 
   it('shows an error with a /login link on load when the ticket is missing', async () => {
