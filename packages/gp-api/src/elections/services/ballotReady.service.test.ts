@@ -127,7 +127,10 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     it('truncates a ZIP+4 to the first 5 digits before sending', async () => {
       mockRequest.mockResolvedValue({ races: { edges: [] } })
 
-      await service.fetchRacesWithElectionDates('97201-3456', PositionLevel.CITY)
+      await service.fetchRacesWithElectionDates(
+        '97201-3456',
+        PositionLevel.CITY,
+      )
 
       const [, variables] = mockRequest.mock.calls[0]
       expect(variables.zip).toBe('97201')
