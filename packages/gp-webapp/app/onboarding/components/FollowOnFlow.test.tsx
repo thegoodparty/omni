@@ -127,6 +127,43 @@ describe('FollowOnFlow', () => {
     )
   })
 
+  it('keeps Back disabled while the follow-on create is in flight', async () => {
+    let resolvePost!: (value: { status: number; data: never }) => void
+    const postGate = new Promise<{ status: number; data: never }>(
+      (resolve) => {
+        resolvePost = resolve
+      },
+    )
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+    // Suspend the create so the isCreating window (liveCampaign still null) is
+    // observable: Back must be disabled then, or a first-step exit would
+    // abandon the session mid-creation.
+    api.mock('POST /v1/campaigns/follow-on', () => postGate)
+
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
+
+    const backButton = await screen.findByRole('button', { name: /back/i })
+    // Enabled before the create starts (first step exits to the dashboard).
+    expect(backButton).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    // In flight liveCampaign is still null, so this exercises the isCreating
+    // branch of the disabled guard specifically.
+    await waitFor(() => expect(backButton).toBeDisabled())
+
+    resolvePost({
+      status: 200,
+      data: { id: 4242, slug: 'campaign-4242' } as never,
+    })
+    // Still disabled after creation (now via liveCampaign).
+    await waitFor(() => expect(backButton).toBeDisabled())
+  })
+
   it('inherits the held office from eligibility for same-office without ?from=', async () => {
     let followOnBody: unknown = null
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
