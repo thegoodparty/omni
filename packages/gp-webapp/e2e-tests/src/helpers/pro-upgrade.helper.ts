@@ -58,18 +58,3 @@ export const seedFilingComplete = async (
     committeeType: 'CANDIDATE',
   })
 }
-
-// Bring the caller's own campaign to the state the texting flow's AudienceStep
-// requires: isPro + an `approved` TcrCompliance record (OutreachCreateCards
-// only opens the texting TaskFlow when both hold). The real path to `approved`
-// is the SQS consumer after a live Peerly POLITICAL-usecase activation, which
-// no e2e can drive; this hits the dev/QA-only POST /campaigns/tcr-compliance/
-// mine/dev-approve seam that forces both deterministically (NotFoundException
-// in prod — the seam is unreachable there). Compose AFTER a pro-seed that has
-// already created the TcrCompliance record (e.g. seedFilingComplete), since the
-// seam promotes an existing record rather than creating one.
-export const seedTextingApproved = async (
-  client: AxiosInstance,
-): Promise<void> => {
-  await client.post('/v1/campaigns/tcr-compliance/mine/dev-approve')
-}

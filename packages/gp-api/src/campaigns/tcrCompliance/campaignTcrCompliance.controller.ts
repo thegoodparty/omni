@@ -38,8 +38,6 @@ import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
 } from '@goodparty_org/contracts'
-import { isProdDeploy } from '@/shared/util/appEnvironment.util'
-import { DevApproveTcrComplianceOutputSchema } from './schemas/devApproveTcrComplianceOutput.schema'
 
 @Controller('campaigns/tcr-compliance')
 @UsePipes(ZodValidationPipe)
@@ -59,24 +57,6 @@ export class CampaignTcrComplianceController {
   @UseCampaign()
   async getMyTcrCompliance(@ReqCampaign() campaign: Campaign) {
     return this.tcrComplianceService.fetchByCampaignId(campaign.id)
-  }
-
-  // Dev/QA-only e2e seam. Forces the caller's OWN campaign into the state the
-  // texting audience step requires (isPro + an `approved` TcrCompliance record)
-  // so that step is reachable without a real Stripe payment or Peerly
-  // registration. NotFoundException in prod makes it indistinguishable from an
-  // unregistered route. No client-supplied campaign id — operates only on
-  // @ReqCampaign so it cannot touch another campaign.
-  @Post('mine/dev-approve')
-  @UseCampaign()
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(ZodResponseInterceptor)
-  @ResponseSchema(DevApproveTcrComplianceOutputSchema)
-  async devApproveMyTcrCompliance(@ReqCampaign() campaign: Campaign) {
-    if (isProdDeploy()) {
-      throw new NotFoundException()
-    }
-    return this.tcrComplianceService.devApproveForCampaign(campaign.id)
   }
 
   @Get('mine/compliance-state')
