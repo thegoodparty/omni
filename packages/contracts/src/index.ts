@@ -413,6 +413,8 @@ export {
 
 export * from "./artifactReview";
 
+export * from "./raceOpponent";
+
 export * from "./experiments";
 
 export {
