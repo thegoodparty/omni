@@ -23,7 +23,7 @@ vi.mock('../../../shared/DashboardLayout', () => ({
     navHeader?: { label: string }
   }) => (
     <>
-      {navHeader && <div>{navHeader.label}</div>}
+      {navHeader && <h1>{navHeader.label}</h1>}
       {children}
     </>
   ),
@@ -172,12 +172,11 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
 
     render(<ContactsPage />)
 
-    // Serve shows the title in the full-bleed nav header (not a duplicate page
-    // h1), so it renders as text rather than a level-1 heading.
-    expect(screen.getByText('Constituent Data')).toBeInTheDocument()
+    // Serve shows the title in the full-bleed nav header (an <h1>), replacing
+    // the in-page heading so it isn't duplicated.
     expect(
-      screen.queryByRole('heading', { level: 1, name: 'Constituent Data' }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('heading', { level: 1, name: 'Constituent Data' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Manage and filter on your constituent list'),
     ).toBeInTheDocument()
