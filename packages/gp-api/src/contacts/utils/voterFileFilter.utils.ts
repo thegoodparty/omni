@@ -66,8 +66,11 @@ const addIncludeNull = (filter: FilterValue): FilterValue => {
   return { ...filter, _includeNull: true }
 }
 
+// Accepts a full persisted VoterFileFilter (saved-segment path) or the
+// unsaved, partial filter set the live count sends (ENG-10517). Only the filter
+// fields are read; missing ones are treated as unset, exactly like false/empty.
 export const convertVoterFileFilterToFilters = (
-  segment: VoterFileFilter,
+  segment: Partial<VoterFileFilter>,
 ): FilterObject => {
   const filters: FilterObject = {}
   const excludeFields = new Set([

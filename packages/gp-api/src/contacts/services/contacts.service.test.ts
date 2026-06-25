@@ -1247,5 +1247,58 @@ describe('ContactsService', () => {
         expect(downloadBody.filters).toEqual(listBody.filters)
       })
     })
+
+    describe('countContacts (live segment builder count, ENG-10517)', () => {
+      it('throws when the organization is not pro', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.countContacts({ partyDemocrat: true }, org),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('returns the people-api total for the in-progress filter set', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 1234 } } }),
+        )
+
+        const count = await service.countContacts({ partyDemocrat: true }, org)
+
+        expect(count).toBe(1234)
+        // The translated filter set reaches people-api, and only one row is
+        // requested so no real voter rows are loaded just to read the total.
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            resultsPerPage: 1,
+            filters: { politicalParty: { eq: 'Democratic' } },
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('surfaces VOTER_DATA_UNAVAILABLE when the district cannot resolve', async () => {
+        const org = makeOrganization({ slug: 'campaign-1' })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+
+        await expect(
+          service.countContacts({ partyDemocrat: true }, org),
+        ).rejects.toMatchObject({
+          response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
+        })
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+    })
   })
 })
