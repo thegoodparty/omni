@@ -234,6 +234,31 @@ describe('ServeWelcomeContent', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('treats a thrown "already consumed" exchange as success when a session appears but the ticket is not a decodable JWT (FAPI auto-retry, non-standard ticket)', async () => {
+    // A ticket that is not a standard three-part JWT — decodeTicketUserId
+    // returns null, so the recovery check can't compare user ids. A session
+    // that appears during the redeem (the exchange's first attempt succeeded
+    // before the auto-retry threw "already consumed") must still be recognized
+    // as success rather than mislabeled as a consumed link.
+    mockUser = null
+    mockSearchParams = new URLSearchParams({ __clerk_ticket: 'not-a-jwt' })
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw makeClerkApiError(
+        'sign_in_token_already_used',
+        'The sign-in token has already been used.',
+      )
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('does NOT re-run signIn.create after the exchange has been attempted, even when it fails (guard stays latched, no double-spend)', async () => {
     mockSignInCreate.mockRejectedValue(new Error('network blip'))
 

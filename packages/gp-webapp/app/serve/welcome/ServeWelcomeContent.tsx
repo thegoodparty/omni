@@ -38,7 +38,7 @@ const CONSUMED_TICKET_MESSAGE =
 // Critically distinct from CONSUMED_TICKET_MESSAGE so we never tell a user the
 // link is invalid when the real problem was a temporary glitch.
 const RETRYABLE_MESSAGE =
-  'Something went wrong while signing you in. Please try again, or sign in below.'
+  'Something went wrong while signing you in. Please sign in below or request a new link.'
 
 /**
  * Best-effort decode of the `sub` (user id) claim from the sign-in-token JWT so
@@ -128,16 +128,30 @@ export default function ServeWelcomeContent() {
     setRedeeming(true)
 
     const ticketUserId = decodeTicketUserId(ticket)
-    // A session for the ticket's user being active means redemption has
-    // effectively succeeded (the ticket was already exchanged for this
-    // session). Used as a recovery signal so transient post-exchange failures
-    // — and clerk-js's internal FAPI retry of the exchange POST that throws
-    // "already consumed" after the first attempt already succeeded — resolve to
-    // success instead of a spurious "consumed link" error. `clerk.user` is a
-    // live getter on the Clerk singleton, so it reflects a session established
-    // mid-redeem.
-    const isSignedInAsTicketUser = () =>
-      !!ticketUserId && clerk.user?.id === ticketUserId
+    // Whoever (if anyone) was signed in when this attempt began. Lets us detect
+    // a session that appears *during* the redeem even when the ticket's user id
+    // can't be decoded from the token.
+    const initialUserId = clerk.user?.id ?? null
+
+    // Has redemption effectively succeeded — i.e. is a session for the ticket's
+    // user now active? Used as a recovery signal so transient post-exchange
+    // failures — and clerk-js's internal FAPI retry of the exchange POST that
+    // throws "already consumed" after the first attempt already succeeded —
+    // resolve to success instead of a spurious "consumed link" error.
+    // `clerk.user` is a live getter on the Clerk singleton, so it reflects a
+    // session established mid-redeem.
+    const isSignedInAsTicketUser = () => {
+      const currentUserId = clerk.user?.id ?? null
+      if (!currentUserId) return false
+      // Preferred signal: the active session belongs to the ticket's user.
+      if (ticketUserId) return currentUserId === ticketUserId
+      // Fallback when the token isn't a decodable JWT (no `sub` to compare): a
+      // session that appeared (or changed) since this attempt started is the
+      // one the exchange just established. Requiring a change from
+      // `initialUserId` avoids treating a pre-existing, not-yet-cleared
+      // different session as a successful redemption.
+      return currentUserId !== initialUserId
+    }
 
     try {
       // Only touch the existing session once the user has explicitly clicked.
