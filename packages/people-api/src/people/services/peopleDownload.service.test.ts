@@ -195,6 +195,53 @@ describe('PeopleDownloadService', () => {
       expect(sql).toContain('v."Age_Int" <= 50')
     })
 
+    it('de-dupes to one row per household (DISTINCT ON) when groupByHousehold is set', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      expect(sql).toContain('DISTINCT ON')
+      expect(sql).toContain('CONCAT_WS')
+      expect(sql).toContain('Residence_Addresses_AddressLine')
+      // DISTINCT ON requires a leading ORDER BY matching the key.
+      expect(sql).toContain('ORDER BY')
+    })
+
+    it('does not de-dupe when groupByHousehold is omitted', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      expect(sql).not.toContain('DISTINCT ON')
+    })
+
     it('pipes COPY stream output into res.raw', async () => {
       const { res, raw } = makeRawResponse()
       const chunks: Buffer[] = []

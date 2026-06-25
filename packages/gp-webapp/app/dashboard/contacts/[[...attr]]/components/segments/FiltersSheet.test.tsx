@@ -17,6 +17,10 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
 }))
 
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-one' }),
+}))
+
 vi.mock('helpers/analyticsHelper', async () => {
   const actual = await vi.importActual<object>('helpers/analyticsHelper')
   return {
@@ -143,7 +147,7 @@ describe('<FiltersSheet>', () => {
     ).toBeInTheDocument()
   })
 
-  it('auto-generates a default segment name in create mode using the number of existing custom segments', () => {
+  it('pre-fills the name prompt with a default in create mode using the number of existing custom segments', () => {
     setContext({
       customSegments: [editableSegment({ id: 1 }), editableSegment({ id: 2 })],
     })
@@ -161,9 +165,7 @@ describe('<FiltersSheet>', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('heading', { name: /custom segment 3/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/list name/i)).toHaveValue('Custom Segment 3')
   })
 
   it('keeps the Create button disabled until a filter is selected, then triggers afterSave with the new segment id on success', async () => {
@@ -410,6 +412,204 @@ describe('<FiltersSheet>', () => {
     expect(sentBody).toMatchObject({ partyDemocrat: true })
   })
 
+  it('prompts for a list name in create mode and sends the user-entered name on the create payload', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 11, name: 'Door knock list' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Door knock list')
+
+    await user.click(checkboxForOption('Male'))
+    await user.click(screen.getByRole('button', { name: /create segment/i }))
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).toMatchObject({ name: 'Door knock list' })
+  })
+
+  it('keeps the typed name when a background customSegments refetch changes the array reference', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+
+    const { rerender } = render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, 'My door list')
+
+    // Simulate a window-focus refetch handing the provider a brand-new
+    // customSegments array reference while the sheet stays open.
+    setContext({ customSegments: [editableSegment({ id: 99 })] })
+    rerender(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText(/list name/i)).toHaveValue('My door list')
+  })
+
+  it('keeps Create disabled and sends nothing when the name is only whitespace', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 12, name: 'x' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, '   ')
+    await user.click(checkboxForOption('Male'))
+
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeDisabled()
+
+    await user.click(create)
+    expect(sentBody).toBeNull()
+  })
+
+  it('disables Create until a list name is entered', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    await user.click(checkboxForOption('Male'))
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeEnabled()
+
+    await user.clear(screen.getByLabelText(/list name/i))
+    expect(create).toBeDisabled()
+  })
+
+  it('saves the active search on the create payload and allows saving with no filter selected', async () => {
+    const user = userEvent.setup()
+    setContext({ searchTerm: 'smith' })
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 21, name: 'Smith voters' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    // A list named from an active search is saveable without touching any
+    // filter checkbox — the search alone defines it (ENG-10518).
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeEnabled()
+    await user.click(create)
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).toMatchObject({ search: 'smith' })
+  })
+
+  it('does not put a search field on the create payload when no search is active', async () => {
+    const user = userEvent.setup()
+    setContext({ searchTerm: '' })
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 22, name: 'Custom Segment 1' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    await user.click(checkboxForOption('Male'))
+    await user.click(screen.getByRole('button', { name: /create segment/i }))
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).not.toHaveProperty('search')
+  })
+
   it('Select All toggles every option within a filter field on at once', async () => {
     const user = userEvent.setup()
     setContext()
@@ -442,5 +642,156 @@ describe('<FiltersSheet>', () => {
     for (const checkbox of checkboxes) {
       expect(checkbox).toHaveAttribute('aria-checked', 'true')
     }
+  })
+
+  describe('live matching-voter count (ENG-10517)', () => {
+    it('prompts to select a filter and fetches no count when none is selected', () => {
+      setContext()
+      setSnackbar()
+      const countRequest = vi.fn()
+      api.mock('POST /v1/contacts/count', () => {
+        countRequest()
+        return { status: 200, data: { count: 5 } }
+      })
+
+      render(
+        <FiltersSheet
+          open
+          handleClose={vi.fn()}
+          mode={SHEET_MODES.CREATE}
+          editSegment={null}
+          handleOpenChange={vi.fn()}
+          resetSelect={vi.fn()}
+          afterSave={vi.fn()}
+        />,
+      )
+
+      expect(
+        screen.getByText(/select a filter to see matching voters/i),
+      ).toBeInTheDocument()
+      expect(countRequest).not.toHaveBeenCalled()
+    })
+
+    it('shows the count for the selected filter set and sends that filter set to the count endpoint', async () => {
+      const user = userEvent.setup()
+      setContext({ isElectedOfficial: false })
+      setSnackbar()
+      const countBodies: Array<Record<string, unknown>> = []
+      api.mock('POST /v1/contacts/count', ({ body }) => {
+        countBodies.push(body as Record<string, unknown>)
+        return { status: 200, data: { count: 1234 } }
+      })
+
+      render(
+        <FiltersSheet
+          open
+          handleClose={vi.fn()}
+          mode={SHEET_MODES.CREATE}
+          editSegment={null}
+          handleOpenChange={vi.fn()}
+          resetSelect={vi.fn()}
+          afterSave={vi.fn()}
+        />,
+      )
+
+      await user.click(checkboxForOption('Democrat'))
+
+      await screen.findByText(/1,234 voters match/i, undefined, {
+        timeout: 3000,
+      })
+      // The count query only runs once a filter is on, so the request that
+      // produced the displayed number must carry the selected filter.
+      expect(countBodies.at(-1)).toMatchObject({ partyDemocrat: true })
+    })
+
+    it('updates the displayed count when the filter set changes', async () => {
+      const user = userEvent.setup()
+      setContext({ isElectedOfficial: false })
+      setSnackbar()
+      // Distinct totals per filter set prove the displayed number tracks the
+      // current selection rather than a stale first response.
+      api.mock('POST /v1/contacts/count', ({ body }) => {
+        const payload = body as Record<string, unknown>
+        const count = payload.genderMale ? 50 : 1234
+        return { status: 200, data: { count } }
+      })
+
+      render(
+        <FiltersSheet
+          open
+          handleClose={vi.fn()}
+          mode={SHEET_MODES.CREATE}
+          editSegment={null}
+          handleOpenChange={vi.fn()}
+          resetSelect={vi.fn()}
+          afterSave={vi.fn()}
+        />,
+      )
+
+      await user.click(checkboxForOption('Democrat'))
+      await screen.findByText(/1,234 voters match/i, undefined, {
+        timeout: 3000,
+      })
+
+      await user.click(checkboxForOption('Male'))
+      await screen.findByText(/50 voters match/i, undefined, { timeout: 3000 })
+    })
+
+    it('includes the active create-mode search in the count request', async () => {
+      setContext({ searchTerm: 'smith' })
+      setSnackbar()
+      let countBody: Record<string, unknown> | null = null
+      api.mock('POST /v1/contacts/count', ({ body }) => {
+        countBody = body as Record<string, unknown>
+        return { status: 200, data: { count: 88 } }
+      })
+
+      render(
+        <FiltersSheet
+          open
+          handleClose={vi.fn()}
+          mode={SHEET_MODES.CREATE}
+          editSegment={null}
+          handleOpenChange={vi.fn()}
+          resetSelect={vi.fn()}
+          afterSave={vi.fn()}
+        />,
+      )
+
+      // No filter is selected, but the active search alone defines the set, so
+      // the count still fires and carries the search term (ENG-10518).
+      await screen.findByText(/88 voters match/i, undefined, { timeout: 3000 })
+      await vi.waitFor(() => {
+        expect(countBody).not.toBeNull()
+      })
+      expect(countBody).toMatchObject({ search: 'smith' })
+    })
+
+    it('shows an error message when the count request fails', async () => {
+      const user = userEvent.setup()
+      setContext()
+      setSnackbar()
+      api.mock('POST /v1/contacts/count', {
+        status: 500,
+        data: { message: 'boom' },
+      })
+
+      render(
+        <FiltersSheet
+          open
+          handleClose={vi.fn()}
+          mode={SHEET_MODES.CREATE}
+          editSegment={null}
+          handleOpenChange={vi.fn()}
+          resetSelect={vi.fn()}
+          afterSave={vi.fn()}
+        />,
+      )
+
+      await user.click(checkboxForOption('Male'))
+      await screen.findByText(/could not load count/i, undefined, {
+        timeout: 5000,
+      })
+    })
   })
 })

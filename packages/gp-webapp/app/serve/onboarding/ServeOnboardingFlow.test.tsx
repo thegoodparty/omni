@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
@@ -63,6 +63,51 @@ const renderFlow = () =>
     </SnackbarProvider>,
   )
 
+// The term-date fields are popover date pickers (a labelled trigger button that
+// opens a calendar with month/year dropdowns), not free-text inputs. Drive one
+// the way a user would: open its popover, navigate via the dropdowns, then click
+// the day cell. Day buttons carry `data-day` (the locale date string), so we
+// match the exact day directly instead of an ambiguous "1".
+const pickTermDate = async (
+  user: ReturnType<typeof userEvent.setup>,
+  fieldLabel: string,
+  date: Date,
+) => {
+  await user.click(screen.getByLabelText(fieldLabel))
+  const dialog = await screen.findByRole('dialog')
+  // The month/year dropdowns each re-render the calendar (and replace the
+  // <select> nodes) on change, so re-query before driving each one. Set the
+  // year first, then the month, to land on the target month grid.
+  const yearSelect = within(dialog).getAllByRole('combobox')[1]
+  await user.selectOptions(yearSelect!, String(date.getFullYear()))
+  const monthSelect = within(dialog).getAllByRole('combobox')[0]
+  await user.selectOptions(
+    monthSelect!,
+    date.toLocaleString('default', { month: 'short' }),
+  )
+  // Day buttons carry the locale date string in data-day; the day cell uses the
+  // ISO form, so scope to the button to pick the exact day unambiguously.
+  const dayButton = dialog.querySelector(
+    `button[data-day="${date.toLocaleDateString()}"]`,
+  )
+  await user.click(dayButton as HTMLElement)
+  // The popover closes once a day is picked.
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+  )
+}
+
+// Fills both term-date pickers with the canonical 2026-01-01 → 2030-01-01 range
+// the term-dates tests assert on.
+const fillTermDates = async (
+  user: ReturnType<typeof userEvent.setup>,
+  start = new Date(2026, 0, 1),
+  end = new Date(2030, 0, 1),
+) => {
+  await pickTermDate(user, 'Term start date', start)
+  await pickTermDate(user, 'Term end date', end)
+}
+
 // Mocks the three GETs the load effect fires. `eo` is returned for both
 // `current` and `mine` so the flow adopts it (rather than treating the user as
 // net-new with no record).
@@ -88,8 +133,10 @@ describe('ServeOnboardingFlow', () => {
   })
 
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
-    // Genuine prefill (BR term dates present) + party answered, office still to
-    // be confirmed → resumes on the confirm hub, NOT welcome.
+    // Genuine prefill (BR term dates present) + party answered, but the office
+    // is still missing. Prompt-first gating routes the user to fill the office
+    // FIRST (not the confirm hub, and not welcome) so confirm is never shown
+    // with a missing piece.
     mockLoad(
       buildEO({
         party: 'independent',
@@ -100,7 +147,10 @@ describe('ServeOnboardingFlow', () => {
     )
     renderFlow()
 
-    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    expect(
+      await screen.findByText('What office do you currently hold?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
@@ -118,8 +168,10 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText('Does this look right?')
-    // confirm → party → inOffice
+    // Prompt-first routing lands on the office step (office still missing).
+    // Backing out of a prompt-first detour returns to the prior real step:
+    // office → party → inOffice.
+    await screen.findByText('What office do you currently hold?')
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText("What's your party designation?")
     await user.click(screen.getByRole('button', { name: 'Back' }))
@@ -209,9 +261,7 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
-    const [startInput, endInput] = screen.getAllByPlaceholderText('mm/dd/yyyy')
-    await user.type(startInput!, '01012026')
-    await user.type(endInput!, '01012030')
+    await fillTermDates(user)
     return user
   }
 
@@ -290,12 +340,48 @@ describe('ServeOnboardingFlow', () => {
   it('treats a partial prefill (office present, no marker, no dates) as prefill so the snapshot fires', async () => {
     // Same field shape as the net-new case above — office on the org, party
     // answered, no term dates — but WITHOUT the selfReported marker. This is a
-    // genuine sales/BR prefill, so it must resume on the confirm hub (prefill
-    // branch), which is exactly the path that arms the BR suggestion-accuracy
-    // snapshot. Previously this shape was forced to net-new and the snapshot
-    // was silently dropped.
+    // genuine sales/BR prefill. Prompt-first gating routes to the term-dates
+    // step FIRST (instead of the confirm hub with a red error), but it stays in
+    // the prefill branch — proven by the term-dates Continue returning to the
+    // confirm hub (a net-new user would advance to constituents) — so the BR
+    // suggestion-accuracy snapshot is still armed.
     mockLoad(
       buildEO({ party: 'independent', selfReported: false }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
+
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The prefill detour returns to the confirm hub once dates are valid.
+    expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+  })
+
+  it('shows the confirm hub with its "Why this matters" explainer once office and dates are valid', async () => {
+    // Complete prefill resumed via the confirm checkpoint: both office and valid
+    // term dates are present, so the confirm hub renders directly (no detour, no
+    // red error) alongside its right-rail explainer.
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        onboardingStep: 'confirm',
+      }),
       buildOrg({
         positionName: 'Mayor',
         position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
@@ -304,9 +390,15 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
+    // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.queryByText('When does your term run?'),
-    ).not.toBeInTheDocument()
+      screen.getByText(
+        'These details ensure we pull the right information and data to help you serve your community',
+      ),
+    ).toBeInTheDocument()
+    // The confirmed office renders as a plain value (the old red error state is
+    // gone now that confirm is only shown when complete).
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {
@@ -466,10 +558,7 @@ describe('ServeOnboardingFlow', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
-      const [startInput, endInput] =
-        screen.getAllByPlaceholderText('mm/dd/yyyy')
-      await user.type(startInput!, '01012026')
-      await user.type(endInput!, '01012030')
+      await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText(

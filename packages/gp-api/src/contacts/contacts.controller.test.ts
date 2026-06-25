@@ -229,4 +229,56 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
       expect(method).not.toHaveBeenCalled()
     },
   )
+
+  it('returns the live count for an in-progress filter set (ENG-10517)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(true)
+    const countContacts = vi
+      .spyOn(service.app.get(ContactsService), 'countContacts')
+      .mockResolvedValue(742)
+
+    const result = await service.client.post(
+      '/v1/contacts/count',
+      { partyDemocrat: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ count: 742 })
+    expect(countContacts).toHaveBeenCalledWith(
+      expect.objectContaining({ partyDemocrat: true }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
+
+  it('gates the live count behind win-voter-data', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+    const countContacts = vi
+      .spyOn(service.app.get(ContactsService), 'countContacts')
+      .mockResolvedValue(0)
+
+    const result = await service.client.post(
+      '/v1/contacts/count',
+      { partyDemocrat: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(403)
+    expect(countContacts).not.toHaveBeenCalled()
+  })
 })
