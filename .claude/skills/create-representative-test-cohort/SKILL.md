@@ -158,9 +158,14 @@ To validate the skill without any agent spend:
 - **Analysis steps** are read-only Databricks queries — run them and eyeball the
   distribution + selection.
 - **Creation step**: run the creator with `--dry-run`. It creates the users +
-  elected offices **unbound** (no position), so `resolveContext` returns null and
-  nothing dispatches in any env. This exercises the full pipeline (selection parse,
-  Clerk user creation, EO creation, manifest, slug list, failure handling) at any N.
+  elected offices **unbound** (no position / no `customPositionName`). The signup
+  dispatch (`onElectedOfficeCreated`) is not ICP-gated, but it still bails when
+  `resolveServeContext` returns null — and for an unbound office both `state` and
+  `positionName` are empty (organizations.service.ts), so it returns null. That
+  null gates **both** the signup path and the ICP cohort path, so an unbound
+  dry-run dispatches nothing in any env, including `MEETINGS_AUTOMATION_ENABLED=true`.
+  This exercises the full pipeline (selection parse, Clerk user creation, EO
+  creation, manifest, slug list, failure handling) at any N.
 - **Binding fidelity** (the one thing `--dry-run` skips — the position bind) is
   cheap to spot-check on a single bound user: create one without `--dry-run`, then
   `GET election-api-dev /v1/positions/<id>?includeDistrict=true` and confirm
@@ -174,11 +179,14 @@ To validate the skill without any agent spend:
 
 - **Cleanup window.** Created users are `@test.goodparty.org` and are swept by
   gp-api's `deleteTestUsers` (~24h). Dispatch promptly after creating.
-- **Auto-dispatch on create.** Creating an elected office fires
-  `onElectedOfficeCreated` → community-issue dispatch **iff dev
-  `MEETINGS_AUTOMATION_ENABLED=true`** (that signup path is NOT ICP-gated). If you
-  want a clean single dispatch window, expect creation may already have dispatched;
-  the dispatch endpoint skips in-flight runs and re-dispatches terminal ones.
+- **Auto-dispatch on create.** Creating a **bound** elected office fires
+  `onElectedOfficeCreated` → community-issue dispatch **iff
+  `MEETINGS_AUTOMATION_ENABLED=true`**. That signup path is NOT ICP-gated, but it
+  still requires a resolvable position (`resolveServeContext` non-null) — so an
+  unbound office never dispatches (see Testing above), only a real bound one does.
+  If you want a clean single dispatch window for bound creation, expect it may have
+  already dispatched; the dispatch endpoint skips in-flight runs and re-dispatches
+  terminal ones.
 - **Binding mechanism.** `POST /v1/elected-office` with `ballotReadyPositionId`
   set to the **election-api position id** (no org context) stores it as
   `org.positionId`; `resolveServeContext` reads that position's `isServeIcp`.
