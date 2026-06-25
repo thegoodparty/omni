@@ -2,6 +2,8 @@ import type {
   ExperimentVariantsResponse,
   Priority,
   ChatAnchor,
+  RaceOpponentSourceType,
+  RaceOpponentCollectionStatus,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -706,6 +708,38 @@ export type APIEndpoints = {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
   }
+
+  'GET /v1/campaigns/mine/race-opponent': {
+    Request: {}
+    Response: RaceOpponentResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/collect': {
+    Request: {}
+    Response: { collectionStatus: RaceOpponentCollectionStatus }
+  }
+}
+
+// Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
+// RaceOpponentResponseSchema in @goodparty_org/contracts, but dates arrive over
+// JSON as ISO strings (the contract type coerces them to Date), so they're
+// typed as string here.
+export type RaceOpponentItem = {
+  id: number
+  opponentName: string
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string | null
+  content: unknown
+  collectedAt: string
+}
+
+export type RaceOpponentResponse = {
+  opponents: Array<{
+    opponentName: string
+    items: RaceOpponentItem[]
+  }>
+  lastCollectedAt: string | null
+  collectionStatus: RaceOpponentCollectionStatus
 }
 
 export type CommunityIssueCard = {
