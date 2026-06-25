@@ -35,20 +35,11 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { FREE_TEXTS_OFFER } from '../../../outreach/constants'
 import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
+import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 
 const TEXT_PRICE = 0.035
 const CALL_PRICE = 0.04
 const CALL_W_VOICEMAIL_PRICE = 0.055
-
-// The texting/outreach flow auto-creates throwaway filters named "<type>
-// Campaign" on every send (handleCreateVoterFileFilter). Those are not lists a
-// candidate intentionally built, so they must not clutter the saved-list
-// selector. Linked to ENG-10521 (cleaning up the throwaway-filter pattern).
-const AUTO_FILTER_NAME_PATTERN = new RegExp(
-  `^(${[...Object.values(TASK_TYPES), ...Object.values(LEGACY_TASK_TYPES)]
-    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')}) Campaign$`,
-)
 
 const NEW_FROM_FILTERS = '__new__'
 
@@ -147,7 +138,7 @@ export default function AudienceStep({
           (data || []).filter(
             (list): list is SavedList =>
               typeof list?.name === 'string' &&
-              !AUTO_FILTER_NAME_PATTERN.test(list.name),
+              !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
           ),
         )
       })

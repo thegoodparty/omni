@@ -190,10 +190,10 @@ describe('AudienceStep saved-list selector', () => {
     })
   })
 
-  it('hides auto-generated "<type> Campaign" throwaway lists', async () => {
+  it('hides auto-generated date-named throwaway lists', async () => {
     mockClientRequest.mockResolvedValue({
       data: [
-        { id: 1, name: 'text Campaign' },
+        { id: 1, name: 'Texting outreach — Jun 24, 2026' },
         { id: 2, name: 'My Real List' },
       ],
     })
@@ -222,7 +222,9 @@ describe('AudienceStep saved-list selector', () => {
       ).toBeInTheDocument(),
     )
     expect(
-      screen.queryByRole('option', { name: 'text Campaign' }),
+      screen.queryByRole('option', {
+        name: 'Texting outreach — Jun 24, 2026',
+      }),
     ).not.toBeInTheDocument()
   })
 })
