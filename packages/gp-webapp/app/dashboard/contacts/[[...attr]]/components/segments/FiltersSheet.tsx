@@ -4,6 +4,7 @@ import {
   Button,
   Checkbox,
   Input,
+  Label,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -280,32 +281,53 @@ export default function Filters({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetTitle className="sr-only"> Filters </SheetTitle>
       <SheetContent className="w-[90vw] max-w-xl sm:max-w-xl  h-full overflow-y-auto p-4 lg:p-8 z-[1301]">
-        <div className="flex items-center pb-6 border-b border-gray-200">
-          {isEditingName ? (
-            <Input
-              value={segmentName}
-              onChange={(e) =>
-                setSegmentName(e.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH))
-              }
-              onBlur={() => setIsEditingName(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  setIsEditingName(false)
+        <div className="pb-6 border-b border-gray-200">
+          {mode === SHEET_MODES.CREATE ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="segment-name">List name</Label>
+              <Input
+                id="segment-name"
+                value={segmentName}
+                onChange={(e) =>
+                  setSegmentName(
+                    e.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH),
+                  )
                 }
-              }}
-              autoFocus
-              maxLength={MAX_SEGMENT_NAME_LENGTH}
-            />
-          ) : (
-            <>
-              <h2 className="text-3xl lg:text-4xl font-semibold ">
-                {trimCustomSegmentName(segmentName)}
-              </h2>
-              <FiEdit
-                className="text-2xl ml-4 cursor-pointer"
-                onClick={() => setIsEditingName(true)}
+                maxLength={MAX_SEGMENT_NAME_LENGTH}
+                placeholder="Name your list"
               />
-            </>
+            </div>
+          ) : (
+            <div className="flex items-center">
+              {isEditingName ? (
+                <Input
+                  value={segmentName}
+                  onChange={(e) =>
+                    setSegmentName(
+                      e.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH),
+                    )
+                  }
+                  onBlur={() => setIsEditingName(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setIsEditingName(false)
+                    }
+                  }}
+                  autoFocus
+                  maxLength={MAX_SEGMENT_NAME_LENGTH}
+                />
+              ) : (
+                <>
+                  <h2 className="text-3xl lg:text-4xl font-semibold ">
+                    {trimCustomSegmentName(segmentName)}
+                  </h2>
+                  <FiEdit
+                    className="text-2xl ml-4 cursor-pointer"
+                    onClick={() => setIsEditingName(true)}
+                  />
+                </>
+              )}
+            </div>
           )}
         </div>
 
