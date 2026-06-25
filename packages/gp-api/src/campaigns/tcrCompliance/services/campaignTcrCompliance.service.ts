@@ -1241,6 +1241,34 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
   }
 
+  // Dev/QA-only seam (gated to non-prod at the route): forces the caller's own
+  // campaign into the state the webapp's texting audience step requires —
+  // isPro plus an `approved` TcrCompliance record — so that step is reachable
+  // in e2e without a real Stripe payment or Peerly registration. Stamps a
+  // clearly-synthetic peerlyIdentityId (post-approval gating elsewhere checks
+  // for a non-null id) that cannot be mistaken for a real Peerly identity.
+  // isPro is set directly (not via setIsPro) to keep the seam deterministic and
+  // free of the real upgrade's analytics/CRM/Slack side effects.
+  async devApproveForCampaign(campaignId: number) {
+    const record = await this.fetchByCampaignId(campaignId)
+    if (!record) {
+      throw new NotFoundException(
+        'TCR compliance does not exist for this campaign',
+      )
+    }
+    await this.campaignsService.model.update({
+      where: { id: campaignId },
+      data: { isPro: true },
+    })
+    return this.model.update({
+      where: { id: record.id },
+      data: {
+        status: TcrComplianceStatus.approved,
+        peerlyIdentityId: `e2e-approved-${campaignId}`,
+      },
+    })
+  }
+
   async checkTcrRegistrationStatus(peerlyIdentityId: string) {
     const { campaign } = await this.model.findFirstOrThrow({
       where: { peerlyIdentityId },
