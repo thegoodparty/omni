@@ -79,7 +79,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
     if (existing > 0) return 0
 
-    const start = startOfDay(campaign.createdAt)
+    // Anchor the relative (asap / onboarding / preLaunch / launch) static tasks
+    // to the upcoming Monday — the same week the initial dynamic generation is
+    // dated to — so a freshly-bootstrapped campaign schedules them for the
+    // coming week instead of relative to its creation date. That matters most
+    // for an existing campaign onboarded long ago, whose createdAt-anchored
+    // tasks would otherwise all land in the past. Stamped once (idempotent);
+    // election-relative tasks still key off the election date.
+    const start = nextMonday(startOfDay(new Date()))
     const rows = buildStaticTrackerTaskRows(
       campaign.id,
       start,
