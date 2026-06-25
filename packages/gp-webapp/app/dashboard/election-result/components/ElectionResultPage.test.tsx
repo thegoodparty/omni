@@ -214,8 +214,10 @@ describe('ElectionResultPage', () => {
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
 
     let createBody: unknown = null
-    api.mock('POST /v1/elected-office', ({ body }) => {
+    let createOrgSlug: string | undefined
+    api.mock('POST /v1/elected-office', ({ body, headers }) => {
       createBody = body
+      createOrgSlug = headers['x-organization-slug']
       return { status: 200, data: eoFixture }
     })
     api.mock('GET /v1/organizations', {
@@ -244,6 +246,9 @@ describe('ElectionResultPage', () => {
       { key: 'details.wonGeneral', value: true },
     ])
     expect(mockSetSelectedSlug).toHaveBeenCalledWith('eo-1')
+    // The create is pinned to the campaign org so the backend links campaignId
+    // (the win-origin marker) instead of resolving null off a stale cookie.
+    expect(createOrgSlug).toBe('campaign-1')
   })
 
   it('shows an error and does not navigate when updateCampaign fails after the office is created', async () => {
@@ -305,5 +310,31 @@ describe('ElectionResultPage', () => {
       await screen.findByRole('button', { name: 'I won my race' }),
     ).toBeInTheDocument()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('clears a failed-confirm error when the user goes back to the result choice', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+    // Fail the create so the term-dates view shows the inline error.
+    api.mock('POST /v1/elected-office', () => ({
+      status: 500,
+      data: { message: 'boom' },
+    }))
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/An error occurred when saving/i),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }))
+
+    // Back on the result choice, the stale error must not carry over.
+    expect(
+      await screen.findByRole('button', { name: 'I won my race' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/An error occurred when saving/i)).toBeNull()
   })
 })

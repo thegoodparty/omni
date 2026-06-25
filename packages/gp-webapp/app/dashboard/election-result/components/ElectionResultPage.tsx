@@ -8,6 +8,7 @@ import { LuTrophy, LuFrown } from 'react-icons/lu'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ResultOptionButton from './ResultOptionButton'
 import { clientRequest } from 'gpApi/typed-request'
+import { ORG_SLUG_HEADER } from '@shared/organizations/constants'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -173,11 +174,23 @@ export default function ElectionResultPage(): React.JSX.Element {
     if (!datesValid) return
     setRequestState({ submitting: true, error: false })
     try {
-      const created = await clientRequest('POST /v1/elected-office', {
-        termStartDate: toApiDate(termStartDate),
-        termEndDate: toApiDate(termEndDate),
-        onboardingCompletedAt: new Date().toISOString(),
-      })
+      // Pin the request to the campaign org explicitly. The backend resolves the
+      // new office's campaignId from the X-Organization-Slug header; relying on
+      // the cookie can point at an existing `eo-<id>` org (for a user who already
+      // holds an office), which resolves NO campaign and stores campaignId=null —
+      // exactly the broken win-origin link that this fix depends on to keep the
+      // official out of serve onboarding.
+      const created = await clientRequest(
+        'POST /v1/elected-office',
+        {
+          termStartDate: toApiDate(termStartDate),
+          termEndDate: toApiDate(termEndDate),
+          onboardingCompletedAt: new Date().toISOString(),
+        },
+        campaign
+          ? { headers: { [ORG_SLUG_HEADER]: `campaign-${campaign.id}` } }
+          : undefined,
+      )
       if (!created.ok || !created.data) {
         throw new Error('Failed to create elected office')
       }
@@ -227,6 +240,10 @@ export default function ElectionResultPage(): React.JSX.Element {
         console.error('Error switching to elected-office org:', e)
       }
 
+      // Clear the in-flight state before navigating: if router.replace is
+      // deferred or the destination's data fetch throws, the component stays
+      // mounted and must not be stuck with a permanently-disabled button.
+      setRequestState({ submitting: false, error: false })
       router.replace('/dashboard/briefings')
     } catch (e) {
       console.error('Error submitting General Result:', e)
@@ -321,6 +338,9 @@ export default function ElectionResultPage(): React.JSX.Element {
                   onClick={() => {
                     setView('select')
                     setSelectedOption(null)
+                    // Clear any failed-confirm error so the select view doesn't
+                    // show a stale "saving failed" message before re-submitting.
+                    setRequestState({ submitting: false, error: false })
                   }}
                 >
                   Go back
