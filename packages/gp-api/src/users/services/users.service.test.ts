@@ -1272,14 +1272,19 @@ describe('UsersService', () => {
     })
 
     it('pages through Clerk oldest-first, deleting test-domain users and advancing offset past the rest', async () => {
+      // All mock users are created well before the 24h cutoff so they are
+      // eligible for deletion.
+      const oldCreatedAt = 1000
       const testUser = (i: number) =>
         ({
           id: `clerk_test_${i}`,
+          createdAt: oldCreatedAt,
           emailAddresses: [{ emailAddress: `t${i}@test.goodparty.org` }],
         }) as never
       const realUser = (i: number) =>
         ({
           id: `clerk_real_${i}`,
+          createdAt: oldCreatedAt,
           emailAddresses: [{ emailAddress: `r${i}@example.com` }],
         }) as never
 
@@ -1324,7 +1329,6 @@ describe('UsersService', () => {
         offset: 0,
         orderBy: '+created_at',
       })
-      expect(getUserList.mock.calls[0][0]).toHaveProperty('createdAtBefore')
       // offset advances past the non-deleted users left on each page:
       // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
       expect(getUserList.mock.calls[1][0]).toMatchObject({ offset: 497 })

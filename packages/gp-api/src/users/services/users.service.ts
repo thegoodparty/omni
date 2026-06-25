@@ -778,13 +778,15 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         }
       }
 
-      // 2. Delete Clerk users. Page through users created before the cutoff,
-      // oldest first, deleting any on the test domain. Clerk has no server-side
-      // email-domain filter, so we advance `offset` past the users we leave
-      // behind each page (non-test users and any failed deletes) while deleted
-      // users drop out of the list. This drains the entire backlog across
-      // passes rather than only ever inspecting the most recent page — the old
-      // `query` search never surfaced the bulk of the backlog.
+      // 2. Delete Clerk users. Page through users oldest-first, deleting any
+      // on the test domain created before the cutoff. Clerk's SDK has no
+      // server-side created-at or email-domain filter, so we filter both
+      // client-side and advance `offset` past the users we leave behind each
+      // page (non-test users and any failed deletes) while deleted users drop
+      // out of the list. This drains the entire backlog across passes rather
+      // than only ever inspecting the most recent page — the old `query`
+      // search never surfaced the bulk of the backlog.
+      const cutoffMs = cutoff.getTime()
       let clerkDeleted = 0
       let offset = 0
       for (;;) {
@@ -793,19 +795,20 @@ export class UsersService extends createPrismaBase(MODELS.User) {
             limit: CLERK_PAGE_SIZE,
             offset,
             orderBy: '+created_at',
-            createdAtBefore: cutoff.getTime(),
           }),
         )
         if (page.length === 0) break
 
-        const testUsers = page.filter((user) =>
-          user.emailAddresses.some((e) =>
-            e.emailAddress.endsWith(TEST_USER_DOMAIN),
-          ),
+        const toDelete = page.filter(
+          (user) =>
+            user.createdAt < cutoffMs &&
+            user.emailAddresses.some((e) =>
+              e.emailAddress.endsWith(TEST_USER_DOMAIN),
+            ),
         )
 
         let deletedThisPage = 0
-        for (const clerkUser of testUsers) {
+        for (const clerkUser of toDelete) {
           try {
             await clerkThrottle(() =>
               this.clerkClient.users.deleteUser(clerkUser.id),
@@ -824,6 +827,9 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           }
         }
 
+        // Oldest-first: once a page holds no users older than the cutoff,
+        // every later page is newer too, so there is nothing left to clean up.
+        if (!page.some((user) => user.createdAt < cutoffMs)) break
         if (page.length < CLERK_PAGE_SIZE) break
         offset += page.length - deletedThisPage
       }
