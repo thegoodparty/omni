@@ -23,6 +23,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   filterOnlyTrueValues,
   trimCustomSegmentName,
+  MAX_SEGMENT_NAME_LENGTH,
 } from '../shared/segments.util'
 
 type SheetMode = (typeof SHEET_MODES)[keyof typeof SHEET_MODES]
@@ -46,8 +47,6 @@ interface FiltersSheetProps {
   resetSelect: () => void
   afterSave: (segmentId: number) => void
 }
-
-const MAX_SEGMENT_NAME_LENGTH = 30
 
 const INCOME_KEY_TO_RANGE: Record<string, string> = {
   incomeUnder25k: 'Under $25k',
