@@ -13,11 +13,15 @@ const makeService = () => {
       count: vi.fn().mockResolvedValue(0),
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
       findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     campaign: { findFirst: vi.fn().mockResolvedValue({ id: 42 }) },
     campaignStory: { findUnique: vi.fn().mockResolvedValue(null) },
-    campaignStrategy: { findUnique: vi.fn().mockResolvedValue(null) },
+    campaignStrategy: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   }
   const experimentRuns = {
@@ -128,8 +132,12 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     h = makeService()
   })
 
-  it('materializes static rows and dispatches initial when no tracker run exists', async () => {
+  it('claims the flag, materializes static rows, and dispatches initial when the claim wins', async () => {
     await h.service.bootstrapForCampaign(campaign())
+    expect(h.prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+      where: { campaignId: 42, trackerBootstrapped: false },
+      data: { trackerBootstrapped: true },
+    })
     expect(h.prisma.campaignTrackerTask.createMany).toHaveBeenCalled()
     expect(h.experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
     expect(h.experimentRuns.dispatchRun.mock.calls[0][0].params.mode).toBe(
@@ -137,9 +145,10 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     )
   })
 
-  it('skips the initial dispatch when a tracker run already exists (idempotent)', async () => {
-    h.experimentRuns.findFirst.mockResolvedValueOnce({ runId: 'existing' })
+  it('no-ops when the bootstrap flag is already claimed (concurrent completion)', async () => {
+    h.prisma.campaignStrategy.updateMany.mockResolvedValueOnce({ count: 0 })
     await h.service.bootstrapForCampaign(campaign())
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
     expect(h.experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
@@ -191,43 +200,53 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     )
   })
 
-  it('replaces non-static rows: events keep their date, tasks dated by order', async () => {
-    h.s3.getFile.mockResolvedValueOnce(
-      JSON.stringify({
-        generated_at: '2026-06-24T00:00:00Z',
-        tasks: [
-          {
-            kind: 'task',
-            title: 'Knock doors',
-            description: 'go',
-            phase: 'active',
-            channel: 'doorKnocking',
-          },
-          {
-            kind: 'event',
-            title: 'Festival',
-            description: 'meet voters',
-            phase: 'active',
-            channel: 'event',
-            date: '2026-07-11',
-            url: 'https://x.test',
-          },
-        ],
-      }),
-    )
+  const artifact = () =>
+    JSON.stringify({
+      generated_at: '2026-06-24T00:00:00Z',
+      tasks: [
+        {
+          kind: 'task',
+          title: 'Knock doors',
+          description: 'go',
+          phase: 'active',
+          channel: 'doorKnocking',
+        },
+        {
+          kind: 'event',
+          title: 'Festival',
+          description: 'meet voters',
+          phase: 'active',
+          channel: 'event',
+          date: '2026-07-11',
+          url: 'https://x.test',
+        },
+      ],
+    })
+
+  it('appends a new generation without deleting prior rows', async () => {
+    h.s3.getFile.mockResolvedValueOnce(artifact())
     await h.service.onExperimentRunCompleted(run())
 
-    expect(h.prisma.$transaction).toHaveBeenCalled()
-    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalledWith({
-      where: { campaignId: 42, isDefaultTask: false },
-    })
+    // Append, not replace — completion on prior generations survives.
+    expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
     const created =
       h.prisma.campaignTrackerTask.createMany.mock.calls[0][0].data
     expect(created).toHaveLength(2)
     expect(created[0].isDefaultTask).toBe(false)
+    // first generation when none exist yet
+    expect(created[0].week).toBe(1)
     expect(created[1].link).toBe('https://x.test')
     // event keeps its real date
     expect(created[1].date).toEqual(new Date('2026-07-11T00:00:00'))
+  })
+
+  it('stamps the next generation index when prior generations exist', async () => {
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 2 })
+    h.s3.getFile.mockResolvedValueOnce(artifact())
+    await h.service.onExperimentRunCompleted(run())
+    const created =
+      h.prisma.campaignTrackerTask.createMany.mock.calls[0][0].data
+    expect(created.every((r: { week: number }) => r.week === 3)).toBe(true)
   })
 
   it('fail-closed: a bad artifact marks failed and rethrows', async () => {

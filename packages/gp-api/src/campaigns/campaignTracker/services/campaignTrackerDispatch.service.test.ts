@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ExperimentRunStatus } from '../../../generated/prisma'
 import { CampaignTrackerDispatchService } from './campaignTrackerDispatch.service'
 
 const ENV = 'CAMPAIGN_TRACKER_AUTOMATION_ENABLED'
@@ -87,6 +88,18 @@ describe('CampaignTrackerDispatchService.dispatchWeeklyRegen', () => {
     h.experimentRuns.findFirst.mockResolvedValueOnce({ runId: 'recent' })
     await h.service.dispatchWeeklyRegen()
     expect(h.trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+  })
+
+  it('ignores FAILED runs when deduping so a failed week retries', async () => {
+    h.prisma.campaign.findMany.mockResolvedValueOnce([campaign()])
+    await h.service.dispatchWeeklyRegen()
+    expect(h.experimentRuns.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { not: ExperimentRunStatus.FAILED },
+        }),
+      }),
+    )
   })
 
   it('keeps going if one campaign dispatch throws', async () => {

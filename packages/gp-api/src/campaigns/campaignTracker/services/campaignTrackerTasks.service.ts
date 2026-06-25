@@ -126,7 +126,13 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       user_full_name: fullName,
       mode,
       today: format(new Date(), 'yyyy-MM-dd'),
-      election_date: campaign.details?.electionDate ?? null,
+      // Primary-only campaigns have no general electionDate yet; fall back to
+      // the primary so the agent can still enter GOTV mode (mirrors
+      // resolveElectionDate).
+      election_date:
+        campaign.details?.electionDate ??
+        campaign.details?.primaryElectionDate ??
+        null,
       state: campaign.details?.state ?? null,
       city: campaign.details?.city ?? null,
       campaign_plan: campaignPlan,
@@ -143,22 +149,22 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   // First-run bootstrap, called once the campaign plan finishes generating
   // (the story is already complete by then — a plan can't generate without
-  // it). Materializes the static launch/pre-launch rows so the tracker renders
-  // immediately, then kicks the initial CAP generation. Idempotent: static
-  // rows are a no-op once present, and the initial dispatch is skipped if any
-  // tracker run already exists for the org (so a re-generated plan, or a second
-  // section result, can't fire a duplicate run).
+  // it). The two plan sections complete on independent SQS messages (possibly
+  // different pods), so both can reach here at once. Claim the one-shot
+  // `trackerBootstrapped` flag with a single conditional update: only the call
+  // that flips false->true proceeds to materialize the static rows + dispatch
+  // the initial CAP run. A claim-losing call (count 0) no-ops, so concurrent
+  // completions and re-generated plans can't double-materialize or
+  // double-dispatch. A run that later fails is retried by the weekly cron
+  // (the campaign is in its cohort once static rows exist).
   async bootstrapForCampaign(campaign: CampaignWith<'user'>): Promise<void> {
-    await this.materializeStaticTasks(campaign)
-
-    const existingRun = await this.experimentRuns.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
-      },
+    const { count } = await this.client.campaignStrategy.updateMany({
+      where: { campaignId: campaign.id, trackerBootstrapped: false },
+      data: { trackerBootstrapped: true },
     })
-    if (existingRun) return
+    if (count === 0) return
 
+    await this.materializeStaticTasks(campaign)
     await this.dispatchGeneration(campaign, 'initial')
   }
 
@@ -212,8 +218,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   }
 
   // Queue-consumer hook: on a completed tracker run, load the artifact and
-  // replace the campaign's generated (non-static) rows with the new set. Static
-  // rows (isDefaultTask=true) are left in place. Fail-closed on a bad artifact.
+  // append its tasks as a new generation. Prior generations are kept (not
+  // deleted) so completion is never wiped on a weekly re-run and the weekly
+  // run's prior-tasks MCP lookup has history to dedupe against. Static rows
+  // (isDefaultTask=true) are untouched. Fail-closed on a bad artifact.
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
     if (run.status !== ExperimentRunStatus.COMPLETED) return
     if (run.experimentType !== CAMPAIGN_TRACKER_EXPERIMENT_TYPE) return
@@ -238,13 +246,23 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       const { tasks } = trackerArtifactSchema.parse(JSON.parse(raw))
 
       const start = startOfDay(new Date())
+      // `week` is the generation index: each run appends the next one, the
+      // frontend renders only the highest (latest) dynamic generation, and
+      // older generations persist for completion history + prior-task dedupe.
+      const latest = await this.model.findFirst({
+        where: { campaignId: campaign.id, isDefaultTask: false },
+        orderBy: { week: Prisma.SortOrder.desc },
+        select: { week: true },
+      })
+      const generation = (latest?.week ?? 0) + 1
+
       const rows: Prisma.CampaignTrackerTaskCreateManyInput[] = tasks.map(
         (task, index) => ({
           campaignId: campaign.id,
           title: task.title,
           description: task.description,
           flowType: CHANNEL_TO_FLOW_TYPE[task.channel] ?? null,
-          week: 0,
+          week: generation,
           // Events keep their real date; dynamic tasks are dated by priority
           // order so the upcoming-week list sorts as the model ranked it.
           date: task.date
@@ -257,14 +275,9 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         }),
       )
 
-      await this.client.$transaction(async (tx) => {
-        await tx.campaignTrackerTask.deleteMany({
-          where: { campaignId: campaign.id, isDefaultTask: false },
-        })
-        if (rows.length > 0) {
-          await tx.campaignTrackerTask.createMany({ data: rows })
-        }
-      })
+      if (rows.length > 0) {
+        await this.model.createMany({ data: rows })
+      }
     } catch (error) {
       await this.experimentRuns.markFailed(
         run.runId,

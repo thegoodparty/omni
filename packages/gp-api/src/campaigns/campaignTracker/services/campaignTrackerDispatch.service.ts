@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subDays } from 'date-fns'
+import { ExperimentRunStatus } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
@@ -75,11 +76,14 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
   ): Promise<void> {
     if (!isDateTodayOrFuture(campaign.details?.electionDate, now)) return
 
-    // Coverage dedup: skip if a run already fired for this org this week.
+    // Coverage dedup: skip if a non-failed run already fired for this org this
+    // week. A FAILED run is ignored so a stuck week still retries (it produced
+    // no tasks), instead of being blocked until the window expires.
     const recent = await this.experimentRuns.findFirst({
       where: {
         organizationSlug: campaign.organizationSlug,
         experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+        status: { not: ExperimentRunStatus.FAILED },
         createdAt: { gte: subDays(now, WEEKLY_COVERAGE_DAYS) },
       },
     })

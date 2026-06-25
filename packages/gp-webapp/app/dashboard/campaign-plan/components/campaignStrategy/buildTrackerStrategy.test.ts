@@ -91,4 +91,52 @@ describe('buildTrackerStrategy', () => {
     expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
     expect(phase?.hiddenCount ?? 0).toBe(0)
   })
+
+  it('renders only the latest dynamic generation, keeping static rows', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'old', phase: 'active', week: 1, date: '2026-02-01' }),
+        row({ id: 'new', phase: 'active', week: 2, date: '2026-02-08' }),
+        row({ id: 'static', phase: 'preLaunch', week: 5, isDefaultTask: true }),
+      ],
+      { electionDate: null, today },
+    )
+    const active = data.phases
+      .find((p) => p.key === 'active')
+      ?.groups.flatMap((g) => g.tasks)
+      .map((t) => t.id)
+    expect(active).toEqual(['new'])
+    const pre = data.phases
+      .find((p) => p.key === 'preLaunch')
+      ?.groups.flatMap((g) => g.tasks)
+      .map((t) => t.id)
+    expect(pre).toEqual(['static'])
+  })
+
+  it('marks a phase done only when all its tasks are completed', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'a', phase: 'preLaunch', completed: true }),
+        row({ id: 'b', phase: 'launch', completed: false }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
+  })
+
+  it('keeps "happening now" date-based: a date-past phase with open tasks is not upcoming', () => {
+    // today is 2026-01-15; preLaunch dated in the past, launch in the future.
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'a', phase: 'preLaunch', date: '2026-01-01' }),
+        row({ id: 'b', phase: 'launch', date: '2026-02-01' }),
+      ],
+      { electionDate: null, today },
+    )
+    // Not all completed, and the calendar has reached/passed it → active.
+    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe(
+      'active',
+    )
+  })
 })

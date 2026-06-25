@@ -87,19 +87,30 @@ const compareTasks = (
 
 const derivePhaseStatuses = (
   phaseLatestDate: Map<CampaignStrategyPhaseKey, number | null>,
+  phaseAllCompleted: Map<CampaignStrategyPhaseKey, boolean>,
   today: Date,
 ): Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus> => {
   const startOfToday = startOfDay(today).getTime()
   const order = PHASE_META.map((p) => p.key)
-  const isDone = (key: CampaignStrategyPhaseKey): boolean => {
+  // "Happening now" is date-driven: the furthest phase reached by the calendar
+  // is the first whose tasks aren't all in the past. Completion is a separate
+  // axis — a phase reads 'done' only when every task in it is checked off, not
+  // merely because its dates elapsed. So a phase at or before "now" that still
+  // has open tasks stays 'active'; future phases are 'upcoming' until reached.
+  const isDatePast = (key: CampaignStrategyPhaseKey): boolean => {
     const latest = phaseLatestDate.get(key)
     return latest != null && latest < startOfToday
   }
-  const currentIndex = order.findIndex((key) => !isDone(key))
-  const current = currentIndex === -1 ? order.length - 1 : currentIndex
+  const nowIndex = order.findIndex((key) => !isDatePast(key))
+  const current = nowIndex === -1 ? order.length - 1 : nowIndex
   const out = new Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus>()
   order.forEach((key, i) => {
-    out.set(key, i < current ? 'done' : i === current ? 'active' : 'upcoming')
+    const status: CampaignStrategyPhaseStatus = phaseAllCompleted.get(key)
+      ? 'done'
+      : i <= current
+        ? 'active'
+        : 'upcoming'
+    out.set(key, status)
   })
   return out
 }
@@ -111,8 +122,18 @@ export const buildTrackerStrategy = (
     today = new Date(),
   }: { electionDate: Date | null; today?: Date },
 ): CampaignStrategyData => {
+  // Weekly regen appends each run as a new `week` generation; older ones
+  // persist (completion history + prior-task dedupe via MCP) but only the
+  // latest dynamic generation renders. Static rows (isDefaultTask) always show.
+  const dynamicWeeks = tasks.filter((t) => !t.isDefaultTask).map((t) => t.week)
+  const latestGen = dynamicWeeks.length ? Math.max(...dynamicWeeks) : null
+  const visibleTasks =
+    latestGen === null
+      ? tasks
+      : tasks.filter((t) => t.isDefaultTask || t.week === latestGen)
+
   const byPhase = new Map<CampaignStrategyPhaseKey, CampaignStrategyTask[]>()
-  for (const row of tasks) {
+  for (const row of visibleTasks) {
     const phase = (
       row.phase && PHASE_KEYS.has(row.phase) ? row.phase : 'preLaunch'
     ) as CampaignStrategyPhaseKey
@@ -122,12 +143,17 @@ export const buildTrackerStrategy = (
   }
 
   const phaseLatestDate = new Map<CampaignStrategyPhaseKey, number | null>()
+  const phaseAllCompleted = new Map<CampaignStrategyPhaseKey, boolean>()
   const phases: CampaignStrategyPhase[] = PHASE_META.map((meta) => {
     const phaseTasks = (byPhase.get(meta.key) ?? []).sort(compareTasks)
     const dates = phaseTasks
       .map((t) => (t.date ? dateValue(t) : null))
       .filter((v): v is number => v != null && Number.isFinite(v))
     phaseLatestDate.set(meta.key, dates.length ? Math.max(...dates) : null)
+    phaseAllCompleted.set(
+      meta.key,
+      phaseTasks.length > 0 && phaseTasks.every((t) => t.completed),
+    )
     return {
       key: meta.key,
       title: meta.title,
@@ -139,7 +165,11 @@ export const buildTrackerStrategy = (
     }
   })
 
-  const statuses = derivePhaseStatuses(phaseLatestDate, today)
+  const statuses = derivePhaseStatuses(
+    phaseLatestDate,
+    phaseAllCompleted,
+    today,
+  )
   for (const phase of phases) {
     phase.status = statuses.get(phase.key) ?? 'upcoming'
   }
