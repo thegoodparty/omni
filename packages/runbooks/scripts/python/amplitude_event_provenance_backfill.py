@@ -708,9 +708,12 @@ def upsert_provenance_row(
             row["instrumented_date"] = date
             row["instrumented_commit"] = None
     else:
-        row["retired_pr"] = pr_url(pr)
-        row["retired_date"] = date
-        row["retired_commit"] = None
+        # Symmetric with the add guard: preserve the first retirement attribution so a
+        # double-fire (retry, reprocessing) does not replace the PR/date that first removed it.
+        if not row.get("retired_date"):
+            row["retired_pr"] = pr_url(pr)
+            row["retired_date"] = date
+            row["retired_commit"] = None
     row["last_code_change_date"] = date
     row["updated_at"] = updated_at
     rows[event_type] = row
@@ -780,6 +783,31 @@ def resolve_omni_repo(arg: str | None, env: dict[str, str]) -> str:
     return root
 
 
+def _carry_forward_provisional(rows: list[dict], existing: dict[str, dict]) -> None:
+    """Preserve skill-written provisional rows that a from-git rebuild cannot yet attribute.
+
+    A full backfill builds every row purely from git history at <ref>, which cannot see commits
+    that have not merged. So an event the instrument skill upserted pre-merge (PR + date set,
+    commit null) would be overwritten with empty git-truth. Where git found no instrumentation
+    (resp. no retirement) for an event but the existing CSV holds a provisional, commit-null
+    entry, carry that entry forward in place. Mutates ``rows``.
+    """
+    for row in rows:
+        prior = existing.get(row["event_type"])
+        if not prior:
+            continue
+        if row.get("instrumented_date") is None and prior.get("instrumented_date") and not prior.get("instrumented_commit"):
+            row["instrumented_pr"] = prior.get("instrumented_pr")
+            row["instrumented_date"] = prior.get("instrumented_date")
+            row["instrumented_commit"] = None
+            if not row.get("last_code_change_date"):
+                row["last_code_change_date"] = prior.get("last_code_change_date")
+        if row.get("retired_date") is None and prior.get("retired_date") and not prior.get("retired_commit"):
+            row["retired_pr"] = prior.get("retired_pr")
+            row["retired_date"] = prior.get("retired_date")
+            row["retired_commit"] = None
+
+
 def run_backfill(
     cursor: Any,
     root: str,
@@ -802,6 +830,7 @@ def run_backfill(
     lines = run_git_log(root, since, INSTRUMENTATION_PATHS, ref)
     grep_text = git_grep_present_text(root, events, INSTRUMENTATION_PATHS, ref)
     rows = collect_provenance(events, lines, grep_text, updated_at)
+    _carry_forward_provisional(rows, read_provenance_rows(csv_path))
 
     _, filled = resolve_pr_gaps(rows, pr_resolver)
     if pr_resolver is not None:

@@ -28,7 +28,7 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 ## Notes
 
 - **Idempotent and self-catching-up.** The watermark is the last processed commit SHA, so a missed or failed run is harmless: the next run walks a larger window and catches up.
-- **Skill vs walk.** The instrument-analytics-event skill writes *provisional* rows (PR link + date, blank merge SHA) as PRs are authored. This walk upgrades them to exact (real merge SHA + date) and catches any event added/removed without the skill being run. A full rebuild from scratch: delete `instrumentation_data/amplitude_event_provenance_state.json` and run again.
+- **Skill vs walk.** The instrument-analytics-event skill writes *provisional* rows (PR link + date, blank merge SHA) as PRs are authored. This walk upgrades them to exact (real merge SHA + date) and catches any event added/removed without the skill being run. A state-only rebuild — delete `instrumentation_data/amplitude_event_provenance_state.json` and re-run, keeping the CSV — re-walks history but preserves provisional rows the skill wrote for not-yet-merged PRs (git at `origin/develop` can't see those commits yet, so the backfill carries the provisional entry forward). Do **not** delete the CSV file itself while such PRs are open: that discards their provisional rows, which would then have to be re-upserted.
 
 ## Troubleshooting
 
