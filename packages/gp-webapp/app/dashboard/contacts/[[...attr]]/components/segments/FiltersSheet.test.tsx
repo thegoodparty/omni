@@ -143,7 +143,7 @@ describe('<FiltersSheet>', () => {
     ).toBeInTheDocument()
   })
 
-  it('auto-generates a default segment name in create mode using the number of existing custom segments', () => {
+  it('pre-fills the name prompt with a default in create mode using the number of existing custom segments', () => {
     setContext({
       customSegments: [editableSegment({ id: 1 }), editableSegment({ id: 2 })],
     })
@@ -161,9 +161,7 @@ describe('<FiltersSheet>', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('heading', { name: /custom segment 3/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/list name/i)).toHaveValue('Custom Segment 3')
   })
 
   it('keeps the Create button disabled until a filter is selected, then triggers afterSave with the new segment id on success', async () => {
@@ -408,6 +406,139 @@ describe('<FiltersSheet>', () => {
       expect(sentBody).not.toBeNull()
     })
     expect(sentBody).toMatchObject({ partyDemocrat: true })
+  })
+
+  it('prompts for a list name in create mode and sends the user-entered name on the create payload', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 11, name: 'Door knock list' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Door knock list')
+
+    await user.click(checkboxForOption('Male'))
+    await user.click(screen.getByRole('button', { name: /create segment/i }))
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).toMatchObject({ name: 'Door knock list' })
+  })
+
+  it('keeps the typed name when a background customSegments refetch changes the array reference', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+
+    const { rerender } = render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, 'My door list')
+
+    // Simulate a window-focus refetch handing the provider a brand-new
+    // customSegments array reference while the sheet stays open.
+    setContext({ customSegments: [editableSegment({ id: 99 })] })
+    rerender(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText(/list name/i)).toHaveValue('My door list')
+  })
+
+  it('keeps Create disabled and sends nothing when the name is only whitespace', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 12, name: 'x' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    const nameInput = screen.getByLabelText(/list name/i)
+    await user.clear(nameInput)
+    await user.type(nameInput, '   ')
+    await user.click(checkboxForOption('Male'))
+
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeDisabled()
+
+    await user.click(create)
+    expect(sentBody).toBeNull()
+  })
+
+  it('disables Create until a list name is entered', async () => {
+    const user = userEvent.setup()
+    setContext()
+    setSnackbar()
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    await user.click(checkboxForOption('Male'))
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeEnabled()
+
+    await user.clear(screen.getByLabelText(/list name/i))
+    expect(create).toBeDisabled()
   })
 
   it('Select All toggles every option within a filter field on at once', async () => {
