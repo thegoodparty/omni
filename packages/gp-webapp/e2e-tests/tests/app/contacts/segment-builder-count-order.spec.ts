@@ -34,7 +34,16 @@ const selectFilterCheckbox = async (
 // filtered count against the unfiltered total. Returns null while the count is
 // still settling ("Counting voters…" / no number yet) so callers can poll.
 const readVotersMatchCount = async (sheet: Locator): Promise<number | null> => {
-  const text = await sheet.getByText(/voters match/i).textContent()
+  // While the count is debouncing/loading the footer shows "Counting voters…",
+  // so no element matches /voters match/i. Use timeout:0 so the locator throws
+  // immediately instead of blocking on Playwright's 30s default — otherwise the
+  // first expect.poll attempt would consume the whole poll budget before any
+  // retry. The catch returns null, which the polling caller treats as "not
+  // settled yet" and re-polls.
+  const text = await sheet
+    .getByText(/voters match/i)
+    .textContent({ timeout: 0 })
+    .catch(() => null)
   const digits = text?.match(/([\d,]+)\s+voters match/i)?.[1]
   if (!digits) return null
   return Number(digits.replace(/,/g, ''))
@@ -137,19 +146,21 @@ test.describe('Segment builder count + order @dev-only', () => {
     // immediately.
     await selectFilterCheckbox(sheet, 'Gender', 'Male')
 
+    // Poll the settled count directly against the acceptance criterion: a
+    // single-gender filter must match strictly fewer (but more than zero)
+    // voters than the whole district. Asserting the VALUE relative to the total
+    // (not just that "voters match" text appeared) is the ENG-10517 criterion.
+    // Each attempt is instant (readVotersMatchCount returns null while loading),
+    // so the 30s budget governs how long the debounced count has to settle.
     await expect
       .poll(async () => readVotersMatchCount(sheet), {
         timeout: 30000,
-        message: 'live voter count never settled on a number',
+        message: 'live voter count never settled below the district total',
       })
-      .not.toBeNull()
+      .toBeGreaterThan(0)
 
     const filteredCount = await readVotersMatchCount(sheet)
     expect(filteredCount).not.toBeNull()
-    // A single-gender filter must match strictly fewer voters than the whole
-    // district. Asserting the VALUE changed (< total), not just that text
-    // appeared, is the ENG-10517 acceptance criterion.
-    expect(filteredCount!).toBeGreaterThan(0)
     expect(filteredCount!).toBeLessThan(totalCount)
 
     // The builder count is a display affordance only; close the sheet without
