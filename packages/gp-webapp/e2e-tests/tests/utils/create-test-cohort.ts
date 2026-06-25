@@ -83,6 +83,14 @@ const run = async () => {
         termEndDate: selection.termEndDate,
       })
       if (!created.orgSlug) {
+        // win dry-run skips campaign creation, so there is no org to record —
+        // expected, not a failure.
+        if (dryRun && selection.product === 'win') {
+          console.log(
+            `[${i + 1}/${selection.entries.length}] ${label} -> (dry-run, no campaign)`,
+          )
+          continue
+        }
         throw new Error('no orgSlug returned')
       }
       manifest.push({
