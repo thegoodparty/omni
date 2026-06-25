@@ -14,6 +14,12 @@ import {
 //   API_BASE_URL=https://dev.goodparty.org \
 //   <repo>/node_modules/.bin/tsx tests/utils/create-test-cohort.ts \
 //     --in <selection.json> --out <manifest.json>
+//
+// --dry-run creates the users + elected offices WITHOUT binding a position
+// (and without picking a race). In dev (MEETINGS_AUTOMATION_ENABLED=true) a
+// bound serve office auto-dispatches agent jobs on creation; an unbound office
+// resolves no serve context, so nothing dispatches. Use it to exercise the full
+// creation pipeline at scale without spending on agent runs.
 
 type SelectionEntry = {
   // serve: bind the elected office to this election-api position id
@@ -48,6 +54,7 @@ const arg = (flag: string): string | undefined => {
 
 const inPath = arg('--in')
 const outPath = arg('--out')
+const dryRun = process.argv.includes('--dry-run')
 
 if (!inPath || !outPath) {
   throw new Error(
@@ -58,6 +65,9 @@ if (!inPath || !outPath) {
 const selection: Selection = JSON.parse(readFileSync(inPath, 'utf8'))
 
 const run = async () => {
+  console.log(
+    `cohort: product=${selection.product} entries=${selection.entries.length} dryRun=${dryRun}`,
+  )
   const manifest: ManifestEntry[] = []
   const failures: { entry: SelectionEntry; error: string }[] = []
 
@@ -66,8 +76,8 @@ const run = async () => {
     try {
       const created = await createHeadlessTestUser({
         product: selection.product,
-        positionId: entry.positionId,
-        race: entry.race,
+        positionId: dryRun ? undefined : entry.positionId,
+        race: dryRun ? undefined : entry.race,
         termStartDate: selection.termStartDate,
         termEndDate: selection.termEndDate,
       })
@@ -99,7 +109,7 @@ const run = async () => {
   writeFileSync(
     outPath,
     JSON.stringify(
-      { product: selection.product, created: manifest, failures },
+      { product: selection.product, dryRun, created: manifest, failures },
       null,
       2,
     ),
