@@ -15,6 +15,12 @@ const CURRENT_ENV = process.env.NODE_ENV
 export const OTEL_SERVICE_ENVIRONMENT = process.env.OTEL_SERVICE_ENVIRONMENT
 export const IS_PROD_DEPLOY = OTEL_SERVICE_ENVIRONMENT === 'prod'
 
+// Re-reads OTEL_SERVICE_ENVIRONMENT at call time rather than the module-load
+// IS_PROD_DEPLOY constant, so a request-time prod gate can be exercised in a
+// booted test app by setting process.env (the constant freezes at import).
+export const isProdDeploy = () =>
+  process.env.OTEL_SERVICE_ENVIRONMENT === 'prod'
+
 // Canonical prod user-facing app origin. In prod the webapp (Clerk-protected
 // app routes such as /serve/welcome, /reset-password, /set-password) is served
 // at app.goodparty.org, while WEBAPP_ROOT_URL is the MARKETING origin
