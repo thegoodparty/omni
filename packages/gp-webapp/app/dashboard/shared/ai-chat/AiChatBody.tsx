@@ -77,6 +77,8 @@ function friendlyError(code: ChatErrorCode): string {
 // CommonMark turns any line indented 4+ spaces into a code block, so model
 // output that leaks leading indentation renders prose as a grey code box.
 // Strip that indentation outside fenced (```) blocks before rendering.
+// Trade-off: deeply nested list items (indented 4+ spaces) also flatten to a
+// single level — acceptable for chat prose, where stray code boxes are worse.
 function normalizeMarkdown(md: string): string {
   let inFence = false
   return md
@@ -161,6 +163,9 @@ export default function AiChatBody({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [history, setHistory] = useState<ChatItem[]>([])
   const [streaming, setStreaming] = useState<string | null>(null)
+  // Polite SR announcement of generation status — set on transitions only, so
+  // the whole streamed answer isn't re-read on every token.
+  const [liveStatus, setLiveStatus] = useState('')
   const [activeTools, setActiveTools] = useState<string[]>([])
   const [composer, setComposer] = useState('')
   const [multiline, setMultiline] = useState(false)
@@ -189,6 +194,8 @@ export default function AiChatBody({
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // One-row textarea height (line-height + vertical padding), measured once.
+  const oneRowHeightRef = useRef<number | null>(null)
 
   const introMessages = config.introMessages ?? []
   const introTotal = useMemo(
@@ -343,6 +350,7 @@ export default function AiChatBody({
       setStreaming('')
       setActiveTools([])
       setError(null)
+      setLiveStatus('Generating response')
 
       try {
         const iter = chatApi.streamMessage({
@@ -409,6 +417,7 @@ export default function AiChatBody({
             },
           ])
           setStreaming(null)
+          setLiveStatus('Response ready')
         }
       } catch (err) {
         reportErrorToSentry(err, {
@@ -599,7 +608,7 @@ export default function AiChatBody({
         {/* Announce generation status once, instead of re-reading the whole
             streamed answer on every token. */}
         <span className="sr-only" aria-live="polite">
-          {streaming !== null ? 'Generating response' : ''}
+          {liveStatus}
         </span>
 
         {streaming !== null && (
@@ -703,13 +712,18 @@ export default function AiChatBody({
               setComposer(ta.value)
               ta.style.height = 'auto'
               const sh = ta.scrollHeight
-              // Derive the one-row threshold from the textarea's own metrics
-              // so wrapping detection doesn't rely on a magic pixel value.
-              const styles = window.getComputedStyle(ta)
-              const lineHeight = parseFloat(styles.lineHeight) || 20
-              const paddingY =
-                parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom)
-              setMultiline(sh > lineHeight + paddingY + 1)
+              // Measure the one-row threshold once from the textarea's own
+              // metrics so wrapping detection avoids a magic pixel value and
+              // doesn't read layout on every keystroke.
+              if (oneRowHeightRef.current === null) {
+                const styles = window.getComputedStyle(ta)
+                const lineHeight = parseFloat(styles.lineHeight) || 20
+                const paddingY =
+                  parseFloat(styles.paddingTop) +
+                  parseFloat(styles.paddingBottom)
+                oneRowHeightRef.current = lineHeight + paddingY + 1
+              }
+              setMultiline(sh > oneRowHeightRef.current)
               ta.style.height = `${sh}px`
             }}
             onKeyDown={(e) => {
@@ -722,7 +736,7 @@ export default function AiChatBody({
             disabled={creating}
             aria-label="Ask a question"
             rows={1}
-            className="flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36"
+            className={`flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36${composer === '' ? ' whitespace-nowrap' : ''}`}
           />
           <IconButton
             type="button"

@@ -68,6 +68,11 @@ export default function AiChatSurface({
             <DrawerTitle className="text-sm font-semibold">
               {config.title}
             </DrawerTitle>
+            {config.subtitle && (
+              <span className="text-xs text-muted-foreground">
+                {config.subtitle}
+              </span>
+            )}
           </div>
         </DrawerHeader>
 

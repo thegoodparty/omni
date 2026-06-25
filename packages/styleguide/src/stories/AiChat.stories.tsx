@@ -20,8 +20,6 @@ import type {
 } from 'app/dashboard/shared/ai-chat/types'
 import type { TimelineItem } from 'app/dashboard/shared/ai-chat/ChatTimeline'
 
-const queryClient = new QueryClient()
-
 // ---------------------------------------------------------------------------
 // Default config shared across stories
 // ---------------------------------------------------------------------------
@@ -126,11 +124,16 @@ const meta: Meta = {
     bottomSlot: DISABLED,
   },
   decorators: [
-    (Story) => (
-      <QueryClientProvider client={queryClient}>
-        <Story />
-      </QueryClientProvider>
-    ),
+    (Story) => {
+      // Per-story client so a mutation (e.g. delete) in one story can't leak
+      // cached state into another.
+      const [client] = useState(() => new QueryClient())
+      return (
+        <QueryClientProvider client={client}>
+          <Story />
+        </QueryClientProvider>
+      )
+    },
   ],
 }
 
@@ -194,7 +197,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     const [, updateArgs] = useArgs()
     useEffect(() => {
       if (timelineVariant !== 'none') updateArgs({ open: true })
-    }, [timelineVariant])
+    }, [timelineVariant, updateArgs])
     const config = { ...DEFAULT_CONFIG, subtitle }
     const extraBar = showExtraBar ? (
       <Button

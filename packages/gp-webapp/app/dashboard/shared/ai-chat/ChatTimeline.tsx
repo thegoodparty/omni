@@ -21,7 +21,7 @@ export default function ChatTimeline({ items }: { items: TimelineItem[] }) {
 
         return (
           <div
-            key={`${item.label}-${item.title}`}
+            key={`${i}-${item.label}`}
             className="relative flex gap-3"
             role="listitem"
           >

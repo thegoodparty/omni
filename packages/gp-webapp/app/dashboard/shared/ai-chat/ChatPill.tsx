@@ -27,7 +27,7 @@ export default function ChatPill({
   const radius = rounded === '3xl' ? 'rounded-3xl' : 'rounded-full'
   return (
     <div
-      className={`relative p-[1.5px] animate-spin-gradient ${radius}${className ? ` ${className}` : ''}`}
+      className={`relative p-[1.5px] animate-spin-gradient motion-reduce:animate-none ${radius}${className ? ` ${className}` : ''}`}
       style={GRADIENT_STYLE}
     >
       <div
