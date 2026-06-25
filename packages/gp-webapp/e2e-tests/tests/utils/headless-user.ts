@@ -9,10 +9,14 @@ import { clerkThrottle } from './throttle-requests-with-retry'
 // imports these primitives for its page-driven flow; cohort/ops scripts import
 // createHeadlessTestUser directly so they never spin up Playwright.
 
-const baseURL = process.env.BASE_URL
+// API_BASE_URL alone is sufficient for all cohort/API operations; BASE_URL is
+// only the page-driven path's concern (api-registration.ts guards it there for
+// cookie domain). Require at least one so the standalone cohort runbook — which
+// sets only API_BASE_URL — doesn't throw at import.
+const apiBaseURL = process.env.API_BASE_URL || process.env.BASE_URL
 
-if (!baseURL) {
-  throw new Error('BASE_URL is not set')
+if (!apiBaseURL) {
+  throw new Error('Set API_BASE_URL or BASE_URL')
 }
 
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY
@@ -23,7 +27,6 @@ if (!CLERK_SECRET_KEY) {
 
 export const clerkBackend = createClerkClient({ secretKey: CLERK_SECRET_KEY })
 
-const apiBaseURL = process.env.API_BASE_URL || baseURL
 export const apiURL = `${apiBaseURL}/api`
 
 // A cold PR-preview gp-api stack returns gateway 5xx (502/503/504) on its first

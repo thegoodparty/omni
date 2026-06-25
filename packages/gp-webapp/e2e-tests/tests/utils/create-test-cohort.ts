@@ -62,7 +62,7 @@ if (!inPath || !outPath) {
   )
 }
 
-const selection: Selection = JSON.parse(readFileSync(inPath, 'utf8'))
+const selection = JSON.parse(readFileSync(inPath, 'utf8')) as Selection
 
 const run = async () => {
   console.log(
