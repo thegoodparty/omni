@@ -137,8 +137,16 @@
             },
             "content": {
               "type": "object",
-              "additionalProperties": true,
-              "description": "Unstructured extracted page text/sections, as collected. Deliberately not normalized into named fields — that is a later-phase decision. Capture the page text as-is."
+              "additionalProperties": false,
+              "required": ["text"],
+              "description": "Unstructured extracted page text/sections, as collected. Deliberately not normalized into named fields beyond `text` — that is a later-phase decision. Capture the page text as-is.",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The full extracted page text/sections, as-is from the fetched page."
+                }
+              }
             }
           }
         }
