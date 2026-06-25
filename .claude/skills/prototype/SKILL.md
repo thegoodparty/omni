@@ -33,10 +33,10 @@ no real users, no real data, no backend. Operate accordingly.
 - The yardstick is: "does this clearly and beautifully convey the concept?"
   Not: "is this correct, safe, or production-ready?"
 
-**Invoke the `frontend-design` skill now — it is the bar for "good design" here.**
-Don't just gesture at design; load that skill and apply it: visual hierarchy,
-whitespace, typography scale, color semantics, motion, and choices that look
-intentional rather than templated. A prototype that's structurally correct but
+**Invoke the `frontend-design:frontend-design` skill now — it is the bar for "good
+design" here.** Don't just gesture at design; load that skill and apply it: visual
+hierarchy, whitespace, typography scale, color semantics, motion, and choices that
+look intentional rather than templated. A prototype that's structurally correct but
 visually flat has missed the point of this surface.
 
 Build only from `@goodparty_org/styleguide` components and its design tokens — no
@@ -120,6 +120,12 @@ a prerequisite — pause and ask.
 
 Responsiveness is the product here. Optimize the loop:
 
+- **Run lean on model + effort.** Prototype iteration is visual, not deep reasoning
+  — Sonnet at medium effort is faster, cheaper, and plenty for it. If you're on a
+  heavier tier (Opus / high effort), suggest the user switch the session with
+  `/model sonnet` + medium effort. And when you fan work out, dispatch subagents
+  explicitly on **`model: sonnet`, `effort: medium`** so the heavy lifting always
+  runs lean regardless of the main model.
 - **Context is pre-loaded; don't re-explore.** `packages/prototypes/CLAUDE.md`
   carries the reference you need every session — the `<AppShell>` API, the
   org/tab model, and where components and tokens live. Read it once; don't re-grep

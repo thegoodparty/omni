@@ -49,13 +49,39 @@ chrome (org-picker header, nav rail, account footer, mobile drawer). It is drive
 data — `userName` + a list of orgs, each with its own nav tabs. The org picker
 switches orgs (this is how Serve vs Win is modeled):
 
+The types `@/shared/AppShell` exports (for reference — don't redeclare them):
+
 ```ts
+type PrototypeTab = {
+  slug: string
+  label: string
+  icon: LucideIcon
+  component: ReactNode
+}
+type ShellOrg = {
+  id: string
+  name: string
+  isPro: boolean
+  tabs: PrototypeTab[]
+}
+```
+
+A prototype's `page.tsx` imports and uses them:
+
+```tsx
 import { AppShell, type ShellOrg } from '@/shared/AppShell'
 
-type PrototypeTab = { slug: string; label: string; icon: LucideIcon; component: ReactNode }
-type ShellOrg = { id: string; name: string; isPro: boolean; tabs: PrototypeTab[] }
+const orgs: ShellOrg[] = [
+  {
+    id: 'serve',
+    name: 'Pittsboro Town Council',
+    isPro: false,
+    tabs: [
+      /* ... */
+    ],
+  },
+]
 
-const orgs: ShellOrg[] = [{ id: 'serve', name: 'Pittsboro Town Council', isPro: false, tabs: [/* ... */] }]
 const Page = () => <AppShell userName="Renee Wells" orgs={orgs} />
 ```
 
