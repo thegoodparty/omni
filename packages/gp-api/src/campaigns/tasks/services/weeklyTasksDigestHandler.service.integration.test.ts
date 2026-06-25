@@ -212,6 +212,36 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       expect(properties.plan_total_tasks).toBe(8)
     })
 
+    it('counts only the latest dynamic generation, not stale prior generations', async () => {
+      const campaign = await makeCampaign()
+      // Weekly regen appends generations; a prior generation's rows stay in the
+      // table. Only the latest (highest week) should count — not both.
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `Old ${i}`, week: 1 })
+      }
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `New ${i}`, week: 2 })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      // 3 latest-generation tasks, not 6 — the stale week-1 rows are excluded.
+      expect(properties.plan_total_tasks).toBe(3)
+      expect(properties.task_name_1).toContain('New')
+      expect(properties.task_name_2).toContain('New')
+      expect(properties.task_name_3).toContain('New')
+    })
+
     it('prioritizes outreach task types (text, robocall, doorKnocking, phoneBanking) over others', async () => {
       const campaign = await makeCampaign()
       // 2 non-outreach + 2 outreach, all same date so only outreach priority matters

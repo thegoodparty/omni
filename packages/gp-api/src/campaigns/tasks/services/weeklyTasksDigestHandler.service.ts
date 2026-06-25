@@ -184,14 +184,31 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
     // MAX_TASKS incomplete tasks (outreach types prioritized, then by date).
     // Each row denormalizes the campaign's counts so we can group in JS.
     const rows = await this.client.$queryRaw<DigestRow[]>`
-      WITH eligible AS (
+      WITH latest_gen AS (
+        SELECT campaign_id, MAX(week) AS gen
+        FROM campaign_tracker_tasks
+        WHERE is_default_task = false
+        GROUP BY campaign_id
+      ),
+      visible AS (
+        -- Weekly regen appends each run as a new generation (week) and never
+        -- deletes prior rows. Count only the latest dynamic generation (plus
+        -- the non-generational static rows), mirroring the frontend — older
+        -- generations are kept for history but must not double-count here.
+        SELECT t.*
+        FROM campaign_tracker_tasks t
+        LEFT JOIN latest_gen g ON g.campaign_id = t.campaign_id
+        WHERE t.is_default_task = true
+          OR t.week = g.gen
+      ),
+      eligible AS (
         SELECT
           c.id,
           c.user_id,
           COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
           COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
         FROM campaign c
-        JOIN campaign_tracker_tasks t ON t.campaign_id = c.id
+        JOIN visible t ON t.campaign_id = c.id
         WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
           AND (c.details->>'electionDate')::date > NOW()::date
           AND t.date >= ${windowStart}
@@ -214,7 +231,7 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                 THEN 0 ELSE 1 END,
               t.date ASC
           ) AS slot
-        FROM campaign_tracker_tasks t
+        FROM visible t
         JOIN eligible e ON e.id = t.campaign_id
         WHERE t.completed = false
           AND t.date >= ${windowStart}
