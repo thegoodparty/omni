@@ -8,7 +8,8 @@ import { LuTrophy, LuFrown } from 'react-icons/lu'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ResultOptionButton from './ResultOptionButton'
 import { clientRequest } from 'gpApi/typed-request'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { ElectedOffice } from 'gpApi/api-endpoints'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   ORGANIZATIONS_QUERY_KEY,
   useSetOrganizationSlug,
@@ -23,6 +24,16 @@ import {
 } from '@styleguide/components/ui/alert'
 import { Button } from '@styleguide/components/ui/button'
 import { InfoIcon } from '@styleguide/components/ui/icons'
+import {
+  buildDisabledRanges,
+  CALENDAR_END,
+  CALENDAR_START,
+  TermDatesFields,
+  termDateError,
+  termDatesValid,
+  toApiDate,
+  type DisabledRange,
+} from 'app/serve/onboarding/termDates.shared'
 import { dismissElectionResult } from '../dismissal'
 
 const RESULT_WON = 'won'
@@ -53,11 +64,24 @@ interface RequestState {
   error: boolean
 }
 
+type ResultView = 'select' | 'term-dates'
+
 export default function ElectionResultPage(): React.JSX.Element {
   const router = useRouter()
   const [campaign] = useCampaign()
   const isImpersonating = useIsImpersonating()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  // Winning surfaces an inline term-dates step before the elected office is
+  // created, so the EO is never left in the term-date-less / not-yet-onboarded
+  // limbo that post-auth routing treats as "needs serve onboarding".
+  const [view, setView] = useState<ResultView>('select')
+  const [termStartDate, setTermStartDate] = useState<Date | undefined>(
+    undefined,
+  )
+  const [termEndDate, setTermEndDate] = useState<Date | undefined>(undefined)
+  // The user's OTHER offices as disabled ranges, so the picker enforces the same
+  // no-overlap rule the gp-api create() endpoint does (avoids a 409 on submit).
+  const [otherRanges, setOtherRanges] = useState<DisabledRange[]>([])
 
   function handleDismiss() {
     dismissElectionResult()
@@ -85,39 +109,42 @@ export default function ElectionResultPage(): React.JSX.Element {
 
   const queryClient = useQueryClient()
 
-  const createElectedOfficeMutation = useMutation({
-    mutationFn: async () =>
-      clientRequest('POST /v1/elected-office', {}).then((res) => res.data),
-    onSuccess: async (newOffice) => {
-      const organizations = await clientRequest(
-        'GET /v1/organizations',
-        {},
-      ).then((res) => res.data.organizations)
-
-      queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
-
-      const newOrg = organizations.find(
-        (org) => org.electedOfficeId === newOffice.id,
-      )
-
-      if (!newOrg) {
-        throw new Error('New organization not found')
-      }
-
-      setSelectedSlug(newOrg.slug)
-
-      router.replace('/dashboard/briefings')
-    },
-  })
+  const datesValid = termDatesValid(termStartDate, termEndDate, otherRanges)
+  const dateError = termDateError(termStartDate, termEndDate, otherRanges)
 
   async function handleSelection(selection: string) {
     setSelectedOption(selection)
+
+    // Winning: collect term dates first (next step), then create the office.
+    // Defer persisting the campaign result until the dates are confirmed so an
+    // abandoned flow never leaves a "won" campaign with no elected office.
+    if (selection === RESULT_WON) {
+      if (!electionDate) {
+        errorSnackbar('Failed to submit election result.')
+        setRequestState({ submitting: false, error: true })
+        return
+      }
+      setRequestState({ submitting: true, error: false })
+      // Best-effort: load any other offices the user holds so the picker can
+      // block overlapping ranges. A failure just leaves the ranges empty — the
+      // backend still enforces the no-overlap invariant on submit.
+      const mineRes = await clientRequest(
+        'GET /v1/elected-office/mine',
+        {},
+        { ignoreResponseError: true },
+      )
+      const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+      setOtherRanges(buildDisabledRanges(mine, undefined))
+      setRequestState({ submitting: false, error: false })
+      setView('term-dates')
+      return
+    }
+
+    // Lost: persist the result and route to the loss flow (unchanged).
     setRequestState({ submitting: true, error: false })
     try {
-      const wonGeneral = selection === RESULT_WON
-
       const updated = await updateCampaign([
-        { key: 'details.wonGeneral', value: wonGeneral },
+        { key: 'details.wonGeneral', value: false },
       ])
       if (!updated) {
         throw new Error('Failed to save election result')
@@ -128,7 +155,7 @@ export default function ElectionResultPage(): React.JSX.Element {
           ...campaign,
           details: {
             ...campaign.details!,
-            wonGeneral: wonGeneral,
+            wonGeneral: false,
           },
         })
       }
@@ -136,15 +163,68 @@ export default function ElectionResultPage(): React.JSX.Element {
       trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
         status: selection,
       })
-      // Create ElectedOffice if the user won the election
-      if (wonGeneral) {
-        if (!electionDate) {
-          throw new Error('Invalid election date')
-        }
-        await createElectedOfficeMutation.mutateAsync()
-      } else {
-        router.replace('/dashboard/election-result/loss')
+      router.replace('/dashboard/election-result/loss')
+    } catch (e) {
+      console.error('Error submitting General Result:', e)
+      errorSnackbar('Failed to submit election result.')
+      setRequestState({ submitting: false, error: true })
+    }
+  }
+
+  // Confirm the win: persist the result, then create the elected office WITH its
+  // term dates and a completion marker. Creating it already-onboarded (term dates
+  // + onboardingCompletedAt) is what keeps post-auth routing on the dashboard
+  // instead of dumping a just-won official into the serve onboarding flow.
+  async function handleWonConfirm() {
+    if (!datesValid) return
+    setRequestState({ submitting: true, error: false })
+    try {
+      const updated = await updateCampaign([
+        { key: 'details.wonGeneral', value: true },
+      ])
+      if (!updated) {
+        throw new Error('Failed to save election result')
       }
+
+      if (campaign) {
+        queryClient.setQueryData(CAMPAIGN_QUERY_KEY, {
+          ...campaign,
+          details: {
+            ...campaign.details!,
+            wonGeneral: true,
+          },
+        })
+      }
+
+      trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
+        status: RESULT_WON,
+      })
+
+      const created = await clientRequest('POST /v1/elected-office', {
+        termStartDate: toApiDate(termStartDate),
+        termEndDate: toApiDate(termEndDate),
+        onboardingCompletedAt: new Date().toISOString(),
+      })
+      if (!created.ok || !created.data) {
+        throw new Error('Failed to create elected office')
+      }
+      const newOffice = created.data as ElectedOffice
+
+      const organizations = await clientRequest(
+        'GET /v1/organizations',
+        {},
+      ).then((res) => res.data.organizations)
+      queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
+
+      const newOrg = organizations.find(
+        (org) => org.electedOfficeId === newOffice.id,
+      )
+      if (!newOrg) {
+        throw new Error('New organization not found')
+      }
+
+      setSelectedSlug(newOrg.slug)
+      router.replace('/dashboard/briefings')
     } catch (e) {
       console.error('Error submitting General Result:', e)
       errorSnackbar('Failed to submit election result.')
@@ -194,6 +274,47 @@ export default function ElectionResultPage(): React.JSX.Element {
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                 </div>
+              </div>
+            ) : view === 'term-dates' ? (
+              <div className="pt-4 pb-4 max-w-[450px] mx-auto w-full">
+                <h1 className="text-left md:text-center font-semibold text-2xl md:text-4xl w-full">
+                  Congratulations!
+                </h1>
+                <p className="text-left md:text-center mt-4 text-lg font-normal text-muted-foreground w-full">
+                  Add your term start and end dates so we can tailor your
+                  GoodParty.org tools to your time in office.
+                </p>
+
+                <div className="mt-8">
+                  <TermDatesFields
+                    termStartDate={termStartDate}
+                    termEndDate={termEndDate}
+                    onStartChange={setTermStartDate}
+                    onEndChange={setTermEndDate}
+                    otherRanges={otherRanges}
+                    calendarStart={CALENDAR_START}
+                    calendarEnd={CALENDAR_END}
+                    error={dateError}
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="default"
+                  size="large"
+                  className="mt-8 w-full"
+                  onClick={handleWonConfirm}
+                  disabled={!datesValid || requestState.submitting}
+                  loading={requestState.submitting}
+                >
+                  Continue
+                </Button>
+                {requestState.error ? (
+                  <p className="text-red text-center mt-4">
+                    An error occurred when saving your election result, please
+                    try again later.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <div className="pt-4 pb-4 max-w-[450px] mx-auto">

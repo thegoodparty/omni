@@ -41,6 +41,7 @@ const buildEO = (overrides: Partial<ElectedOffice> = {}): ElectedOffice => ({
   onboardingCompletedAt: null,
   selfReported: false,
   onboardingStep: null,
+  campaignId: null,
   ...overrides,
 })
 
