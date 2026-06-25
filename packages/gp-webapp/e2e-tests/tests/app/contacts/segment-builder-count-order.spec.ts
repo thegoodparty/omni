@@ -98,6 +98,21 @@ test.describe('Segment builder count + order @dev-only', () => {
     await expect(table).toBeVisible({ timeout: 20000 })
     await waitForContactsTableReady(page)
 
+    // Capture the unfiltered district total from the "Total Voters" stat card
+    // (testid contact-stats-totalConstituents in ContactsStatsSection) BEFORE
+    // opening the sheet, while the card is unambiguously visible and its query
+    // has settled — its React Query renders an animate-pulse skeleton until
+    // success, so reading too early returns ''. Guard with toBeVisible +
+    // not.toHaveText('--'), mirroring door-knocking-household-dedupe.spec.ts.
+    const totalCard = page.getByTestId('contact-stats-totalConstituents')
+    await expect(totalCard).toBeVisible({ timeout: 20000 })
+    await expect(totalCard).not.toHaveText('--', { timeout: 20000 })
+    const totalText = await totalCard.textContent()
+    const totalDigits = totalText?.match(/([\d,]+)/)?.[1]
+    expect(totalDigits).toBeTruthy()
+    const totalCount = Number(totalDigits!.replace(/,/g, ''))
+    expect(totalCount).toBeGreaterThan(0)
+
     // Open the create-segment sheet (the segment builder).
     const createListButton = page.getByRole('button', { name: /create list/i })
     await createListButton.scrollIntoViewIfNeeded()
@@ -127,20 +142,8 @@ test.describe('Segment builder count + order @dev-only', () => {
     ).map((t) => t.trim())
     expect(renderedLabels).toEqual(VOTER_LIKELY_ORDER)
 
-    // --- Live count: capture the unfiltered total, then filter and assert the
-    // count drops below it (ENG-10517) ---
-    // The count only renders once a filter is set, so capture the total first
-    // from the "Total Voters" stat card (testid contact-stats-totalConstituents
-    // in ContactsStatsSection), which derives from the real district
-    // totalResults. The card behind the sheet is still in the DOM.
-    const totalText = await page
-      .getByTestId('contact-stats-totalConstituents')
-      .textContent()
-    const totalDigits = totalText?.match(/([\d,]+)/)?.[1]
-    expect(totalDigits).toBeTruthy()
-    const totalCount = Number(totalDigits!.replace(/,/g, ''))
-    expect(totalCount).toBeGreaterThan(0)
-
+    // --- Live count: filter and assert the count drops below the total
+    // captured above (ENG-10517) ---
     // Toggle Gender=Male. The count query is debounced (~600ms), so poll the
     // aria-live footer until it settles on a number rather than asserting
     // immediately.
