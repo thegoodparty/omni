@@ -1127,7 +1127,7 @@ def test_provenance_csv_round_trips(tmp_path):
     bf.write_provenance(rows, str(csv_path))
     back = bf.read_provenance_rows(str(csv_path))
     assert back["Event A"]["instrumented_commit"] == "aaaa"
-    assert back["Click Can't See Office"]["instrumented_pr"] == "7"
+    assert back["Click Can't See Office"]["instrumented_pr"] == "https://github.com/thegoodparty/omni/pull/7"
     assert set(back) == {"Event A", "Click Can't See Office"}
 
 
@@ -1163,3 +1163,28 @@ def test_summarize_counts_from_null_pattern():
     assert "present=1" in out
     assert "removed=1" in out
     assert "not_found_in_code=1" in out
+
+
+# --------------------------------------------------------------------------- #
+# pr_url normalization
+# --------------------------------------------------------------------------- #
+
+
+def test_pr_url_builds_full_link_from_number():
+    assert bf.pr_url("1234") == "https://github.com/thegoodparty/omni/pull/1234"
+
+
+def test_pr_url_passthrough_when_already_url():
+    u = "https://github.com/thegoodparty/omni/pull/9"
+    assert bf.pr_url(u) == u
+
+
+def test_pr_url_none_and_empty_become_none():
+    assert bf.pr_url(None) is None
+    assert bf.pr_url("") is None
+
+
+def test_write_provenance_renders_pr_as_full_url(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance([_row("E", instrumented_commit="a", instrumented_pr="55")], csv)
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == "https://github.com/thegoodparty/omni/pull/55"

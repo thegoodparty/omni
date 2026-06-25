@@ -75,6 +75,10 @@ TAXONOMY_TABLE = f"{DATABRICKS_CATALOG}.airbyte_source.amplitude_taxonomy_event_
 
 JOB_NAME = "amplitude_event_provenance_backfill"
 
+# PR provenance is stored as a full GitHub link, not a bare number, so the CSV is
+# directly clickable and unambiguous about which repo the PR lives in.
+PR_URL_BASE = "https://github.com/thegoodparty/omni/pull"
+
 # Committed outputs. Resolved from this file so paths are cwd-independent:
 # scripts/python/<this file> -> scripts/python/instrumentation_data/.
 _DATA_DIR = Path(__file__).resolve().parent / "instrumentation_data"
@@ -96,6 +100,23 @@ def parse_pr_number(subject: str | None) -> str | None:
     text = subject or ""
     match = re.search(r"Merge pull request #(\d+)", text) or re.search(r"\(#(\d+)\)", text)
     return match.group(1) if match else None
+
+
+def pr_url(value: str | None) -> str | None:
+    """Normalize a PR reference to a full GitHub link. Idempotent.
+
+    A bare number becomes ``{PR_URL_BASE}/<n>``; an already-formed http(s) URL passes
+    through unchanged; None / empty becomes None. Applied at write time so the walk, the
+    skill's upsert, and the committed file all converge on the link form.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    return f"{PR_URL_BASE}/{text}"
 
 
 def classify_code_status(present_in_head: bool | None, has_history: bool) -> str:
@@ -637,7 +658,10 @@ def write_provenance(rows: Sequence[dict], csv_path: str = DEFAULT_CSV_PATH) -> 
         writer = csv.DictWriter(fh, fieldnames=PROVENANCE_COLUMNS, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
         for row in ordered:
-            writer.writerow({c: ("" if row.get(c) is None else row[c]) for c in PROVENANCE_COLUMNS})
+            out = dict(row)
+            out["instrumented_pr"] = pr_url(out.get("instrumented_pr"))
+            out["retired_pr"] = pr_url(out.get("retired_pr"))
+            writer.writerow({c: ("" if out.get(c) is None else out[c]) for c in PROVENANCE_COLUMNS})
 
 
 def read_provenance_rows(csv_path: str = DEFAULT_CSV_PATH) -> dict[str, dict]:
