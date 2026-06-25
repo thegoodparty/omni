@@ -2,7 +2,7 @@
 
 Walks the omni git history over the instrumentation paths and writes one provenance row per
 Amplitude ``event_type`` to a CSV committed in this repo
-(``analytics/data/amplitude_event_provenance.csv``), plus a sidecar JSON watermark
+(``instrumentation_data/amplitude_event_provenance.csv``), plus a sidecar JSON watermark
 (``..._state.json``) recording the last processed commit SHA. With no watermark it does a full
 backfill; with one it walks ``git log <lastSHA>..origin/develop``, updates the events that
 changed, carries the rest forward, onboards any universe events absent from the CSV via a
@@ -20,11 +20,10 @@ attribution is pure git via the merge-commit ancestry walk.
 Usage::
 
     # incremental refresh (full backfill on first run, when no state file exists):
-    cd analytics && uv run python lib/amplitude_event_provenance_backfill.py \\
-        --repo ~/Documents/0_goodparty/0_repos/omni
+    cd packages/runbooks/scripts/python && uv run python amplitude_event_provenance_backfill.py walk
     # custom output locations (e.g. for a dry run):
-    cd analytics && uv run python lib/amplitude_event_provenance_backfill.py \\
-        --repo ~/Documents/0_goodparty/0_repos/omni --csv /tmp/prov.csv --state /tmp/state.json
+    cd packages/runbooks/scripts/python && uv run python amplitude_event_provenance_backfill.py walk \\
+        --csv /tmp/prov.csv --state /tmp/state.json
 """
 
 from __future__ import annotations
@@ -760,7 +759,7 @@ def read_watermark(state_path: str = DEFAULT_STATE_PATH) -> dict | None:
 
 def resolve_omni_repo(arg: str | None, env: dict[str, str]) -> str:
     """The omni checkout to walk: --repo arg, else $OMNI_REPO, else the git repo containing
-    this module (detected via ``git rev-parse --show-toplevel``). Must be an existing git dir."""
+    this module (detected via ``git rev-parse --show-toplevel``). Must be an existing git checkout."""
     root = arg or env.get("OMNI_REPO")
     if not root:
         result = subprocess.run(
