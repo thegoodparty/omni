@@ -7,7 +7,8 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 | File | Role |
 |------|------|
 | `page.tsx` | Dashboard home — campaign overview |
-| `shared/DashboardLayout.tsx` | Layout wrapper — sidebar, header, auth gating |
+| `shared/DashboardLayout.tsx` | Layout wrapper — sidebar, header, auth gating. Pass `navHeader={{ icon, label }}` to render a full-bleed in-body header that mirrors the active nav item (used by the Serve tabs) |
+| `shared/DashboardNavHeader.tsx` | The shared full-bleed icon + tab-name header bar rendered by `DashboardLayout` for `navHeader`; Community Issues' `IssuesNavHeader` also delegates to it |
 | `shared/DashboardMenu.tsx` | Sidebar nav items (per-feature visibility lives here) |
 | `shared/candidateAccess.ts` + `serveAccess.ts` | Access predicates (`canViewX` helpers) — client + server variants |
 | `shared/ProUpgradeModal.tsx` / `ProUpgradePrompt.tsx` | Pro-tier gating UI |
@@ -19,6 +20,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 - **Access gating**: use `candidateAccess.ts` from client code, `serveAccess.ts` from server components. Don't read the user object directly to gate UI — go through the helpers so rules stay in one place.
 - **Pro-only features** wrap their content in `ProUpgradeModal` / `ProUpgradePrompt`. Free users see the prompt; pro users see the feature.
 - **Sidebar visibility** is driven by the menu config in `DashboardMenu.tsx` — adding a feature route means adding a menu entry there too.
+- **In-body tab header**: Serve tab pages pass `navHeader={{ icon, label }}` to `DashboardLayout` so the body opens with a full-bleed bar mirroring the nav item (icon + tab name). It also suppresses the redundant mobile top-bar title. Use the same `v2Icon`/label as the page's `DashboardMenu` entry, and drop any in-page heading that just repeats the tab name (the bar is the title).
 
 ## Gotchas
 

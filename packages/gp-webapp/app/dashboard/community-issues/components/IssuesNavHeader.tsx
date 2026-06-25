@@ -1,15 +1,11 @@
 import { FlagIcon } from '@styleguide/components/ui/icons'
+import DashboardNavHeader from '../../shared/DashboardNavHeader'
 
-// Full-bleed page header (flag + title), mirroring the nav item. Rendered at the
-// top of each Community Issues page; the page passes wrapperClassName="!p-0" so it
-// sits flush against the layout edges.
+// Community Issues' flag + title header. Rendered inside the page body (the page
+// passes wrapperClassName="!p-0" so it sits flush against the layout edges),
+// delegating to the shared DashboardNavHeader used by the other Serve tabs.
 const IssuesNavHeader = (): React.JSX.Element => (
-  <div className="flex items-center gap-2 border-b border-border bg-background px-6 py-4">
-    <FlagIcon className="size-5 text-foreground" aria-hidden />
-    <span className="text-base font-semibold text-foreground">
-      Community Issues
-    </span>
-  </div>
+  <DashboardNavHeader icon={FlagIcon} label="Community Issues" />
 )
 
 export default IssuesNavHeader

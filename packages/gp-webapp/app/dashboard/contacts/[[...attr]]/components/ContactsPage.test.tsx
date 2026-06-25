@@ -15,7 +15,18 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 })
 vi.mock('@shared/hooks/useCampaign', () => ({ useCampaign: () => [null] }))
 vi.mock('../../../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <>
+      {navHeader && <div>{navHeader.label}</div>}
+      {children}
+    </>
+  ),
 }))
 vi.mock('../hooks/ContactProModal', () => ({
   ContactProModalProvider: ({ children }: { children: React.ReactNode }) => (
@@ -161,9 +172,12 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
 
     render(<ContactsPage />)
 
+    // Serve shows the title in the full-bleed nav header (not a duplicate page
+    // h1), so it renders as text rather than a level-1 heading.
+    expect(screen.getByText('Constituent Data')).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Constituent Data' }),
-    ).toBeInTheDocument()
+      screen.queryByRole('heading', { level: 1, name: 'Constituent Data' }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByText('Manage and filter on your constituent list'),
     ).toBeInTheDocument()

@@ -1,11 +1,11 @@
 'use client'
-import H1 from '@shared/typography/H1'
 import DashboardLayout from '../../shared/DashboardLayout'
 import Body1 from '@shared/typography/Body1'
 import Paper from '@shared/utils/Paper'
 import { PollsTable } from './PollsTable'
 import PollWelcomePage from 'app/polls/welcome/components/PollWelcomePage'
 import { Button, PlusIcon } from '@styleguide'
+import { SendIcon } from '@styleguide/components/ui/icons'
 import Link from 'next/link'
 import { Poll } from '../shared/poll-types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -19,11 +19,14 @@ export default function PollsPage({ pathname, polls }: PollsPageProps) {
   const hasPolls = polls.length > 0
 
   return (
-    <DashboardLayout pathname={pathname} showAlert={false}>
+    <DashboardLayout
+      pathname={pathname}
+      showAlert={false}
+      navHeader={{ icon: SendIcon, label: 'Polls' }}
+    >
       <Paper className="min-h-full">
         <div className="flex justify-between items-center">
           <div>
-            <H1>Polls</H1>
             <Body1 className="text-gray-500 mb-4">
               Manage your constituent engagement
             </Body1>

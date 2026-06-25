@@ -1,4 +1,5 @@
 import pageMetaData from 'helpers/metadataHelper'
+import { SparklesIcon } from '@styleguide/components/ui/icons'
 import serveAccess from '../shared/serveAccess'
 import DashboardLayout from '../shared/DashboardLayout'
 import { chiefOfStaffHref } from './routes'
@@ -16,7 +17,12 @@ export default async function Page(): Promise<React.JSX.Element> {
   await serveAccess()
 
   return (
-    <DashboardLayout pathname={chiefOfStaffHref()} showAlert={false}>
+    <DashboardLayout
+      pathname={chiefOfStaffHref()}
+      showAlert={false}
+      wrapperClassName="!p-0"
+      navHeader={{ icon: SparklesIcon, label: 'Chief of Staff' }}
+    >
       <DashboardContent />
     </DashboardLayout>
   )
