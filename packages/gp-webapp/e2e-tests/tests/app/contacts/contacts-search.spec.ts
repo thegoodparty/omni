@@ -76,9 +76,15 @@ test.describe('Voter Data contact search @dev-only', () => {
       table.locator('tbody tr', { hasText: fullName }).first(),
     ).toBeVisible({ timeout: 25000 })
 
-    // Partial / prefix query (lowercase): the first 3 chars of the name still
-    // return the matching row (case-insensitive prefix + LIKE behavior).
-    const prefix = lowerFullName.slice(0, 3)
+    // Partial / prefix query (lowercase): the full name minus its last
+    // character still returns the matching row (case-insensitive prefix + LIKE
+    // behavior). Dropping just the last char keeps both name tokens intact, so
+    // the query stays as selective as the full-name search and the target row is
+    // reliably on page 1 (resultsPerPage defaults to 50). A short first-name
+    // prefix like "joh" would match thousands of voters in the API's own sort
+    // order, pushing the target off page 1 (false negative) or surfacing it by
+    // luck (tautology); see PR #384 review.
+    const prefix = lowerFullName.slice(0, -1)
     await applyContactsQuery(page, async () => {
       await searchBox.fill(prefix)
       await searchBox.press('Enter')
