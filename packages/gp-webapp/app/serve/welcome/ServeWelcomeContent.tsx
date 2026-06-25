@@ -206,12 +206,9 @@ export default function ServeWelcomeContent() {
         return
       }
 
-      // The ticket is now irreversibly spent and a session exists. From here a
-      // failure must NEVER be reported as a consumed/expired link. `setActive`
-      // only flips the active session client-side, so a transient failure is
-      // safe to retry once — and even if it keeps failing, the session/cookie
-      // may already be established, so we still continue to the post-auth
-      // redirect rather than stranding a user who actually signed in.
+      // The ticket is now irreversibly spent. From here a failure must NEVER be
+      // reported as a consumed/expired link. `setActive` only flips the active
+      // session client-side, so a transient failure is safe to retry once.
       try {
         await setActive({ session: result.createdSessionId })
       } catch (setActiveErr) {
@@ -223,9 +220,21 @@ export default function ServeWelcomeContent() {
           await setActive({ session: result.createdSessionId })
         } catch (retryErr) {
           console.warn(
-            '[serve/welcome] setActive retry failed; continuing to post-auth redirect',
+            '[serve/welcome] setActive retry failed; checking session state before continuing',
             retryErr,
           )
+          // setActive establishes the active-session cookie; if it never
+          // succeeded we can only proceed when a session for the ticket user is
+          // nonetheless active (e.g. an earlier partial activation or clerk-js's
+          // internal retry wrote it). Otherwise the user isn't actually signed
+          // in — navigating to the post-auth redirect would silently bounce them
+          // to login with their ticket already spent, so surface the retryable
+          // message instead.
+          if (!isSignedInAsTicketUser()) {
+            setError(RETRYABLE_MESSAGE)
+            setRedeeming(false)
+            return
+          }
         }
       }
 

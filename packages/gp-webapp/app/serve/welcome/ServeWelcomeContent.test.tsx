@@ -194,11 +194,14 @@ describe('ServeWelcomeContent', () => {
     expect(window.location.href).toBe('')
   })
 
-  it('navigates to post-auth when setActive fails after a completed exchange (post-exchange failure is never an expired link)', async () => {
-    // The ticket exchange completed (ticket spent, session created), but
-    // setActive keeps failing transiently. The user actually signed in, so we
-    // must continue — never surface the consumed/expired copy.
-    mockSetActive.mockRejectedValue(new Error('network blip'))
+  it('navigates to post-auth when setActive fails but a session was nonetheless established (post-exchange failure is never an expired link)', async () => {
+    // The ticket exchange completed (ticket spent), setActive keeps throwing,
+    // but a session for the ticket user did get established. The user actually
+    // signed in, so we must continue — never surface the consumed/expired copy.
+    mockSetActive.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw new Error('network blip')
+    })
 
     render(<ServeWelcomeContent />)
     fireEvent.click(continueButton())
@@ -210,6 +213,27 @@ describe('ServeWelcomeContent', () => {
       screen.queryByText(/already been used or has expired/i),
     ).not.toBeInTheDocument()
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable (not consumed) message when setActive fails and no session was established', async () => {
+    // setActive establishes the active-session cookie; if it fully fails and no
+    // session exists, the user is not actually signed in. We must not silently
+    // bounce them to login — show the retryable message, never the consumed
+    // copy, and do not navigate.
+    mockUser = null
+    mockSetActive.mockRejectedValue(new Error('network blip'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    expect(mockSetActive).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+    expect(window.location.href).toBe('')
   })
 
   it('treats a thrown "already consumed" exchange as success when a session for the ticket user now exists (FAPI auto-retry)', async () => {
