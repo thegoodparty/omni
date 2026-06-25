@@ -1141,11 +1141,9 @@ def test_read_provenance_rows_empty_when_file_absent(tmp_path):
 
 
 def test_parse_args_defaults_to_data_dir_paths():
-    args = bf.parse_args([])
+    args = bf.parse_args(["walk"])
     assert args.csv == bf.DEFAULT_CSV_PATH
     assert args.state == bf.DEFAULT_STATE_PATH
-    assert not hasattr(args, "refresh")
-    assert not hasattr(args, "schema")
 
 
 def test_default_paths_live_under_instrumentation_data():
@@ -1188,3 +1186,67 @@ def test_write_provenance_renders_pr_as_full_url(tmp_path):
     csv = str(tmp_path / "p.csv")
     bf.write_provenance([_row("E", instrumented_commit="a", instrumented_pr="55")], csv)
     assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == "https://github.com/thegoodparty/omni/pull/55"
+
+
+# --------------------------------------------------------------------------- #
+# upsert_provenance_row (skill write path)
+# --------------------------------------------------------------------------- #
+
+_PR = "https://github.com/thegoodparty/omni/pull"
+
+
+def test_upsert_add_writes_provisional_row(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1234", "2026-06-25", "2026-06-25T10:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["Polls - Poll Viewed"]
+    assert row["event_type_slug"] == "polls_poll_viewed"
+    assert row["instrumented_pr"] == f"{_PR}/1234"
+    assert row["instrumented_date"] == "2026-06-25"
+    assert row["instrumented_commit"] is None
+    assert row["retired_date"] is None
+    assert row["last_code_change_date"] == "2026-06-25"
+    assert row["updated_at"] == "2026-06-25T10:00:00"
+
+
+def test_upsert_retire_sets_retired_fields(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1234", "2026-06-20", "2026-06-20T10:00:00", csv_path=csv)
+    bf.upsert_provenance_row("Polls - Poll Viewed", "retire", "1300", "2026-06-25", "2026-06-25T10:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["Polls - Poll Viewed"]
+    assert row["instrumented_date"] == "2026-06-20"  # preserved
+    assert row["retired_pr"] == f"{_PR}/1300"
+    assert row["retired_date"] == "2026-06-25"
+    assert row["retired_commit"] is None
+
+
+def test_upsert_add_does_not_clobber_existing_instrumentation(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "add", "1", "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    bf.upsert_provenance_row("E", "add", "9", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["instrumented_pr"] == f"{_PR}/1"
+    assert row["instrumented_date"] == "2026-06-01"
+
+
+def test_upsert_retire_creates_row_when_event_absent(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("Ghost - Thing Done", "retire", "77", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["Ghost - Thing Done"]
+    assert row["instrumented_date"] is None
+    assert row["retired_date"] == "2026-06-25"
+    assert row["retired_pr"] == f"{_PR}/77"
+
+
+def test_upsert_invalid_direction_raises(tmp_path):
+    with pytest.raises(ValueError):
+        bf.upsert_provenance_row("E", "sideways", None, "2026-06-25", "2026-06-25T00:00:00", csv_path=str(tmp_path / "p.csv"))
+
+
+def test_upsert_output_is_byte_identical_to_full_write(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("B event", "add", "2", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    bf.upsert_provenance_row("A event", "add", "1", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    produced = (tmp_path / "p.csv").read_text()
+    rows = list(bf.read_provenance_rows(csv).values())
+    bf.write_provenance(rows, str(tmp_path / "e.csv"))
+    assert produced == (tmp_path / "e.csv").read_text()  # deterministic sort: A before B

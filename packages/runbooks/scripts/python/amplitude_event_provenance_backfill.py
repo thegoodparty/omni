@@ -680,6 +680,45 @@ def read_provenance_rows(csv_path: str = DEFAULT_CSV_PATH) -> dict[str, dict]:
     return out
 
 
+def upsert_provenance_row(
+    event_type: str,
+    direction: str,
+    pr: str | None,
+    date: str,
+    updated_at: str,
+    csv_path: str = DEFAULT_CSV_PATH,
+) -> dict:
+    """Upsert one event's *provisional* provenance row from the instrument skill (pre-merge).
+
+    Writes only what is knowable before a PR merges -- PR link, today's date, status -- and
+    leaves the exact merge commit SHA blank for the periodic git-walk to fill. Reuses
+    read_provenance_rows / write_provenance so the file's sort order and CSV quoting are
+    byte-identical whether a single upsert or a full walk produced it. ``add`` does not
+    clobber instrumentation already recorded (e.g. by a prior exact walk); ``retire`` always
+    stamps the retired_* fields, creating the row if the event predates the backfill.
+    """
+    if direction not in ("add", "retire"):
+        raise ValueError(f"direction must be 'add' or 'retire', got {direction!r}")
+    rows = read_provenance_rows(csv_path)
+    row = rows.get(event_type) or {c: None for c in PROVENANCE_COLUMNS}
+    row["event_type"] = event_type
+    row["event_type_slug"] = slugify_event(event_type)
+    if direction == "add":
+        if not row.get("instrumented_date"):
+            row["instrumented_pr"] = pr_url(pr)
+            row["instrumented_date"] = date
+            row["instrumented_commit"] = None
+    else:
+        row["retired_pr"] = pr_url(pr)
+        row["retired_date"] = date
+        row["retired_commit"] = None
+    row["last_code_change_date"] = date
+    row["updated_at"] = updated_at
+    rows[event_type] = row
+    write_provenance(list(rows.values()), csv_path)
+    return row
+
+
 def write_watermark(
     state_path: str,
     last_processed_sha: str,
@@ -911,40 +950,31 @@ def _summarize(rows: Sequence[dict]) -> str:
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--repo", default=None, help="Path to an omni checkout (else $OMNI_REPO).")
-    p.add_argument(
-        "--since",
-        default=DEFAULT_SINCE,
-        help=f"Lower-bound git history (default {DEFAULT_SINCE}). 'all' walks full history.",
-    )
-    p.add_argument(
-        "--csv", default=DEFAULT_CSV_PATH, help="Output provenance CSV (default analytics/data/...)."
-    )
-    p.add_argument(
-        "--state", default=DEFAULT_STATE_PATH, help="Watermark JSON sidecar (default analytics/data/...)."
-    )
-    p.add_argument(
-        "--ref", default=DEPLOY_REF, help=f"Deploy ref to attribute against (default {DEPLOY_REF})."
-    )
-    p.add_argument(
-        "--no-fetch",
-        action="store_true",
-        help="Skip the git fetch of the deploy ref (use the local checkout's current ref state).",
-    )
-    p.add_argument(
-        "--no-pr-resolve",
-        action="store_true",
-        help="Skip the merge-walk PR backfill; *_pr stays whatever the commit subject yielded.",
-    )
+    sub = p.add_subparsers(dest="command", required=True)
+
+    w = sub.add_parser("walk", help="Full/incremental git-history walk (fallback: backfill + audit).")
+    w.add_argument("--repo", default=None, help="Path to an omni checkout (else $OMNI_REPO).")
+    w.add_argument("--since", default=DEFAULT_SINCE,
+                   help=f"Lower-bound git history (default {DEFAULT_SINCE}). 'all' walks full history.")
+    w.add_argument("--csv", default=DEFAULT_CSV_PATH, help="Output provenance CSV.")
+    w.add_argument("--state", default=DEFAULT_STATE_PATH, help="Watermark JSON sidecar.")
+    w.add_argument("--ref", default=DEPLOY_REF, help=f"Deploy ref to attribute against (default {DEPLOY_REF}).")
+    w.add_argument("--no-fetch", action="store_true", help="Skip the git fetch of the deploy ref.")
+    w.add_argument("--no-pr-resolve", action="store_true", help="Skip the merge-walk PR backfill.")
+
+    u = sub.add_parser("upsert", help="Write one provisional row (instrument skill, pre-merge). No Databricks/git.")
+    u.add_argument("--event", required=True, help="Exact Title Case event_type string.")
+    u.add_argument("--direction", required=True, choices=("add", "retire"), help="add = instrumented; retire = removed.")
+    u.add_argument("--pr", default=None, help="PR number or link, if known (omit when no PR exists yet).")
+    u.add_argument("--csv", default=DEFAULT_CSV_PATH, help="Provenance CSV to upsert into.")
+
     return p.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
+def _run_walk(args: argparse.Namespace) -> None:
     root = resolve_omni_repo(args.repo, dict(os.environ))
     since = None if args.since == "all" else args.since
     print(f"Provenance CSV: {args.csv}", file=sys.stderr)
-
     if not args.no_fetch:
         print(f"Fetching {args.ref} ...", file=sys.stderr)
         git_fetch(root, args.ref)
@@ -959,20 +989,30 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     try:
         with connection.cursor() as cursor:
-            rows = run_refresh(
-                cursor,
-                root,
-                since,
-                datetime.now(UTC),
-                csv_path=args.csv,
-                state_path=args.state,
-                ref=args.ref,
-                pr_resolver=pr_resolver,
-            )
+            rows = run_refresh(cursor, root, since, datetime.now(UTC),
+                               csv_path=args.csv, state_path=args.state, ref=args.ref, pr_resolver=pr_resolver)
     finally:
         connection.close()
     print(_summarize(rows), file=sys.stderr)
     print(f"Wrote {args.csv} and watermark {args.state}", file=sys.stderr)
+
+
+def _run_upsert(args: argparse.Namespace) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    row = upsert_provenance_row(
+        args.event, args.direction, args.pr,
+        now.date().isoformat(), now.isoformat(timespec="seconds"), csv_path=args.csv,
+    )
+    print(f"Upserted ({args.direction}) {args.event!r} -> {args.csv}", file=sys.stderr)
+    print(_summarize([row]), file=sys.stderr)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    if args.command == "upsert":
+        _run_upsert(args)
+    else:
+        _run_walk(args)
 
 
 if __name__ == "__main__":
