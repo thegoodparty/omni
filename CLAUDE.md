@@ -38,6 +38,9 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | -------------------------------------- | --------------------------------------------- |
 | **Working inside package X**           | **`packages/X/CLAUDE.md`** (then nested ones) |
 | Understanding the system / service map | `docs/architecture.md`                        |
+| Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
+| Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
+| Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
