@@ -112,15 +112,20 @@ export default function ElectionResultPage(): React.JSX.Element {
     if (selection === RESULT_WON) {
       setRequestState({ submitting: true, error: false })
       // Best-effort: load any other offices the user holds so the picker can
-      // block overlapping ranges. A failure just leaves the ranges empty — the
-      // backend still enforces the no-overlap invariant on submit.
-      const mineRes = await clientRequest(
-        'GET /v1/elected-office/mine',
-        {},
-        { ignoreResponseError: true },
-      )
-      const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
-      setOtherRanges(buildDisabledRanges(mine, undefined))
+      // block overlapping ranges. A failure (HTTP or network) just leaves the
+      // ranges empty — the backend still enforces the no-overlap invariant on
+      // submit, so this must never block reaching the term-dates step.
+      try {
+        const mineRes = await clientRequest(
+          'GET /v1/elected-office/mine',
+          {},
+          { ignoreResponseError: true },
+        )
+        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+        setOtherRanges(buildDisabledRanges(mine, undefined))
+      } catch (e) {
+        console.error('Error loading existing offices:', e)
+      }
       setRequestState({ submitting: false, error: false })
       setView('term-dates')
       return
@@ -199,20 +204,29 @@ export default function ElectionResultPage(): React.JSX.Element {
         status: RESULT_WON,
       })
 
-      const organizations = await clientRequest(
-        'GET /v1/organizations',
-        {},
-      ).then((res) => res.data.organizations)
-      queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
+      // Best-effort org switch: the office + campaign are already persisted, so
+      // a failure to refresh the org list or resolve the new org slug must NOT
+      // mask the success as an error (which would prompt a confusing retry).
+      // Briefings runs behind serveAccess, which routes through
+      // /post-auth-redirect to pin the elected-office org slug if it isn't set
+      // here — so navigation always succeeds.
+      try {
+        const organizations = await clientRequest(
+          'GET /v1/organizations',
+          {},
+        ).then((res) => res.data.organizations)
+        queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
 
-      const newOrg = organizations.find(
-        (org) => org.electedOfficeId === newOffice.id,
-      )
-      if (!newOrg) {
-        throw new Error('New organization not found')
+        const newOrg = organizations.find(
+          (org) => org.electedOfficeId === newOffice.id,
+        )
+        if (newOrg) {
+          setSelectedSlug(newOrg.slug)
+        }
+      } catch (e) {
+        console.error('Error switching to elected-office org:', e)
       }
 
-      setSelectedSlug(newOrg.slug)
       router.replace('/dashboard/briefings')
     } catch (e) {
       console.error('Error submitting General Result:', e)
@@ -297,6 +311,19 @@ export default function ElectionResultPage(): React.JSX.Element {
                   loading={requestState.submitting}
                 >
                   Continue
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="large"
+                  className="mt-2 w-full"
+                  disabled={requestState.submitting}
+                  onClick={() => {
+                    setView('select')
+                    setSelectedOption(null)
+                  }}
+                >
+                  Go back
                 </Button>
                 {requestState.error ? (
                   <p className="text-red text-center mt-4">

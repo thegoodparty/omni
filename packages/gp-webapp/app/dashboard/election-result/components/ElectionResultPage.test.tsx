@@ -245,4 +245,65 @@ describe('ElectionResultPage', () => {
     ])
     expect(mockSetSelectedSlug).toHaveBeenCalledWith('eo-1')
   })
+
+  it('shows an error and does not navigate when updateCampaign fails after the office is created', async () => {
+    mockUpdateCampaign.mockResolvedValue(false)
+
+    // The office POST is idempotent on retry, but a failed campaign update must
+    // surface as an error and must NOT navigate (the win isn't fully recorded).
+    let eoCallCount = 0
+    api.mock('POST /v1/elected-office', () => {
+      eoCallCount++
+      return { status: 200, data: eoFixture }
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(mockErrorSnackbar).toHaveBeenCalled()
+    })
+    expect(eoCallCount).toBe(1)
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('still navigates to briefings when the post-create org refresh fails', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+
+    api.mock('POST /v1/elected-office', () => ({
+      status: 200,
+      data: eoFixture,
+    }))
+    // The office + campaign are already persisted; an org-list failure here must
+    // not mask success or block navigation.
+    api.mock('GET /v1/organizations', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/dashboard/briefings')
+    })
+    expect(mockErrorSnackbar).not.toHaveBeenCalled()
+  })
+
+  it('lets the user go back from the term-dates step to the result choice', async () => {
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'I won my race' }),
+    ).toBeInTheDocument()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
 })
