@@ -210,6 +210,7 @@ export class ContactsService {
       districtParams: { districtId: string },
       filters: FilterObject,
       groupByHousehold: boolean,
+      peopleSearch: string | undefined,
     ) => {
       try {
         const response = await lastValueFrom(
@@ -220,7 +221,7 @@ export class ContactsService {
               resultsPerPage,
               page,
               filters,
-              search,
+              search: peopleSearch,
               groupByHousehold,
             },
             {
@@ -239,8 +240,14 @@ export class ContactsService {
 
     const filters = await this.segmentToFilters(segment, organization)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
+    // A list saved from a search result set persists its search term. When the
+    // request itself carries no live search, re-apply the saved list's stored
+    // search so selecting it reproduces the searched-down view (ENG-10518). A
+    // live search the user typed always wins over the stored one.
+    const effectiveSearch =
+      search || (await this.segmentToSearch(segment, organization))
     return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters, groupByHousehold),
+      fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
   }
 
@@ -566,6 +573,24 @@ export class ContactsService {
       )
 
     return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+  }
+
+  // A saved list created from a search result set stores its search term.
+  // Built-in segments and the default view never carry one (ENG-10518).
+  private async segmentToSearch(
+    segment: string | undefined,
+    organization: Organization,
+  ): Promise<string | undefined> {
+    const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
+    if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
+
+    const customSegment =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        parseInt(resolvedSegment),
+        organization.slug,
+      )
+
+    return customSegment?.search ?? undefined
   }
 
   // Only the built-in door-knocking channel de-dupes by household; custom and

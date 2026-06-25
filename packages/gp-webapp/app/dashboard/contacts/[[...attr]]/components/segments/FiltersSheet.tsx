@@ -153,7 +153,14 @@ export default function Filters({
     selectSegment,
     isElectedOfficial,
     isWinContext,
+    searchTerm,
   } = useContactsTable()
+
+  // A list created while a search is active saves that search so selecting it
+  // later reproduces the searched-down result set, even with no filters picked
+  // (ENG-10518). Only relevant in create mode — editing a saved list keeps its
+  // own persisted search untouched.
+  const createSearch = mode === SHEET_MODES.CREATE ? searchTerm.trim() : ''
 
   const displayFilterSections = useMemo(
     () =>
@@ -254,6 +261,7 @@ export default function Filters({
     saveMutation.mutate({
       name: segmentName.trim(),
       ...transformFiltersForBackend(filters),
+      ...(createSearch ? { search: createSearch } : {}),
     })
   }
 
@@ -275,10 +283,11 @@ export default function Filters({
   }
 
   const canSave = (): boolean => {
-    return (
-      !!segmentName.trim() &&
-      Object.values(filters).some((value) => value === true)
-    )
+    if (!segmentName.trim()) return false
+    // A search-derived list is valid with no filters: the saved search alone
+    // defines it (ENG-10518). Otherwise at least one filter is required.
+    if (createSearch) return true
+    return Object.values(filters).some((value) => value === true)
   }
 
   return (
@@ -300,6 +309,12 @@ export default function Filters({
                 maxLength={MAX_SEGMENT_NAME_LENGTH}
                 placeholder="Name your list"
               />
+              {createSearch && (
+                <Body2 className="text-muted-foreground">
+                  Saving your current search “{createSearch}”. Add filters below
+                  to narrow it further, or save as is.
+                </Body2>
+              )}
             </div>
           ) : (
             <div className="flex items-center">

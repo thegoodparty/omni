@@ -20,6 +20,7 @@ This is the **unified, People-API-backed** voter experience shared by Serve (ele
 
 - **One catch-all route** (`[[...attr]]`) — all "tabs" (people, segments, settings) are handled inside that route's components, not as separate Next.js routes. Easier to share filter state.
 - **Filters and segments are distinct**: filters are ephemeral (current view); segments are saved (named, reused in outreach). Don't conflate.
+- **A saved list can also carry a free-text search** (ENG-10518). When "Create list" opens with an active search (the `query` URL param), `FiltersSheet` saves that term on the `VoterFileFilter.search` column with no filter required, and `selectSegment` (in `ContactsTableProvider`) re-applies it to the `query` param when the list is selected — so the saved view reproduces the searched-down set. A live request search always wins over a list's stored search server-side (gp-api `findContacts`). Download does not re-apply stored search (people-api `/download` has no search param).
 - **Voter file fetching** uses `helpers/createVoterFileFilter.ts` to build the filter payload — keep that helper as the single shape source.
 - The `PersonOverlay` is a side-panel detail view that opens over the table; route-level navigation isn't used to drill in.
 

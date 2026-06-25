@@ -541,6 +541,71 @@ describe('<FiltersSheet>', () => {
     expect(create).toBeDisabled()
   })
 
+  it('saves the active search on the create payload and allows saving with no filter selected', async () => {
+    const user = userEvent.setup()
+    setContext({ searchTerm: 'smith' })
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 21, name: 'Smith voters' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    // A list named from an active search is saveable without touching any
+    // filter checkbox — the search alone defines it (ENG-10518).
+    const create = screen.getByRole('button', { name: /create segment/i })
+    expect(create).toBeEnabled()
+    await user.click(create)
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).toMatchObject({ search: 'smith' })
+  })
+
+  it('does not put a search field on the create payload when no search is active', async () => {
+    const user = userEvent.setup()
+    setContext({ searchTerm: '' })
+    setSnackbar()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 22, name: 'Custom Segment 1' } }
+    })
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    await user.click(checkboxForOption('Male'))
+    await user.click(screen.getByRole('button', { name: /create segment/i }))
+
+    await vi.waitFor(() => {
+      expect(sentBody).not.toBeNull()
+    })
+    expect(sentBody).not.toHaveProperty('search')
+  })
+
   it('Select All toggles every option within a filter field on at once', async () => {
     const user = userEvent.setup()
     setContext()
