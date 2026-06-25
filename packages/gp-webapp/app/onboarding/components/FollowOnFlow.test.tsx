@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 describe('FollowOnFlow', () => {
-  it('renders the intent screen with the held office name (same-office)', async () => {
+  it('lands on welcome with no intent screen (same-office)', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -42,19 +42,20 @@ describe('FollowOnFlow', () => {
 
     render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
 
+    // The switcher action is the intent — re-election goes straight to welcome
+    // rather than re-asking on an intent screen.
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /re-election in City Council Member/i,
+        name: /set up your new campaign/i,
       }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText("I'm running for the same office"),
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText(/same office/i)).toBeChecked()
+      screen.queryByText("I'm running for the same office"),
+    ).not.toBeInTheDocument()
   })
 
-  it('exits to the dashboard when Back is clicked on the intent step', async () => {
+  it('exits to the dashboard when Back is clicked on the first step', async () => {
     vi.mocked(router.push!).mockClear()
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
@@ -72,7 +73,7 @@ describe('FollowOnFlow', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('skips the intent screen for a candidate with no held office', async () => {
+  it('lands on welcome for a new-office candidate', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -119,28 +120,37 @@ describe('FollowOnFlow', () => {
       fromOrganizationSlug: 'eo-1',
     })
 
-    // Back is locked after creation so the user can't return to the intent
-    // step and switch intent on an already-created campaign.
+    // Back is locked after creation so the user can't return and undo it on an
+    // already-created campaign.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /back/i })).toBeDisabled(),
     )
   })
 
-  it('disables continue for same-office without a held-office slug', async () => {
+  it('inherits the held office from eligibility for same-office without ?from=', async () => {
+    let followOnBody: unknown = null
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [heldOfficeOrg] },
     })
+    api.mock('POST /v1/campaigns/follow-on', (request) => {
+      followOnBody = request.body
+      return { status: 200, data: { id: 4242, slug: 'campaign-4242' } as never }
+    })
 
-    // Direct ?intent=same-office URL with no ?from=: Continue must stay
-    // disabled rather than firing a request the server would 400. Back still
-    // offers a way out (it exits to the dashboard on this first step).
+    // Direct ?intent=same-office URL with no ?from=: the flow falls back to the
+    // held office from eligibility (reelectionOfficeSlug) so the same-office run
+    // still inherits the position rather than 400ing on a missing source org.
     render(<FollowOnFlow intent="same-office" />)
 
-    expect(
-      await screen.findByRole('button', { name: /continue/i }),
-    ).toBeDisabled()
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
+
+    await waitFor(() => expect(followOnBody).not.toBeNull())
+    expect(followOnBody).toEqual({
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-1',
+    })
   })
 
   it('recovers from a 409 by resuming on the existing campaign', async () => {
@@ -170,11 +180,11 @@ describe('FollowOnFlow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
 
-    // Advances to the next step (welcome) with no error surfaced.
+    // Advances to the next step (ballot-status) with no error surfaced.
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /set up your new campaign/i,
+        name: /already on the ballot/i,
       }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
