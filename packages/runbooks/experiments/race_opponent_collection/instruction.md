@@ -64,12 +64,12 @@ Each opponent is an independent unit. **Templated dispatch:** write the per-oppo
    ```json
    {
      "opponent_name": "<full_name>",
-     "source_type": "ballotpedia | opponent_website",
+     "source_type": "ballotpedia",
      "source_url": "<r['source_url']>",
      "content": { "text": "<extracted page text/sections, as-is>" }
    }
    ```
-   Write this opponent's items as a JSON array to the unique zero-padded `/workspace/scratch/opp_<NN>.json` filename you were assigned (e.g. `opp_00.json`) — do not write a literal `opp_NN.json`. An opponent with no fetched source writes `[]`. Return one line (e.g. "opp_03: 2 items").
+   `source_type` must be exactly `"ballotpedia"` for the Ballotpedia source and exactly `"opponent_website"` for the campaign website — those are the only two valid values; never emit a combined or pipe-separated string. Write this opponent's items as a JSON array to the unique zero-padded `/workspace/scratch/opp_<NN>.json` filename you were assigned (e.g. `opp_00.json`) — do not write a literal `opp_NN.json`. An opponent with no fetched source writes `[]`. Return one line (e.g. "opp_03: 2 items").
 
 **Per-opponent caps:** at most 2 WebSearch queries per source-type and fetch each unique URL at most once. If you can't confirm a source in 1-2 searches, bail to "no source" for it rather than escalating — a missing source is fine.
 
