@@ -27,6 +27,11 @@ const POLL_INTERVAL_MS = 20 * 1000
 // can't detect it), and refetchOnWindowFocus is off — without this a page left
 // open across the Sunday cron would show last week's tasks indefinitely.
 const BACKGROUND_POLL_MS = 5 * 60 * 1000
+// ~15 min of fast polling. If the dynamic tasks never land (e.g. dispatch
+// silently no-ops because the campaign is missing raceId/clerkId/name), stop
+// hammering and fall back to the background interval rather than polling every
+// 20s forever for every open session.
+const MAX_FAST_POLLS = 45
 
 const trackerTasksQueryOptions = () =>
   queryOptions({
@@ -35,12 +40,17 @@ const trackerTasksQueryOptions = () =>
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
     // Poll fast while the dynamic tasks/events are still generating so they
-    // appear without a manual refresh; once they land, drop to a slow
-    // background poll so a later weekly regen still gets picked up.
-    refetchInterval: (query) =>
-      query.state.data && isTrackerGenerating(query.state.data)
+    // appear without a manual refresh; once they land (or after the
+    // fast-poll budget), drop to a slow background poll so a later weekly
+    // regen still gets picked up.
+    refetchInterval: (query) => {
+      const generating =
+        query.state.data && isTrackerGenerating(query.state.data)
+      if (!generating) return BACKGROUND_POLL_MS
+      return query.state.dataUpdateCount < MAX_FAST_POLLS
         ? POLL_INTERVAL_MS
-        : BACKGROUND_POLL_MS,
+        : BACKGROUND_POLL_MS
+    },
   })
 
 export type TrackerTasksResult = {

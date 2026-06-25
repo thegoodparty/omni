@@ -19,7 +19,7 @@ import CampaignStrategyPhase from './CampaignStrategyPhase'
 // data contract).
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const { tasks, isPending, isGeneratingDynamic } = useTrackerTasks()
+  const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
 
   // Completion only persists for real tracker rows; the catalog fallback has no
@@ -99,6 +99,13 @@ const CampaignStrategySection = (): React.JSX.Element => {
         <Card className="flex items-center gap-3 p-4">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
           <p className="text-muted-foreground text-sm">Loading your tasks…</p>
+        </Card>
+      ) : isError ? (
+        <Card className="p-4">
+          <p className="text-muted-foreground text-sm">
+            We could not load your tasks just now. Refresh the page to try
+            again.
+          </p>
         </Card>
       ) : (
         <>

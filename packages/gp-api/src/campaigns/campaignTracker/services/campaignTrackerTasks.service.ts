@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, nextMonday, startOfDay } from 'date-fns'
 import { z } from 'zod'
 import {
   Campaign,
@@ -164,8 +164,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
     if (count === 0) return
 
-    await this.materializeStaticTasks(campaign)
-    await this.dispatchGeneration(campaign, 'initial')
+    // The flag is claimed before the work, so a failure here would otherwise
+    // leave the campaign bootstrapped-but-empty: no static rows means it's
+    // outside the weekly cron's cohort, and the flag blocks a re-bootstrap.
+    // Release the claim on failure so the next trigger can retry.
+    try {
+      await this.materializeStaticTasks(campaign)
+      await this.dispatchGeneration(campaign, 'initial')
+    } catch (error) {
+      await this.client.campaignStrategy.updateMany({
+        where: { campaignId: campaign.id },
+        data: { trackerBootstrapped: false },
+      })
+      throw error
+    }
   }
 
   // Assemble the plan + story summary strings the CAP run uses as
@@ -246,6 +258,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       const { tasks } = trackerArtifactSchema.parse(JSON.parse(raw))
 
       const start = startOfDay(new Date())
+      // Dateless tasks are dated across the upcoming Mon-Sun week (index 0 =
+      // next Monday). That window matches the weekly digest's
+      // nextMonday(now)..+7 filter, so the generation's tasks actually land in
+      // the digest instead of falling just before windowStart.
+      const weekStart = nextMonday(start)
       // `week` is the generation index: each run appends the next one, the
       // frontend renders only the highest (latest) dynamic generation, and
       // older generations persist for completion history + prior-task dedupe.
@@ -264,10 +281,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           flowType: CHANNEL_TO_FLOW_TYPE[task.channel] ?? null,
           week: generation,
           // Events keep their real date; dynamic tasks are dated by priority
-          // order so the upcoming-week list sorts as the model ranked it.
+          // order across the upcoming week so the list sorts as ranked.
           date: task.date
             ? startOfDay(parseIsoDateString(task.date))
-            : addDays(start, index),
+            : addDays(weekStart, index),
           link: task.url ?? null,
           phase: task.phase,
           isDefaultTask: false,

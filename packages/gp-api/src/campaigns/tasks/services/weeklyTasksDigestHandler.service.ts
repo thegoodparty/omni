@@ -198,8 +198,17 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
         SELECT t.*
         FROM campaign_tracker_tasks t
         LEFT JOIN latest_gen g ON g.campaign_id = t.campaign_id
-        WHERE t.is_default_task = true
-          OR t.week = g.gen
+        JOIN campaign c ON c.id = t.campaign_id
+        WHERE (t.is_default_task = true OR t.week = g.gen)
+          -- Mirror the UI's 30-day GOTV window: don't email GOTV tasks until
+          -- the election is within 30 days (the UI hides them until then).
+          AND (
+            t.phase IS DISTINCT FROM 'gotv'
+            OR (
+              c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND (c.details->>'electionDate')::date - NOW()::date <= 30
+            )
+          )
       ),
       eligible AS (
         SELECT
