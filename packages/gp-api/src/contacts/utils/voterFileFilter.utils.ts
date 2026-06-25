@@ -75,6 +75,7 @@ export const convertVoterFileFilterToFilters = (
     'createdAt',
     'updatedAt',
     'name',
+    'search',
     'voterCount',
     'campaignId',
     'campaign',
