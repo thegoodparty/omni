@@ -1025,6 +1025,42 @@ def test_run_refresh_onboards_new_universe_event_via_full_history(monkeypatch, t
     assert bf.read_watermark(str(state_path))["last_processed_sha"] == "newsha"
 
 
+def test_run_refresh_onboards_from_full_history_ignoring_since(monkeypatch, tmp_path):
+    # Regression: the onboarding pickaxe walk must use FULL history (since=None) even when the
+    # refresh is invoked with a bounded --since. An event instrumented BEFORE --since but present
+    # at HEAD must still be attributed, not clipped to a null instrumented_date (not_found_in_code).
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance(
+        [_row("Event A", instrumented_commit="aaaa", instrumented_date="2025-02-01", updated_at="2025-02-01T00:00:00")],
+        str(csv_path),
+    )
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    cur = FakeCursor(["Event A", "Event C"])
+
+    pickaxe_since = {}
+
+    def fake_log(*a, **k):
+        if k.get("pickaxe") == "Event C":
+            pickaxe_since["value"] = a[1]  # the `since` arg the onboarding pickaxe walk received
+            # Event C was introduced in 2023 — BEFORE the bounded --since of 2024-06-01 below.
+            return iter([_header("c1", "c1", "2023-01-15", "feat: add C (#5)"), '+  C: "Event C",'])
+        return iter([])
+
+    monkeypatch.setattr(bf, "run_git_log", fake_log)
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: '  C: "Event C",')
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+
+    rows = bf.run_refresh(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(state_path))
+
+    assert pickaxe_since["value"] is None  # onboarding ignores the bounded --since, walks all history
+    by = {r["event_type"]: r for r in rows}
+    assert by["Event C"]["instrumented_date"] == "2023-01-15"  # pre-since event still attributed
+    assert by["Event C"]["instrumented_commit"] == "c1"
+
+
 def test_attribute_events_from_history_finds_instrumentation_via_pickaxe(tmp_path):
     # Real repo: a literal introduced in a later commit must be found by the -S pickaxe walk and
     # attributed (instrumented date + PR from the subject), with no full-diff walk.

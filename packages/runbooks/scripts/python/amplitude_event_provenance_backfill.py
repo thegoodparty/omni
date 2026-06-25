@@ -929,7 +929,10 @@ def run_refresh(
             f"via full-history attribution ...",
             file=sys.stderr,
         )
-        for row in attribute_events_from_history(root, missing, since, ref, updated_at, pr_resolver):
+        # Always full history (since=None): a new universe event may have been instrumented
+        # before the --since bound, so passing the bounded `since` here would clip its pickaxe
+        # walk and falsely record it as not_found_in_code. Onboarding must see all of history.
+        for row in attribute_events_from_history(root, missing, None, ref, updated_at, pr_resolver):
             existing[row["event_type"]] = row
 
     rows = list(existing.values())
