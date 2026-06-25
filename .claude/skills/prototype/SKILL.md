@@ -43,6 +43,12 @@ Build only from `@goodparty_org/styleguide` components and its design tokens —
 raw hex values, no hardcoded spacing outside the token scale, no imported UI
 libraries outside the styleguide.
 
+**Use the existing component — don't reinvent it.** Before building any UI element
+(a nav bar, an input with an action, a card, an AI prompt bar, a badge), check
+Storybook for a styleguide component or pattern that already does it, and use that.
+Reach for a custom build only when nothing fits. The designer should never have to
+say "use the right component" — that's the default.
+
 ## 2. Orient onto the right prototype
 
 **New prototype:** invoke the `new-prototype` skill (or, if that skill is not
@@ -122,11 +128,15 @@ Responsiveness is the product here. Optimize the loop:
   the test suite, or `next build` — they burn seconds the loop can't spare. Save,
   let HMR refresh, screenshot only if you need to self-check. Run gates once, at
   ship time.
-- **Fan out independent work to subagents.** Multiple screens, several variants, or
-  a new screen alongside a tweak should go to parallel subagents so changes land
-  together and the main loop stays snappy. Give each a tight brief (the screen, its
-  mock data, the design intent) and have it return the finished component — not a
-  transcript.
+- **Fan out independent work to subagents — grouped by file.** A batch of feedback
+  becomes parallel subagents: items touching _different_ files run at once; items
+  touching the _same_ file chain serially (to avoid clobbering). Give each a tight
+  brief (the file, the change, the mock data, the design intent).
+- **Subagents return code, never browsers.** A subagent makes its edit and returns —
+  it must NOT navigate, screenshot, run Playwright, or open anything. Visual
+  verification is the main agent's job: **once, at the end of a batch, headless** —
+  not per subagent. Spinning a browser per subagent is the #1 cause of windows
+  flashing and `about:blank` churn. Keep the visual surface the human's preview pane.
 
 ## 5. Guardrails
 
