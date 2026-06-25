@@ -61,4 +61,8 @@ export const voterFilterBaseSchema = z.object({
   voterStatus: z.array(z.string()).optional(),
   incomeRanges: z.array(z.string()).optional(),
   incomeUnknown: z.boolean().optional(),
+  // Free-text search term captured when a list is saved directly from a
+  // contacts search result set, re-applied on read so selecting the saved
+  // list reproduces the searched-down view (ENG-10518).
+  search: z.string().optional(),
 })

@@ -1,0 +1,20 @@
+enum RaceOpponentSourceType {
+  ballotpedia
+  opponent_website
+  campaign_plan_db
+}
+
+model RaceOpponent {
+  id           Int                     @id @default(autoincrement())
+  createdAt    DateTime                @default(now()) @map("created_at")
+  campaign     Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId   Int                     @map("campaign_id")
+  opponentName String                  @map("opponent_name")
+  sourceType   RaceOpponentSourceType  @map("source_type")
+  sourceUrl    String?                 @map("source_url")
+  content      Json                    @db.JsonB
+  runId        String?                 @map("run_id")
+
+  @@index([campaignId, opponentName])
+  @@map("race_opponent")
+}

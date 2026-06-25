@@ -46,19 +46,27 @@ export type BaseSelectedField = (typeof VOTER_SELECT_COLUMNS)[number]
 
 export type ExtraSelectedField = Exclude<keyof Voter, BaseSelectedField>
 
-export function buildVoterSelectSql(extraFields: ExtraSelectedField[] = []) {
+export function buildVoterSelectSql(
+  extraFields: ExtraSelectedField[] = [],
+  computedColumns: Prisma.Sql[] = [],
+  distinctClause: Prisma.Sql = Prisma.empty,
+) {
   const columnNames = Array.from(
     new Set([...VOTER_SELECT_COLUMNS, ...extraFields]),
   )
   const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
-  const cols = columnNames.map((f) => {
+  const cols: Prisma.Sql[] = columnNames.map((f) => {
     return Prisma.sql`${Prisma.raw(`v.${quoteIdent(f)} AS ${quoteIdent(f)}`)}`
   })
+  cols.push(...computedColumns)
 
   return {
     columnNames,
-    sql: Prisma.sql`SELECT ${Prisma.join(cols, ', ')}`,
+    sql: Prisma.sql`SELECT ${distinctClause}${Prisma.join(cols, ', ')}`,
   }
 }
 
-export type BaseDbPerson = Pick<Voter, BaseSelectedField>
+export type BaseDbPerson = Pick<Voter, BaseSelectedField> & {
+  householdId?: string | null
+  householdSize?: bigint | number | null
+}

@@ -85,14 +85,25 @@ const collectTableRefs = (node: unknown, acc: Set<string>): void => {
   }
   if (!isRecord(node)) return
 
-  // Common shape: { table: 'x' } from FROM/JOIN entries
+  // Common shape: { table: 'x' } from FROM/JOIN entries. node-sql-parser puts
+  // any schema/catalog qualifier in node.db. The allowlist holds BARE table
+  // names (resolved via the session's pinned catalog/schema), so record the
+  // qualifier too — a schema-qualified reference like
+  // other_schema.serve_agent_voters then fails the allowlist instead of
+  // matching the bare name and reading a same-named table in another schema
+  // (CWE-863).
   const table = node.table
   if (typeof table === 'string' && table.length > 0) {
-    acc.add(stripQuotes(table))
+    const db = node.db
+    const qualifier =
+      typeof db === 'string' && db.length > 0 ? `${stripQuotes(db)}.` : ''
+    acc.add(`${qualifier}${stripQuotes(table)}`)
   }
 
   for (const key of Object.keys(node)) {
-    if (key === 'table') continue
+    // table + db are folded into the qualified name above; don't recurse into
+    // them (a future AST that nests an object in db must not leak a bare name).
+    if (key === 'table' || key === 'db') continue
     collectTableRefs(node[key], acc)
   }
 }

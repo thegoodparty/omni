@@ -43,6 +43,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
+| Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 
 `packages/gp-api/CLAUDE.md` is the gold-standard for nested-doc style — pointer

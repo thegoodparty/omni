@@ -507,6 +507,10 @@ export type APIEndpoints = {
     Request: {}
     Response: Person
   }
+  'POST /v1/contacts/count': {
+    Request: Record<string, unknown>
+    Response: { count: number }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
@@ -949,6 +953,12 @@ export type ElectedOffice = {
   // Resume checkpoint: the furthest serve-onboarding step the holder reached,
   // written on every "Continue". Null when no checkpoint has been recorded.
   onboardingStep: string | null
+  // The campaign this office was created from, when the holder reached office by
+  // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
+  // win-origin official who already onboarded as a candidate, so post-auth
+  // routing must NOT send them into serve onboarding for a missing term/date.
+  campaignId: number | null
 }
 
 export type ElectedOfficeInput = {

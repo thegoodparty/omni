@@ -35,7 +35,10 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../components/shared/constants'
 import defaultSegments from '../components/configs/defaultSegments.config'
-import { isCustomSegment } from '../components/shared/segments.util'
+import {
+  isCustomSegment,
+  findCustomSegment,
+} from '../components/shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
@@ -465,9 +468,14 @@ export const ContactsTableProvider = ({
 
   const selectSegment = useCallback(
     (segment: string) => {
-      updateURL({ segment, page: 1 })
+      // A list saved from a search result set stores its search term; selecting
+      // it must reproduce the searched-down view, so re-apply (or clear) the
+      // query param alongside the segment. Built-in/default segments and lists
+      // saved without a search clear it (ENG-10518).
+      const savedSearch = findCustomSegment(customSegments, segment)?.search
+      updateURL({ segment, page: 1, query: savedSearch ?? null })
     },
-    [updateURL],
+    [updateURL, customSegments],
   )
 
   const searchContactsAction = useCallback(

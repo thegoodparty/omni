@@ -7,9 +7,9 @@ import {
 import {
   getSelectedOrgName,
   getOrgPickerOptions,
+  winRaceWithTermDates,
 } from 'src/helpers/organizations'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
-import { wait } from 'tests/utils/eventually'
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -33,13 +33,8 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   const orgsBefore = await getOrgPickerOptions(page)
   expect(orgsBefore).toHaveLength(1)
 
-  await page.goto('/dashboard/election-result')
-  await wait(250)
-  await page
-    .getByRole('button', { name: 'I won my race' })
-    .click({ timeout: 10_000 })
-
-  await page.waitForURL('**/dashboard/briefings', { timeout: 15_000 })
+  // Winning now collects term dates inline before the office is created.
+  await winRaceWithTermDates(page)
 
   await NavigationHelper.navigateToPage(page, '/dashboard/polls')
   await NavigationHelper.dismissOverlays(page)
