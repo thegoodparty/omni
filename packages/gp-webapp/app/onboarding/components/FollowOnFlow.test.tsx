@@ -128,12 +128,10 @@ describe('FollowOnFlow', () => {
   })
 
   it('keeps Back disabled while the follow-on create is in flight', async () => {
-    let resolvePost!: (value: { status: number; data: never }) => void
-    const postGate = new Promise<{ status: number; data: never }>(
-      (resolve) => {
-        resolvePost = resolve
-      },
-    )
+    let resolvePost!: (value: { status: 200; data: never }) => void
+    const postGate = new Promise<{ status: 200; data: never }>((resolve) => {
+      resolvePost = resolve
+    })
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
