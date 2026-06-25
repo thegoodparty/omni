@@ -283,9 +283,7 @@ describe('ContactsTableProvider — selectSegment re-applies a saved search', ()
     renderSelectProbe('55')
 
     const button = await screen.findByTestId('select')
-    await waitFor(() =>
-      expect(button).toHaveAttribute('data-loaded', 'true'),
-    )
+    await waitFor(() => expect(button).toHaveAttribute('data-loaded', 'true'))
     button.click()
 
     await waitFor(() => expect(mockPush).toHaveBeenCalled())
@@ -304,9 +302,7 @@ describe('ContactsTableProvider — selectSegment re-applies a saved search', ()
     renderSelectProbe('56')
 
     const button = await screen.findByTestId('select')
-    await waitFor(() =>
-      expect(button).toHaveAttribute('data-loaded', 'true'),
-    )
+    await waitFor(() => expect(button).toHaveAttribute('data-loaded', 'true'))
     button.click()
 
     await waitFor(() => expect(mockPush).toHaveBeenCalled())
