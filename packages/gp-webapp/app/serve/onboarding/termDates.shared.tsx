@@ -1,9 +1,18 @@
 'use client'
 
+import { useState } from 'react'
 import { addDays, format, parse } from 'date-fns'
-import { Label } from '@styleguide'
+import {
+  Button,
+  Calendar,
+  CalendarIcon,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import DateInputCalendar from '@shared/inputs/DateInputCalendar'
+import type { Matcher } from 'react-day-picker'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 
 export type DisabledRange = { from: Date; to: Date }
@@ -132,7 +141,77 @@ const BRAND_CALENDAR_CLASSNAME = cn(
 )
 
 /**
- * The two term-date calendars (start + end) with their disabled ranges and a
+ * A single term-date form field: a labelled button that opens a popover
+ * containing the brand-blue calendar (matching the design system's canonical
+ * Date Picker pattern). The popover closes once a date is picked.
+ */
+const TermDateField = ({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+  calendarStart,
+  calendarEnd,
+}: {
+  id: string
+  label: string
+  value: Date | undefined
+  onChange: (date: Date | undefined) => void
+  disabled: Matcher[]
+  calendarStart: Date
+  calendarEnd: Date
+}): React.JSX.Element => {
+  const [open, setOpen] = useState(false)
+  const [month, setMonth] = useState<Date>(value ?? new Date())
+
+  const handleSelect = (date: Date | undefined): void => {
+    onChange(date)
+    if (date) {
+      setMonth(date)
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            variant="outline"
+            className={cn(
+              'w-full justify-start text-left font-normal',
+              !value && 'text-muted-foreground',
+            )}
+          >
+            <CalendarIcon className="mr-2 size-4" />
+            {value ? formatDisplay(value) : 'Pick a date'}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            month={month}
+            onMonthChange={setMonth}
+            selected={value}
+            onSelect={handleSelect}
+            disabled={disabled}
+            captionLayout="dropdown"
+            startMonth={calendarStart}
+            endMonth={calendarEnd}
+            className={BRAND_CALENDAR_CLASSNAME}
+            autoFocus
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+/**
+ * The two term-date pickers (start + end) with their disabled ranges and a
  * shared error line. Used by both the serve onboarding term-dates step and the
  * dashboard term-date prompt so the picker + validation never diverge.
  */
@@ -160,34 +239,41 @@ export const TermDatesFields = ({
   return (
     <>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Term start date</Label>
-          <DateInputCalendar
-            value={termStartDate}
-            onChange={onStartChange}
-            showTextInput
-            label=""
-            calendarClassName={BRAND_CALENDAR_CLASSNAME}
-            startMonth={calendarStart}
-            endMonth={calendarEnd}
-            disabled={startDisabled}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Term end date</Label>
-          <DateInputCalendar
-            value={termEndDate}
-            onChange={onEndChange}
-            showTextInput
-            label=""
-            calendarClassName={BRAND_CALENDAR_CLASSNAME}
-            startMonth={calendarStart}
-            endMonth={calendarEnd}
-            disabled={endDisabled}
-          />
-        </div>
+        <TermDateField
+          id="term-start-date"
+          label="Term start date"
+          value={termStartDate}
+          onChange={onStartChange}
+          disabled={startDisabled}
+          calendarStart={calendarStart}
+          calendarEnd={calendarEnd}
+        />
+        <TermDateField
+          id="term-end-date"
+          label="Term end date"
+          value={termEndDate}
+          onChange={onEndChange}
+          disabled={endDisabled}
+          calendarStart={calendarStart}
+          calendarEnd={calendarEnd}
+        />
       </div>
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p
+          className={cn(
+            'mt-4 text-sm',
+            // The "enter both dates" guidance (shown while either date is still
+            // empty) is a neutral prompt, not an error — keep it in the default
+            // text color. Genuine validation errors (end-before-start, overlap)
+            // only occur once both dates are set, and stay red.
+            !termStartDate || !termEndDate
+              ? 'text-foreground'
+              : 'text-destructive',
+          )}
+        >
+          {error}
+        </p>
+      )}
     </>
   )
 }

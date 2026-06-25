@@ -13,7 +13,6 @@ import { PositionLevel } from 'src/generated/graphql.types'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import { truncateZip } from 'src/shared/util/zipcodes.util'
 import zipcodes from 'zipcodes'
-import { ElectionLevels } from '../../shared/constants/governmentLevels'
 import {
   BallotReadyMilestone,
   PersonOfficeHolder,
@@ -42,6 +41,33 @@ const headers = {
   [Headers.CONTENT_TYPE]: MimeTypes.APPLICATION_JSON,
 }
 
+// BallotReady Node IDs are base64(url) encodings of `gid://...`. Reject anything
+// outside that alphabet before use — defense-in-depth on top of passing the id
+// as a typed GraphQL variable, so a stored campaign.details.raceId can never
+// carry query-breaking characters (CWE-943).
+const BALLOT_READY_ID_RE = /^[A-Za-z0-9+/=_-]+$/
+const isValidBallotReadyId = (id: string): boolean =>
+  BALLOT_READY_ID_RE.test(id)
+
+// filterBy.level is a GraphQL enum identifier, not a value — it cannot be passed
+// as a string variable, so validate each token against the known PositionLevel
+// set before it is interpolated into a query.
+const VALID_POSITION_LEVELS = new Set<string>(Object.values(PositionLevel))
+
+// A requested level expands to these PositionLevel enum tokens. Keyed/valued by
+// the enum so it can't drift, but used as plain string lookups (never an
+// enum-vs-string comparison).
+const LEVEL_EXPANSIONS: Record<string, string[]> = {
+  [PositionLevel.LOCAL]: [
+    PositionLevel.LOCAL,
+    PositionLevel.TOWNSHIP,
+    PositionLevel.CITY,
+  ],
+  [PositionLevel.COUNTY]: [PositionLevel.COUNTY, PositionLevel.REGIONAL],
+}
+
+const MALFORMED_RACE_ID_LOG = 'Rejecting malformed BallotReady race id'
+
 @Injectable()
 export class BallotReadyService {
   private readonly graphQLClient = new GraphQLClient(API_BASE, {
@@ -49,10 +75,14 @@ export class BallotReadyService {
   })
 
   async fetchRaceNormalizedPosition(raceId: string) {
-    // Query for a single ID
+    if (!isValidBallotReadyId(raceId)) {
+      this.logger.error({ raceId }, MALFORMED_RACE_ID_LOG)
+      return null
+    }
+    // Pass the id as a typed variable — never string-interpolate it (CWE-943).
     const query = gql`
-      query GetNormalizedPosition {
-        node(id: "${raceId}") {
+      query GetNormalizedPosition($id: ID!) {
+        node(id: $id) {
           ... on Position {
             normalizedPosition {
               name
@@ -68,7 +98,7 @@ export class BallotReadyService {
             name: string
           } | null
         } | null
-      }>(query)
+      }>(query, { id: raceId })
       return result?.node?.normalizedPosition?.name ?? null
     } catch (error) {
       this.logger.error(
@@ -80,51 +110,55 @@ export class BallotReadyService {
   }
 
   async fetchRaceById(raceId: string): Promise<RacesByIdNode | null> {
+    if (!isValidBallotReadyId(raceId)) {
+      this.logger.error({ raceId }, MALFORMED_RACE_ID_LOG)
+      return null
+    }
     const query = gql`
-          query Node {
-            node(id: "${raceId}") {
-                ... on Race {
-                    databaseId
-                    isPartisan
-                    isPrimary
-                    election {
-                        electionDay
-                        name
-                        state
-                    }
-                    position {
-                        id
-                        description
-                        judicial
-                        level
-                        name
-                        partisanType
-                        staggeredTerm
-                        state
-                        subAreaName
-                        subAreaValue
-                        tier
-                        mtfcc
-                        geoId
-                        electionFrequencies {
-                            frequency
-                        }
-                        hasPrimary
-                        normalizedPosition {
-                          name
-                      }
-                    }
-                    filingPeriods {
-                        endOn
-                        startOn
-                    }
-                }
+      query Node($id: ID!) {
+        node(id: $id) {
+          ... on Race {
+            databaseId
+            isPartisan
+            isPrimary
+            election {
+              electionDay
+              name
+              state
             }
+            position {
+              id
+              description
+              judicial
+              level
+              name
+              partisanType
+              staggeredTerm
+              state
+              subAreaName
+              subAreaValue
+              tier
+              mtfcc
+              geoId
+              electionFrequencies {
+                frequency
+              }
+              hasPrimary
+              normalizedPosition {
+                name
+              }
+            }
+            filingPeriods {
+              endOn
+              startOn
+            }
+          }
         }
-        `
+      }
+    `
 
     try {
-      return await this.graphQLClient.request(query)
+      return await this.graphQLClient.request(query, { id: raceId })
     } catch (error) {
       this.logger.error({ error }, 'Error at fetchRaceById:')
       return null
@@ -319,8 +353,8 @@ export class BallotReadyService {
     electionDate?: string | null,
     startCursor?: string | null,
   ): Promise<RacesByZipcode | null> {
-    let gt
-    let lt
+    let gt: string
+    let lt: string
     if (electionDate) {
       ;({ gt, lt } = getMonthBounds(electionDate))
     } else {
@@ -329,31 +363,29 @@ export class BallotReadyService {
       nextYear.setFullYear(nextYear.getFullYear() + 2)
       lt = nextYear.toISOString().split('T')[0]
     }
-    const state = zipcodes.lookup(zipcode)?.state
+    // zipcodes.lookup returns a 2-letter US abbreviation (or nothing); pin that
+    // shape before inlining so only [A-Z]{2} can ever reach the query.
+    const lookedUpState = zipcodes.lookup(zipcode)?.state
+    const state =
+      lookedUpState && /^[A-Z]{2}$/.test(lookedUpState) ? lookedUpState : null
 
-    let levelWithTownship = level?.toUpperCase()
-    if (levelWithTownship === ElectionLevels.Local) {
-      levelWithTownship = `${ElectionLevels.Local},TOWNSHIP,${ElectionLevels.City}`
-    }
-    if (levelWithTownship === ElectionLevels.County) {
-      levelWithTownship = `${ElectionLevels.County},REGIONAL`
-    }
+    const levelTokens = this.resolveLevelTokens(level)
 
     const query = gql`
-    query {
+    query RacesByZipcode(
+      $zip: String!
+      $gte: ISO8601Date!
+      $lte: ISO8601Date!
+      $after: String
+    ) {
       races(
-        location: {
-          zip: "${truncateZip(zipcode)}"
-        }
+        location: { zip: $zip }
         filterBy: {
-          electionDay: {
-            gte: "${gt}"
-            lte: "${lt}"
-          }
+          electionDay: { gte: $gte, lte: $lte }
           ${state ? `state: "${state}"` : ''}
-          ${levelWithTownship ? `level: [${levelWithTownship}]` : ''}
+          ${levelTokens ? `level: [${levelTokens}]` : ''}
         }
-        after: ${startCursor ? `"${startCursor}"` : null}
+        after: $after
         first: 100
       ) {
         edges {
@@ -401,28 +433,57 @@ export class BallotReadyService {
     }
     `
     try {
-      return await this.graphQLClient.request(query)
+      return await this.graphQLClient.request(query, {
+        zip: truncateZip(zipcode),
+        gte: gt,
+        lte: lt,
+        after: startCursor ?? null,
+      })
     } catch (error) {
       this.logger.error({ error }, 'Error at fetchRacesByZipcode: ')
       return null
     }
   }
 
+  // Map a requested level to its BallotReady PositionLevel enum tokens, dropping
+  // the filter entirely if any token is not a recognised enum value. These are
+  // GraphQL enum identifiers (interpolated, not variables), so validating them
+  // against the known set is what prevents injection on this path.
+  private resolveLevelTokens(level?: string | null): string | null {
+    const upper = level?.toUpperCase()
+    if (!upper) return null
+    const tokens = LEVEL_EXPANSIONS[upper] ?? [upper]
+    if (!tokens.every((token) => VALID_POSITION_LEVELS.has(token))) {
+      this.logger.error({ level }, 'Rejecting unrecognised BallotReady level')
+      return null
+    }
+    return tokens.join(',')
+  }
+
   async fetchRacesWithElectionDates(
     zipcode: string,
     positionLevel: PositionLevel,
   ): Promise<RacesWithElectionDates | null> {
+    if (!VALID_POSITION_LEVELS.has(positionLevel)) {
+      this.logger.error(
+        { positionLevel },
+        'Rejecting unrecognised BallotReady position level',
+      )
+      return null
+    }
     const today = new Date().toISOString().split('T')[0]
 
+    // zip and the upper date bound are typed variables; level is a validated
+    // enum identifier (above), so interpolating it here cannot inject.
     const query = gql`
-            query {
+            query RacesWithElectionDates($zip: String!, $lt: ISO8601Date!) {
                 races(
-                    location: { zip: "${zipcode}" }
-                    filterBy: { electionDay: { gt: "2006-01-01", lt: "${today}" }, level: ${positionLevel} }
+                    location: { zip: $zip }
+                    filterBy: { electionDay: { gt: "2006-01-01", lt: $lt }, level: ${positionLevel} }
                 ) {
                     edges {
                         node {
-                            position {    
+                            position {
                                 name
                             }
                             election {
@@ -434,7 +495,10 @@ export class BallotReadyService {
             }`
 
     try {
-      return await this.graphQLClient.request(query)
+      return await this.graphQLClient.request(query, {
+        zip: truncateZip(zipcode),
+        lt: today,
+      })
     } catch (error) {
       this.logger.error({ error }, 'Error at fetchRacesWithElectionDates: ')
       return null
@@ -444,9 +508,13 @@ export class BallotReadyService {
   async fetchRacesWithOfficeHolders(
     raceId: string,
   ): Promise<RaceWithOfficeHoldersNode | null> {
+    if (!isValidBallotReadyId(raceId)) {
+      this.logger.error({ raceId }, MALFORMED_RACE_ID_LOG)
+      return null
+    }
     const query = gql`
-      query Node {
-        node(id: "${raceId}") {
+      query Node($id: ID!) {
+        node(id: $id) {
           ... on Race {
             databaseId
             isPartisan
@@ -554,8 +622,10 @@ export class BallotReadyService {
     `
 
     try {
-      const response =
-        await this.graphQLClient.request<RaceWithOfficeHolders>(query)
+      const response = await this.graphQLClient.request<RaceWithOfficeHolders>(
+        query,
+        { id: raceId },
+      )
       return response?.node || null
     } catch (error) {
       this.logger.error({ error }, 'Error at fetchRacesWithOfficeHolders:')
@@ -572,6 +642,10 @@ export class BallotReadyService {
   async fetchPersonOfficeHolders(
     personId: string,
   ): Promise<PersonOfficeHolder[] | null> {
+    if (!isValidBallotReadyId(personId)) {
+      this.logger.error({ personId }, 'Rejecting malformed BallotReady id')
+      return null
+    }
     const query = gql`
       query PersonOfficeHolders($personId: ID!) {
         node(id: $personId) {
@@ -632,7 +706,7 @@ export class BallotReadyService {
   // unnecessary — string sort matches chronological order for
   // ISO8601Date and the value never needs reformatting.
   async fetchMilestones(brHashId: string): Promise<RaceMilestones | null> {
-    if (!brHashId) return null
+    if (!brHashId || !isValidBallotReadyId(brHashId)) return null
     const query = gql`
       query MilestonesForRace($raceId: ID!) {
         node(id: $raceId) {

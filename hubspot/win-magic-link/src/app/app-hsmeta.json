@@ -2,8 +2,8 @@
   "uid": "goodparty_win_magic_link_app",
   "type": "app",
   "config": {
-    "name": "GoodParty Win Magic Link (Internal)",
-    "description": "Internal/testing tool: send a candidate onboarding magic link directly from a HubSpot contact record.",
+    "name": "GoodParty Win Magic Link",
+    "description": "Send a candidate onboarding magic link directly from a HubSpot contact record.",
     "distribution": "private",
     "auth": {
       "type": "static",
@@ -14,7 +14,6 @@
     "permittedUrls": {
       "fetch": [
         "https://gp-api.goodparty.org",
-        "https://gp-api-dev.goodparty.org",
         "https://api.hubapi.com"
       ],
       "iframe": [],

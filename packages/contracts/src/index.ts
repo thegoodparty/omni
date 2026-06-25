@@ -56,6 +56,7 @@ export {
   type PeopleListPagination,
   PeopleListResponseSchema,
   type PeopleListResponse,
+  HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
 } from "./people/Person.schema";
 
 export { EmailSchema } from "./shared/Email.schema";
@@ -70,6 +71,9 @@ export {
   SortablePaginationSchema,
   FilterablePaginationSchema,
   paginationFilter,
+  MAX_RESULTS_PER_PAGE,
+  MAX_PAGE,
+  MAX_PAGINATION_OFFSET,
   PaginationMetaSchema,
   type PaginationMeta,
   type PaginatedList,
@@ -408,6 +412,8 @@ export {
 } from "./artifactFeedback/ArtifactFeedback.schema";
 
 export * from "./artifactReview";
+
+export * from "./raceOpponent";
 
 export * from "./experiments";
 

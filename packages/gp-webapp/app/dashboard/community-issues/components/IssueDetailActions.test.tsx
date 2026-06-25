@@ -21,11 +21,7 @@ vi.mock('./PrioritizeButton', () => ({
   ),
 }))
 
-vi.mock('./AskAiButton', () => ({
-  default: ({ issue }: { issue: { id: string } }) => (
-    <div data-testid="ask-ai-button">{issue.id}</div>
-  ),
-}))
+vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
 
 const makeDetail = (): CommunityIssueContent => ({
   sources: [],
@@ -55,13 +51,10 @@ beforeEach(() => {
 })
 
 describe('IssueDetail actions', () => {
-  it('renders a "Run a poll" link pointing to the poll create route with issue id', () => {
+  it('renders a "Run a poll" link pointing to the poll create route', () => {
     render(<IssueDetail issue={makeFeedDetail()} />)
     const link = screen.getByRole('link', { name: /run a poll/i })
-    expect(link).toHaveAttribute(
-      'href',
-      '/dashboard/polls/create?issue=issue-1',
-    )
+    expect(link).toHaveAttribute('href', '/dashboard/polls/create')
   })
 
   it('fires RunPollClicked event when "Run a poll" is clicked', async () => {

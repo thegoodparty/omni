@@ -8,7 +8,10 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { ExperimentRunsService } from './experimentRuns.service'
+import {
+  ExperimentRunsService,
+  MAX_RESUME_ATTEMPTS,
+} from './experimentRuns.service'
 
 const sqsMock = mockClient(SQSClient)
 const RESOLVED_URL =
@@ -23,6 +26,7 @@ describe('ExperimentRunsService', () => {
     findMany: ReturnType<typeof vi.fn>
   }
   let mockSlack: { errorMessage: ReturnType<typeof vi.fn> }
+  let campaignFindUnique: ReturnType<typeof vi.fn>
   const logger = createMockLogger()
 
   beforeEach(() => {
@@ -52,6 +56,11 @@ describe('ExperimentRunsService', () => {
       get: () => logger,
       configurable: true,
     })
+    campaignFindUnique = vi.fn().mockResolvedValue(null)
+    Object.defineProperty(service, '_prisma', {
+      value: { campaign: { findUnique: campaignFindUnique } },
+      configurable: true,
+    })
   })
 
   afterEach(() => {
@@ -59,6 +68,33 @@ describe('ExperimentRunsService', () => {
   })
 
   describe('dispatchRun', () => {
+    it('skips dispatch (no row, no SQS) for a test-user campaign', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+      campaignFindUnique.mockResolvedValue({
+        user: { email: 'jane@test.goodparty.org' },
+      })
+
+      const result = await service.dispatchRun({
+        type: 'district_issue_pulse',
+        organizationSlug: 'org-1',
+        clerkUserId: 'user_test_dispatch',
+        params: {
+          state: 'CA',
+          city: 'San Francisco',
+          l2DistrictType: 'city',
+          l2DistrictName: 'San Francisco',
+        },
+      })
+
+      expect(campaignFindUnique).toHaveBeenCalledWith({
+        where: { organizationSlug: 'org-1' },
+        select: { user: { select: { email: true } } },
+      })
+      expect(result).toBeUndefined()
+      expect(mockModel.create).not.toHaveBeenCalled()
+      expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+    })
+
     it('creates a QUEUED row and sends an SQS dispatch message', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
 
@@ -630,9 +666,13 @@ describe('ExperimentRunsService', () => {
       ...overrides,
     })
 
-    it('resumes due runs under the attempt cap', async () => {
+    it('caps resume attempts at 5', () => {
+      expect(MAX_RESUME_ATTEMPTS).toBe(5)
+    })
+
+    it('resumes a run one attempt below the cap', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
-      const run = makeRun({ resumeAttempts: 3 })
+      const run = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS - 1 })
       mockModel.findMany.mockResolvedValue([run])
       mockModel.updateMany.mockResolvedValue({ count: 1 })
 
@@ -744,7 +784,7 @@ describe('ExperimentRunsService', () => {
       'marks runs at/over the attempt cap as FAILED guarded on ' +
         'AWAITING_RESUME status',
       async () => {
-        const capRun = makeRun({ resumeAttempts: 48 })
+        const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
         mockModel.findMany.mockResolvedValue([capRun])
         mockModel.updateMany.mockResolvedValue({ count: 1 })
 
@@ -757,7 +797,7 @@ describe('ExperimentRunsService', () => {
           },
           data: {
             status: ExperimentRunStatus.FAILED,
-            error: expect.stringContaining('48'),
+            error: expect.stringContaining(String(MAX_RESUME_ATTEMPTS)),
           },
         })
         expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
@@ -765,7 +805,7 @@ describe('ExperimentRunsService', () => {
     )
 
     it('alerts Slack when it terminalizes a run at the attempt cap', async () => {
-      const capRun = makeRun({ resumeAttempts: 48 })
+      const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
       mockModel.findMany.mockResolvedValue([capRun])
       mockModel.updateMany.mockResolvedValue({ count: 1 })
 
@@ -778,7 +818,7 @@ describe('ExperimentRunsService', () => {
     })
 
     it('does not alert when another replica already terminalized the run (count 0)', async () => {
-      const capRun = makeRun({ resumeAttempts: 48 })
+      const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
       mockModel.findMany.mockResolvedValue([capRun])
       mockModel.updateMany.mockResolvedValue({ count: 0 })
 

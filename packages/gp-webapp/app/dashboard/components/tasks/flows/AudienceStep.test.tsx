@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { act, screen } from '@testing-library/react'
+import { act, screen, waitFor, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import AudienceStep from './AudienceStep'
 import type { AudienceFiltersState } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
 
 const mockCountVoterFile = vi.fn()
+const mockClientRequest = vi.fn()
 
 vi.mock('app/dashboard/voter-records/[type]/components/RecordCount', () => ({
   countVoterFile: (...args: unknown[]) => mockCountVoterFile(...args),
+}))
+
+vi.mock('gpApi/typed-request', () => ({
+  clientRequest: (...args: unknown[]) => mockClientRequest(...args),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
@@ -18,7 +23,7 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 vi.mock(
   'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
   () => ({
-    useP2pUxEnabled: () => ({ p2pUxEnabled: false }),
+    useP2pUxEnabled: () => ({ p2pUxEnabled: true }),
   }),
 )
 
@@ -44,6 +49,8 @@ describe('AudienceStep voter-count race', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockCountVoterFile.mockReset()
+    mockClientRequest.mockReset()
+    mockClientRequest.mockResolvedValue({ data: [] })
   })
 
   afterEach(() => {
@@ -116,5 +123,108 @@ describe('AudienceStep voter-count race', () => {
     expect(voterCountCalls.at(-1)).toEqual(['voterCount', 200])
 
     warn.mockRestore()
+  })
+})
+
+describe('AudienceStep saved-list selector', () => {
+  beforeEach(() => {
+    mockCountVoterFile.mockReset()
+    mockClientRequest.mockReset()
+  })
+
+  it('reuses the selected list id and does not POST a new filter', async () => {
+    const savedList = {
+      id: 42,
+      name: 'My Super Voters',
+      audienceSuperVoters: true,
+      hasCellPhone: true,
+    }
+    mockClientRequest.mockResolvedValue({ data: [savedList] })
+
+    const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
+    const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={onCreateVoterFileFilter}
+        onCreatePhoneList={onCreatePhoneList}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('combobox'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: 'My Super Voters' }),
+      ).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('option', { name: 'My Super Voters' }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Using your saved list/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    expect(onCreateVoterFileFilter).not.toHaveBeenCalled()
+    expect(onCreatePhoneList).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42 }),
+    )
+    expect(onChangeCallback).toHaveBeenLastCalledWith({
+      voterFileFilter: expect.objectContaining({ id: 42 }),
+      phoneListToken: 'phone-token',
+    })
+  })
+
+  it('hides auto-generated date-named throwaway lists', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        { id: 1, name: 'Texting outreach — Jun 24, 2026' },
+        { id: 2, name: 'My Real List' },
+      ],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 1 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('combobox'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: 'My Real List' }),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('option', {
+        name: 'Texting outreach — Jun 24, 2026',
+      }),
+    ).not.toBeInTheDocument()
   })
 })

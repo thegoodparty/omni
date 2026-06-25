@@ -108,7 +108,7 @@ jobs:
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
           api-base: ${{ steps.ctx.outputs.api_base }}
 
-  # The Storybook styleguide (packages/gp-webapp/styleguide) ships to its own
+  # The Storybook styleguide (packages/styleguide) ships to its own
   # Vercel project, served at style.goodparty.org. Only on merges to develop —
   # it's a single-environment site. vercel build runs the project's configured
   # `build-storybook` on the runner against the installed workspace deps (same

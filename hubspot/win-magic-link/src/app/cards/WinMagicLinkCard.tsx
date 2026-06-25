@@ -114,10 +114,10 @@ function WinMagicLinkCard({ actions }: { actions: Actions }) {
 
   return (
     <Flex direction="column" gap="md">
-      <Alert title="Internal testing tool" variant="info">
+      <Alert title="Candidate onboarding magic link" variant="info">
         Generates a one-click candidate onboarding link for this contact and
-        emails it to them automatically. Not for production use yet — confirm the
-        contact details below before sending.
+        emails it to them automatically. Confirm the contact details below
+        before sending.
       </Alert>
 
       {contactError ? (

@@ -25,6 +25,7 @@ import {
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
+import { CountContactsDTO } from '../schemas/countContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -36,14 +37,16 @@ import {
   convertVoterFileFilterToFilters,
   type FilterObject,
 } from '../utils/voterFileFilter.utils'
+import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
 const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 
 // The default, unfiltered view. It (and the district stats) are visible to any
-// Win campaign with the flag on, pro or not, so a non-pro candidate sees the
-// aggregates and a blurred preview before being upsold. Search, custom/named
+// Win campaign with the flag on, pro or not. A non-pro candidate sees the real
+// district aggregates but a synthetic (fake) people preview — never real voter
+// PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
 
@@ -75,9 +78,10 @@ export class ContactsService {
   // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
   // are reachable when win-voter-data is on for the user — pro and non-pro
   // alike, so a non-pro candidate lands on the page and sees the district
-  // aggregates and a blurred preview. Pro is NOT gated here; it is enforced
-  // per-action instead (search and named/custom segments in findContacts,
-  // download in downloadContacts) so those surface the upgrade prompt. Ownership
+  // aggregates and a synthetic people preview. Pro is NOT gated here; it is
+  // enforced per-action instead (real people data on the base list, search and
+  // named/custom segments in findContacts, download in downloadContacts) so
+  // those surface the upgrade prompt. Ownership
   // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
   // consumer) call the service methods directly and are intentionally not gated.
   async assertContactsAccess(
@@ -176,15 +180,38 @@ export class ContactsService {
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
-    if (wantsProOnlyView && !(await this.isProAccess(organization))) {
+    const isPro = await this.isProAccess(organization)
+    if (wantsProOnlyView && !isPro) {
       throw new BadRequestException(
         'Search and segments are only available for pro campaigns',
+      )
+    }
+
+    // A non-pro requester (a Win candidate on the base-list upsell) must never
+    // receive real voter PII — see previewContacts.utils. The rows are
+    // fabricated, but the pagination total stays real (the district count is an
+    // aggregate, not PII, and the unblurred "Total Voters" stat card reads it)
+    // so the number a non-pro user sees doesn't regress. District resolution
+    // runs first so an ineligible org still gets the VOTER_DATA_UNAVAILABLE
+    // state a pro org would, rather than a preview implying data exists.
+    if (!isPro) {
+      return this.withOrgDistrictResolution(
+        organization,
+        async ({ districtId }) =>
+          buildPreviewContacts({
+            resultsPerPage,
+            page,
+            totalResults: (await this.fetchStatsByDistrictId(districtId))
+              .totalConstituents,
+          }),
       )
     }
 
     const fetchPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
+      peopleSearch: string | undefined,
     ) => {
       try {
         const response = await lastValueFrom(
@@ -195,7 +222,8 @@ export class ContactsService {
               resultsPerPage,
               page,
               filters,
-              search,
+              search: peopleSearch,
+              groupByHousehold,
             },
             {
               headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
@@ -212,9 +240,66 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
+    // A list saved from a search result set persists its search term. When the
+    // request itself carries no live search, re-apply the saved list's stored
+    // search so selecting it reproduces the searched-down view (ENG-10518). A
+    // live search the user typed always wins over the stored one.
+    const effectiveSearch =
+      search || (await this.segmentToSearch(segment, organization))
     return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters),
+      fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
+  }
+
+  // Live matching-voter count for the in-progress (unsaved) filter set the
+  // segment builder is showing (ENG-10517). Runs the same filter translation a
+  // saved segment would and reads only the people-api total — resultsPerPage: 1
+  // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
+  // requester only ever sees the base-list preview, never an arbitrary count.
+  async countContacts(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<number> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const filters = convertVoterFileFilterToFilters(filterInput)
+    // The builder counts the filter set plus any active free-text search so the
+    // number matches the list it would save (ENG-10517/10518).
+    const search = filterInput.search || undefined
+
+    const fetchCount = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: 1,
+              page: 1,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return (response.data as PeopleListResponse).pagination.totalResults
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to count from people API')
+        throw new BadGatewayException('Failed to count from people API')
+      }
+    }
+
+    return this.withOrgDistrictResolution(organization, fetchCount)
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
@@ -274,9 +359,10 @@ export class ContactsService {
     id: string,
     organization: Organization,
   ): Promise<PersonOutput> {
-    // Opening a person record is a pro action (the list shows non-pro a blurred
-    // preview and the modal fires on row-click). Gate it like search/segments
-    // so a direct call can't read full person detail without pro.
+    // Opening a person record is a pro action (the list shows non-pro a
+    // synthetic preview and the modal fires on row-click). Gate it like
+    // search/segments so a direct call can't read real person detail without
+    // pro.
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(
         'Viewing contact details is only available for pro campaigns',
@@ -330,13 +416,14 @@ export class ContactsService {
     const downloadPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
     ) => {
       let response: { data: Readable }
       try {
         response = await lastValueFrom(
           this.httpService.post<Readable>(
             `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters },
+            { ...districtParams, filters, groupByHousehold },
             {
               headers: {
                 Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -432,8 +519,9 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
     return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters),
+      downloadPeople(params, filters, groupByHousehold),
     )
   }
 
@@ -510,6 +598,8 @@ export class ContactsService {
 
     const payload = {
       iss: 'gp-api',
+      // Bind the token to people-api so the verifier can require this audience.
+      aud: 'people-api',
       iat: now,
       exp: now + 300,
     }
@@ -534,6 +624,39 @@ export class ContactsService {
       )
 
     return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+  }
+
+  // A saved list created from a search result set stores its search term.
+  // Built-in segments and the default view never carry one (ENG-10518).
+  private async segmentToSearch(
+    segment: string | undefined,
+    organization: Organization,
+  ): Promise<string | undefined> {
+    const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
+    if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
+
+    const customSegment =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        parseInt(resolvedSegment),
+        organization.slug,
+      )
+
+    return customSegment?.search ?? undefined
+  }
+
+  // Only the built-in door-knocking channel de-dupes by household; custom and
+  // named segments (and every other channel) list one row per voter.
+  private segmentGroupsByHousehold(segment: string | undefined): boolean {
+    const builtIn =
+      defaultSegmentToFiltersMap[
+        // Dynamic key lookup into const object — TS can't narrow string to keys
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        (segment ||
+          ALL_CONTACTS_SEGMENT) as keyof typeof defaultSegmentToFiltersMap
+      ]
+    return (
+      !!builtIn && 'groupByHousehold' in builtIn && builtIn.groupByHousehold
+    )
   }
 
   private resolveBuiltInSegment(segment: string): FilterObject | undefined {

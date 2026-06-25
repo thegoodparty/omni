@@ -18,17 +18,19 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 
 ## Packages
 
-| Path                       | What                                            | Stack             | Port |
-| -------------------------- | ----------------------------------------------- | ----------------- | ---- |
-| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)    | NestJS + Fastify  | 3000 |
-| `packages/gp-webapp`       | Product app for candidates & elected officials  | Next.js 16        | 4000 |
-| `packages/election-api`    | Election/race/candidacy data microservice       | NestJS + Fastify  | 3001 |
-| `packages/people-api`      | Voter/people data microservice (L2 records)     | NestJS + Fastify  | 3002 |
-| `packages/gp-admin`        | Internal staff admin console (uses the SDK)     | Next.js 16        | 3500 |
-| `packages/candidate-sites` | Per-candidate static sites                      | Next.js           | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | TypeScript        | —    |
-| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | TypeScript        | —    |
-| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | Markdown + Python | —    |
+| Path                       | What                                                              | Stack             | Port |
+| -------------------------- | ----------------------------------------------------------------- | ----------------- | ---- |
+| `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)                      | NestJS + Fastify  | 3000 |
+| `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
+| `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
+| `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
+| `packages/people-api`      | Voter/people data microservice (L2 records)                       | NestJS + Fastify  | 3002 |
+| `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
+| `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
+| `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
+| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client                           | TypeScript        | —    |
+| `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
+| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
 
 ## Where to look (read the nearest doc first)
 
@@ -41,6 +43,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
+| Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 
 `packages/gp-api/CLAUDE.md` is the gold-standard for nested-doc style — pointer
@@ -97,6 +100,15 @@ npm workspace graph. npm owns the TS packages; uv owns that subtree.
 `develop -> qa -> master` map to `dev / qa / prod` (people-api is `dev`/`prod`
 only). Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via
 Vercel with deterministic PR-preview aliases. Detail in `docs/deployment.md`.
+
+## Worktrees
+
+This checkout is shared — other agents and sessions move `HEAD` underneath you. Do
+git work (branches, commits, PRs) in a worktree, not the main checkout. The native
+worktree tool places them in `.claude/worktrees/` (gitignored); if you create one by
+hand, put it under `.worktrees/` and remove it with `git worktree remove`, never
+`rm` — `rm` leaves git's worktree metadata dangling. After a worktree's PR merges,
+run `git worktree prune`.
 
 ## Observability and debugging (use the MCPs)
 

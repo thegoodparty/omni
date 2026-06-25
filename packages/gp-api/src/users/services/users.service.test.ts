@@ -14,6 +14,8 @@ import {
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { UserRole } from '../../generated/prisma'
+import { subDays } from 'date-fns'
 
 const service = useTestService()
 
@@ -660,10 +662,10 @@ describe('UsersService', () => {
     })
 
     it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
-      // No Clerk identity exists for the email (clerkId is null), so a new Clerk
-      // user is created and reuse-tracking never trips — but findOrProvisionByClerk
-      // links the existing campaign-owning local user. The campaign gate must run
-      // on the resolved user, not only when we knowingly reused a Clerk identity.
+      // The email matches a campaign-owning local row whose clerkId is null. The
+      // gate must run on this pre-existing row BEFORE any Clerk identity is
+      // minted or bound — so no Clerk user is created and the row's clerkId is
+      // left untouched.
       const suffix = uniqueSuffix()
       const email = `eo-legacy-camp-${suffix}@example.com`
       const user = await service.prisma.user.create({
@@ -702,7 +704,91 @@ describe('UsersService', () => {
           lastName: 'Candidate',
         }),
       ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
-      expect(createUser).toHaveBeenCalled()
+      expect(createUser).not.toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
+      const refetched = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refetched?.clerkId).toBeNull()
+    })
+
+    it('refuses a legacy staff/admin local user with no Clerk identity and no campaign', async () => {
+      // The account-takeover path: an admin-console-created staff row has
+      // clerkId: null and owns NO campaign, so the campaign gate alone misses
+      // it. The role gate refuses it — and runs before provisioning, so no Clerk
+      // identity is minted or bound to the privileged row and no token issues.
+      const suffix = uniqueSuffix()
+      const email = `eo-admin-${suffix}@example.com`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Staff',
+          lastName: 'Admin',
+          name: 'Staff Admin',
+          clerkId: null,
+          roles: [UserRole.admin],
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_admin_${suffix}` } as never)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Staff',
+          lastName: 'Admin',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(createUser).not.toHaveBeenCalled()
+      expect(signIn).not.toHaveBeenCalled()
+      // No foreign Clerk identity was bound onto the privileged row.
+      const refetched = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refetched?.clerkId).toBeNull()
+    })
+
+    it('refuses a role-bearing account that already has a Clerk identity', async () => {
+      // A privileged account is refused even when the email already maps to a
+      // (bare passwordless) Clerk identity — the role gate, not the passwordless
+      // gate, is what blocks it, and no sign-in token is minted.
+      const suffix = uniqueSuffix()
+      const email = `eo-clerk-admin-${suffix}@example.com`
+      const clerkId = `clerk_admin_existing_${suffix}`
+      await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Clerk',
+          lastName: 'Admin',
+          name: 'Clerk Admin',
+          clerkId,
+          roles: [UserRole.admin],
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      // Mocked so the read-enrichment wrapper (findUserByEmail enriches a row
+      // that has a clerkId) doesn't reach the real Clerk API.
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Clerk',
+          lastName: 'Admin',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
       expect(signIn).not.toHaveBeenCalled()
     })
   })
@@ -1132,6 +1218,121 @@ describe('UsersService', () => {
         where: { id: targetUser.id },
       })
       expect(found).not.toBeNull()
+    })
+  })
+
+  describe('deleteTestUsers', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('deletes only test-domain DB users older than the cutoff', async () => {
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+
+      const suffix = `${Date.now()}`
+      const oldTest = await service.prisma.user.create({
+        data: {
+          email: `old-${suffix}@test.goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
+      const recentTest = await service.prisma.user.create({
+        data: {
+          email: `recent-${suffix}@test.goodparty.org`,
+          createdAt: new Date(),
+        },
+      })
+      const oldReal = await service.prisma.user.create({
+        data: {
+          email: `old-${suffix}@example.com`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
+
+      await usersService.deleteTestUsers()
+
+      expect(
+        await service.prisma.user.findUnique({ where: { id: oldTest.id } }),
+      ).toBeNull()
+      expect(
+        await service.prisma.user.findUnique({ where: { id: recentTest.id } }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.user.findUnique({ where: { id: oldReal.id } }),
+      ).not.toBeNull()
+    })
+
+    it('pages through Clerk oldest-first, deleting test-domain users and advancing offset past the rest', async () => {
+      // All mock users are created well before the 24h cutoff so they are
+      // eligible for deletion.
+      const oldCreatedAt = 1000
+      const testUser = (i: number) =>
+        ({
+          id: `clerk_test_${i}`,
+          createdAt: oldCreatedAt,
+          emailAddresses: [{ emailAddress: `t${i}@test.goodparty.org` }],
+        }) as never
+      const realUser = (i: number) =>
+        ({
+          id: `clerk_real_${i}`,
+          createdAt: oldCreatedAt,
+          emailAddresses: [{ emailAddress: `r${i}@example.com` }],
+        }) as never
+
+      // Page 1 (full): 3 test users + 497 non-test.
+      const pageOne = [
+        testUser(1),
+        testUser(2),
+        testUser(3),
+        ...Array.from({ length: 497 }, (_, i) => realUser(i)),
+      ]
+      // Page 2 (full): 1 test user + 499 non-test.
+      const pageTwo = [
+        testUser(4),
+        ...Array.from({ length: 499 }, (_, i) => realUser(500 + i)),
+      ]
+      // Page 3 (short): 1 test user + 1 non-test -> loop stops.
+      const pageThree = [testUser(5), realUser(9999)]
+
+      const getUserList = vi
+        .spyOn(clerkClient.users, 'getUserList')
+        .mockResolvedValueOnce({ data: pageOne, totalCount: 1002 } as never)
+        .mockResolvedValueOnce({ data: pageTwo, totalCount: 1002 } as never)
+        .mockResolvedValueOnce({ data: pageThree, totalCount: 1002 } as never)
+      const deleteUser = vi
+        .spyOn(clerkClient.users, 'deleteUser')
+        .mockResolvedValue(
+          {} as Awaited<ReturnType<typeof clerkClient.users.deleteUser>>,
+        )
+
+      await usersService.deleteTestUsers()
+
+      expect(deleteUser.mock.calls.map((c) => c[0])).toEqual([
+        'clerk_test_1',
+        'clerk_test_2',
+        'clerk_test_3',
+        'clerk_test_4',
+        'clerk_test_5',
+      ])
+      expect(getUserList).toHaveBeenCalledTimes(3)
+      expect(getUserList.mock.calls[0][0]).toMatchObject({
+        limit: 500,
+        offset: 0,
+        orderBy: '+created_at',
+      })
+      // offset advances past the non-deleted users left on each page:
+      // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
+      expect(getUserList.mock.calls[1][0]).toMatchObject({ offset: 497 })
+      expect(getUserList.mock.calls[2][0]).toMatchObject({ offset: 996 })
     })
   })
 })

@@ -1023,6 +1023,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
+    // Peerly TCR submission resolves the postal address from campaign.placeId
+    // (peerlyIdentity.service getAddressByPlaceId). Without it the run publishes
+    // a site, reaches website_verified_live, then can't submit — and the agent
+    // reports `partial`, so the resume sweep re-dispatches a full paid run every
+    // few minutes until it gives up (~$10 burned per stuck candidate). Reject at
+    // kickoff so the candidate is told to add their address instead of looping.
+    if (!campaign.placeId?.trim()) {
+      this.logger.error(
+        { campaignId, tcrComplianceId },
+        '[TCR Compliance] Cannot dispatch compliance_setup: ' +
+          'campaign.placeId is missing; Peerly requires a postal address',
+      )
+      await this.model.updateMany({
+        where: { id: tcrComplianceId, agenticRunId: null },
+        data: { status: TcrComplianceStatus.error },
+      })
+      return
+    }
+
     // The agent buys a domain and publishes this campaign's website but can't
     // create one or author missing copy. Legacy-Pro candidates reach this flow
     // without the pre-payment candidate-profile step that builds the site, so

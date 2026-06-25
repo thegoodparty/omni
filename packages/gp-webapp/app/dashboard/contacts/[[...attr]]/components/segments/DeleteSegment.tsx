@@ -12,18 +12,20 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { type SegmentResponse } from '../shared/contacts-types'
 
 interface DeleteSegmentProps {
   segment: SegmentResponse
-  afterDeleteCallback: () => void
+  afterDeleteCallback: (deletedId: number) => void
+  trigger?: ReactNode
 }
 
 export default function DeleteSegment({
   segment,
   afterDeleteCallback,
+  trigger,
 }: DeleteSegmentProps) {
   const { id } = segment
   const { refreshCustomSegments, isWinContext } = useContactsTable()
@@ -36,8 +38,8 @@ export default function DeleteSegment({
       await clientRequest('DELETE /v1/voters/voter-file/filter/:id', {
         id: String(id),
       })
-      refreshCustomSegments()
-      afterDeleteCallback()
+      await refreshCustomSegments()
+      afterDeleteCallback(id)
       trackEvent(EVENTS.Contacts.SegmentDeleted, {
         context: isWinContext ? 'win' : 'serve',
       })
@@ -51,14 +53,16 @@ export default function DeleteSegment({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button
-          variant="destructive"
-          className="mt-12"
-          loading={isDeleting}
-          disabled={isDeleting}
-        >
-          Delete Segment
-        </Button>
+        {trigger ?? (
+          <Button
+            variant="destructive"
+            className="mt-12"
+            loading={isDeleting}
+            disabled={isDeleting}
+          >
+            Delete Segment
+          </Button>
+        )}
       </AlertDialogTrigger>
       <AlertDialogContent className="z-[2000]">
         <AlertDialogHeader>

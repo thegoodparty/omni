@@ -39,6 +39,7 @@ function makeController() {
     electedOfficeService,
     ballotReadyService,
     elections,
+    analytics,
   }
 }
 
@@ -77,6 +78,15 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     )
     expect(ctx.usersService.provisionMagicLinkUser).toHaveBeenCalledWith(
       expect.objectContaining({ firstName: 'Jane', lastName: 'Doe' }),
+    )
+  })
+
+  it('tracks the magic-link-sent event tagged as a serve link', async () => {
+    await ctx.controller.createMagicLink(dto({}))
+    expect(ctx.analytics.track).toHaveBeenCalledWith(
+      1,
+      'Onboarding - Magic Link Sent',
+      expect.objectContaining({ email: 'eo@example.com', type: 'serve' }),
     )
   })
 
