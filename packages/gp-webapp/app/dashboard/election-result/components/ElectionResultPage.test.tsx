@@ -188,14 +188,16 @@ describe('ElectionResultPage', () => {
     expect(electedOfficeCreated).toBe(false)
   })
 
-  it('does not create an office when saving the result fails on confirm', async () => {
-    mockUpdateCampaign.mockResolvedValue(false)
+  it('does not mark the campaign won when office creation fails on confirm', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
 
-    let electedOfficeCreated = false
-    api.mock('POST /v1/elected-office', () => {
-      electedOfficeCreated = true
-      return { status: 200, data: eoFixture }
-    })
+    // The office is created BEFORE the campaign is flagged won, so a create
+    // failure must leave the campaign untouched (no "won" campaign without an
+    // office — the limbo this fix removes).
+    api.mock('POST /v1/elected-office', () => ({
+      status: 500,
+      data: { message: 'boom' },
+    }))
 
     render(<ElectionResultPage />)
     fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
@@ -205,7 +207,7 @@ describe('ElectionResultPage', () => {
     await waitFor(() => {
       expect(mockErrorSnackbar).toHaveBeenCalled()
     })
-    expect(electedOfficeCreated).toBe(false)
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('creates an already-onboarded office with term dates when the win is confirmed', async () => {

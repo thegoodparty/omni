@@ -88,16 +88,6 @@ export default function ElectionResultPage(): React.JSX.Element {
     router.push('/dashboard')
   }
 
-  const details = campaign?.details
-  const goals = campaign && 'goals' in campaign ? campaign.goals : undefined
-  const goalsObj = goals && typeof goals === 'object' ? goals : null
-  const goalsElectionDate =
-    goalsObj &&
-    'electionDate' in goalsObj &&
-    typeof goalsObj.electionDate === 'string'
-      ? goalsObj.electionDate
-      : undefined
-  const electionDate = details?.electionDate || goalsElectionDate
   const positionName = usePositionName()
 
   const { errorSnackbar } = useSnackbar()
@@ -116,14 +106,10 @@ export default function ElectionResultPage(): React.JSX.Element {
     setSelectedOption(selection)
 
     // Winning: collect term dates first (next step), then create the office.
-    // Defer persisting the campaign result until the dates are confirmed so an
-    // abandoned flow never leaves a "won" campaign with no elected office.
+    // Defer persisting the campaign result until the dates are confirmed AND the
+    // office is created so an abandoned (or failed) flow never leaves a "won"
+    // campaign with no elected office.
     if (selection === RESULT_WON) {
-      if (!electionDate) {
-        errorSnackbar('Failed to submit election result.')
-        setRequestState({ submitting: false, error: true })
-        return
-      }
       setRequestState({ submitting: true, error: false })
       // Best-effort: load any other offices the user holds so the picker can
       // block overlapping ranges. A failure just leaves the ranges empty — the
@@ -171,14 +157,27 @@ export default function ElectionResultPage(): React.JSX.Element {
     }
   }
 
-  // Confirm the win: persist the result, then create the elected office WITH its
-  // term dates and a completion marker. Creating it already-onboarded (term dates
-  // + onboardingCompletedAt) is what keeps post-auth routing on the dashboard
-  // instead of dumping a just-won official into the serve onboarding flow.
+  // Confirm the win: create the elected office WITH its term dates and a
+  // completion marker FIRST, then mark the campaign won. Creating it
+  // already-onboarded (term dates + onboardingCompletedAt) is what keeps
+  // post-auth routing on the dashboard instead of dumping a just-won official
+  // into the serve onboarding flow. The office must be created before the
+  // campaign is flagged won — if the create failed after flagging, the campaign
+  // would be stuck "won" with no office (the very limbo this fix removes).
   async function handleWonConfirm() {
     if (!datesValid) return
     setRequestState({ submitting: true, error: false })
     try {
+      const created = await clientRequest('POST /v1/elected-office', {
+        termStartDate: toApiDate(termStartDate),
+        termEndDate: toApiDate(termEndDate),
+        onboardingCompletedAt: new Date().toISOString(),
+      })
+      if (!created.ok || !created.data) {
+        throw new Error('Failed to create elected office')
+      }
+      const newOffice = created.data as ElectedOffice
+
       const updated = await updateCampaign([
         { key: 'details.wonGeneral', value: true },
       ])
@@ -199,16 +198,6 @@ export default function ElectionResultPage(): React.JSX.Element {
       trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
         status: RESULT_WON,
       })
-
-      const created = await clientRequest('POST /v1/elected-office', {
-        termStartDate: toApiDate(termStartDate),
-        termEndDate: toApiDate(termEndDate),
-        onboardingCompletedAt: new Date().toISOString(),
-      })
-      if (!created.ok || !created.data) {
-        throw new Error('Failed to create elected office')
-      }
-      const newOffice = created.data as ElectedOffice
 
       const organizations = await clientRequest(
         'GET /v1/organizations',
