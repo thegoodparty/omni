@@ -149,6 +149,27 @@ Output the manifest path + the JSON slug array. Stop here. To run agents over th
 cohort, pass the slugs to a dispatch skill (`bulk-community-issues-cohort` with
 `--env dev`).
 
+## Testing the skill (job-free)
+
+Creation never dispatches by itself unless the target env has
+`MEETINGS_AUTOMATION_ENABLED=true` AND the office binds to a resolvable position.
+To validate the skill without any agent spend:
+
+- **Analysis steps** are read-only Databricks queries — run them and eyeball the
+  distribution + selection.
+- **Creation step**: run the creator with `--dry-run`. It creates the users +
+  elected offices **unbound** (no position), so `resolveContext` returns null and
+  nothing dispatches in any env. This exercises the full pipeline (selection parse,
+  Clerk user creation, EO creation, manifest, slug list, failure handling) at any N.
+- **Binding fidelity** (the one thing `--dry-run` skips — the position bind) is
+  cheap to spot-check on a single bound user: create one without `--dry-run`, then
+  `GET election-api-dev /v1/positions/<id>?includeDistrict=true` and confirm
+  `isServeIcp: true`, or read back the created org.
+- The endpoint's `refresh.status` is **not** a "did it dispatch" signal: it returns
+  `running` whenever there is no run at all (`latestRun ? map : 'running'`), so it
+  cannot distinguish "queued/running" from "never dispatched". Only `completed` /
+  `failed` are meaningful.
+
 ## Notes / gotchas
 
 - **Cleanup window.** Created users are `@test.goodparty.org` and are swept by
