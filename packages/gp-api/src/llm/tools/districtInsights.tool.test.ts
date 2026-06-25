@@ -199,6 +199,36 @@ describe('validateInsightsSql', () => {
         ),
       ).toThrow(/table.*allow/i)
     })
+
+    it('rejects a schema-qualified table that shares the allowlisted bare name', () => {
+      // other_schema.<allowed> parses to { db: 'other_schema', table: <allowed> };
+      // the qualifier must not be dropped, or it reads a same-named table in
+      // another schema and escapes the curated mart.
+      expect(() =>
+        validateInsightsSql(
+          `SELECT COUNT(*) FROM other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toThrow(/table.*allow/i)
+    })
+
+    it('rejects a three-part catalog.schema.table reference', () => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT COUNT(*) FROM other_catalog.other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toThrow(/table.*allow/i)
+    })
+
+    it('still allows the bare allowlisted table', () => {
+      expect(
+        validateInsightsSql(
+          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toContain('int__l2_nationwide_uniform_w_haystaq')
+    })
   })
 
   describe('enforces aggregate-only shape', () => {

@@ -7,6 +7,7 @@ import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { GetVoterFileSchema } from '../voterFile/schemas/GetVoterFile.schema'
 import { PinoLogger } from 'nestjs-pino'
 import { requireEnv } from 'src/shared/util/env.util'
+import { neutralizeCsvFormula } from 'src/shared/util/csv.util'
 
 const VOTER_DATASTORE = requireEnv('VOTER_DATASTORE')
 
@@ -46,7 +47,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {
-          headerMapping[col.db] = col.label
+          headerMapping[col.db] = neutralizeCsvFormula(col.label)
         }
       })
     }
@@ -59,9 +60,11 @@ export class VoterDatabaseService implements OnModuleDestroy {
         let data: string = chunk.toString()
         if (isFirstChunk) {
           isFirstChunk = false
-          // Replace headers on the first chunk
+          // Replace headers on the first chunk. Use the function-replacer form
+          // so `$`-sequences in a user-supplied label (e.g. `$&`, `$1`) stay
+          // literal instead of being expanded as replacement patterns.
           for (const [oldHeader, newHeader] of Object.entries(headerMapping)) {
-            data = data.replace(oldHeader, newHeader)
+            data = data.replace(oldHeader, () => newHeader)
           }
         }
         callback(null, data)
@@ -100,7 +103,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {
-          headerMapping[col.db] = col.label
+          headerMapping[col.db] = neutralizeCsvFormula(col.label)
         }
       })
     }
@@ -112,9 +115,11 @@ export class VoterDatabaseService implements OnModuleDestroy {
         let data: string = chunk.toString()
         if (isFirstChunk) {
           isFirstChunk = false
-          // Replace headers on the first chunk
+          // Replace headers on the first chunk. Use the function-replacer form
+          // so `$`-sequences in a user-supplied label (e.g. `$&`, `$1`) stay
+          // literal instead of being expanded as replacement patterns.
           for (const [oldHeader, newHeader] of Object.entries(headerMapping)) {
-            data = data.replace(oldHeader, newHeader)
+            data = data.replace(oldHeader, () => newHeader)
           }
         }
         callback(null, data)
