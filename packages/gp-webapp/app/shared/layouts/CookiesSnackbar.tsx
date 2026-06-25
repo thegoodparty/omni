@@ -1,20 +1,20 @@
 'use client'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { isbot } from 'isbot'
 import { MdClose } from 'react-icons/md'
 import { Button } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 
 const CookiesSnackbar = (): React.JSX.Element | null => {
-  const [showBanner, setShowBanner] = useState(false)
-  useEffect(() => {
+  const [showBanner, setShowBanner] = useState(() => {
     const cookie = getCookie('cookiesAccepted')
     const isBot = isbot(navigator.userAgent)
-    if (!cookie && !isBot) {
-      setShowBanner(true)
+    if (!cookie && !isBot && !navigator.webdriver) {
+      return true
     }
-  }, [])
+    return false
+  })
   if (!showBanner) {
     return null
   }
