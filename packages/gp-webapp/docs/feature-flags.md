@@ -64,12 +64,6 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 **Anonymous visitors get no flags — every flag reads `off` and the client makes no resolution call.** This is by design: the client never talks to Amplitude, and gp-api only resolves for an authenticated user. A flag that must be on for a logged-out / marketing page therefore will not work through this provider — resolve it another way.
 
-## E2E overrides
-
-Because the browser no longer fetches Amplitude, an E2E test can't stub vardata to force a variant. Instead the server-side resolver (`getFlagVariants`) honors an `e2e-flag-overrides` cookie and merges it over gp-api's result — see `app/shared/experiments/flagOverrides.ts`. The Playwright auth helper sets it via `authenticateTestUser(page, { flagOverrides: { 'serve-access': 'on' } })`.
-
-The cookie is honored **only on PR previews and local dev** (`IS_PREVIEW || IS_LOCAL`), never on dev / qa / prod, and is read only from a cookie (never a query param) and schema-validated. It lets a test pin flag-gated UI deterministically instead of depending on live Amplitude targeting for synthetic test users.
-
 ## Server-side flags
 
 Server components currently can't read Amplitude experiments — the provider is client-only. If you need server-side gating, gate at the gp-api layer or pass the flag down to a `'use client'` boundary.
@@ -93,5 +87,4 @@ Server components currently can't read Amplitude experiments — the provider is
 - `app/shared/experiments/FeatureFlagGuard.tsx` — route-level guard.
 - `app/shared/experiments/getFlagVariants.ts` — server resolver (SSR seed).
 - `app/api/feature-flags/route.ts` — same-origin endpoint the client refreshes through.
-- `app/shared/experiments/flagOverrides.ts` — E2E-only override seam (preview / local).
 - `helpers/buildUserTraits.ts` — segment traits keying client re-resolution.
