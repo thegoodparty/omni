@@ -173,11 +173,11 @@ describe('<RaceOpponentList>', () => {
       await vi.advanceTimersByTimeAsync(5000)
       await vi.advanceTimersByTimeAsync(5000)
 
-      await waitFor(() => expect(screen.getByText('Failed')).toBeInTheDocument())
+      await waitFor(() =>
+        expect(screen.getByText('Failed')).toBeInTheDocument(),
+      )
       expect(collectHandler).not.toHaveBeenCalled()
-      expect(
-        screen.getByRole('button', { name: /collect now/i }),
-      ).toBeEnabled()
+      expect(screen.getByRole('button', { name: /collect now/i })).toBeEnabled()
     } finally {
       vi.useRealTimers()
     }
