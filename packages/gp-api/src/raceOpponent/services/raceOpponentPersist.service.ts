@@ -64,11 +64,29 @@ export class RaceOpponentPersistService extends createPrismaBase(
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
       const envelope = ArtifactEnvelopeSchema.parse(JSON.parse(raw))
-      await this.replaceForCampaign(
-        campaign.id,
-        run.runId,
-        this.parseItems(run.runId, envelope.items),
-      )
+
+      // An empty items array is a valid result per the experiment contract: an
+      // opponent with no findable Ballotpedia page or website is the expected
+      // down-ballot case, and that "no web footprint" finding is exactly what
+      // this collection exists to surface. Leave the run COMPLETED, write
+      // nothing, and preserve any prior collection.
+      if (envelope.items.length === 0) {
+        this.logger.info(
+          { runId: run.runId },
+          'collection found no web sources; completing with no rows written',
+        )
+        return
+      }
+
+      const items = this.parseItems(run.runId, envelope.items)
+
+      // The artifact carried items but every one failed per-item validation —
+      // an agent/contract defect, not a no-data race. Fail the run.
+      if (items.length === 0) {
+        throw new Error('every artifact item failed per-item validation')
+      }
+
+      await this.replaceForCampaign(campaign.id, run.runId, items)
     } catch (error) {
       await this.experimentRuns.markFailed(
         run.runId,
@@ -106,23 +124,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
 
   // Idempotent replace-on-persist: delete the campaign's existing rows and
   // re-insert from the artifact in one transaction, so a re-run overwrites
-  // cleanly rather than accumulating duplicates.
-  //
-  // Empty items means either the agent found nothing or every item was dropped
-  // for failing per-item validation. We throw rather than no-op: the caller's
-  // catch marks the run FAILED, so the derived status reports failed instead of
-  // sitting completed with stale rows. The throw happens before any deleteMany,
-  // so the campaign's previously-collected opponents are preserved.
+  // cleanly rather than accumulating duplicates. The caller guarantees a
+  // non-empty items list — the empty cases are handled upstream.
   private async replaceForCampaign(
     campaignId: number,
     runId: string,
     items: ArtifactItem[],
   ): Promise<void> {
-    if (items.length === 0) {
-      throw new Error(
-        'artifact yielded zero valid items — prior rows preserved, run marked failed',
-      )
-    }
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
