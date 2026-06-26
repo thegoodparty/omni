@@ -26,7 +26,9 @@ metrics, and traces.
 
 - `grafana` needs `uvx` (from `uv`) on your PATH; its URL is hardcoded to
   `https://goodparty.grafana.net` in `.mcp.json`.
-- `playwright` runs via `npx` and needs no env vars.
+- `playwright` runs via `npx` and needs no env vars. It is configured `--headless
+--isolated` so it never opens a visible browser window — agents snapshot pages
+  silently. Don't override it to headed.
 - `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
   need no token in env — authorize them on first use via `/mcp`.
 

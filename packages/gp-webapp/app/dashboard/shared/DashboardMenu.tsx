@@ -71,6 +71,7 @@ import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { useKnowYourOpponentFlag } from '@shared/experiments/knowYourOpponentFlag'
 
 interface MenuItem {
   id: string
@@ -261,6 +262,15 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
+const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
+  id: 'race-opponent-dashboard',
+  label: 'Know your opponent',
+  link: '/dashboard/race-opponent',
+  icon: <MdFactCheck />,
+  v2Icon: FlagIcon,
+  v2Category: 'campaign',
+}
+
 const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   id: 'campaign-story-dashboard',
   label: 'Campaign Story',
@@ -281,6 +291,7 @@ export const getDashboardMenuItems = (
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
+  knowYourOpponentEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -352,6 +363,12 @@ export const getDashboardMenuItems = (
     menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
+  // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff
+  // independently, and Pro-only like the page route itself.
+  if (knowYourOpponentEnabled && campaign?.isPro) {
+    menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -377,6 +394,9 @@ export default function DashboardMenu({
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here.
+  const { enabled: knowYourOpponentEnabled } = useKnowYourOpponentFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -391,6 +411,7 @@ export default function DashboardMenu({
       winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
+      knowYourOpponentEnabled,
     )
 
     if (ecanvasser) {
@@ -410,6 +431,7 @@ export default function DashboardMenu({
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    knowYourOpponentEnabled,
   ])
 
   useEffect(() => {

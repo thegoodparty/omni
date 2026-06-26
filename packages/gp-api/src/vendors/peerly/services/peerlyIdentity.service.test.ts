@@ -669,4 +669,45 @@ describe('PeerlyIdentityService', () => {
       expect(errorHandling.handleApiError).toHaveBeenCalled()
     })
   })
+
+  describe('getIdentityProfile', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    it('pages the Slack channel on a non-404 error by default', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        config: { url: '/identities/peerly-400/getProfile', method: 'get' },
+        response: { data: { Error: 'transient Peerly error' } },
+      })
+
+      await service.getIdentityProfile('peerly-400', campaign)
+
+      expect(slackService.message).toHaveBeenCalledTimes(1)
+    })
+
+    it('suppresses the Slack alert when suppressSlackAlert is set, but still routes the error', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        response: { data: { Error: 'transient Peerly error' } },
+      })
+
+      await service.getIdentityProfile('peerly-400', campaign, {
+        suppressSlackAlert: true,
+      })
+
+      expect(slackService.message).not.toHaveBeenCalled()
+      expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
 })
