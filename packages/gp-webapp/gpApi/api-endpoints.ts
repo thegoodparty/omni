@@ -716,7 +716,7 @@ export type APIEndpoints = {
 
   'POST /v1/campaigns/mine/race-opponent/collect': {
     Request: {}
-    Response: { runId: string; status: RaceOpponentCollectionStatus }
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
   }
 }
 
