@@ -32,6 +32,11 @@ export class CommunityIssueUpsertService extends createPrismaBase(
         ? CommunityIssueList.top_community
         : CommunityIssueList.trending
 
+    // Counts all rows (live + archived) deliberately: this is a monotonic
+    // "has this list ever generated" check, so wasFirstGenerationForList is
+    // true exactly once per list. Filtering to archivedAt: null would make it
+    // true again whenever a list empties and repopulates (trending routinely
+    // empties), wrongly re-firing the once-per-org InitialIssuesGenerated.
     const existingCount = await this.model.count({
       where: { organizationSlug: artifact.organization_slug, list },
     })

@@ -115,6 +115,11 @@ export class CommunityIssueService extends createPrismaBase(
 
     // Fires once per org, when the second of the two lists completes its
     // first-ever generation — i.e. the org now has both lists populated.
+    // `otherListCount` counts all rows (live + archived) on purpose: it gates
+    // on "has the other list ever generated", which is monotonic, so this
+    // fires exactly once and never re-fires when a list later empties and
+    // repopulates (trending routinely empties). The non-empty guard below
+    // keeps us from emailing a list that currently has zero live issues.
     if (summary.wasFirstGenerationForList) {
       const otherList =
         summary.list === CommunityIssueList.top_community
@@ -144,14 +149,16 @@ export class CommunityIssueService extends createPrismaBase(
             orderBy: { rank: Prisma.SortOrder.asc },
           }),
         ])
-        void this.analytics
-          .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
-            topIssueCount: topIssues.length,
-            trendingIssueCount: trendingIssues.length,
-            topIssues,
-            trendingIssues,
-          })
-          .catch(() => undefined)
+        if (topIssues.length > 0 && trendingIssues.length > 0) {
+          void this.analytics
+            .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
+              topIssueCount: topIssues.length,
+              trendingIssueCount: trendingIssues.length,
+              topIssues,
+              trendingIssues,
+            })
+            .catch(() => undefined)
+        }
       }
     }
 

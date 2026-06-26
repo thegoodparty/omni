@@ -553,6 +553,19 @@ describe('CommunityIssueService analytics events', () => {
     ).toHaveLength(0)
   })
 
+  it('does not fire Initial Issues Generated when the other list has no live issues', async () => {
+    // Trending generates, then empties (the AI returns no issues, archiving
+    // all rows). Top then has its first generation: the org has "ever
+    // generated" both lists, but trending currently shows zero live issues —
+    // so no event, to avoid an email with an empty section.
+    await generate('trending_issues', 'trending', [makeIssue(1)])
+    await generate('trending_issues', 'trending', [])
+    await generate('top_community_issues', 'top_community', [makeIssue(1)])
+    expect(
+      callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
+    ).toHaveLength(0)
+  })
+
   it('fires High Priority Trending only for new high issues on a refresh', async () => {
     await generate('trending_issues', 'trending', [
       makeIssue(1, { priority: 'high' }),
