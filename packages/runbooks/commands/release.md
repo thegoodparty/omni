@@ -144,7 +144,13 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    > `qa` moved between confirmation and merge for <repo> (new commits arrived). Skipping <repo>; re-run `/release` to review its updated contents.
 
-   If a repo's snapshot matches, merge it:
+   **If at least one repo was skipped but at least one other still matches its snapshot, re-prompt before merging the survivor.** The user's step-4 `yes` authorized a specific joint set across both repos, not a partial release of one half — which matters for a coordinated cross-repo change (one repo's code shipping to prod while its paired repo is held back):
+
+   > <skipped-repo> was skipped (its `qa` moved since you confirmed). Only <surviving-repo> would be released now — a partial release. Continue? (`yes` / `no`)
+
+   Wait for explicit `yes`; anything else aborts (no merges have happened yet — re-run `/release` for a fresh joint confirmation). If every contributing repo's snapshot still matches (no skips), no re-prompt is needed — the step-4 confirmation already covers the merge.
+
+   If a repo's snapshot matches (and, where a skip occurred, the user confirmed the partial release above), merge it:
 
    ```bash
    cd "$REPO_DIR"
@@ -184,7 +190,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    - PR head branch name (`headRefName` / `branch` from steps 3 and 7)
    - the subjects of every commit in `$TIP..qa` that maps to this PR (kept in step 3)
 
-   **Why a prefix set, not just `ENG-`:** omni PRs are almost always `ENG-XXXX`, but gp-ai-projects branches also use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261`, `WEB-4309`). Scanning only `ENG-` would silently drop the ticket for most gp-ai-projects PRs. The enumerated alternation avoids false positives a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex.
+   **Why a prefix set, not just `ENG-`:** omni PRs are almost always `ENG-XXXX`, but gp-ai-projects branches also use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261`, `WEB-4309`). Scanning only `ENG-` would silently drop the ticket for most gp-ai-projects PRs. The enumerated alternation avoids false positives a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex. In the jq one-liner the alternation **must be a non-capturing group** (`(?:…)`): jq's `scan` returns the *captured group* rather than the full match when the group captures, so a capturing `(ENG|…)` would yield `ENG` instead of `ENG-10253` and break every ticket link.
 
    **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary. Scanning only title/body silently drops the ticket for the majority of PRs. After collecting per-PR, **dedupe the tags within the repo** — the same ticket may have been referenced by more than one PR; it appears once in that repo's notes. The same ticket appearing in **both** repos (an omni change and a gp-ai-projects change for one feature) is expected — it lists once per repo section.
 
@@ -196,7 +202,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls | jq -r --arg subj "$subj" '
      (.[0] // empty)
      | ([.title, (.body // ""), (.head.ref // ""), $subj] | join(" ")
-        | [scan("(ENG|DATA|WEB|CAP|DT)-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
+        | [scan("(?:ENG|DATA|WEB|CAP|DT)-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
    ```
 
 9. **Look up each unique ticket tag in ClickUp** to get its title. All prefixes (`ENG`, `DATA`, `WEB`, `CAP`, `DT`) are custom ids in the same workspace, so the same call resolves any of them. Use an absolute path for `scripts/python` because earlier phases `cd`'d into a release repo; a relative `cd scripts/python` would resolve under `$REPO_DIR` and fail:

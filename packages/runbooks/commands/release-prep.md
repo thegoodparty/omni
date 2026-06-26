@@ -241,7 +241,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    Capture the PR's URL. Same `cd`-per-block discipline as step 4.
 
-> **Loop checkpoint:** once steps 3–8 have run for both repos, continue to Phase 4 to build the single combined message. Carry forward, per repo: whether it merged this run, its `qa → $TIP` PR URL (if opened), and any investigate/timeout/error state for the step 16 report.
+> **Loop checkpoint:** once steps 3–8 have run for both repos, continue to Phase 4 to build the single combined message. Carry forward, per repo: whether it merged this run, whether you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty at step 3 — the develop→qa PR did NOT merge this run, but the repo still contributes), its `qa → $TIP` PR URL (if opened), and any investigate/timeout/error state for the step 16 report.
 
 ### Phase 4: Build the #devs-only message
 
@@ -290,7 +290,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     - PR head branch name (`headRefName` / `branch` from step 9–10)
     - the subjects of every commit in `$TIP..qa` that maps to this PR (you already have these from step 9's `git log`)
 
-    **Why a prefix set, not just `ENG-`:** omni PRs are almost always `ENG-XXXX`, but gp-ai-projects branches also use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261_collin_improvements`, `WEB-4309`). Scanning only `ENG-` would silently drop the ticket for most gp-ai-projects PRs. The enumerated alternation (`ENG|DATA|WEB|CAP|DT`) avoids false positives that a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex.
+    **Why a prefix set, not just `ENG-`:** omni PRs are almost always `ENG-XXXX`, but gp-ai-projects branches also use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261_collin_improvements`, `WEB-4309`). Scanning only `ENG-` would silently drop the ticket for most gp-ai-projects PRs. The enumerated alternation (`ENG|DATA|WEB|CAP|DT`) avoids false positives that a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex. In the jq one-liner the alternation **must be a non-capturing group** (`(?:…)`): jq's `scan` returns the *captured group* rather than the full match when the group captures, so a capturing `(ENG|…)` would yield `ENG` instead of `ENG-10253` and break every ticket link.
 
     **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary with no tag. Scanning only title/body silently drops the ticket for the majority of PRs. A PR may legitimately yield **zero** tags (a chore/refactor with no ticket anywhere) or **more than one** — both are fine.
 
@@ -302,7 +302,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     gh api repos/{owner}/{repo}/commits/<commit_hash>/pulls | jq -r --arg subj "$subj" '
       (.[0] // empty)
       | ([.title, (.body // ""), (.head.ref // ""), $subj] | join(" ")
-         | [scan("(ENG|DATA|WEB|CAP|DT)-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
+         | [scan("(?:ENG|DATA|WEB|CAP|DT)-[0-9]+"; "i")] | map(ascii_upcase) | unique | join(","))'
     ```
 
 12. **Build a ClickUp ticket link for each tag.** No API call is needed — ClickUp resolves the custom-id URL directly:
