@@ -228,7 +228,9 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
           COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
         FROM campaign c
         JOIN visible t ON t.campaign_id = c.id
-        WHERE COALESCE(
+        WHERE c.is_active = true
+          AND c.is_demo = false
+          AND COALESCE(
             c.details->>'electionDate',
             c.details->>'primaryElectionDate'
           ) ~ '^\\d{4}-\\d{2}-\\d{2}'

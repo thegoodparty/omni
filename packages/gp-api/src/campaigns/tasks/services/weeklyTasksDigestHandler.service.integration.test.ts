@@ -22,6 +22,7 @@ function getTrackSpy(): TrackSpy {
 async function makeCampaign(
   opts: {
     electionDate?: string | null
+    isActive?: boolean
   } = {},
 ) {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -52,6 +53,7 @@ async function makeCampaign(
       slug: `digest-${unique}`,
       details,
       organizationSlug: org.slug,
+      isActive: opts.isActive ?? true,
     },
   })
 }
@@ -98,6 +100,20 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
 
     it('excludes campaigns with no electionDate in details', async () => {
       const campaign = await makeCampaign({ electionDate: null })
+      for (let i = 0; i < 5; i++) await makeTask(campaign.id)
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).not.toHaveBeenCalled()
+    })
+
+    it('excludes inactive campaigns so churned candidates are not emailed', async () => {
+      const campaign = await makeCampaign({ isActive: false })
       for (let i = 0; i < 5; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
