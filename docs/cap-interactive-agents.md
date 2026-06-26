@@ -55,8 +55,7 @@ then retry; 4xx errors `bail()` immediately.
   wrapped in `tool()`, with `onToolCallStart`/`onToolCallEnd` instrumentation.
 - **Native provider tools** — `NativeWebSearchSpec` maps to Anthropic's server-side
   `webSearch_20250305`. No `execute`; events surface from the stream via `onChunk`.
-  **Silently skipped if `ANTHROPIC_API_KEY` is unset** or the model isn't a Claude
-  model.
+  Configured only when the resolved model is a Claude model; skipped otherwise.
 
 ## Surfaces
 
