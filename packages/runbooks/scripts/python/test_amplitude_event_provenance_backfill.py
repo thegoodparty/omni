@@ -959,6 +959,29 @@ def test_run_backfill_preserves_exact_instrumentation_predating_since(monkeypatc
     assert row["instrumented_pr"] == f"{_PR}/7"
 
 
+def test_run_backfill_drops_stale_provisional_retirement_when_re_added(monkeypatch, tmp_path):
+    # An event provisionally retired by the skill (retired_date set, commit null) then re-added:
+    # the backfill finds it present at HEAD, so the stale provisional retirement must be dropped,
+    # not re-stamped onto the now-present row.
+    csv_path = tmp_path / "prov.csv"
+    bf.upsert_provenance_row("Event Z", "retire", "10", "2026-06-01", "2026-06-01T00:00:00", csv_path=str(csv_path))
+    cur = FakeCursor(["Event Z"])
+    monkeypatch.setattr(
+        bf, "run_git_log",
+        lambda *a, **k: iter([_header("z1", "z1", "2026-06-20", "feat: re-add Z (#9)"), '+  Z: "Event Z",']),
+    )
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: '  Z: "Event Z",')  # present at HEAD
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "sha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 1)
+
+    rows = bf.run_backfill(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(tmp_path / "s.json"))
+
+    row = {r["event_type"]: r for r in rows}["Event Z"]
+    assert row["retired_date"] is None  # stale provisional retirement dropped (event present again)
+    assert row["instrumented_date"] == "2026-06-20"  # re-add attributed from the walk
+
+
 def test_run_refresh_falls_back_to_backfill_when_no_state(monkeypatch, tmp_path):
     calls = {}
 
@@ -1325,6 +1348,19 @@ def test_upsert_retire_does_not_clobber_existing_retirement(tmp_path):
     row = bf.read_provenance_rows(csv)["E"]
     assert row["retired_pr"] == f"{_PR}/10"
     assert row["retired_date"] == "2026-06-01"
+
+
+def test_upsert_add_clears_stale_retirement(tmp_path):
+    # Re-adding a previously-retired event must un-retire it, else the row keeps both dates and
+    # reads as removed.
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "retire", "10", "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    bf.upsert_provenance_row("E", "add", "20", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["instrumented_date"] == "2026-06-25"
+    assert row["retired_date"] is None
+    assert row["retired_pr"] is None
+    assert row["retired_commit"] is None
 
 
 def test_upsert_retire_creates_row_when_event_absent(tmp_path):

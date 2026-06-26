@@ -707,6 +707,11 @@ def upsert_provenance_row(
             row["instrumented_pr"] = pr_url(pr)
             row["instrumented_date"] = date
             row["instrumented_commit"] = None
+        # A re-add un-retires the event: clear any stale retirement so it is no longer shown as
+        # removed in the CSV (the git-walk confirms presence at HEAD on its next run).
+        row["retired_pr"] = None
+        row["retired_date"] = None
+        row["retired_commit"] = None
     else:
         # Symmetric with the add guard: preserve the first retirement attribution so a
         # double-fire (retry, reprocessing) does not replace the PR/date that first removed it.
@@ -783,7 +788,9 @@ def resolve_omni_repo(arg: str | None, env: dict[str, str]) -> str:
     return root
 
 
-def _carry_forward_provisional(rows: list[dict], existing: dict[str, dict]) -> None:
+def _carry_forward_provisional(
+    rows: list[dict], existing: dict[str, dict], present: dict[str, bool] | None = None
+) -> None:
     """Preserve existing provenance a from-git rebuild cannot re-derive, in place on ``rows``.
 
     A full backfill builds every row purely from git history at <ref>, and the walk is bounded by
@@ -796,7 +803,8 @@ def _carry_forward_provisional(rows: list[dict], existing: dict[str, dict]) -> N
     skill upsert OR an exact row whose add predates ``--since``. Retirement is NOT monotonic (an
     event can be re-added after removal), so only a provisional (commit-null) retirement is carried
     forward; an exact retirement is left to the walk, which clears it once the event is present at
-    HEAD again.
+    HEAD again. A provisional retirement is likewise dropped when the event is present at HEAD —
+    the re-add wins, so the stale provisional retirement must not be re-stamped onto it.
     """
     for row in rows:
         prior = existing.get(row["event_type"])
@@ -808,7 +816,13 @@ def _carry_forward_provisional(rows: list[dict], existing: dict[str, dict]) -> N
             row["instrumented_commit"] = prior.get("instrumented_commit")
             if not row.get("last_code_change_date"):
                 row["last_code_change_date"] = prior.get("last_code_change_date")
-        if row.get("retired_date") is None and prior.get("retired_date") and not prior.get("retired_commit"):
+        event_present = present.get(row["event_type"], False) if present is not None else False
+        if (
+            row.get("retired_date") is None
+            and prior.get("retired_date")
+            and not prior.get("retired_commit")
+            and not event_present
+        ):
             row["retired_pr"] = prior.get("retired_pr")
             row["retired_date"] = prior.get("retired_date")
             row["retired_commit"] = None
@@ -836,7 +850,7 @@ def run_backfill(
     lines = run_git_log(root, since, INSTRUMENTATION_PATHS, ref)
     grep_text = git_grep_present_text(root, events, INSTRUMENTATION_PATHS, ref)
     rows = collect_provenance(events, lines, grep_text, updated_at)
-    _carry_forward_provisional(rows, read_provenance_rows(csv_path))
+    _carry_forward_provisional(rows, read_provenance_rows(csv_path), present_at_head(events, grep_text))
 
     _, filled = resolve_pr_gaps(rows, pr_resolver)
     if pr_resolver is not None:
