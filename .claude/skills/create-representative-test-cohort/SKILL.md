@@ -130,14 +130,24 @@ Build a selection file from Step 2:
 ```
 
 Run the creator from `packages/gp-webapp/e2e-tests` against dev (use the repo's
-`tsx` binary directly — `npx` chdir's to the wrong package root):
+`tsx` binary directly — `npx` chdir's to the wrong package root). The path below
+is relative to the repo root's `node_modules`; **a fresh git worktree has no
+`node_modules`**, so run from a checkout where deps are installed (or point at the
+main checkout's binary by absolute path). `CLERK_TELEMETRY_DISABLED=1` keeps
+Clerk's telemetry banner out of stdout when you're capturing script output:
 
 ```bash
 cd packages/gp-webapp/e2e-tests
-API_BASE_URL=https://dev.goodparty.org \
+API_BASE_URL=https://dev.goodparty.org CLERK_TELEMETRY_DISABLED=1 \
   ../../../node_modules/.bin/tsx tests/utils/create-test-cohort.ts \
   --in <selection.json> --out <manifest.json>
 ```
+
+The creator retries transient `401`s (a just-deployed/cold gp-api task briefly
+rejects a freshly-minted token) alongside gateway `5xx`. If you still see a few
+`401` failures in a large batch (e.g. right after a deploy), just re-run the
+creator with a selection file of only the failed `positionId`s — it's idempotent
+per entry and creates one fresh user per entry.
 
 It prints `created N/N` and the slug list, and writes the manifest
 (`orgSlug, positionId, tier, voterCount, state, clerkUserId, userId, email`).
@@ -146,8 +156,10 @@ Each org slug is `eo-<electedOfficeId>`.
 ## Step 4: hand off
 
 Output the manifest path + the JSON slug array. Stop here. To run agents over the
-cohort, pass the slugs to a dispatch skill (`bulk-community-issues-cohort` with
-`--env dev`).
+cohort, pass the slugs to a dispatch skill — `bulk-community-issues-cohort`, whose
+"Dev variant" section covers the dev dispatch chain. **Dev does not auto-dispatch
+on create** (`MEETINGS_AUTOMATION_ENABLED` is off there), so the dispatch step is
+not optional: nothing runs until you POST the slugs to the dev dispatch endpoint.
 
 ## Testing the skill (job-free)
 
@@ -179,14 +191,16 @@ To validate the skill without any agent spend:
 
 - **Cleanup window.** Created users are `@test.goodparty.org` and are swept by
   gp-api's `deleteTestUsers` (~24h). Dispatch promptly after creating.
-- **Auto-dispatch on create.** Creating a **bound** elected office fires
-  `onElectedOfficeCreated` → community-issue dispatch **iff
-  `MEETINGS_AUTOMATION_ENABLED=true`**. That signup path is NOT ICP-gated, but it
-  still requires a resolvable position (`resolveServeContext` non-null) — so an
-  unbound office never dispatches (see Testing above), only a real bound one does.
-  If you want a clean single dispatch window for bound creation, expect it may have
-  already dispatched; the dispatch endpoint skips in-flight runs and re-dispatches
-  terminal ones.
+- **Auto-dispatch on create — OFF in dev (verified 2026-06-26).** Creating a
+  **bound** elected office fires `onElectedOfficeCreated` → community-issue
+  dispatch **only iff `MEETINGS_AUTOMATION_ENABLED=true`** on the target env.
+  **Dev currently has it OFF**: a bound create writes zero `experiment_run` rows,
+  so you MUST dispatch explicitly (bulk skill's Dev variant). The signup path is
+  NOT ICP-gated but still needs a resolvable position (`resolveServeContext`
+  non-null), so an unbound office never dispatches in any env. Only rely on
+  auto-dispatch where the env has the flag on (e.g. prod); there, expect a bound
+  create may have already dispatched — the dispatch endpoint skips in-flight runs
+  and re-dispatches terminal ones.
 - **Binding mechanism.** `POST /v1/elected-office` with `ballotReadyPositionId`
   set to the **election-api position id** (no org context) stores it as
   `org.positionId`; `resolveServeContext` reads that position's `isServeIcp`.

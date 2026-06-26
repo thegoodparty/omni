@@ -16,10 +16,13 @@ import {
 //     --in <selection.json> --out <manifest.json>
 //
 // --dry-run creates the users + elected offices WITHOUT binding a position
-// (and without picking a race). In dev (MEETINGS_AUTOMATION_ENABLED=true) a
-// bound serve office auto-dispatches agent jobs on creation; an unbound office
-// resolves no serve context, so nothing dispatches. Use it to exercise the full
-// creation pipeline at scale without spending on agent runs.
+// (and without picking a race). A bound serve office only auto-dispatches agent
+// jobs on creation when the target env has MEETINGS_AUTOMATION_ENABLED=true —
+// dev currently has it OFF, so a normal bound create dispatches NOTHING and you
+// must run the dispatch step explicitly (see the bulk-community-issues-cohort
+// skill's dev path). An unbound (dry-run) office resolves no serve context, so
+// it never dispatches in any env. Use --dry-run to exercise the full creation
+// pipeline at scale without spending on agent runs.
 
 type SelectionEntry = {
   // serve: bind the elected office to this election-api position id

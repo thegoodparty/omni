@@ -293,3 +293,37 @@ No reference cohort exists yet (this runbook describes the first production run)
 Once a cohort completes, record reference numbers here for future sanity-checking:
 fleet size, outcome mix, cost/run, duration avg, failure rate, and failure error
 breakdown. This section should be updated after every significant cohort run.
+
+## Dev variant (gp-api-dev)
+
+Everything above targets prod. To dispatch the **same flow against dev** (e.g.
+over a cohort from `create-representative-test-cohort`), the steps are identical
+except for the env-specific endpoints/secrets below. Verified 2026-06-26.
+
+| Concern                | Prod                                     | Dev                                                                                                                                                                                                        |
+| ---------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dispatch endpoint      | `https://gp-api.goodparty.org/...`       | `https://gp-api-dev.goodparty.org/v1/community-issues/dispatch`                                                                                                                                            |
+| M2M **caller** secret  | `GP_PROD_MACHINE_SECRET`                 | `GP_DEV_MACHINE_SECRET` (same gp-admin Vercel project `prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`; the `getval` helper's `'production' in target` filter still matches it)                                          |
+| Clerk keys for minting | from `GP_API_PROD`                       | the **dev test instance** keys (`sk_test_`/`pk_test_`) in `packages/gp-webapp/e2e-tests/.env` — NOT a `GP_API_*` secret                                                                                    |
+| DB host                | `gp-api-db-prod.cluster-cmb1uukjsfbe...` | `gp-api-db.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com` (the **bare** `gp-api-db` cluster is dev; `-prod`/`-qa` are the others), db `gpdb`, user `gpuser`, password = `DB_PASSWORD` from `GP_API_DEV` |
+| Artifacts S3 bucket    | `gp-agent-artifacts-prod`                | `gp-agent-artifacts-dev`                                                                                                                                                                                   |
+| Experiment manifests   | `agent-experiment-metadata-prod`         | `agent-experiment-metadata-dev` (auto-published on merge to `develop` by `.github/workflows/publish-experiments.yml`)                                                                                      |
+
+AWS access: the `gp-admin` SSO profile covers dev too (account `333022194791`).
+
+Mint a dev M2M token (run from `packages/gp-webapp/e2e-tests`, which loads the dev
+Clerk keys via `cohort-env`):
+
+```bash
+export GP_DEV_MACHINE_SECRET=...   # from gp-admin Vercel, same getval as prod
+export CLERK_TELEMETRY_DISABLED=1  # keep the telemetry banner out of stdout
+TOKEN=$(../../../node_modules/.bin/tsx -e 'import "./tests/utils/cohort-env";import{createClerkClient}from"@clerk/backend";(async()=>{const c=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY,publishableKey:process.env.CLERK_PUBLISHABLE_KEY});const m=await c.m2m.createToken({machineSecretKey:process.env.GP_DEV_MACHINE_SECRET,secondsUntilExpiration:600});process.stdout.write((m.token||"")+"\n")})()' 2>/dev/null | grep '^mt_')
+```
+
+Preflight (`{"orgSlugs":[]}` → HTTP 400) and the real dispatch are byte-identical
+to the prod steps, just against the dev URL. Monitoring/analysis use the dev DB
+URL and `gp-agent-artifacts-dev`.
+
+**Dev does not auto-dispatch on create** (`MEETINGS_AUTOMATION_ENABLED` is off),
+so this explicit dispatch is required — a bound `create-representative-test-cohort`
+run writes zero `experiment_run` rows until you POST the slugs here.
