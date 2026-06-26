@@ -135,6 +135,27 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
     expect(rows[0].priority).toBe(CommunityIssuePriority.high)
   })
 
+  it('persists only the valid issues when some fail validation', async () => {
+    const key = `mixed-${Date.now()}.json`
+    const run = await seedRun(ORG, 'top_community_issues', key)
+    mockS3({
+      [key]: JSON.stringify(
+        makeArtifact(ORG, run.runId, [
+          makeIssue(1), // valid → persisted
+          makeIssue(2, { category: 'bogus_category' }), // invalid → dropped
+        ]),
+      ),
+    })
+
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
+
+    const rows = await service.prisma.communityIssue.findMany({
+      where: { organizationSlug: ORG },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].rank).toBe(1)
+  })
+
   it('updates an issue with a matching existing_issue_id', async () => {
     const existing = await service.prisma.communityIssue.create({
       data: {
