@@ -223,9 +223,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // in-flight (`waiting_to_finalize`) record be re-submitted.
     let profileResponse: PeerlyIdentityProfileResponseBody | null
     try {
+      // This is a background sweep with no human waiting, so a transient Peerly
+      // read failure must not page the 10DLC Slack channel (it logs + throws
+      // below, and the next sweep retries).
       profileResponse = await this.peerlyIdentityService.getIdentityProfile(
         peerlyIdentityId,
         campaign,
+        { suppressSlackAlert: true },
       )
     } catch (err) {
       // A deleted/orphaned Peerly identity 404s here; skip rather than letting

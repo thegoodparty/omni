@@ -382,6 +382,7 @@ export {
   type CreateAnnotationRequest,
   UpdateNoteRequestSchema,
   type UpdateNoteRequest,
+  ATTACHMENT_MAX_BYTES,
   AttachmentPresignRequestSchema,
   type AttachmentPresignRequest,
   AttachmentPresignResponseSchema,
@@ -412,6 +413,8 @@ export {
 } from "./artifactFeedback/ArtifactFeedback.schema";
 
 export * from "./artifactReview";
+
+export * from "./raceOpponent";
 
 export * from "./experiments";
 

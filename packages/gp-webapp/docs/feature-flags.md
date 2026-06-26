@@ -45,13 +45,13 @@ While the flag is loading, the guard renders a centered spinner. While the flag 
 
 ## Per-flag wrapper hooks
 
-When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/chiefOfStaffFlag.ts`:
+When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/campaignStoryFlag.ts`:
 
 ```ts
-export const CHIEF_OF_STAFF_FLAG_KEY = 'chief-of-staff'
+export const CAMPAIGN_STORY_FLAG_KEY = 'campaign-story'
 
-export const useChiefOfStaffFlag = () => {
-  const { ready, on } = useFlagOn(CHIEF_OF_STAFF_FLAG_KEY)
+export const useCampaignStoryFlag = (trackExposure = true) => {
+  const { ready, on } = useFlagOn(CAMPAIGN_STORY_FLAG_KEY, { trackExposure })
   return { ready, enabled: on }
 }
 ```

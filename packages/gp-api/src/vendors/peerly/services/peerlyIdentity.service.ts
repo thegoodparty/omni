@@ -173,6 +173,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async getIdentityProfile(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ): Promise<PeerlyIdentityProfileResponseBody | null> {
     this.logger.debug(
       `Fetching identity profile for identityId: ${peerlyIdentityId}`,
@@ -199,7 +200,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Identity profile for given identity ID could not be found',
         )
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
     return result
   }
@@ -593,7 +598,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     error: unknown,
     context: PeerlyApiErrorContext,
   ): Promise<never> {
-    if (context.campaign) {
+    if (context.campaign && !context.suppressSlackAlert) {
       const user = await this.usersService.findByCampaign(context.campaign)
       if (user) {
         const formattedError = (isAxiosError(error) && format(error)) || error

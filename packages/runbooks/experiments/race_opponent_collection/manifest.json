@@ -1,0 +1,156 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "race_opponent_collection",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 60,
+  "timeout_seconds": 1800,
+  "runtime": {
+    "max_parallel_subagents": 5,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Data Collection input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "opponents",
+      "race_context"
+    ],
+    "properties": {
+      "opponents": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The opponents to collect as-collected data for. Names are seeded by gp-api from campaignStrategyOpponent; the URL hints are optional and used as a starting point when present.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "full_name"
+          ],
+          "properties": {
+            "full_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The opponent's full name. Used both for source discovery via WebSearch and as the opponent_name on every emitted item."
+            },
+            "ballotpedia_url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Optional hint: the opponent's Ballotpedia page if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch."
+            },
+            "website_url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Optional hint: the opponent's campaign website if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch."
+            }
+          }
+        }
+      },
+      "race_context": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "The race the opponents are running in, hydrated by gp-api before dispatch. Used only to disambiguate the right person/page during discovery (same office, jurisdiction, cycle). The agent does NOT reason over it beyond that.",
+        "properties": {
+          "office_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Readable office name (e.g. 'Fayetteville City Council')."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "2-letter state code (e.g. NC), or null."
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "City / jurisdiction name, or null."
+          },
+          "election_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The election date for this race, or null. Used to confirm the right cycle during discovery."
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Data Collection artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "items"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "items": {
+        "type": "array",
+        "description": "One entry per (opponent, source) actually found and fetched. A source that could not be found or fetched is omitted entirely (never invented). An opponent with neither source contributes zero entries; the array may be empty if no source was fetched for any opponent.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "opponent_name",
+            "source_type",
+            "source_url",
+            "content"
+          ],
+          "properties": {
+            "opponent_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The opponent this collected content is about. Matches one of the input opponents' full_name."
+            },
+            "source_type": {
+              "type": "string",
+              "enum": [
+                "ballotpedia",
+                "opponent_website"
+              ],
+              "description": "Which of the two sources this content came from."
+            },
+            "source_url": {
+              "type": "string",
+              "pattern": "^https?://",
+              "minLength": 1,
+              "description": "The page actually fetched (the broker's returned source_url after any redirect). Required — every item is grounded in a real fetched URL."
+            },
+            "content": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text"],
+              "description": "Unstructured extracted page text/sections, as collected. Deliberately not normalized into named fields beyond `text` — that is a later-phase decision. Capture the page text as-is.",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The full extracted page text/sections, as-is from the fetched page."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
