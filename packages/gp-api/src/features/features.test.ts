@@ -109,6 +109,18 @@ describe('FeaturesService.getAllVariants', () => {
       },
     })
   })
+
+  // Unlike isFeatureEnabled (which fails closed/open by key type), getAllVariants
+  // always degrades to an empty map so the seed endpoint never 500s.
+  it('returns empty variants when Amplitude fails', async () => {
+    mockFetchV2.mockRejectedValue(new Error('status=401'))
+
+    const result = await makeService().getAllVariants(
+      asUser({ id: 1, email: 'a@b.com' }),
+    )
+
+    expect(result).toEqual({})
+  })
 })
 
 describe('FeaturesService.isFeatureEnabled', () => {
