@@ -140,17 +140,17 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-// @dev-only: this ~20-step filter walk is the suite's longest test. With each
-// step now gated on a real data-ready wait (segment refetch + skeleton clear +
-// person-detail load) it is correct but slow, and on the cold, single-shard
-// ephemeral PR preview it overruns even an 8-min budget and times out — burning
-// the whole shard across retries. It runs reliably on the warm post-merge
-// develop stack (where it historically completed in ~2-3 min), so gate it there.
-// Follow-up: split this monolith into per-filter-group tests so a single shard
-// can carry it on PRs. Excluded from PR runs via --grep-invert @dev-only.
-test('validate contacts filters @dev-only', async ({ page }) => {
-  // Generous budget for the warm develop stack; the data-ready waits add time.
-  test.setTimeout(8 * 60 * 1000)
+// This ~20-step filter walk is the suite's longest test. Each step is gated on
+// a real data-ready wait (segment refetch + skeleton clear + person-detail
+// load), so it is correct but slow — on a cold, single-shard preview it can run
+// well past the old 8-min budget. It does NOT depend on the warm dev stack
+// (Serve "Constituent Data" surface via setupElectedOfficeUser, no flag/pro
+// gating), so it runs on PRs too; the budget below is wide enough to absorb the
+// cold-start cost.
+test('validate contacts filters', async ({ page }) => {
+  // Wide budget: the data-ready waits add up, and a cold preview is slower than
+  // the warm dev stack. Speed is deprioritized in favor of running on PRs.
+  test.setTimeout(15 * 60 * 1000)
 
   await setupElectedOfficeUser(page, {
     zip: '82001',
