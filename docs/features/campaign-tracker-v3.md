@@ -167,6 +167,18 @@ inactive / demo campaigns. Election date falls back to `primaryElectionDate`.
 
 ## Key files
 
+The two feature directories carry their own `CLAUDE.md` with module-level logic
+and gotchas. Read those first when working in the code:
+
+- `packages/gp-api/src/campaigns/campaignTracker/CLAUDE.md` (backend): bootstrap
+  (atomic claim), the append/generation model, weekly dispatch, persistence,
+  completion.
+- `packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CLAUDE.md`
+  (frontend): latest-generation rendering, phase status, progressive reveal,
+  polling, the date-format gotcha.
+
+The table below is the cross-package file index:
+
 | Area | Path |
 |------|------|
 | Tracker service (bootstrap, dispatch params, append-persist, completion) | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerTasks.service.ts` |

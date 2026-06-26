@@ -139,4 +139,14 @@ describe('buildTrackerStrategy', () => {
       'active',
     )
   })
+
+  it('marks a populated phase active even when earlier phases are empty', () => {
+    // Only Active has rows (e.g. right after bootstrap, before other phases
+    // populate). The empty preLaunch/launch must not strand Active as upcoming.
+    const data = buildTrackerStrategy(
+      [row({ id: 'a', phase: 'active', date: '2026-02-01' })],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
+  })
 })

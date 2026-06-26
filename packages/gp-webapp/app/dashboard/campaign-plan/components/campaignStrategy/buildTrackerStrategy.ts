@@ -92,16 +92,19 @@ const derivePhaseStatuses = (
 ): Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus> => {
   const startOfToday = startOfDay(today).getTime()
   const order = PHASE_META.map((p) => p.key)
-  // "Happening now" is date-driven: the furthest phase reached by the calendar
-  // is the first whose tasks aren't all in the past. Completion is a separate
-  // axis — a phase reads 'done' only when every task in it is checked off, not
-  // merely because its dates elapsed. So a phase at or before "now" that still
-  // has open tasks stays 'active'; future phases are 'upcoming' until reached.
-  const isDatePast = (key: CampaignStrategyPhaseKey): boolean => {
+  // "Happening now" is date-driven: the first phase the calendar has reached
+  // that still has work. A phase with no tasks (null latest date) is skipped so
+  // an empty intermediate phase can't halt the scan and strand a later,
+  // genuinely-current phase as 'upcoming'; a phase entirely in the past is
+  // skipped too. Completion is a separate axis — a phase reads 'done' only when
+  // every task in it is checked off, not merely because its dates elapsed, so a
+  // phase at or before "now" with open tasks stays 'active' and future phases
+  // are 'upcoming' until reached.
+  const isCurrentlyInPlay = (key: CampaignStrategyPhaseKey): boolean => {
     const latest = phaseLatestDate.get(key)
-    return latest != null && latest < startOfToday
+    return latest != null && latest >= startOfToday
   }
-  const nowIndex = order.findIndex((key) => !isDatePast(key))
+  const nowIndex = order.findIndex(isCurrentlyInPlay)
   const current = nowIndex === -1 ? order.length - 1 : nowIndex
   const out = new Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus>()
   order.forEach((key, i) => {
