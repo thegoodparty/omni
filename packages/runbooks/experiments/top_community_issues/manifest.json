@@ -51,6 +51,10 @@
         "minLength": 1,
         "description": "Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type."
       }
+    },
+    "dependencies": {
+      "l2_district_type": ["l2_district_name"],
+      "l2_district_name": ["l2_district_type"]
     }
   },
   "output_schema": {
