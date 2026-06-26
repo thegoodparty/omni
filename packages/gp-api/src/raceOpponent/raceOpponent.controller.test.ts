@@ -427,6 +427,53 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
     expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
   })
 
+  it('completes with no rows when the agent found no sources', async () => {
+    const run = await seedRun('run-empty')
+    stubArtifact([])
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const rows = await service.prisma.raceOpponent.findMany({
+      where: { campaignId },
+    })
+    expect(rows).toHaveLength(0)
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'run-empty' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+  })
+
+  it('preserves prior rows and stays COMPLETED on an empty re-run', async () => {
+    await service.prisma.raceOpponent.create({
+      data: {
+        campaignId,
+        runId: 'prior-run',
+        opponentName: JANE,
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+        content: { text: 'prior bio' },
+      },
+    })
+    const run = await seedRun('run-empty-rerun')
+    stubArtifact([])
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const rows = await service.prisma.raceOpponent.findMany({
+      where: { campaignId },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].runId).toBe('prior-run')
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'run-empty-rerun' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+  })
+
   it('keeps existing rows but marks the run FAILED when every item is dropped', async () => {
     await service.prisma.raceOpponent.create({
       data: {
