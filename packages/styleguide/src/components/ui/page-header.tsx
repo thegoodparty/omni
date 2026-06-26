@@ -116,9 +116,9 @@ function PageHeader({
 
         {heading && (
           <div className="flex-1 min-w-0">
-            <span className="block truncate text-base font-semibold text-sidebar-foreground">
+            <h1 className="block truncate text-base font-semibold text-sidebar-foreground m-0">
               {heading}
-            </span>
+            </h1>
           </div>
         )}
 
