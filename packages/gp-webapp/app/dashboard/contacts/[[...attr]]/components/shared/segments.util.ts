@@ -1,6 +1,7 @@
 interface Segment {
   id: number
   name?: string
+  search?: string | null
 }
 
 interface DefaultSegment {

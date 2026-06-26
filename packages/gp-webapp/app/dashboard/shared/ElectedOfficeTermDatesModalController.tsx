@@ -8,23 +8,25 @@ import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
 import { ElectedOfficeTermDatesModal } from './ElectedOfficeTermDatesModal'
 
-// Only "settled" offices are prompted: those that have completed serve
-// onboarding but are still missing a term bound (legacy/prefill EOs we already
-// lack dates for). An office that hasn't completed onboarding
-// (onboardingCompletedAt == null) — including a just-won candidate mid win→serve
-// flow — supplies both dates via the onboarding term-dates step (now enforced by
-// the completion guard), so prompting it here would block the dashboard with no
-// gap to fill.
+// Prompt "settled" dashboard offices missing a term bound — those that either
+// completed serve onboarding (legacy/prefill EOs we lack dates for) OR reached
+// office by winning a campaign (the "I won" flow, marked by a `campaignId`).
+// Both already onboarded and land on the dashboard, so the modal is their only
+// gap-filler for term dates. A genuine serve LEAD still mid-onboarding
+// (onboardingCompletedAt == null AND no campaign) is deliberately excluded: it
+// supplies both dates via the onboarding term-dates step, and it never reaches
+// the dashboard shell where this modal mounts — prompting it would double-prompt
+// or block the flow.
 const isMissingTermDates = (office: ElectedOffice): boolean =>
-  office.onboardingCompletedAt != null &&
+  (office.onboardingCompletedAt != null || office.campaignId != null) &&
   (!office.termStartDate || !office.termEndDate)
 
 /**
  * Globally prompts a signed-in elected official to supply term dates whenever a
- * settled office they own (onboarding complete) is missing a start or end date —
- * regardless of which dashboard page they're on. Non-EO users (no offices), EOs
- * still in onboarding, and EOs with complete dates see nothing. Mounted in the
- * shared dashboard shell.
+ * settled office they own (onboarding complete OR win-origin) is missing a start
+ * or end date — regardless of which dashboard page they're on. Non-EO users (no
+ * offices), genuine serve leads still mid-onboarding, and EOs with complete dates
+ * see nothing. Mounted in the shared dashboard shell.
  */
 export function ElectedOfficeTermDatesModalController(): React.JSX.Element | null {
   const [user, , isUserLoading] = useUser()

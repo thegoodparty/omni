@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "top_community_issues",
-  "version": 1,
+  "version": 2,
   "model": "opus",
   "max_turns": 150,
   "timeout_seconds": 3000,
@@ -40,6 +40,16 @@
         "type": "string",
         "minLength": 1,
         "description": "Human-readable district description (e.g. 'District 5, Chicago, IL')."
+      },
+      "l2_district_type": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional. L2 voter-file column name for the office's district (e.g. 'City_Ward'). When present with l2_district_name, the Haystaq lean query is scoped to the district; when absent, it falls back to state scope."
+      },
+      "l2_district_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type."
       }
     }
   },
@@ -248,7 +258,13 @@
           },
           "source_type": {
             "type": "string",
-            "enum": ["news", "government_website", "research", "poll"]
+            "enum": [
+              "news",
+              "government_website",
+              "research",
+              "poll",
+              "advocacy_org"
+            ]
           },
           "url": {
             "type": ["string", "null"],

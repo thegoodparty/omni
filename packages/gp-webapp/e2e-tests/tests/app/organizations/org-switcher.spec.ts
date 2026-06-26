@@ -41,7 +41,7 @@ test.describe('Organization Switcher', () => {
     await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
   })
 
-  test('switching to elected office org routes to /dashboard/briefings', async ({
+  test('switching to elected office org routes to /dashboard/chief-of-staff', async ({
     page,
   }) => {
     await setupElectedOfficeUser(page)
@@ -60,7 +60,9 @@ test.describe('Organization Switcher', () => {
 
     // Switch back to EO
     await switchOrganization(page, eoOrgName)
-    await expect(page).toHaveURL(/\/dashboard\/briefings/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
+      timeout: 15000,
+    })
   })
 
   test('org selection persists across page reload', async ({ page }) => {

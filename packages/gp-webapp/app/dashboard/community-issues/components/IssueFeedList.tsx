@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { Skeleton } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
@@ -134,6 +136,13 @@ const IssueFeedList = ({
   topCommunity,
   trending,
 }: Props): React.JSX.Element => {
+  useEffect(() => {
+    trackEvent(EVENTS.CommunityIssues.ListViewed, {
+      topCount: topCommunity.issues.length,
+      trendingCount: trending.issues.length,
+    })
+  }, [topCommunity.issues.length, trending.issues.length])
+
   return (
     <div className="flex min-h-screen flex-col">
       <IssuesNavHeader />

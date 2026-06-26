@@ -4,6 +4,7 @@ import { InternalServerErrorException } from '@nestjs/common'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
@@ -225,6 +226,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -895,6 +897,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1082,6 +1085,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1221,6 +1225,10 @@ describe('QueueConsumerService - message type routing', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
@@ -1508,6 +1516,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },

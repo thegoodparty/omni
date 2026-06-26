@@ -935,6 +935,93 @@ describe('ContactsService', () => {
       })
     })
 
+    // A list saved from a search result set persists its search term and must
+    // re-apply it when selected, so the saved view reproduces the searched-down
+    // set (ENG-10518). A live search the request carries always takes priority.
+    describe('saved-list stored search (ENG-10518)', () => {
+      const searchSegment = {
+        id: 31,
+        name: 'Smith voters',
+        search: 'smith',
+      } as VoterFileFilter
+
+      it('re-applies a saved list search to the people-api query when the request has no search', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          searchSegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '31' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({ search: 'smith' }),
+          expect.any(Object),
+        )
+      })
+
+      it('lets a live request search override the saved list search', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          searchSegment,
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: 'jones', segment: '31' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({ search: 'jones' }),
+          expect.any(Object),
+        )
+      })
+
+      it('does not invent a search for a built-in segment with no stored search', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          {
+            resultsPerPage: 10,
+            page: 1,
+            search: undefined,
+            segment: 'texting',
+          },
+          org,
+        )
+
+        const body = mockHttpService.post.mock.calls[0]?.[1] as {
+          search?: string
+        }
+        expect(body.search).toBeUndefined()
+      })
+    })
+
     // Win channel downloads/counts on people-api (ENG-10424). Each built-in
     // channel maps to a people-api boolean filter set; the list/count path and
     // the download path must forward the SAME filters so the count Win sees
@@ -1158,6 +1245,59 @@ describe('ContactsService', () => {
 
         expect(listBody.filters).toEqual({ hasCellPhone: true })
         expect(downloadBody.filters).toEqual(listBody.filters)
+      })
+    })
+
+    describe('countContacts (live segment builder count, ENG-10517)', () => {
+      it('throws when the organization is not pro', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.countContacts({ partyDemocrat: true }, org),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('returns the people-api total for the in-progress filter set', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 1234 } } }),
+        )
+
+        const count = await service.countContacts({ partyDemocrat: true }, org)
+
+        expect(count).toBe(1234)
+        // The translated filter set reaches people-api, and only one row is
+        // requested so no real voter rows are loaded just to read the total.
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            resultsPerPage: 1,
+            filters: { politicalParty: { eq: 'Democratic' } },
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('surfaces VOTER_DATA_UNAVAILABLE when the district cannot resolve', async () => {
+        const org = makeOrganization({ slug: 'campaign-1' })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+
+        await expect(
+          service.countContacts({ partyDemocrat: true }, org),
+        ).rejects.toMatchObject({
+          response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
+        })
+        expect(mockHttpService.post).not.toHaveBeenCalled()
       })
     })
   })

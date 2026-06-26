@@ -11,9 +11,11 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
+  Trash2Icon,
 } from '@styleguide'
 
 import { useState } from 'react'
+import DeleteSegment from './DeleteSegment'
 import FiltersSheet from './FiltersSheet'
 import { useContactsTable } from '../../hooks/ContactsTableProvider'
 import { ALL_SEGMENTS, SHEET_MODES } from '../shared/constants'
@@ -117,6 +119,12 @@ export default function SegmentSection() {
     selectSegment(segmentId.toString())
   }
 
+  const handleAfterDelete = (deletedId: number) => {
+    if (currentSegment === deletedId.toString()) {
+      selectSegment(ALL_SEGMENTS)
+    }
+  }
+
   return (
     <div className="flex items-center flex-col w-full md:w-auto md:flex-row">
       <Select value={currentSegment} onValueChange={handleSelect}>
@@ -144,11 +152,32 @@ export default function SegmentSection() {
             <SelectGroup>
               <SelectLabel>Custom Segments</SelectLabel>
               {customSegments.map((segment) => (
-                <SelectItem key={segment.id} value={segment.id.toString()}>
-                  {segment.name
-                    ? trimCustomSegmentName(segment.name)
-                    : 'Unnamed Segment'}
-                </SelectItem>
+                <div
+                  key={segment.id}
+                  className="flex items-center justify-between pr-1"
+                >
+                  <SelectItem value={segment.id.toString()} className="flex-1">
+                    {segment.name
+                      ? trimCustomSegmentName(segment.name)
+                      : 'Unnamed Segment'}
+                  </SelectItem>
+                  <DeleteSegment
+                    segment={segment}
+                    afterDeleteCallback={handleAfterDelete}
+                    trigger={
+                      <IconButton
+                        variant="ghost"
+                        size="small"
+                        aria-label={`Delete ${segment.name ?? 'segment'}`}
+                        data-testid={`delete-segment-${segment.id}`}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Trash2Icon className="size-4 text-muted-foreground" />
+                      </IconButton>
+                    }
+                  />
+                </div>
               ))}
             </SelectGroup>
           )}

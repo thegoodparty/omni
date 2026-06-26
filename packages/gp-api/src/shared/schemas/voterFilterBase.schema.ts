@@ -61,4 +61,10 @@ export const voterFilterBaseSchema = z.object({
   voterStatus: z.array(z.string()).optional(),
   incomeRanges: z.array(z.string()).optional(),
   incomeUnknown: z.boolean().optional(),
+  // Free-text search term captured when a list is saved directly from a
+  // contacts search result set, re-applied on read so selecting the saved
+  // list reproduces the searched-down view (ENG-10518). Nullish because a
+  // persisted filter row stores null when no search was saved, and the FE
+  // round-trips the whole row back into this schema (e.g. POST /p2p/phone-list).
+  search: z.string().nullish(),
 })

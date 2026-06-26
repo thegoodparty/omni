@@ -359,6 +359,43 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     expect(result.dispatched).toBe(2)
     expect(result.skipped).toBe(0)
   })
+
+  it('passes l2 district params to top_community_issues only', async () => {
+    const suffix = Date.now()
+    const orgSlug = `ci-cohort-l2-${suffix}`
+    await service.prisma.organization.upsert({
+      where: { slug: orgSlug },
+      create: { slug: orgSlug, ownerId: service.user.id },
+      update: {},
+    })
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      l2DistrictType: 'City_Ward',
+      l2DistrictName: 'MINNEAPOLIS WARD 3',
+      isServeIcp: true,
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchForCohort([orgSlug])
+
+    const paramsByType = Object.fromEntries(
+      dispatchSpy.mock.calls.map((c) => [c[0].type, c[0].params]),
+    )
+    // top_community_issues carries the district key (scopes the Haystaq query)
+    expect(paramsByType.top_community_issues).toMatchObject({
+      l2_district_type: 'City_Ward',
+      l2_district_name: 'MINNEAPOLIS WARD 3',
+    })
+    // trending_issues' manifest is additionalProperties:false — must NOT carry it
+    expect(paramsByType.trending_issues).not.toHaveProperty('l2_district_type')
+    expect(paramsByType.trending_issues).not.toHaveProperty('l2_district_name')
+  })
 })
 
 // 'cif-cron-2' hashes to bucket 0 (mod 7) via FNV-1a — Sunday (UTC day 0).

@@ -141,12 +141,24 @@ export interface AgentJobContracts {
     Input: OppositionResearchInputParams
     Output: OppositionResearchArtifact
   }
+  race_opponent_collection: {
+    Input: OpponentDataCollectionInputParams
+    Output: OpponentDataCollectionArtifact
+  }
   top_community_issues: {
     Input: {
       /**
        * Human-readable district description (e.g. 'District 5, Chicago, IL').
        */
       district_descriptor: string
+      /**
+       * Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type.
+       */
+      l2_district_name?: string
+      /**
+       * Optional. L2 voter-file column name for the office's district (e.g. 'City_Ward'). When present with l2_district_name, the Haystaq lean query is scoped to the district; when absent, it falls back to state scope.
+       */
+      l2_district_type?: string
       /**
        * Name of the elected official's office (e.g. 'City Council Member').
        */
@@ -3741,6 +3753,94 @@ export interface OppositionResearchArtifact {
     party_affiliation: string
   }[]
 }
+export interface OpponentDataCollectionInputParams {
+  /**
+   * The opponents to collect as-collected data for. Names are seeded by gp-api from campaignStrategyOpponent; the URL hints are optional and used as a starting point when present.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Optional hint: the opponent's Ballotpedia page if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      ballotpedia_url?: string | null
+      /**
+       * The opponent's full name. Used both for source discovery via WebSearch and as the opponent_name on every emitted item.
+       */
+      full_name: string
+      /**
+       * Optional hint: the opponent's campaign website if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      website_url?: string | null
+    },
+    ...{
+      /**
+       * Optional hint: the opponent's Ballotpedia page if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      ballotpedia_url?: string | null
+      /**
+       * The opponent's full name. Used both for source discovery via WebSearch and as the opponent_name on every emitted item.
+       */
+      full_name: string
+      /**
+       * Optional hint: the opponent's campaign website if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      website_url?: string | null
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api before dispatch. Used only to disambiguate the right person/page during discovery (same office, jurisdiction, cycle). The agent does NOT reason over it beyond that.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null. Used to confirm the right cycle during discovery.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentDataCollectionArtifact {
+  generated_at: string
+  /**
+   * One entry per (opponent, source) actually found and fetched. A source that could not be found or fetched is omitted entirely (never invented). An opponent with neither source contributes zero entries; the array may be empty if no source was fetched for any opponent.
+   */
+  items: {
+    /**
+     * Unstructured extracted page text/sections, as collected. Deliberately not normalized into named fields beyond `text` — that is a later-phase decision. Capture the page text as-is.
+     */
+    content: {
+      /**
+       * The full extracted page text/sections, as-is from the fetched page.
+       */
+      text: string
+    }
+    /**
+     * The opponent this collected content is about. Matches one of the input opponents' full_name.
+     */
+    opponent_name: string
+    /**
+     * Which of the two sources this content came from.
+     */
+    source_type: 'ballotpedia' | 'opponent_website'
+    /**
+     * The page actually fetched (the broker's returned source_url after any redirect). Required — every item is grounded in a real fetched URL.
+     */
+    source_url: string
+  }[]
+}
 export interface TopCommunityIssuesOutput {
   data_quality: 'ok' | 'partial' | 'insufficient_signal'
   data_quality_reason?: string
@@ -3800,7 +3900,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -3864,7 +3969,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -3926,195 +4036,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-      ]
-    | [
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4178,7 +4105,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4240,7 +4172,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4302,69 +4239,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4428,7 +4308,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4490,7 +4375,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4552,7 +4442,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4614,69 +4509,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4740,7 +4578,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4802,7 +4645,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4864,7 +4712,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4926,7 +4779,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4988,69 +4846,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5114,7 +4915,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5176,7 +4982,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5238,7 +5049,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5300,7 +5116,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5362,7 +5183,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5424,69 +5250,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5550,7 +5319,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5612,7 +5386,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5674,7 +5453,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5736,7 +5520,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5798,7 +5587,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5860,7 +5654,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5922,69 +5721,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6048,7 +5790,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6110,7 +5857,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6172,7 +5924,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6234,7 +5991,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6296,7 +6058,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6358,7 +6125,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6420,7 +6192,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6482,69 +6259,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6608,7 +6328,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6670,7 +6395,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6732,7 +6462,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6794,7 +6529,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6856,7 +6596,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6918,7 +6663,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6980,7 +6730,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7042,7 +6797,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7104,7 +6864,81 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+      ]
+    | [
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7166,7 +7000,548 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7245,7 +7620,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7309,7 +7689,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7371,195 +7756,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-      ]
-    | [
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7623,7 +7825,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7685,7 +7892,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7747,69 +7959,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7873,7 +8028,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7935,7 +8095,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7997,7 +8162,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8059,69 +8229,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8185,7 +8298,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8247,7 +8365,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8309,7 +8432,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8371,7 +8499,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8433,69 +8566,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8559,7 +8635,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8621,7 +8702,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8683,7 +8769,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8745,7 +8836,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8807,7 +8903,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8869,69 +8970,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8995,7 +9039,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9057,7 +9106,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9119,7 +9173,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9181,7 +9240,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9243,7 +9307,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9305,7 +9374,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9367,69 +9441,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9493,7 +9510,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9555,7 +9577,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9617,7 +9644,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9679,7 +9711,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9741,7 +9778,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9803,7 +9845,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9865,7 +9912,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9927,69 +9979,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10053,7 +10048,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10115,7 +10115,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10177,7 +10182,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10239,7 +10249,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10301,7 +10316,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10363,7 +10383,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10425,7 +10450,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10487,7 +10517,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10549,7 +10584,81 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+      ]
+    | [
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10611,7 +10720,548 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
