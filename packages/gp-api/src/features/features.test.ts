@@ -15,7 +15,11 @@ import { User } from '../generated/prisma'
 const makeService = (): FeaturesService =>
   new FeaturesService(
     {} as Partial<UsersService> as UsersService,
-    { setContext: vi.fn() } as Partial<PinoLogger> as PinoLogger,
+    {
+      setContext: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    } as Partial<PinoLogger> as PinoLogger,
   )
 
 const asUser = (u: Partial<User>): User => u as Partial<User> as User
@@ -104,5 +108,47 @@ describe('FeaturesService.getAllVariants', () => {
         zip: '90210',
       },
     })
+  })
+})
+
+describe('FeaturesService.isFeatureEnabled', () => {
+  beforeEach(() => {
+    mockFetchV2.mockReset()
+  })
+
+  it('returns true when the variant resolves to "on"', async () => {
+    mockFetchV2.mockResolvedValue({ flag: { value: 'on', key: 'on' } })
+
+    const result = await makeService().isFeatureEnabled({
+      user: asUser({ id: 1, email: 'a@b.com' }),
+      feature: 'flag',
+    })
+
+    expect(result).toBe(true)
+  })
+
+  it('returns false when the variant is absent or not "on"', async () => {
+    mockFetchV2.mockResolvedValue({ flag: { value: 'off', key: 'off' } })
+
+    const result = await makeService().isFeatureEnabled({
+      user: asUser({ id: 1, email: 'a@b.com' }),
+      feature: 'flag',
+    })
+
+    expect(result).toBe(false)
+  })
+
+  // .env.test uses the `some_key` placeholder, so a failed Amplitude call
+  // degrades to ON (local-dev fallback) rather than throwing and 500ing the
+  // gated route. With a real key this same path fails closed (returns false).
+  it('degrades to the placeholder-key fallback when Amplitude fails', async () => {
+    mockFetchV2.mockRejectedValue(new Error('status=401'))
+
+    const result = await makeService().isFeatureEnabled({
+      user: asUser({ id: 1, email: 'a@b.com' }),
+      feature: 'flag',
+    })
+
+    expect(result).toBe(true)
   })
 })
