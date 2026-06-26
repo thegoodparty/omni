@@ -9,29 +9,30 @@ different repo footprint, different lifecycle. Read the overview first:
 
 All paths below are under `packages/gp-api/`.
 
-## Two generations, one wrapper
+## One wrapper, a few surfaces
 
-There are two generations of interactive AI plus a shared LLM wrapper:
+Every interactive surface funnels through one wrapper — `src/llm/` (`LlmService`
+plus the `ai`-SDK `tool()` definitions in `src/llm/tools/`) — which calls **Anthropic
+Claude through the Vercel `ai` SDK**. There is a single provider and a single code
+path; a surface is just a controller plus the choices it makes when it calls
+`LlmService`:
 
-1. **Legacy campaign assistant** — `src/campaigns/ai/` (chat + content generation).
-   Contentful-sourced prompts, **no tools**. Runs on Anthropic via `LlmService`
-   like everything else.
-2. **Modern "Serve" chat platform** — `src/chats/` (briefing chats + a scope-generic
-   general-chat system whose only registered scope today is **Chief of Staff**).
-   In-code prompts, `ai`-SDK tool-calling, SSE streaming. This is the only
-   interactive surface that crosses into the background agent system.
-3. **Central wrapper** — `src/llm/` (`LlmService` + the `ai`-SDK `tool()` definitions
-   in `src/llm/tools/`).
+- **Prompt source** — assembled in-code from composable blocks (`src/chats/`), or
+  pulled from Contentful and token-substituted (`src/campaigns/ai/`).
+- **Tools** — a surface may register `ai`-SDK tools for the model to call, or none.
+- **Streaming** — SSE token streaming with multi-step tool loops, or a single
+  non-streaming completion.
+- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows, or a single
+  `AiChat` JSONB blob.
 
-The remaining distinction between the two generations is prompt source (Contentful
-vs in-code) and tool support (none vs tool-calling) — both run through the same
-Anthropic-backed `LlmService`.
+The sections below describe the wrapper, then catalog the surfaces and where they sit
+on those axes.
 
 ## `LlmService` — the central wrapper
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
-one class. Dependencies (`package.json`): `ai`, `@ai-sdk/anthropic`. (No `openai`,
-no `@ai-sdk/openai-compatible`.) `ANTHROPIC_API_KEY` is required at startup.
+one class. Dependencies (`package.json`): `ai` and `@ai-sdk/anthropic`.
+`ANTHROPIC_API_KEY` is required at startup.
 
 All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
 calls `anthropicProvider.languageModel(model)`). DI tokens:
@@ -71,7 +72,7 @@ methods: `src/campaignStory/` (rewrite candidate story), `src/campaignStrategy/`
 (strategic landscape, community events), `src/polls/` (poll bias analysis),
 `src/onboarding/localNews.service.ts`. These are "generation," not interactive chat.
 
-### Streaming mechanics (the modern `src/chats/` path)
+### Streaming mechanics (the `src/chats/` path)
 
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
@@ -95,9 +96,8 @@ through its own dedicated controller/service.
 
 ## Tools / function calling
 
-Tool-calling exists **only on the modern Claude chat surfaces** (briefing + COS). The
-legacy campaign chat has none. All tools are the `LlmStreamTool` shape defined in
-`src/llm/tools/`:
+The briefing and Chief of Staff surfaces register tools; campaign chat registers
+none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
 
 - **`query_constituent_data` / `describe_constituent_data`** — aggregate,
   district-scoped constituent opinion + demographics from the `serve_agent_voters`
@@ -124,30 +124,30 @@ exists but isn't used by these surfaces.
 
 ## Chat persistence (Prisma)
 
-Two lineages:
+Two storage shapes:
 
-- **Modern chat** — `ChatConversation` (`chatConversation.prisma`: `ownerUserId`,
-  `scope`, `organizationSlug`, `title`, `anchor`, soft-delete), `ChatMessage`
-  (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+- **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
+  `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
   `:annotationId`. Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Legacy campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
+- **Campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
   the whole message array + feedback. No normalized message tables.
 
 ## Prompt management
 
-Split by generation:
+Two prompt sources:
 
-- **Modern Claude surfaces: prompts are in-code, assembled from composable blocks,
+- **Serve chats (briefing + COS): in-code, assembled from composable blocks,
   deterministic.** Briefing: `src/chats/briefing-chats/services/systemPromptBuilder.ts`
   (~11 blocks, ending with the `<briefing>…</briefing>` artifact). COS:
   `src/chats/general/chief-of-staff/services/chiefOfStaffPrompt.ts`
   (`buildChiefOfStaffSystemPrompt` — "You are the user's Chief of Staff. The user is
   the elected official you serve, NOT you." plus injected `<office_context>`,
   `<priorities>`, optional `<anchored_issue>`).
-- **Legacy campaign chat/content: prompts come from Contentful**, synced into the
+- **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes
   `[[token]]` placeholders with campaign data + live race metrics. User input is run
