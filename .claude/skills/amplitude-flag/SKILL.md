@@ -65,8 +65,22 @@ Current layout, for reference (verify with `get_deployments`):
 Note: prod has a server deployment, dev does not. If a flag is read server-side, it serves in prod
 but not in dev until someone adds a server deployment to dev in the Amplitude UI. Surface this.
 
+## Flag key naming (required convention)
+
+Every flag `key` follows **`{product}-{feature-slug}`**:
+
+- **`{product}`** is either **`win`** (the candidate product) or **`serve`** (the elected-official
+  product). **Always ask the user which product the flag is for** — don't guess. If a flag is
+  genuinely cross-product, ask the user to confirm before deviating from the convention.
+- **`{feature-slug}`** is a short kebab-case description of the feature. Suggest one from the feature
+  name (e.g. "New donation flow" → `new-donation-flow`), but let the user override.
+
+So a flag for the donation flow in the Serve product gets the key `serve-new-donation-flow`. The
+same `key` is used in both the dev and prod projects.
+
 ## Opinions (do not skip these)
 
+- **Key is `{product}-{feature-slug}`.** Ask for the product (`win` or `serve`); suggest the slug.
 - **Create in BOTH projects**, same `key` and same `name`, in one `create_flags` call.
 - **Both flags Active** (`enabled: true`). Inactive flags never serve.
 - **Attach all of each project's deployments.**
@@ -77,7 +91,9 @@ but not in dev until someone adds a server deployment to dev in the Amplitude UI
 
 ## Create a flag
 
-1. Get the `key` (e.g. `new-donation-flow`) and a human `name` from the user.
+1. **Ask which product the flag is for — `win` or `serve`** (see "Flag key naming"). Get a human
+   `name` from the user, suggest a kebab-case `{feature-slug}`, and assemble the `key` as
+   `{product}-{feature-slug}` (e.g. `serve-new-donation-flow`).
 2. **Ask what the dev rollout should be**, recommending 0 (off). Prod is always 0 — don't ask.
 3. **Resolve deployments**: call `get_deployments`, collect the non-deleted `id`s for dev (`703396`)
    and prod (`694490`).
@@ -88,7 +104,7 @@ but not in dev until someone adds a server deployment to dev in the Amplitude UI
   "flags": [
     {
       "projectId": "703396", // dev
-      "key": "new-donation-flow",
+      "key": "serve-new-donation-flow",
       "name": "New donation flow",
       "enabled": true, // Active
       "percentage": 0, // dev rollout — the user's choice (recommend 0)
@@ -96,7 +112,7 @@ but not in dev until someone adds a server deployment to dev in the Amplitude UI
     },
     {
       "projectId": "694490", // prod
-      "key": "new-donation-flow",
+      "key": "serve-new-donation-flow",
       "name": "New donation flow",
       "enabled": true, // Active
       "percentage": 0, // prod ships dark — always 0 at create
@@ -124,4 +140,6 @@ them the direct link: `https://app.amplitude.com/experiment/goodparty/694490/con
 - **Trying to flip prod on through the MCP.** Not possible — rollout is create-only via the MCP.
   Direct the user to the UI.
 - **Creating in only one project.** Always create both, same key.
+- **Skipping the `{product}-{feature-slug}` convention.** Always ask whether the flag is for `win`
+  or `serve` and prefix the key with it.
 - **Hardcoding deployment ids.** Resolve them with `get_deployments` each run.
