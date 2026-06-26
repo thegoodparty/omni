@@ -4,9 +4,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ExperimentRun, ExperimentRunStatus } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { OPPOSITION_RESEARCH } from '@/campaignStrategy/services/campaignStrategy.service'
 import { RACE_OPPONENT_COLLECTION } from '../raceOpponent.constants'
-import { RaceOpponentService } from './raceOpponent.service'
 
 // The collection agent only ever emits these two web-discovered source types;
 // campaign_plan_db (the Prisma enum's third value) is reserved for a later
@@ -34,37 +32,16 @@ export class RaceOpponentPersistService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly experimentRuns: ExperimentRunsService,
-    private readonly raceOpponentService: RaceOpponentService,
   ) {
     super()
   }
 
-  // Queue-consumer hook for completed runs. Two experiment types matter here:
-  //
-  // - opposition_research: the plan's own hook (run earlier in the consumer)
-  //   has already persisted the opponents. If collect() left a race-opponent
-  //   collection pending, auto-chain it now with the freshly-persisted names.
-  // - race_opponent_collection: load its artifact and replace the campaign's
-  //   collected rows.
-  //
-  // No-op for any other experiment type or a non-COMPLETED status.
+  // Queue-consumer hook: a race_opponent_collection run completed. Load its
+  // artifact and replace the campaign's collected rows. No-op for any other
+  // experiment type or a non-COMPLETED status.
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
-    if (run.status !== ExperimentRunStatus.COMPLETED) return
-
-    if (run.experimentType === OPPOSITION_RESEARCH) {
-      const campaign = await this.client.campaign.findUnique({
-        where: { organizationSlug: run.organizationSlug },
-        select: { id: true },
-      })
-      if (campaign) {
-        await this.raceOpponentService.chainCollectionAfterDiscovery(
-          campaign.id,
-        )
-      }
-      return
-    }
-
     if (run.experimentType !== RACE_OPPONENT_COLLECTION) return
+    if (run.status !== ExperimentRunStatus.COMPLETED) return
 
     const campaign = await this.client.campaign.findUnique({
       where: { organizationSlug: run.organizationSlug },

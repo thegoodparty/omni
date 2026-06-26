@@ -1051,30 +1051,16 @@ export class QueueConsumerService {
     // before it rethrows, so on redelivery the status guard above
     // (terminal-status check) drops the message. That same guard bounds the
     // requeue, so the raw throw can't infinite-redrive. The user-facing
-    // 'failed' state comes from markFailed (or, if markFailed itself faults,
-    // the isStuck grace-window backstop), not from the requeue.
-    //
-    // The two hooks run sequentially and in order: campaignStrategy persists
-    // opposition_research opponents that raceOpponent's auto-chain then reads.
-    // But raceOpponent must run even when campaignStrategy throws — it's the
-    // only path that clears raceOpponentCollectionPendingAt, and on redelivery
-    // the FAILED run is dropped by the terminal-status guard above, so skipping
-    // it would strand collectionStatus at 'discovering' forever. So capture a
-    // campaignStrategy fault, always run raceOpponent, then surface the fault.
-    let strategyError: unknown
-    try {
-      await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
-    } catch (error) {
-      strategyError = error
-    }
+    // 'failed' state comes from
+    // markFailed (or, if markFailed itself faults, the isStuck grace-window
+    // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
+    // non-campaign-strategy runs, so this only throws on a real persist failure.
+    await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
 
-    // Same contract as campaignStrategy: markFailed-then-throw on a persist
-    // fault, no-op for unrelated experiment types, and (for both the
-    // opposition_research auto-chain and the race_opponent_collection persist)
-    // idempotent so bounded redelivery is safe.
+    // Same contract as campaignStrategy above: markFailed-then-throw on a
+    // persist fault, no-op for other experiment types, and the persist is an
+    // idempotent replace so bounded redelivery is safe.
     await this.raceOpponent.onExperimentRunCompleted(updatedRun)
-
-    if (strategyError) throw strategyError
 
     return true
   }

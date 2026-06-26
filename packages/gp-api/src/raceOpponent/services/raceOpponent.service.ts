@@ -20,7 +20,10 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
-import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import {
+  CampaignStrategyService,
+  OPPOSITION_RESEARCH,
+} from '@/campaignStrategy/services/campaignStrategy.service'
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_COLLECTION,
@@ -115,7 +118,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     }
 
     if (discovery.disposition === 'inflight') {
-      await this.markCollectionPending(campaign.id)
+      // Frontend-driven two-call: discovery is running. The page polls GET
+      // (which reports 'discovering' off the in-flight run) and re-fires collect
+      // once opponents persist — at which point the opponents-present branch
+      // above dispatches collection. No server-side flag to strand.
       return { runId: discovery.oppositionRunId, status: 'discovering' }
     }
 
@@ -125,9 +131,9 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: null, status: 'idle' }
   }
 
-  // Shared collection-dispatch path: the in-flight dedup + race_opponent_collection
-  // dispatch, reused by collect() (plan opponents present) and the auto-chain
-  // after discovery. The dedup is unchanged from the original collect().
+  // The in-flight dedup + race_opponent_collection dispatch. Reached from
+  // collect() once opponent names exist (from the plan, or from a discovery run
+  // the page re-fired collect after). The dedup is unchanged from the original.
   private async dispatchCollection(
     campaign: CampaignWith<'user'>,
     clerkUserId: string,
@@ -179,66 +185,6 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: run.runId, status: 'running' }
   }
 
-  // Auto-chain entry point, called from RaceOpponentPersistService when an
-  // opposition_research run completes (the plan's hook has already persisted
-  // the opponents upstream in the queue consumer). If collect() left a
-  // collection pending, dispatch it now with the freshly-persisted names, then
-  // clear the flag. The flag is the idempotency guard: a duplicate completion
-  // delivery finds it cleared and no-ops. Zero opponents (uncontested race)
-  // clears the flag WITHOUT dispatching, so the next poll settles to idle
-  // instead of re-discovering.
-  async chainCollectionAfterDiscovery(campaignId: number): Promise<void> {
-    const plan = await this.client.campaignStrategy.findUnique({
-      where: { campaignId },
-      select: { raceOpponentCollectionPendingAt: true },
-    })
-    if (!plan?.raceOpponentCollectionPendingAt) return
-
-    const opponents = await this.buildOpponents(campaignId)
-    if (opponents.length === 0) {
-      await this.clearCollectionPending(campaignId)
-      return
-    }
-
-    const campaign = await this.client.campaign.findUnique({
-      where: { id: campaignId },
-      include: { user: true },
-    })
-    const clerkUserId = campaign?.user?.clerkId
-    if (!campaign || !clerkUserId) {
-      this.logger.warn(
-        { campaignId },
-        'opponents discovered but campaign/user unavailable; clearing pending',
-      )
-      await this.clearCollectionPending(campaignId)
-      return
-    }
-
-    // Clear the flag BEFORE dispatching. If we cleared after and the clear
-    // threw, the requeued message would be dropped on redelivery (the
-    // opposition_research run is already terminal COMPLETED), stranding the flag
-    // set forever while a live collection run exists. dispatchCollection's
-    // in-flight dedup makes clearing first safe against a double delivery, and a
-    // dispatch failure after the clear leaves a clean state the next collect()
-    // retries from.
-    await this.clearCollectionPending(campaignId)
-    await this.dispatchCollection(campaign, clerkUserId, opponents)
-  }
-
-  private async markCollectionPending(campaignId: number): Promise<void> {
-    await this.client.campaignStrategy.update({
-      where: { campaignId },
-      data: { raceOpponentCollectionPendingAt: new Date() },
-    })
-  }
-
-  private async clearCollectionPending(campaignId: number): Promise<void> {
-    await this.client.campaignStrategy.update({
-      where: { campaignId },
-      data: { raceOpponentCollectionPendingAt: null },
-    })
-  }
-
   async get(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
     await this.assertAccess(campaign)
 
@@ -250,10 +196,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return {
       opponents: this.groupByOpponent(rows),
       lastCollectedAt: this.lastCollectedAt(rows),
-      collectionStatus: await this.collectionStatus(
-        campaign.id,
-        campaign.organizationSlug,
-      ),
+      collectionStatus: await this.collectionStatus(campaign.organizationSlug),
     }
   }
 
@@ -344,23 +287,14 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     )
   }
 
-  // Derived from the latest collection run for this org — there's no status
-  // column, the run table is the source of truth. No run -> idle.
-  //
-  // A pending discovery (collect() dispatched opposition_research and is waiting
-  // to auto-chain collection) has no race_opponent_collection run yet, so it
-  // reads as 'discovering' off the plan flag. Once collection is dispatched the
-  // flag is cleared and the run table below takes over (running -> completed).
+  // Derived purely from run state — there's no status column, the run table is
+  // the source of truth, so nothing can strand. The latest race_opponent_collection
+  // run wins. Before any collection run exists, an in-flight opposition_research
+  // run surfaces as 'discovering' so the page (which re-fires collect once
+  // opponents persist) shows progress instead of idle.
   private async collectionStatus(
-    campaignId: number,
     organizationSlug: string,
   ): Promise<RaceOpponentCollectionStatus> {
-    const plan = await this.client.campaignStrategy.findUnique({
-      where: { campaignId },
-      select: { raceOpponentCollectionPendingAt: true },
-    })
-    if (plan?.raceOpponentCollectionPendingAt) return 'discovering'
-
     const run = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug,
@@ -369,14 +303,31 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       orderBy: { createdAt: Prisma.SortOrder.desc },
       select: { status: true },
     })
-    if (!run) return 'idle'
-    switch (run.status) {
-      case ExperimentRunStatus.COMPLETED:
-        return 'completed'
-      case ExperimentRunStatus.FAILED:
-        return 'failed'
-      default:
-        return 'running'
+    if (run) {
+      switch (run.status) {
+        case ExperimentRunStatus.COMPLETED:
+          return 'completed'
+        case ExperimentRunStatus.FAILED:
+          return 'failed'
+        default:
+          return 'running'
+      }
     }
+
+    const discovering = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: OPPOSITION_RESEARCH,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      select: { runId: true },
+    })
+    return discovering ? 'discovering' : 'idle'
   }
 }
