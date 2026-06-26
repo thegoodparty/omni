@@ -103,6 +103,11 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
   const [refreshing, setRefreshing] = useState(false)
   const [collecting, setCollecting] = useState(false)
+  // Synchronous in-flight guard. `collecting` state is stale in the auto-fire
+  // effect's closure and doesn't disable the button until React re-renders, so
+  // the effect and a user click could both fire a (paid) collect. The ref is
+  // set before the await, so any concurrent caller sees it immediately.
+  const collectingRef = useRef(false)
 
   const loadStatus = useCallback(async (): Promise<void> => {
     const { data: latest } = await clientRequest(
@@ -124,6 +129,8 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   }
 
   const collect = useCallback(async () => {
+    if (collectingRef.current) return
+    collectingRef.current = true
     setCollecting(true)
     try {
       const { data: result } = await clientRequest(
@@ -137,6 +144,7 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')
     } finally {
+      collectingRef.current = false
       setCollecting(false)
     }
   }, [errorSnackbar])

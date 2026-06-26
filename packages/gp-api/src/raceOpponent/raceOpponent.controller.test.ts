@@ -506,7 +506,7 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
   })
 
   it('a completed collection run wins over an in-flight opposition run', async () => {
-    await seedCampaign({
+    const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
@@ -526,6 +526,15 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
           status: ExperimentRunStatus.COMPLETED,
         },
       ],
+    })
+    // Link the in-flight opposition run to this campaign's plan so the discovery
+    // branch WOULD report 'discovering' — the collection run must override it.
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: 'opp-running-2',
+      },
     })
     flagOn()
 
