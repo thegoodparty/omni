@@ -9,52 +9,46 @@ different repo footprint, different lifecycle. Read the overview first:
 
 All paths below are under `packages/gp-api/`.
 
-## Two generations, one wrapper
+## One wrapper, a few surfaces
 
-There are two generations of interactive AI plus a shared LLM wrapper:
+Every interactive surface funnels through one wrapper — `src/llm/` (`LlmService`
+plus the `ai`-SDK `tool()` definitions in `src/llm/tools/`) — which calls **Anthropic
+Claude through the Vercel `ai` SDK**. There is a single provider and a single code
+path; a surface is just a controller plus the choices it makes when it calls
+`LlmService`:
 
-1. **Legacy campaign assistant** — `src/campaigns/ai/` (chat + content generation).
-   Together AI via the OpenAI client, Contentful-sourced prompts, **no tools**.
-2. **Modern "Serve" chat platform** — `src/chats/` (briefing chats + a scope-generic
-   general-chat system whose only registered scope today is **Chief of Staff**).
-   Anthropic Claude, in-code prompts, `ai`-SDK tool-calling, SSE streaming. This is
-   the only interactive surface that crosses into the background agent system.
-3. **Central wrapper** — `src/llm/` (`LlmService` + the `ai`-SDK `tool()` definitions
-   in `src/llm/tools/`).
+- **Prompt source** — assembled in-code from composable blocks (`src/chats/`), or
+  pulled from Contentful and token-substituted (`src/campaigns/ai/`).
+- **Tools** — a surface may register `ai`-SDK tools for the model to call, or none.
+- **Streaming** — SSE token streaming with multi-step tool loops, or a single
+  non-streaming completion.
+- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows, or a single
+  `AiChat` JSONB blob.
 
-> `src/llm/README.md` is stale — it says the module "wraps OpenAI/LangChain." There is
-> **no LangChain**. It wraps the OpenAI SDK (pointed at Together AI), the Vercel `ai`
-> SDK, and `@ai-sdk/anthropic`.
+The sections below describe the wrapper, then catalog the surfaces and where they sit
+on those axes.
 
 ## `LlmService` — the central wrapper
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
-one class. Dependencies (`package.json`): `ai`, `@ai-sdk/anthropic`,
-`@ai-sdk/openai-compatible`, `openai`. (No `@ai-sdk/openai`.)
+one class. Dependencies (`package.json`): `ai` and `@ai-sdk/anthropic`.
+`ANTHROPIC_API_KEY` is required at startup.
 
-Two distinct paths:
+All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
+calls `anthropicProvider.languageModel(model)`). DI tokens:
+`STREAM_TEXT_TOKEN` / `GENERATE_TEXT_TOKEN` / `GENERATE_OBJECT_TOKEN` /
+`ANTHROPIC_PROVIDER_FACTORY_TOKEN`.
 
-- **Non-streaming** (`chatCompletion`, `jsonCompletion`, `toolCompletion`) go through
-  the **raw OpenAI SDK** pointed at Together AI (`baseURL: https://api.together.xyz/v1`).
-  `jsonCompletion` uses `response_format: json_object` + Zod `schema.parse`.
-- **Streaming** (`streamChatCompletion`) is the **only path that uses the Vercel `ai`
-  SDK** — it calls `streamText` (injected via the `STREAM_TEXT_TOKEN` provider) with
+- **Non-streaming** (`chatCompletion`, `toolCompletion`) use `generateText` from the
+  `ai` SDK. `jsonCompletion` uses `generateObject` with a Zod schema.
+- **Streaming** (`streamChatCompletion`) uses `streamText` with
   `stopWhen: stepCountIs(maxSteps)` (default 5) for multi-step tool loops.
 
-**Provider routing** (`resolveChatModel`): a model id starting with `claude` routes to
-**Anthropic** via `createAnthropic`; anything else routes to the **Together**
-OpenAI-compatible provider via `createOpenAICompatible`. So the same
-`streamChatCompletion` call transparently hits Anthropic or Together depending on the
-model string.
-
-Models come from env: `AI_MODELS` (comma-separated default chain, required) plus an
-optional `AI_FALLBACK_MODEL`. `withModelFallback` wraps `async-retry` — transient
-errors cascade to the next model then retry; 4xx errors `bail()` immediately.
+Models come from env: `AI_MODELS` (comma-separated default chain, required — set to
+`claude-sonnet-4-6` in `deploy/index.ts`) plus an optional `AI_FALLBACK_MODEL`.
+`withModelFallback` wraps `async-retry` — transient errors cascade to the next model
+then retry; 4xx errors `bail()` immediately.
 **Streaming fallback applies only at connect-time, not mid-stream.**
-
-> **Operational note:** a non-serverless model left in `AI_MODELS` will 400 on every
-> fallback and surface as a "Background job failed" alert — see the memory note
-> `minimax-ai-models-fallback-broken`. `AI_MODELS` is set in `deploy/index.ts`.
 
 **Tool construction** (`buildToolSet`) is the bridge to the `ai` SDK's `tool()`:
 
@@ -62,24 +56,26 @@ errors cascade to the next model then retry; 4xx errors `bail()` immediately.
   wrapped in `tool()`, with `onToolCallStart`/`onToolCallEnd` instrumentation.
 - **Native provider tools** — `NativeWebSearchSpec` maps to Anthropic's server-side
   `webSearch_20250305`. No `execute`; events surface from the stream via `onChunk`.
-  **Silently skipped if `ANTHROPIC_API_KEY` is unset** or the model isn't a Claude
-  model.
+  Configured only when the resolved model is a Claude model; skipped otherwise.
 
 ## Surfaces
 
 | Surface                                     | Controller / endpoints                                                                                                         | Method                                                                             | Models                                                            | Tools                                                                                                                                             |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (Together default)                          | none                                                                                                                                              |
-| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | default chain                                                     | none                                                                                                                                              |
+| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (`claude-sonnet-4-6` default)               | none                                                                                                                                              |
+| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
 
-Other non-chat generation surfaces also go through `LlmService` non-streaming
-methods: `src/campaignStory/` (rewrite candidate story), `src/campaignStrategy/`
-(strategic landscape, community events), `src/polls/` (poll bias analysis),
-`src/onboarding/localNews.service.ts`. These are "generation," not interactive chat.
+Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
+split across two providers. Some go through `LlmService` (Anthropic) non-streaming
+methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
+`src/elections/` race-location extraction. Others go through a separate
+`GeminiService` (`src/vendors/google/`) for Google-Search-grounded generation —
+`src/campaignStory/` (rewrite candidate story), `src/campaignStrategy/`
+(community events), and `src/onboarding/localNews.service.ts`.
 
-### Streaming mechanics (the modern `src/chats/` path)
+### Streaming mechanics (the `src/chats/` path)
 
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
@@ -103,9 +99,8 @@ through its own dedicated controller/service.
 
 ## Tools / function calling
 
-Tool-calling exists **only on the modern Claude chat surfaces** (briefing + COS). The
-legacy campaign chat has none. All tools are the `LlmStreamTool` shape defined in
-`src/llm/tools/`:
+The briefing and Chief of Staff surfaces register tools; campaign chat registers
+none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
 
 - **`query_constituent_data` / `describe_constituent_data`** — aggregate,
   district-scoped constituent opinion + demographics from the `serve_agent_voters`
@@ -132,30 +127,30 @@ exists but isn't used by these surfaces.
 
 ## Chat persistence (Prisma)
 
-Two lineages:
+Two storage shapes:
 
-- **Modern chat** — `ChatConversation` (`chatConversation.prisma`: `ownerUserId`,
-  `scope`, `organizationSlug`, `title`, `anchor`, soft-delete), `ChatMessage`
-  (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+- **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
+  `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
   `:annotationId`. Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Legacy campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
+- **Campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
   the whole message array + feedback. No normalized message tables.
 
 ## Prompt management
 
-Split by generation:
+Two prompt sources:
 
-- **Modern Claude surfaces: prompts are in-code, assembled from composable blocks,
+- **Serve chats (briefing + COS): in-code, assembled from composable blocks,
   deterministic.** Briefing: `src/chats/briefing-chats/services/systemPromptBuilder.ts`
   (~11 blocks, ending with the `<briefing>…</briefing>` artifact). COS:
   `src/chats/general/chief-of-staff/services/chiefOfStaffPrompt.ts`
   (`buildChiefOfStaffSystemPrompt` — "You are the user's Chief of Staff. The user is
   the elected official you serve, NOT you." plus injected `<office_context>`,
   `<priorities>`, optional `<anchored_issue>`).
-- **Legacy campaign chat/content: prompts come from Contentful**, synced into the
+- **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes
   `[[token]]` placeholders with campaign data + live race metrics. User input is run
