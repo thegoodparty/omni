@@ -58,9 +58,15 @@ export class CommunityIssueService extends createPrismaBase(
     if (!validation.ok) {
       this.logger.error(
         { runId: run.runId, reason: validation.reason },
-        'community-issue artifact failed validation',
+        'community-issue artifact envelope failed validation',
       )
       return
+    }
+    if (validation.dropped.length > 0) {
+      this.logger.warn(
+        { runId: run.runId, dropped: validation.dropped },
+        'community-issue artifact: dropped invalid issues, persisting the rest',
+      )
     }
     if (
       validation.artifact.organization_slug !== run.organizationSlug ||
@@ -74,6 +80,16 @@ export class CommunityIssueService extends createPrismaBase(
           artifactRunId: validation.artifact.generated_for_run_id,
         },
         'community-issue artifact org or run id does not match run — skipping',
+      )
+      return
+    }
+    // Don't run the upsert (which archives-by-omission) when nothing valid
+    // survived — a run whose every issue failed validation shouldn't wipe an
+    // org's existing feed.
+    if (validation.artifact.issues.length === 0) {
+      this.logger.warn(
+        { runId: run.runId },
+        'community-issue artifact has no valid issues — skipping upsert',
       )
       return
     }
