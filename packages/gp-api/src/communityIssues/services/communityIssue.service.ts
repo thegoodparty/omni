@@ -1,9 +1,19 @@
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { Injectable } from '@nestjs/common'
-import { ExperimentRun } from '../../generated/prisma'
+import {
+  CommunityIssueList,
+  CommunityIssuePriority,
+  ExperimentRun,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
-import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
+import {
+  CommunityIssueUpsertService,
+  CommunityIssueUpsertSummary,
+} from './communityIssueUpsert.service'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -16,6 +26,33 @@ const parseJson = (raw: string): Record<string, unknown> =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as Record<string, unknown>
 
+// Cap on how many issues per list get flattened into the email event below.
+const MAX_EMAIL_ISSUES = 5
+
+type EmailIssueFields = {
+  title: string
+  summary: string
+  priority: CommunityIssuePriority
+}
+
+// Flatten a ranked issue list into indexed scalar props (topIssue1Title,
+// topIssue1Summary, topIssue1Priority, topIssue2Title, …) so a HubSpot email
+// workflow can read them — HubSpot can't index into an array. See the
+// instrument-analytics-event skill's emailable-events convention.
+const flattenIssuesForEmail = (
+  prefix: string,
+  issues: EmailIssueFields[],
+): Record<string, string> => {
+  const out: Record<string, string> = {}
+  issues.slice(0, MAX_EMAIL_ISSUES).forEach((issue, i) => {
+    const n = i + 1
+    out[`${prefix}${n}Title`] = issue.title
+    out[`${prefix}${n}Summary`] = issue.summary
+    out[`${prefix}${n}Priority`] = issue.priority
+  })
+  return out
+}
+
 @Injectable()
 export class CommunityIssueService extends createPrismaBase(
   MODELS.CommunityIssue,
@@ -23,6 +60,7 @@ export class CommunityIssueService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly upsert: CommunityIssueUpsertService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -83,16 +121,130 @@ export class CommunityIssueService extends createPrismaBase(
       )
       return
     }
-    // Don't run the upsert (which archives-by-omission) when nothing valid
-    // survived — a run whose every issue failed validation shouldn't wipe an
-    // org's existing feed.
-    if (validation.artifact.issues.length === 0) {
+    // A run whose issues ALL failed validation shouldn't wipe an org's feed via
+    // the upsert's archive-by-omission. But a genuinely empty result (the agent
+    // returned no issues and none were dropped) is a real "archive all" signal
+    // — e.g. trending routinely empties — so let that through to the upsert.
+    if (
+      validation.artifact.issues.length === 0 &&
+      validation.dropped.length > 0
+    ) {
       this.logger.warn(
-        { runId: run.runId },
-        'community-issue artifact has no valid issues — skipping upsert',
+        { runId: run.runId, dropped: validation.dropped.length },
+        'community-issue artifact: all issues failed validation — skipping upsert',
       )
       return
     }
-    await this.upsert.upsertFromArtifact(run, validation.artifact)
+    const summary = await this.upsert.upsertFromArtifact(
+      run,
+      validation.artifact,
+    )
+    if (!summary) return
+
+    await this.emitGenerationEvents(run, summary)
+  }
+
+  private async emitGenerationEvents(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { userId: true },
+    })
+    const userId = office?.userId
+    if (!userId) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office user; skipping analytics',
+      )
+      return
+    }
+
+    // Fires once per org, when the second of the two lists completes its
+    // first-ever generation — i.e. the org now has both lists populated.
+    // `otherListCount` counts all rows (live + archived) on purpose: it gates
+    // on "has the other list ever generated", which is monotonic, so this
+    // fires exactly once and never re-fires when a list later empties and
+    // repopulates (trending routinely empties). The non-empty guard below
+    // keeps us from emailing a list that currently has zero live issues.
+    if (summary.wasFirstGenerationForList) {
+      const otherList =
+        summary.list === CommunityIssueList.top_community
+          ? CommunityIssueList.trending
+          : CommunityIssueList.top_community
+      const otherListCount = await this.model.count({
+        where: { organizationSlug: run.organizationSlug, list: otherList },
+      })
+      if (otherListCount > 0) {
+        const [topIssues, trendingIssues] = await Promise.all([
+          this.model.findMany({
+            where: {
+              organizationSlug: run.organizationSlug,
+              list: CommunityIssueList.top_community,
+              archivedAt: null,
+            },
+            select: { title: true, summary: true, priority: true },
+            orderBy: { rank: Prisma.SortOrder.asc },
+          }),
+          this.model.findMany({
+            where: {
+              organizationSlug: run.organizationSlug,
+              list: CommunityIssueList.trending,
+              archivedAt: null,
+            },
+            select: { title: true, summary: true, priority: true },
+            orderBy: { rank: Prisma.SortOrder.asc },
+          }),
+        ])
+        if (topIssues.length > 0 && trendingIssues.length > 0) {
+          void this.analytics
+            .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
+              topIssueCount: topIssues.length,
+              trendingIssueCount: trendingIssues.length,
+              ...flattenIssuesForEmail('topIssue', topIssues),
+              ...flattenIssuesForEmail('trendingIssue', trendingIssues),
+            })
+            .catch(() => undefined)
+        }
+      }
+    }
+
+    // A high-priority trending issue that is newly created on a refresh run
+    // (never on the org's first trending generation, where every issue is new).
+    if (
+      summary.list === CommunityIssueList.trending &&
+      !summary.wasFirstGenerationForList
+    ) {
+      for (const issue of summary.newHighPriorityTrending) {
+        void this.analytics
+          .track(
+            userId,
+            EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
+            {
+              issueId: issue.id,
+              title: issue.title,
+              summary: issue.summary,
+            },
+          )
+          .catch(() => undefined)
+      }
+    }
+
+    // An existing main-list issue whose priority moved this refresh — answers
+    // "is something on the main list changing in urgency?". Only top_community
+    // changes are collected, and these only occur on refreshes (a first
+    // generation has no existing issues to change).
+    for (const issue of summary.topPriorityChanges) {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TopIssuePriorityChanged, {
+          issueId: issue.id,
+          title: issue.title,
+          summary: issue.summary,
+          previousPriority: issue.previousPriority,
+          priority: issue.priority,
+        })
+        .catch(() => undefined)
+    }
   }
 }

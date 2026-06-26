@@ -255,6 +255,107 @@ export class CampaignStrategyService
     })
   }
 
+  // Dispatch port for the race-opponent flow: ensure opposition_research has
+  // run (or is running) for this campaign so opponent NAMES get discovered —
+  // without also dispatching the paid opportunities_and_challenges section that
+  // getOrGenerateStrategicLandscape would. Reuses the plan's own dedup +
+  // attempt-cap machinery (upsert/align, sectionState, attemptOpposition), so
+  // discovery lives in exactly one place and the two paths can't drift.
+  //
+  // Degrades to 'unavailable' (logged, never thrown) when there's no race,
+  // election-api is down, or the attempt cap / SQS send fails, so the
+  // race-opponent collect path never 500s on a setup gap.
+  async ensureOppositionResearch(campaign: CampaignWith<'user'>): Promise<{
+    disposition: 'inflight' | 'persisted' | 'unavailable'
+    oppositionRunId: string | null
+  }> {
+    const clerkUserId = campaign.user?.clerkId
+    if (!clerkUserId)
+      return { disposition: 'unavailable', oppositionRunId: null }
+
+    const parsed = CampaignDetailsSchema.safeParse(campaign.details)
+    const brHashId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
+    if (brHashId.length === 0) {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+
+    const plan = await this.alignPlanWithRace(
+      await this.upsertForCampaign(campaign.id, brHashId),
+      brHashId,
+    )
+
+    const [opposition, opportunities] = await Promise.all([
+      this.runFor(plan.oppositionRunId),
+      this.runFor(plan.opportunitiesRunId),
+    ])
+    const state = this.sectionState(opposition, plan.oppositionPersistedAt)
+    if (state === 'persisted') {
+      return { disposition: 'persisted', oppositionRunId: plan.oppositionRunId }
+    }
+    if (state === 'inflight') {
+      return { disposition: 'inflight', oppositionRunId: plan.oppositionRunId }
+    }
+
+    // 'redispatch': build params (election-api) then claim+dispatch opposition.
+    let params: StrategicLandscapeParams
+    try {
+      params = await this.params.build(campaign, brHashId)
+    } catch (error) {
+      if (
+        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof BadGatewayException
+      ) {
+        this.logger.warn(
+          { error, campaignId: campaign.id, raceId: brHashId },
+          'election-api unavailable while discovering opponents; reporting unavailable',
+        )
+        return { disposition: 'unavailable', oppositionRunId: null }
+      }
+      throw error
+    }
+
+    const freshStart =
+      this.sectionState(opportunities, plan.opportunitiesPersistedAt) !==
+      'inflight'
+    const result = await this.attemptOpposition(
+      campaign.userId,
+      plan,
+      { organizationSlug: campaign.organizationSlug, clerkUserId, params },
+      freshStart,
+    )
+    if (result !== 'inflight') {
+      // 'dead' = opposition attempt cap reached (often burned by prior
+      // plan-endpoint retries; counters survive race changes). 'stalled' = the
+      // SQS dispatch failed this call. Log so the otherwise-silent 'unavailable'
+      // (which the race-opponent page renders as an empty state) is diagnosable.
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          raceId: brHashId,
+          result,
+          oppositionAttempts: plan.oppositionAttempts,
+        },
+        result === 'dead'
+          ? 'opposition attempt cap reached while discovering opponents; reporting unavailable'
+          : 'opposition dispatch stalled (SQS) while discovering opponents; reporting unavailable',
+      )
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+    // attemptOpposition swallows a transient fault on the run-id link and still
+    // returns 'inflight'. An unlinked run is orphaned: onExperimentRunCompleted
+    // looks the plan up by oppositionRunId and finds nothing, so opponents never
+    // persist. Report 'unavailable' so collect() settles to idle instead of
+    // returning a 'discovering' the page can never advance past.
+    const linked = await this.findFirst({ where: { id: plan.id } })
+    if (!linked?.oppositionRunId) {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+    return {
+      disposition: 'inflight',
+      oppositionRunId: linked.oppositionRunId,
+    }
+  }
+
   // Queue-consumer hook: when one of the two CAP runs completes, load its
   // artifact and persist that section. Each section persists independently;
   // the endpoint reports 'ready' once both sections are persisted.

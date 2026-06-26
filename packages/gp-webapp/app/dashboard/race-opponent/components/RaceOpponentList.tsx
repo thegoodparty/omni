@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import { ExternalLinkIcon, RefreshIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -20,6 +20,7 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
 const STATUS_LABELS: Record<RaceOpponentResponse['collectionStatus'], string> =
   {
     idle: 'Idle',
+    discovering: 'Discovering opponents',
     running: 'Running',
     completed: 'Completed',
     failed: 'Failed',
@@ -90,6 +91,9 @@ const groupBySourceType = (
     .filter((group) => group.items.length > 0)
 }
 
+// How often to poll status while discovery/collection is in flight.
+const POLL_INTERVAL_MS = 5000
+
 type Props = {
   initialData: RaceOpponentResponse
 }
@@ -99,15 +103,24 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
   const [refreshing, setRefreshing] = useState(false)
   const [collecting, setCollecting] = useState(false)
+  // Synchronous in-flight guard. `collecting` state is stale in the auto-fire
+  // effect's closure and doesn't disable the button until React re-renders, so
+  // the effect and a user click could both fire a (paid) collect. The ref is
+  // set before the await, so any concurrent caller sees it immediately.
+  const collectingRef = useRef(false)
+
+  const loadStatus = useCallback(async (): Promise<void> => {
+    const { data: latest } = await clientRequest(
+      'GET /v1/campaigns/mine/race-opponent',
+      {},
+    )
+    setData(latest)
+  }, [])
 
   const refresh = async () => {
     setRefreshing(true)
     try {
-      const { data: latest } = await clientRequest(
-        'GET /v1/campaigns/mine/race-opponent',
-        {},
-      )
-      setData(latest)
+      await loadStatus()
     } catch {
       errorSnackbar('Failed to refresh opponent data. Please try again.')
     } finally {
@@ -115,7 +128,9 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
     }
   }
 
-  const collect = async () => {
+  const collect = useCallback(async () => {
+    if (collectingRef.current) return
+    collectingRef.current = true
     setCollecting(true)
     try {
       const { data: result } = await clientRequest(
@@ -129,11 +144,56 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')
     } finally {
+      collectingRef.current = false
       setCollecting(false)
     }
-  }
+  }, [errorSnackbar])
 
-  const isRunning = data.collectionStatus === 'running'
+  const status = data.collectionStatus
+
+  // Two-call discovery: collect() dispatches opposition_research and returns
+  // 'discovering'; the collection run is deferred until opponent names exist.
+  // While discovery or collection is in flight, poll status. After a few
+  // consecutive poll failures, stop and notify rather than silently spinning on
+  // 'discovering' forever with the Collect button locked.
+  useEffect(() => {
+    if (status !== 'discovering' && status !== 'running') return
+    let consecutiveErrors = 0
+    const id = setInterval(() => {
+      void loadStatus()
+        .then(() => {
+          consecutiveErrors = 0
+        })
+        .catch(() => {
+          consecutiveErrors += 1
+          if (consecutiveErrors >= 3) {
+            clearInterval(id)
+            errorSnackbar(
+              'Lost contact with the server while checking status. Refresh to try again.',
+            )
+          }
+        })
+    }, POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [status, loadStatus, errorSnackbar])
+
+  // When discovery succeeds (status goes 'discovering' -> 'idle'), auto-fire
+  // collect once to dispatch the deferred collection run. This can't loop: a
+  // FAILED discovery reports 'failed' (not 'idle'), so it never re-triggers
+  // here; an uncontested race settles collect() to idle without re-dispatching;
+  // and a successful discovery's completed run is never re-dispatched.
+  const prevStatus = useRef(status)
+  useEffect(() => {
+    const wasDiscovering = prevStatus.current === 'discovering'
+    prevStatus.current = status
+    if (wasDiscovering && status === 'idle') {
+      void collect()
+    }
+  }, [status, collect])
+
+  // Discovery (opposition_research) and collection both keep the run busy, so
+  // both disable a fresh Collect to avoid stacking paid runs.
+  const isBusy = status === 'running' || status === 'discovering'
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
@@ -158,7 +218,7 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={collect}
-            disabled={collecting || isRunning}
+            disabled={collecting || isBusy}
             className="flex items-center gap-1.5"
           >
             <RefreshIcon className="size-4" aria-hidden />

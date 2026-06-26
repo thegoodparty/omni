@@ -2,6 +2,7 @@
 import { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
+import DashboardNavHeader, { type NavHeaderIconKey } from './DashboardNavHeader'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -26,6 +27,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
+  navHeader?: { icon: NavHeaderIconKey; label: string }
 }
 
 const DashboardLayout = ({
@@ -34,6 +36,7 @@ const DashboardLayout = ({
   campaign,
   wrapperClassName = '',
   hideMenu = false,
+  navHeader,
 }: DashboardLayoutProps): React.JSX.Element | null => {
   const [user] = useUser()
   const [hookCampaign] = useCampaign()
@@ -91,9 +94,12 @@ const DashboardLayout = ({
           </Sidebar>
         )}
         <SidebarInset className="bg-[#f5f5f5]">
-          {!hideMenu && <MobileMenuTrigger />}
+          {!hideMenu && <MobileMenuTrigger hideTitle={!!navHeader} />}
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
+          {navHeader && (
+            <DashboardNavHeader icon={navHeader.icon} label={navHeader.label} />
+          )}
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             <ProUpgradePrompt
               campaign={activeCampaign}
@@ -136,7 +142,7 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
   return null
 }
 
-const MobileMenuTrigger = () => {
+const MobileMenuTrigger = ({ hideTitle = false }: { hideTitle?: boolean }) => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
@@ -144,8 +150,11 @@ const MobileMenuTrigger = () => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
-  const pageTitle =
-    pathname && isContactsPath(pathname)
+  // When the page renders a full-bleed nav header (icon + tab name), it already
+  // shows the title on mobile, so suppress the top-bar title to avoid doubling.
+  const pageTitle = hideTitle
+    ? null
+    : pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
