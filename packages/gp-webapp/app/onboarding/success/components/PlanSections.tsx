@@ -15,9 +15,7 @@ export interface StrategyState {
 }
 
 // Same shape as StrategyState — the polling hooks both produce it.
-// Kept as a distinct alias so the prop intent at call sites is clear and
-// so we can diverge later if events need an additional flag (e.g.
-// "no results found" vs "generating").
+// Kept as a distinct alias so the prop intent at call sites is clear.
 export type EventsState = StrategyState
 
 // Same shape as StrategyState for the local-news (press outlets) pipeline.
@@ -43,6 +41,9 @@ const GoodPartySourceLogo = (): React.JSX.Element => (
 interface PlanSectionsProps {
   plan: PlanData
   strategyState?: StrategyState
+  // Story-off (legacy) plan only. When provided, the Section 7 Community
+  // Events table renders (skeleton while generating, then the LLM rows).
+  // Omitted on the story-on dashboard, whose events live in the tracker.
   eventsState?: EventsState
   pressOutletsState?: PressOutletsState
   onStuckChange?: (stuck: boolean) => void
@@ -438,6 +439,9 @@ const PlanSections = ({
 }: PlanSectionsProps): React.JSX.Element => {
   const isStrategyGenerating = strategyState?.isGenerating ?? false
   const isStrategyError = strategyState?.isError ?? false
+  // Community events are a story-off-only section: rendered only when the
+  // caller passes eventsState (the success page + the story-off plan page).
+  const showCommunityEvents = eventsState !== undefined
   const isEventsGenerating = eventsState?.isGenerating ?? false
   const isEventsError = eventsState?.isError ?? false
   const isPressOutletsGenerating = pressOutletsState?.isGenerating ?? false
@@ -826,37 +830,39 @@ const PlanSections = ({
             showing at a civic association meeting can move more voters than any
             paid channel at this budget.
           </p>
-          <Subsection title="Community Events">
-            {isEventsGenerating ? (
-              <CommunityEventsSkeleton />
-            ) : isEventsError || plan.civicEvents.length === 0 ? (
-              // Empty state — either the LLM returned zero qualifying
-              // events or the endpoint errored. Either way no table to
-              // show; the user shouldn't see stale templated rows.
-              <p className="text-sm text-muted-foreground italic">
-                No community events found yet. We&apos;ll update this section as
-                we find them.
-              </p>
-            ) : (
-              <PlanTable
-                columns={['Event', 'Address', 'Date', 'Why It Matters']}
-                rows={plan.civicEvents.map((e) => [
-                  <span key="e" className="text-foreground">
-                    {e.event}
-                  </span>,
-                  <span key="a" className="text-muted-foreground">
-                    {e.address}
-                  </span>,
-                  <span key="d" className="whitespace-nowrap text-foreground">
-                    {e.date}
-                  </span>,
-                  <span key="w" className="text-muted-foreground">
-                    {e.why}
-                  </span>,
-                ])}
-              />
-            )}
-          </Subsection>
+          {showCommunityEvents && (
+            <Subsection title="Community Events">
+              {isEventsGenerating ? (
+                <CommunityEventsSkeleton />
+              ) : isEventsError || plan.civicEvents.length === 0 ? (
+                // Empty state — either the LLM returned zero qualifying
+                // events or the endpoint errored. Either way no table to
+                // show; the user shouldn't see stale templated rows.
+                <p className="text-sm text-muted-foreground italic">
+                  No community events found yet. We&apos;ll update this section
+                  as we find them.
+                </p>
+              ) : (
+                <PlanTable
+                  columns={['Event', 'Address', 'Date', 'Why It Matters']}
+                  rows={plan.civicEvents.map((e) => [
+                    <span key="e" className="text-foreground">
+                      {e.event}
+                    </span>,
+                    <span key="a" className="text-muted-foreground">
+                      {e.address}
+                    </span>,
+                    <span key="d" className="whitespace-nowrap text-foreground">
+                      {e.date}
+                    </span>,
+                    <span key="w" className="text-muted-foreground">
+                      {e.why}
+                    </span>,
+                  ])}
+                />
+              )}
+            </Subsection>
+          )}
           <Subsection title="Press & Media Outlets">
             <p>
               Target at least one earned-media placement per week between{' '}

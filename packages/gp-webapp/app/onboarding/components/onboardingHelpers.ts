@@ -6,9 +6,11 @@ import type {
 } from './onboardingTypes'
 
 // Where the candidate lands after completing the pledge. Precedence:
-// campaign-story (write the story, generate later) > campaign-strategy
-// (LLM plan on the success page) > legacy dashboard. Pure so the precedence
-// is unit-testable without driving the whole flow to the pledge step.
+// campaign-story (write the story, generate the plan + tracker later) >
+// campaign-strategy (legacy LLM plan on the onboarding success page) > legacy
+// dashboard. Story-off campaigns stay on the legacy success page — the new
+// tracker only exists once a campaign goes through campaign story. Pure so the
+// precedence is unit-testable without driving the whole flow to the pledge.
 export const resolvePostPledgeRoute = (flags: {
   campaignStoryEnabled: boolean
   campaignStrategyEnabled: boolean

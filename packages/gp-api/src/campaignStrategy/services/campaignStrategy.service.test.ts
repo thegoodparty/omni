@@ -18,6 +18,7 @@ import { RacesService } from '@/elections/services/races.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { RaceContextFromApi } from '../types/electionApi.types'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 
 // Strategic-landscape (CAP dispatch) behavior is covered in
 // campaignStrategy.cap.test.ts. This file covers the community-events pipeline
@@ -198,6 +199,10 @@ describe('CampaignStrategyService — community events', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { bootstrapForCampaign: vi.fn() },
         },
         CampaignStrategyService,
       ],
