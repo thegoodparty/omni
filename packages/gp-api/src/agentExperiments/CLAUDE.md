@@ -96,6 +96,8 @@ The `experimentType` column on `experiment_run` is still `String` at the DB leve
 
 Sent to the queue named by `AGENT_DISPATCH_QUEUE_NAME` (e.g. `agent-dispatch-dev.fifo`). The URL is resolved once on first dispatch via `sqs:GetQueueUrl` and cached on the service instance. `MessageGroupId = "agent-dispatch-{organizationSlug}"` (per-org FIFO ordering), with a random `MessageDeduplicationId`.
 
+**`params` size cap.** The PMF Engine rejects any dispatch whose serialized `params` exceed **6000 bytes** with `Experiment parameters exceed size limit (N > 6000 bytes)` (a `FAILED` result, not an SQS error). Callers that embed variable-length data must bound it before dispatch — e.g. `campaignStrategy`'s strategic-landscape params cap the filed candidate roster (`StrategicLandscapeParamsService.fitToBudget`). A caller with its own retry loop will otherwise re-dispatch the same oversized payload until its attempt cap, producing a cluster of identical `FAILED` rows.
+
 **Result** (agent → gp-api) — consumed by `QueueConsumerService.handleAgentExperimentResult`. Schema in `src/queue/queue.types.ts` (`AgentExperimentResultSchema`):
 
 ```ts
