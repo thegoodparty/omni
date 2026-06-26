@@ -12,7 +12,7 @@ const SLUG = 'campaign-koo'
 const OTHER_OWNER_ID = 999
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const COLLECT_PATH = '/v1/campaigns/mine/race-opponent/collect'
-const RAW_PATH = '/v1/campaigns/mine/race-opponent/raw'
+const GET_PATH = '/v1/campaigns/mine/race-opponent'
 const JANE = 'Jane Rival'
 const BALLOTPEDIA = 'ballotpedia'
 
@@ -208,7 +208,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   })
 })
 
-describe('GET /v1/campaigns/mine/race-opponent/raw', () => {
+describe('GET /v1/campaigns/mine/race-opponent', () => {
   it('returns rows grouped by opponent with status + lastCollectedAt', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
@@ -253,7 +253,7 @@ describe('GET /v1/campaigns/mine/race-opponent/raw', () => {
     })
     flagOn()
 
-    const result = await service.client.get(RAW_PATH, {
+    const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
     })
 
@@ -271,7 +271,7 @@ describe('GET /v1/campaigns/mine/race-opponent/raw', () => {
     await seedCampaign({ slug: SLUG, ownerId: service.user.id, isPro: true })
     flagOn()
 
-    const result = await service.client.get(RAW_PATH, {
+    const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
     })
 
