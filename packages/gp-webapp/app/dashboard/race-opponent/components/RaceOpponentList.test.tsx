@@ -150,4 +150,36 @@ describe('<RaceOpponentList>', () => {
       vi.useRealTimers()
     }
   })
+
+  it('does not auto-fire collect when discovery fails (no re-dispatch loop)', async () => {
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'failed' } },
+      { status: 200, data: { ...empty, collectionStatus: 'failed' } },
+    ])
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'should-not-fire', status: 'discovering' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      // Poll resolves the discovery as failed; the auto-fire must not trigger.
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() => expect(screen.getByText('Failed')).toBeInTheDocument())
+      expect(collectHandler).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: /collect now/i }),
+      ).toBeEnabled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

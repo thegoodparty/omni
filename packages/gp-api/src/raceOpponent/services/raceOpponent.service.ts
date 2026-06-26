@@ -20,10 +20,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
-import {
-  CampaignStrategyService,
-  OPPOSITION_RESEARCH,
-} from '@/campaignStrategy/services/campaignStrategy.service'
+import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_COLLECTION,
@@ -292,11 +289,14 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   // Derived purely from run state — there's no status column, the run table is
   // the source of truth, so nothing can strand. The latest race_opponent_collection
-  // run wins. Before any collection run exists, an in-flight opposition_research
-  // run surfaces as 'discovering' so the page (which re-fires collect once
-  // opponents persist) shows progress instead of idle. The discovery lookup is
-  // scoped to THIS campaign's plan run (oppositionRunId), not any org-wide
-  // opposition run, so an unrelated/stale run can't pin the page to 'discovering'.
+  // run wins. Before any collection run exists, the campaign's own discovery run
+  // (plan.oppositionRunId — scoped to THIS plan, never an org-wide/stale run)
+  // drives the status: in-flight -> 'discovering', FAILED -> 'failed', else
+  // 'idle'. A FAILED discovery MUST read as 'failed' (not 'idle'): the page
+  // auto-fires collect on a discovering->idle transition, and a FAILED run is
+  // re-dispatchable, so reporting 'idle' would loop the page into re-dispatching
+  // discovery until the attempt cap. 'failed' stops the auto-fire and lets the
+  // user retry manually.
   private async collectionStatus(
     campaignId: number,
     organizationSlug: string,
@@ -326,20 +326,16 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
     if (!plan?.oppositionRunId) return 'idle'
 
-    const discovering = await this.client.experimentRun.findFirst({
-      where: {
-        runId: plan.oppositionRunId,
-        experimentType: OPPOSITION_RESEARCH,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-          ],
-        },
-      },
-      select: { runId: true },
+    const discovery = await this.client.experimentRun.findUnique({
+      where: { runId: plan.oppositionRunId },
+      select: { status: true },
     })
-    return discovering ? 'discovering' : 'idle'
+    if (!discovery) return 'idle'
+    if (discovery.status === ExperimentRunStatus.FAILED) return 'failed'
+    const inFlight =
+      discovery.status === ExperimentRunStatus.QUEUED ||
+      discovery.status === ExperimentRunStatus.RUNNING ||
+      discovery.status === ExperimentRunStatus.AWAITING_RESUME
+    return inFlight ? 'discovering' : 'idle'
   }
 }

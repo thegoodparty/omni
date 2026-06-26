@@ -154,9 +154,11 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
     return () => clearInterval(id)
   }, [status, loadStatus])
 
-  // When discovery finishes (status leaves 'discovering'), auto-fire collect
-  // once to dispatch the deferred collection run. collect() settles to idle for
-  // a genuinely uncontested race, so this can't loop.
+  // When discovery succeeds (status goes 'discovering' -> 'idle'), auto-fire
+  // collect once to dispatch the deferred collection run. This can't loop: a
+  // FAILED discovery reports 'failed' (not 'idle'), so it never re-triggers
+  // here; an uncontested race settles collect() to idle without re-dispatching;
+  // and a successful discovery's completed run is never re-dispatched.
   const prevStatus = useRef(status)
   useEffect(() => {
     const wasDiscovering = prevStatus.current === 'discovering'

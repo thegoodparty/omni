@@ -474,6 +474,37 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
     expect(result.data.collectionStatus).toBe('idle')
   })
 
+  it('reports failed when this campaign discovery run failed (so the page does not loop re-firing)', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-failed',
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.FAILED,
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: 'opp-failed',
+      },
+    })
+    flagOn()
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('failed')
+  })
+
   it('a completed collection run wins over an in-flight opposition run', async () => {
     await seedCampaign({
       slug: SLUG,

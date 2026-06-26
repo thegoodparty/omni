@@ -44,10 +44,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { isTestCampaign } from '@/users/util/users.util'
 
-// Exported so the race-opponent flow can match this experiment type on
-// completion (auto-chaining collection after discovery) without re-declaring
-// the literal.
-export const OPPOSITION_RESEARCH = 'opposition_research'
+const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
 
 const EMPTY_COMMUNITY_EVENTS: CommunityEventsResult = { events: [] }
@@ -350,7 +347,7 @@ export class CampaignStrategyService
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
     if (run.status !== ExperimentRunStatus.COMPLETED) return
     if (
-      run.experimentType !== OPPOSITION_RESEARCH &&
+      run.experimentType !== OPPOSITION &&
       run.experimentType !== OPPORTUNITIES
     ) {
       return
@@ -368,7 +365,7 @@ export class CampaignStrategyService
 
     const plan = await this.findFirst({
       where:
-        run.experimentType === OPPOSITION_RESEARCH
+        run.experimentType === OPPOSITION
           ? { oppositionRunId: run.runId }
           : { opportunitiesRunId: run.runId },
     })
@@ -396,7 +393,7 @@ export class CampaignStrategyService
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
 
-      if (run.experimentType === OPPOSITION_RESEARCH) {
+      if (run.experimentType === OPPOSITION) {
         await this.persister.persistOpponents(
           plan.id,
           runRace,
@@ -801,7 +798,7 @@ export class CampaignStrategyService
     })
     if (claimed.count === 0) return 'dead'
 
-    const runId = await this.tryDispatch(OPPOSITION_RESEARCH, base)
+    const runId = await this.tryDispatch(OPPOSITION, base)
     if (!runId) return 'stalled'
 
     if (freshStart) {
@@ -917,7 +914,7 @@ export class CampaignStrategyService
   // it's bounded by MAX_SECTION_ATTEMPTS). We don't touch dispatchRun's throw
   // contract here because it's shared (meetings/TCR/admin).
   private async tryDispatch(
-    type: typeof OPPOSITION_RESEARCH | typeof OPPORTUNITIES,
+    type: typeof OPPOSITION | typeof OPPORTUNITIES,
     base: DispatchBase,
   ): Promise<string | undefined> {
     try {
