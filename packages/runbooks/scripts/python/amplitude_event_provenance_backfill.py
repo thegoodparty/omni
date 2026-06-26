@@ -784,22 +784,28 @@ def resolve_omni_repo(arg: str | None, env: dict[str, str]) -> str:
 
 
 def _carry_forward_provisional(rows: list[dict], existing: dict[str, dict]) -> None:
-    """Preserve skill-written provisional rows that a from-git rebuild cannot yet attribute.
+    """Preserve existing provenance a from-git rebuild cannot re-derive, in place on ``rows``.
 
-    A full backfill builds every row purely from git history at <ref>, which cannot see commits
-    that have not merged. So an event the instrument skill upserted pre-merge (PR + date set,
-    commit null) would be overwritten with empty git-truth. Where git found no instrumentation
-    (resp. no retirement) for an event but the existing CSV holds a provisional, commit-null
-    entry, carry that entry forward in place. Mutates ``rows``.
+    A full backfill builds every row purely from git history at <ref>, and the walk is bounded by
+    ``--since``, so it cannot see commits that have not merged (a skill upsert on an open PR) nor
+    commits older than the window. Either way an event the walk finds nothing for would be
+    overwritten with empty git-truth.
+
+    Instrumentation is monotonic — when an event was first added never changes — so whenever the
+    walk found no instrumentation, keep whatever the CSV already had: a provisional (commit-null)
+    skill upsert OR an exact row whose add predates ``--since``. Retirement is NOT monotonic (an
+    event can be re-added after removal), so only a provisional (commit-null) retirement is carried
+    forward; an exact retirement is left to the walk, which clears it once the event is present at
+    HEAD again.
     """
     for row in rows:
         prior = existing.get(row["event_type"])
         if not prior:
             continue
-        if row.get("instrumented_date") is None and prior.get("instrumented_date") and not prior.get("instrumented_commit"):
+        if row.get("instrumented_date") is None and prior.get("instrumented_date"):
             row["instrumented_pr"] = prior.get("instrumented_pr")
             row["instrumented_date"] = prior.get("instrumented_date")
-            row["instrumented_commit"] = None
+            row["instrumented_commit"] = prior.get("instrumented_commit")
             if not row.get("last_code_change_date"):
                 row["last_code_change_date"] = prior.get("last_code_change_date")
         if row.get("retired_date") is None and prior.get("retired_date") and not prior.get("retired_commit"):

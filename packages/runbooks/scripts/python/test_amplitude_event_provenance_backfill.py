@@ -936,6 +936,29 @@ def test_run_backfill_preserves_provisional_rows(monkeypatch, tmp_path):
     assert row["instrumented_commit"] is None
 
 
+def test_run_backfill_preserves_exact_instrumentation_predating_since(monkeypatch, tmp_path):
+    # An EXACT-commit row whose add predates the bounded --since must survive a backfill: the
+    # since-bounded walk finds nothing, so the known instrumentation must be kept, not nulled.
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance(
+        [_row("Old Event", instrumented_commit="abc123", instrumented_pr="7", instrumented_date="2023-05-01", last_code_change_date="2023-05-01")],
+        str(csv_path),
+    )
+    cur = FakeCursor(["Old Event"])
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))                  # bounded walk: nothing
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: '  X: "Old Event",')  # present at HEAD
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "sha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 1)
+
+    rows = bf.run_backfill(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(tmp_path / "s.json"))
+
+    row = {r["event_type"]: r for r in rows}["Old Event"]
+    assert row["instrumented_commit"] == "abc123"   # exact row preserved, not nulled
+    assert row["instrumented_date"] == "2023-05-01"
+    assert row["instrumented_pr"] == f"{_PR}/7"
+
+
 def test_run_refresh_falls_back_to_backfill_when_no_state(monkeypatch, tmp_path):
     calls = {}
 
