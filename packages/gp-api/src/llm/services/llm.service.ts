@@ -651,10 +651,17 @@ export class LlmService {
       })
     }
 
-    const sdkToolChoice =
-      toolChoice && typeof toolChoice === 'object' && 'function' in toolChoice
-        ? { type: 'tool' as const, toolName: toolChoice.function.name }
-        : undefined
+    const sdkToolChoice:
+      | 'auto'
+      | 'none'
+      | 'required'
+      | { type: 'tool'; toolName: string }
+      | undefined =
+      toolChoice === undefined
+        ? undefined
+        : typeof toolChoice === 'string'
+          ? toolChoice
+          : { type: 'tool' as const, toolName: toolChoice.function.name }
 
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),

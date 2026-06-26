@@ -1196,7 +1196,6 @@ export class MeetingBriefingsService extends createPrismaBase(
         () =>
           this.llm.chatCompletion({
             messages,
-            models: ['deepseek-ai/DeepSeek-V4-Pro'],
             temperature: 0.4,
             maxTokens: 200,
             userId: String(userId),
