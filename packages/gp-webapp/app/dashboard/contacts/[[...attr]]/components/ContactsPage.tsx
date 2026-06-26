@@ -46,7 +46,13 @@ export default function ContactsPage() {
   }, [isWinContextReady, isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
-      <DashboardLayout>
+      <DashboardLayout
+        navHeader={
+          isWinContextReady && !isWinContext
+            ? { icon: 'users', label: labels.dataTitle }
+            : undefined
+        }
+      >
         <Paper className="h-full">
           {/* Wait for the Win/Serve context to settle before naming anything:
               isWinContext reads false until the elected-office query and the
@@ -54,7 +60,12 @@ export default function ContactsPage() {
               Serve copy ("constituent") to a Win user (ENG-10448). */}
           {isWinContextReady && (
             <div className="flex flex-col">
-              <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              {/* Serve shows the title in the full-bleed nav header above, so the
+                  page heading would duplicate it — Win has no nav header, so it
+                  keeps the in-page title. */}
+              {isWinContext && (
+                <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              )}
               <p className="text-lg font-normal text-muted-foreground">
                 {labels.subheading}
               </p>
