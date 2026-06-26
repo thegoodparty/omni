@@ -3,6 +3,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { Injectable } from '@nestjs/common'
 import {
   CommunityIssueList,
+  CommunityIssuePriority,
   ExperimentRun,
   Prisma,
 } from '../../generated/prisma'
@@ -24,6 +25,33 @@ const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
 const parseJson = (raw: string): Record<string, unknown> =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as Record<string, unknown>
+
+// Cap on how many issues per list get flattened into the email event below.
+const MAX_EMAIL_ISSUES = 5
+
+type EmailIssueFields = {
+  title: string
+  summary: string
+  priority: CommunityIssuePriority
+}
+
+// Flatten a ranked issue list into indexed scalar props (topIssue1Title,
+// topIssue1Summary, topIssue1Priority, topIssue2Title, …) so a HubSpot email
+// workflow can read them — HubSpot can't index into an array. See the
+// instrument-analytics-event skill's emailable-events convention.
+const flattenIssuesForEmail = (
+  prefix: string,
+  issues: EmailIssueFields[],
+): Record<string, string> => {
+  const out: Record<string, string> = {}
+  issues.slice(0, MAX_EMAIL_ISSUES).forEach((issue, i) => {
+    const n = i + 1
+    out[`${prefix}${n}Title`] = issue.title
+    out[`${prefix}${n}Summary`] = issue.summary
+    out[`${prefix}${n}Priority`] = issue.priority
+  })
+  return out
+}
 
 @Injectable()
 export class CommunityIssueService extends createPrismaBase(
@@ -136,7 +164,7 @@ export class CommunityIssueService extends createPrismaBase(
               list: CommunityIssueList.top_community,
               archivedAt: null,
             },
-            select: { title: true, summary: true },
+            select: { title: true, summary: true, priority: true },
             orderBy: { rank: Prisma.SortOrder.asc },
           }),
           this.model.findMany({
@@ -145,7 +173,7 @@ export class CommunityIssueService extends createPrismaBase(
               list: CommunityIssueList.trending,
               archivedAt: null,
             },
-            select: { title: true, summary: true },
+            select: { title: true, summary: true, priority: true },
             orderBy: { rank: Prisma.SortOrder.asc },
           }),
         ])
@@ -154,8 +182,8 @@ export class CommunityIssueService extends createPrismaBase(
             .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
               topIssueCount: topIssues.length,
               trendingIssueCount: trendingIssues.length,
-              topIssues,
-              trendingIssues,
+              ...flattenIssuesForEmail('topIssue', topIssues),
+              ...flattenIssuesForEmail('trendingIssue', trendingIssues),
             })
             .catch(() => undefined)
         }

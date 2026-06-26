@@ -539,6 +539,11 @@ describe('CommunityIssueService analytics events', () => {
     expect(initial[0][2]).toMatchObject({
       topIssueCount: 1,
       trendingIssueCount: 1,
+      topIssue1Title: 'Issue 1',
+      topIssue1Summary: 'Summary for issue 1.',
+      topIssue1Priority: 'high',
+      trendingIssue1Title: 'Issue 1',
+      trendingIssue1Priority: 'high',
     })
   })
 
