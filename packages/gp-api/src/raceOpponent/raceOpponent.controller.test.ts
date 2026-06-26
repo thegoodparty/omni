@@ -414,8 +414,8 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
     })
   })
 
-  it('reports discovering while opposition_research is in flight and no collection run exists', async () => {
-    await seedCampaign({
+  it("reports discovering while this campaign's plan opposition_research is in flight and no collection run exists", async () => {
+    const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
@@ -428,6 +428,13 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         status: ExperimentRunStatus.RUNNING,
       },
     })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: 'opp-running',
+      },
+    })
     flagOn()
 
     const result = await service.client.get(GET_PATH, {
@@ -436,6 +443,35 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.collectionStatus).toBe('discovering')
+  })
+
+  it('does not report discovering for an opposition run not linked to this plan', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-unlinked',
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    // Plan exists but its oppositionRunId was never linked (e.g. the run is the
+    // campaign plan's own, or a transient link fault left it orphaned).
+    await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id, raceId: RACE_HASH },
+    })
+    flagOn()
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('idle')
   })
 
   it('a completed collection run wins over an in-flight opposition run', async () => {

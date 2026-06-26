@@ -196,7 +196,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return {
       opponents: this.groupByOpponent(rows),
       lastCollectedAt: this.lastCollectedAt(rows),
-      collectionStatus: await this.collectionStatus(campaign.organizationSlug),
+      collectionStatus: await this.collectionStatus(
+        campaign.id,
+        campaign.organizationSlug,
+      ),
     }
   }
 
@@ -291,8 +294,11 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // the source of truth, so nothing can strand. The latest race_opponent_collection
   // run wins. Before any collection run exists, an in-flight opposition_research
   // run surfaces as 'discovering' so the page (which re-fires collect once
-  // opponents persist) shows progress instead of idle.
+  // opponents persist) shows progress instead of idle. The discovery lookup is
+  // scoped to THIS campaign's plan run (oppositionRunId), not any org-wide
+  // opposition run, so an unrelated/stale run can't pin the page to 'discovering'.
   private async collectionStatus(
+    campaignId: number,
     organizationSlug: string,
   ): Promise<RaceOpponentCollectionStatus> {
     const run = await this.client.experimentRun.findFirst({
@@ -314,9 +320,15 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       }
     }
 
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      select: { oppositionRunId: true },
+    })
+    if (!plan?.oppositionRunId) return 'idle'
+
     const discovering = await this.client.experimentRun.findFirst({
       where: {
-        organizationSlug,
+        runId: plan.oppositionRunId,
         experimentType: OPPOSITION_RESEARCH,
         status: {
           in: [
