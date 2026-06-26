@@ -33,6 +33,30 @@ type ResolvedDispatchContext = {
   isServeIcp?: boolean | null
 }
 
+// Builds the agent params for one (org, type) dispatch. The L2 district key is
+// only included for top_community_issues — trending_issues' manifest is
+// additionalProperties:false, so passing l2_* there fails the runtime
+// input-schema check. Shared across all dispatch paths so they can't diverge.
+const buildDispatchParams = (
+  organizationSlug: string,
+  experimentType: CommunityIssueExperimentType,
+  ctx: ResolvedDispatchContext,
+) => {
+  const base = {
+    organization_slug: organizationSlug,
+    state: ctx.state,
+    office: ctx.positionName,
+    district_descriptor: ctx.districtDescriptor,
+  }
+  return experimentType === 'top_community_issues'
+    ? {
+        ...base,
+        l2_district_type: ctx.l2DistrictType,
+        l2_district_name: ctx.l2DistrictName,
+      }
+    : base
+}
+
 @Injectable()
 export class CommunityIssueDispatchService extends createPrismaBase(
   MODELS.ExperimentRun,
@@ -98,14 +122,11 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         organizationSlug: electedOffice.organizationSlug,
         clerkUserId: ctx.clerkUserId,
         priority: 'HIGH',
-        params: {
-          organization_slug: electedOffice.organizationSlug,
-          state: ctx.state,
-          office: ctx.positionName,
-          district_descriptor: ctx.districtDescriptor,
-          l2_district_type: ctx.l2DistrictType,
-          l2_district_name: ctx.l2DistrictName,
-        },
+        params: buildDispatchParams(
+          electedOffice.organizationSlug,
+          experimentType,
+          ctx,
+        ),
       })
     }
   }
@@ -214,12 +235,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       type: experimentType,
       organizationSlug: orgSlug,
       clerkUserId: ctx.clerkUserId,
-      params: {
-        organization_slug: orgSlug,
-        state: ctx.state,
-        office: ctx.positionName,
-        district_descriptor: ctx.districtDescriptor,
-      },
+      params: buildDispatchParams(orgSlug, experimentType, ctx),
     })
     return true
   }
@@ -331,12 +347,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
           type: experimentType,
           organizationSlug,
           clerkUserId: ctx.clerkUserId,
-          params: {
-            organization_slug: organizationSlug,
-            state: ctx.state,
-            office: ctx.positionName,
-            district_descriptor: ctx.districtDescriptor,
-          },
+          params: buildDispatchParams(organizationSlug, experimentType, ctx),
         })
         .catch((err: unknown) =>
           this.logger.error(
