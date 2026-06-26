@@ -13,6 +13,122 @@ import { ElectionApiService } from './electionApi.service'
 type StrategicLandscapeInput = AgentJobContracts['opposition_research']['Input']
 type PrimaryContext =
   StrategicLandscapeInput['campaign_primary_strategy_context']
+type Candidate =
+  StrategicLandscapeInput['campaign_strategy_context']['candidates'][number]
+
+// The PMF Engine rejects dispatch params over 6000 bytes (it serializes them
+// the spaced way Postgres jsonb / Python json.dumps do). A filed primary roster
+// of 40-60 candidates pushes the payload past that, failing every opposition /
+// opportunities run for that campaign. Budget against compact JSON.stringify
+// well under 6000 so the agent's wider, spaced count still fits.
+const MAX_PARAMS_BYTES = 5000
+
+const paramsBytes = (params: StrategicLandscapeInput): number =>
+  Buffer.byteLength(JSON.stringify(params))
+
+// Drop the two candidate fields the agent never reasons over: gp_candidate_id
+// is a trace id, and website_url is a hint it can rediscover via web search.
+// Shedding these first keeps the most roster within the byte budget.
+const slimCandidate = (c: Candidate): Candidate => ({
+  email: c.email,
+  first_name: c.first_name,
+  last_name: c.last_name,
+  full_name: c.full_name,
+  party: c.party,
+  is_incumbent: c.is_incumbent,
+})
+
+// 0 = the user's own row (kept so the agent can still mark is_user and exclude
+// the candidate from their own opponents), 1 = incumbents (the real opponents),
+// 2 = the long tail dropped first when capping.
+const candidateRank = (c: Candidate, userEmail: string): number => {
+  const email = c.email?.toLowerCase().trim()
+  if (email && userEmail && email === userEmail.toLowerCase().trim()) return 0
+  return c.is_incumbent ? 1 : 2
+}
+
+// Keep the highest-ranked candidates whose serialized bytes fit the budget.
+const capRoster = (
+  candidates: Candidate[],
+  userEmail: string,
+  budgetBytes: number,
+): Candidate[] => {
+  const ranked = [...candidates].sort(
+    (a, b) => candidateRank(a, userEmail) - candidateRank(b, userEmail),
+  )
+  const kept: Candidate[] = []
+  let used = 2 // the enclosing '[]'
+  for (const c of ranked) {
+    const size = Buffer.byteLength(JSON.stringify(c)) + 1 // + ',' separator
+    if (used + size > budgetBytes) break
+    kept.push(c)
+    used += size
+  }
+  return kept
+}
+
+// Shrink an over-budget payload in two graceful steps; a payload already under
+// the cap (the common case) is returned untouched. candidate_count is left at
+// the true race size even when the roster is capped.
+const fitToBudget = (
+  params: StrategicLandscapeInput,
+  userEmail: string,
+): StrategicLandscapeInput => {
+  if (paramsBytes(params) <= MAX_PARAMS_BYTES) return params
+
+  const general = params.campaign_strategy_context
+  const primary = params.campaign_primary_strategy_context
+  const slimmed: StrategicLandscapeInput = {
+    ...params,
+    campaign_strategy_context: {
+      ...general,
+      candidates: general.candidates.map(slimCandidate),
+    },
+    campaign_primary_strategy_context: primary
+      ? { ...primary, candidates: primary.candidates.map(slimCandidate) }
+      : primary,
+  }
+  if (paramsBytes(slimmed) <= MAX_PARAMS_BYTES) return slimmed
+
+  // Still over: cap the rosters against the headroom left once everything but
+  // the candidate arrays is accounted for.
+  const base: StrategicLandscapeInput = {
+    ...slimmed,
+    campaign_strategy_context: {
+      ...slimmed.campaign_strategy_context,
+      candidates: [],
+    },
+    campaign_primary_strategy_context: slimmed.campaign_primary_strategy_context
+      ? { ...slimmed.campaign_primary_strategy_context, candidates: [] }
+      : slimmed.campaign_primary_strategy_context,
+  }
+  const budget = MAX_PARAMS_BYTES - paramsBytes(base)
+  const keptGeneral = capRoster(
+    slimmed.campaign_strategy_context.candidates,
+    userEmail,
+    budget,
+  )
+  const keptPrimary = slimmed.campaign_primary_strategy_context
+    ? capRoster(
+        slimmed.campaign_primary_strategy_context.candidates,
+        userEmail,
+        budget - Buffer.byteLength(JSON.stringify(keptGeneral)),
+      )
+    : []
+  return {
+    ...slimmed,
+    campaign_strategy_context: {
+      ...slimmed.campaign_strategy_context,
+      candidates: keptGeneral,
+    },
+    campaign_primary_strategy_context: slimmed.campaign_primary_strategy_context
+      ? {
+          ...slimmed.campaign_primary_strategy_context,
+          candidates: keptPrimary,
+        }
+      : slimmed.campaign_primary_strategy_context,
+  }
+}
 
 const PartySchema = z
   .object({ party: z.string().optional(), otherParty: z.string().optional() })
@@ -53,18 +169,21 @@ export class StrategicLandscapeParamsService {
     ])
     const { user } = campaign
     const { party, otherParty } = resolveParty(campaign.details)
-    return {
-      race_id: brHashId,
-      user_email: user?.email ?? '',
-      user_first_name: user?.firstName ?? null,
-      user_last_name: user?.lastName ?? null,
-      user_full_name: user ? getUserFullName(user) : '',
-      user_party_affiliation: party,
-      other_party: otherParty,
-      campaign_strategy_context: context,
-      campaign_primary_strategy_context: primary,
-      campaign_story: campaignStory,
-    }
+    return fitToBudget(
+      {
+        race_id: brHashId,
+        user_email: user?.email ?? '',
+        user_first_name: user?.firstName ?? null,
+        user_last_name: user?.lastName ?? null,
+        user_full_name: user ? getUserFullName(user) : '',
+        user_party_affiliation: party,
+        other_party: otherParty,
+        campaign_strategy_context: context,
+        campaign_primary_strategy_context: primary,
+        campaign_story: campaignStory,
+      },
+      user?.email ?? '',
+    )
   }
 
   // The story is optional enrichment, so a transient read failure must not
