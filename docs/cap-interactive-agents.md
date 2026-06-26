@@ -14,47 +14,40 @@ All paths below are under `packages/gp-api/`.
 There are two generations of interactive AI plus a shared LLM wrapper:
 
 1. **Legacy campaign assistant** — `src/campaigns/ai/` (chat + content generation).
-   Together AI via the OpenAI client, Contentful-sourced prompts, **no tools**.
+   Contentful-sourced prompts, **no tools**. Runs on Anthropic via `LlmService`
+   like everything else.
 2. **Modern "Serve" chat platform** — `src/chats/` (briefing chats + a scope-generic
    general-chat system whose only registered scope today is **Chief of Staff**).
-   Anthropic Claude, in-code prompts, `ai`-SDK tool-calling, SSE streaming. This is
-   the only interactive surface that crosses into the background agent system.
+   In-code prompts, `ai`-SDK tool-calling, SSE streaming. This is the only
+   interactive surface that crosses into the background agent system.
 3. **Central wrapper** — `src/llm/` (`LlmService` + the `ai`-SDK `tool()` definitions
    in `src/llm/tools/`).
 
-> `src/llm/README.md` is stale — it says the module "wraps OpenAI/LangChain." There is
-> **no LangChain**. It wraps the OpenAI SDK (pointed at Together AI), the Vercel `ai`
-> SDK, and `@ai-sdk/anthropic`.
+The remaining distinction between the two generations is prompt source (Contentful
+vs in-code) and tool support (none vs tool-calling) — both run through the same
+Anthropic-backed `LlmService`.
 
 ## `LlmService` — the central wrapper
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
-one class. Dependencies (`package.json`): `ai`, `@ai-sdk/anthropic`,
-`@ai-sdk/openai-compatible`, `openai`. (No `@ai-sdk/openai`.)
+one class. Dependencies (`package.json`): `ai`, `@ai-sdk/anthropic`. (No `openai`,
+no `@ai-sdk/openai-compatible`.) `ANTHROPIC_API_KEY` is required at startup.
 
-Two distinct paths:
+All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
+calls `anthropicProvider.languageModel(model)`). DI tokens:
+`STREAM_TEXT_TOKEN` / `GENERATE_TEXT_TOKEN` / `GENERATE_OBJECT_TOKEN` /
+`ANTHROPIC_PROVIDER_FACTORY_TOKEN`.
 
-- **Non-streaming** (`chatCompletion`, `jsonCompletion`, `toolCompletion`) go through
-  the **raw OpenAI SDK** pointed at Together AI (`baseURL: https://api.together.xyz/v1`).
-  `jsonCompletion` uses `response_format: json_object` + Zod `schema.parse`.
-- **Streaming** (`streamChatCompletion`) is the **only path that uses the Vercel `ai`
-  SDK** — it calls `streamText` (injected via the `STREAM_TEXT_TOKEN` provider) with
+- **Non-streaming** (`chatCompletion`, `toolCompletion`) use `generateText` from the
+  `ai` SDK. `jsonCompletion` uses `generateObject` with a Zod schema.
+- **Streaming** (`streamChatCompletion`) uses `streamText` with
   `stopWhen: stepCountIs(maxSteps)` (default 5) for multi-step tool loops.
 
-**Provider routing** (`resolveChatModel`): a model id starting with `claude` routes to
-**Anthropic** via `createAnthropic`; anything else routes to the **Together**
-OpenAI-compatible provider via `createOpenAICompatible`. So the same
-`streamChatCompletion` call transparently hits Anthropic or Together depending on the
-model string.
-
-Models come from env: `AI_MODELS` (comma-separated default chain, required) plus an
-optional `AI_FALLBACK_MODEL`. `withModelFallback` wraps `async-retry` — transient
-errors cascade to the next model then retry; 4xx errors `bail()` immediately.
+Models come from env: `AI_MODELS` (comma-separated default chain, required — set to
+`claude-sonnet-4-6` in `deploy/index.ts`) plus an optional `AI_FALLBACK_MODEL`.
+`withModelFallback` wraps `async-retry` — transient errors cascade to the next model
+then retry; 4xx errors `bail()` immediately.
 **Streaming fallback applies only at connect-time, not mid-stream.**
-
-> **Operational note:** a non-serverless model left in `AI_MODELS` will 400 on every
-> fallback and surface as a "Background job failed" alert — see the memory note
-> `minimax-ai-models-fallback-broken`. `AI_MODELS` is set in `deploy/index.ts`.
 
 **Tool construction** (`buildToolSet`) is the bridge to the `ai` SDK's `tool()`:
 
@@ -69,8 +62,8 @@ errors cascade to the next model then retry; 4xx errors `bail()` immediately.
 
 | Surface                                     | Controller / endpoints                                                                                                         | Method                                                                             | Models                                                            | Tools                                                                                                                                             |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (Together default)                          | none                                                                                                                                              |
-| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | default chain                                                     | none                                                                                                                                              |
+| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (`claude-sonnet-4-6` default)               | none                                                                                                                                              |
+| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
 
