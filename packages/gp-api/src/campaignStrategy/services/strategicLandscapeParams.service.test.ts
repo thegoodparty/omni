@@ -142,7 +142,10 @@ describe('StrategicLandscapeParamsService', () => {
   })
 
   describe('oversized primary roster', () => {
-    const PARAMS_CAP = 6000
+    // The service's internal compact-bytes invariant. It budgets below the PMF
+    // Engine's raw 6000-byte cap so the agent's spaced (json.dumps) serialization
+    // still fits; asserting against the raw 6000 would be tautological.
+    const PARAMS_CAP = 5000
 
     // A filed primary roster large enough that the serialized params exceed the
     // PMF Engine's param-size cap (the 47- and 60-candidate primaries seen in
@@ -197,6 +200,44 @@ describe('StrategicLandscapeParamsService', () => {
       // gp_candidate_id (trace id) and website_url (rediscoverable) are dropped.
       expect(kept.every((c) => c.gp_candidate_id === undefined)).toBe(true)
       expect(kept.every((c) => c.website_url === undefined)).toBe(true)
+    })
+
+    it('prioritizes the primary roster over the general roster when both are large', async () => {
+      // Both stages return a large roster; the shared budget must go to the
+      // primary (the real filed field) before the provisional general seed list.
+      electionApi.getStrategyContext.mockImplementation(async () =>
+        bigPrimary(60),
+      )
+
+      const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+      expect(
+        (out.campaign_primary_strategy_context?.candidates ?? []).length,
+      ).toBeGreaterThan(0)
+      expect(out.campaign_strategy_context.candidates.length).toBe(0)
+      expect(bytesOf(out)).toBeLessThanOrEqual(PARAMS_CAP)
+    })
+
+    it('drops the story as a last resort when it alone blows the budget', async () => {
+      // A maximal story (fields cap at 10k chars) exceeds the budget even with
+      // an empty roster; the story is dropped so the roster still dispatches.
+      campaignStory.getForCampaign.mockResolvedValue({
+        why: 'w'.repeat(6000),
+        background: 'b'.repeat(6000),
+        issues: null,
+      })
+      electionApi.getStrategyContext.mockImplementation(async (id: string) =>
+        id === PRIMARY ? bigPrimary(5) : { candidate_count: 0, candidates: [] },
+      )
+
+      const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+      expect(out.campaign_story).toBeUndefined()
+      expect(bytesOf(out)).toBeLessThanOrEqual(PARAMS_CAP)
+      // The roster is preserved (the agent's primary reasoning surface).
+      expect(
+        (out.campaign_primary_strategy_context?.candidates ?? []).length,
+      ).toBeGreaterThan(0)
     })
   })
 })

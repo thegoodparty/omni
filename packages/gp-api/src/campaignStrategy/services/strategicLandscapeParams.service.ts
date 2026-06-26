@@ -60,16 +60,70 @@ const capRoster = (
   let used = 2 // the enclosing '[]'
   for (const c of ranked) {
     const size = Buffer.byteLength(JSON.stringify(c)) + 1 // + ',' separator
-    if (used + size > budgetBytes) break
+    // Skip (don't stop on) an over-budget candidate: rank-2 order is arbitrary,
+    // so one long name must not starve the smaller candidates behind it.
+    if (used + size > budgetBytes) continue
     kept.push(c)
     used += size
   }
   return kept
 }
 
-// Shrink an over-budget payload in two graceful steps; a payload already under
-// the cap (the common case) is returned untouched. candidate_count is left at
-// the true race size even when the roster is capped.
+// Empty both candidate arrays; the rest is the fixed payload the rosters share
+// a byte budget against.
+const withEmptyRosters = (
+  input: StrategicLandscapeInput,
+): StrategicLandscapeInput => ({
+  ...input,
+  campaign_strategy_context: {
+    ...input.campaign_strategy_context,
+    candidates: [],
+  },
+  campaign_primary_strategy_context: input.campaign_primary_strategy_context
+    ? { ...input.campaign_primary_strategy_context, candidates: [] }
+    : input.campaign_primary_strategy_context,
+})
+
+// Cap the primary roster first against the shared pool: for a race with a
+// primary it is the real filed field (the documented overflow cause), while the
+// general roster is the provisional, often-empty seed list. General takes
+// whatever budget the primary leaves.
+const withCappedRosters = (
+  input: StrategicLandscapeInput,
+  budgetBytes: number,
+  userEmail: string,
+): StrategicLandscapeInput => {
+  const keptPrimary = input.campaign_primary_strategy_context
+    ? capRoster(
+        input.campaign_primary_strategy_context.candidates,
+        userEmail,
+        budgetBytes,
+      )
+    : []
+  const keptGeneral = capRoster(
+    input.campaign_strategy_context.candidates,
+    userEmail,
+    budgetBytes - Buffer.byteLength(JSON.stringify(keptPrimary)),
+  )
+  return {
+    ...input,
+    campaign_strategy_context: {
+      ...input.campaign_strategy_context,
+      candidates: keptGeneral,
+    },
+    campaign_primary_strategy_context: input.campaign_primary_strategy_context
+      ? {
+          ...input.campaign_primary_strategy_context,
+          candidates: keptPrimary,
+        }
+      : input.campaign_primary_strategy_context,
+  }
+}
+
+// Shrink an over-budget payload in graceful steps (slim candidate fields, cap
+// rosters by byte budget, then drop the story as a last resort); a payload
+// already under the cap (the common case) is returned untouched. candidate_count
+// is left at the true race size even when the roster is capped.
 const fitToBudget = (
   params: StrategicLandscapeInput,
   userEmail: string,
@@ -90,44 +144,24 @@ const fitToBudget = (
   }
   if (paramsBytes(slimmed) <= MAX_PARAMS_BYTES) return slimmed
 
-  // Still over: cap the rosters against the headroom left once everything but
-  // the candidate arrays is accounted for.
-  const base: StrategicLandscapeInput = {
+  // Cap the rosters against the headroom left once everything else (story
+  // included) is accounted for, keeping the story alongside as many candidates
+  // as fit.
+  const budget = MAX_PARAMS_BYTES - paramsBytes(withEmptyRosters(slimmed))
+  const capped = withCappedRosters(slimmed, budget, userEmail)
+  if (paramsBytes(capped) <= MAX_PARAMS_BYTES) return capped
+
+  // Last resort: a campaign_story large enough to blow the budget on its own
+  // (its fields cap at 10k chars each) would otherwise starve the rosters to
+  // nothing. Drop it and re-cap against the freed budget so the roster — the
+  // agent's primary reasoning surface — is preserved.
+  const storyless: StrategicLandscapeInput = {
     ...slimmed,
-    campaign_strategy_context: {
-      ...slimmed.campaign_strategy_context,
-      candidates: [],
-    },
-    campaign_primary_strategy_context: slimmed.campaign_primary_strategy_context
-      ? { ...slimmed.campaign_primary_strategy_context, candidates: [] }
-      : slimmed.campaign_primary_strategy_context,
+    campaign_story: undefined,
   }
-  const budget = MAX_PARAMS_BYTES - paramsBytes(base)
-  const keptGeneral = capRoster(
-    slimmed.campaign_strategy_context.candidates,
-    userEmail,
-    budget,
-  )
-  const keptPrimary = slimmed.campaign_primary_strategy_context
-    ? capRoster(
-        slimmed.campaign_primary_strategy_context.candidates,
-        userEmail,
-        budget - Buffer.byteLength(JSON.stringify(keptGeneral)),
-      )
-    : []
-  return {
-    ...slimmed,
-    campaign_strategy_context: {
-      ...slimmed.campaign_strategy_context,
-      candidates: keptGeneral,
-    },
-    campaign_primary_strategy_context: slimmed.campaign_primary_strategy_context
-      ? {
-          ...slimmed.campaign_primary_strategy_context,
-          candidates: keptPrimary,
-        }
-      : slimmed.campaign_primary_strategy_context,
-  }
+  const storylessBudget =
+    MAX_PARAMS_BYTES - paramsBytes(withEmptyRosters(storyless))
+  return withCappedRosters(storyless, storylessBudget, userEmail)
 }
 
 const PartySchema = z
