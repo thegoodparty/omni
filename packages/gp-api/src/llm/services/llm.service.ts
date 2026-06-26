@@ -238,6 +238,7 @@ export class LlmService {
       temperature = 0.7,
       topP = 1.0,
       maxTokens,
+      userId,
       retries = this.defaultRetries,
     } = options
 
@@ -254,6 +255,7 @@ export class LlmService {
           temperature,
           topP,
           maxTokens,
+          userId,
         }),
     )
 
@@ -268,6 +270,9 @@ export class LlmService {
       schema,
       models: providedModels,
       temperature = 0,
+      topP = 1,
+      maxTokens,
+      userId,
       retries = this.defaultRetries,
     } = options
 
@@ -283,6 +288,9 @@ export class LlmService {
           messages,
           schema,
           temperature,
+          topP,
+          maxTokens,
+          userId,
         }),
     )
 
@@ -300,6 +308,7 @@ export class LlmService {
       temperature = 0.1,
       topP = 0.1,
       maxTokens,
+      userId,
       retries = this.defaultRetries,
     } = options
 
@@ -322,6 +331,7 @@ export class LlmService {
           temperature,
           topP,
           maxTokens,
+          userId,
         }),
     )
 
@@ -583,12 +593,14 @@ export class LlmService {
     temperature,
     topP,
     maxTokens,
+    userId,
   }: {
     model: string
     messages: LlmMessage[]
     temperature: number
     topP: number
     maxTokens?: number
+    userId?: string
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
@@ -596,6 +608,7 @@ export class LlmService {
       temperature,
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
+      ...(userId && { headers: { 'X-User-Id': userId } }),
     })
     return {
       content: result.text.trim(),
@@ -608,17 +621,26 @@ export class LlmService {
     messages,
     schema,
     temperature,
+    topP,
+    maxTokens,
+    userId,
   }: {
     model: string
     messages: LlmMessage[]
     schema: z.ZodType<T>
     temperature: number
+    topP: number
+    maxTokens?: number
+    userId?: string
   }): Promise<{ object: T; tokens: number }> {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
       schema,
       temperature,
+      topP,
+      ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
+      ...(userId && { headers: { 'X-User-Id': userId } }),
     })
     return {
       object: result.object,
@@ -634,6 +656,7 @@ export class LlmService {
     temperature,
     topP,
     maxTokens,
+    userId,
   }: {
     model: string
     messages: LlmMessage[]
@@ -642,6 +665,7 @@ export class LlmService {
     temperature: number
     topP: number
     maxTokens?: number
+    userId?: string
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const toolSet: ToolSet = {}
     for (const t of tools) {
@@ -671,6 +695,7 @@ export class LlmService {
       temperature,
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
+      ...(userId && { headers: { 'X-User-Id': userId } }),
     })
 
     const toolCalls = this.mapAiSdkToolCalls(

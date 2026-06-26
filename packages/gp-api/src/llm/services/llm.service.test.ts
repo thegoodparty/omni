@@ -91,6 +91,44 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
     expect(result.tokens).toBe(2)
   })
 
+  it('jsonCompletion forwards maxTokens as maxOutputTokens', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+
+    await service.jsonCompletion({
+      messages: [USER_MSG],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      maxTokens: 200,
+      retries: 0,
+    })
+
+    expect(generateObject.mock.calls[0][0].maxOutputTokens).toBe(200)
+  })
+
+  it('forwards userId as an X-User-Id header on non-streaming calls', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+      totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+
+    await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      userId: 'user-123',
+      retries: 0,
+    })
+
+    expect(generateText.mock.calls[0][0].headers).toEqual({
+      'X-User-Id': 'user-123',
+    })
+  })
+
   it('toolCompletion maps SDK tool calls back to the OpenAI shape', async () => {
     const { service, generateText } = build()
     generateText.mockResolvedValueOnce({
