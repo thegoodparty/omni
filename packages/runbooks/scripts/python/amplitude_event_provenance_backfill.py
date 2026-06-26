@@ -1034,6 +1034,33 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _databricks_connection():
+    """Open a SQL-warehouse connection for the one event-universe query.
+
+    Auth is OAuth-first, the direction the org is standardizing on: with no
+    ``DATABRICKS_API_KEY`` set, use Databricks unified auth via the SDK (a ``~/.databrickscfg``
+    profile, ``DATABRICKS_TOKEN``, or env-configured OAuth). A PAT in ``DATABRICKS_API_KEY`` still
+    works and takes precedence, for CI / service-principal runs. ``DATABRICKS_SERVER_HOSTNAME`` and
+    ``DATABRICKS_HTTP_PATH`` are always required.
+    """
+    from databricks import sql  # lazy: pure logic imports without the connector
+
+    server_hostname = os.environ["DATABRICKS_SERVER_HOSTNAME"]
+    http_path = os.environ["DATABRICKS_HTTP_PATH"]
+    pat = os.environ.get("DATABRICKS_API_KEY")
+    if pat:
+        return sql.connect(server_hostname=server_hostname, http_path=http_path, access_token=pat)
+
+    from databricks.sdk.core import Config
+
+    cfg = Config(host=f"https://{server_hostname}")
+    return sql.connect(
+        server_hostname=server_hostname,
+        http_path=http_path,
+        credentials_provider=lambda: cfg.authenticate,
+    )
+
+
 def _run_walk(args: argparse.Namespace) -> None:
     root = resolve_omni_repo(args.repo, dict(os.environ))
     since = None if args.since == "all" else args.since
@@ -1043,13 +1070,7 @@ def _run_walk(args: argparse.Namespace) -> None:
         git_fetch(root, args.ref)
     pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref)
 
-    from databricks.sql import connect  # lazy: pure logic imports without the SDK
-
-    connection = connect(
-        server_hostname=os.environ["DATABRICKS_SERVER_HOSTNAME"],
-        http_path=os.environ["DATABRICKS_HTTP_PATH"],
-        access_token=os.environ["DATABRICKS_API_KEY"],
-    )
+    connection = _databricks_connection()
     try:
         with connection.cursor() as cursor:
             rows = run_refresh(cursor, root, since, datetime.now(UTC),

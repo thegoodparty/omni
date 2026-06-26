@@ -1385,3 +1385,40 @@ def test_upsert_output_is_byte_identical_to_full_write(tmp_path):
     rows = list(bf.read_provenance_rows(csv).values())
     bf.write_provenance(rows, str(tmp_path / "e.csv"))
     assert produced == (tmp_path / "e.csv").read_text()  # deterministic sort: A before B
+
+
+# --------------------------------------------------------------------------- #
+# _databricks_connection -- auth selection (OAuth-first, PAT fallback)
+# --------------------------------------------------------------------------- #
+
+
+def test_databricks_connection_prefers_pat_when_set(monkeypatch):
+    import databricks.sql as dsql
+
+    captured = {}
+    monkeypatch.setattr(dsql, "connect", lambda **kw: captured.update(kw) or object())
+    monkeypatch.setenv("DATABRICKS_SERVER_HOSTNAME", "h")
+    monkeypatch.setenv("DATABRICKS_HTTP_PATH", "p")
+    monkeypatch.setenv("DATABRICKS_API_KEY", "tok")
+
+    bf._databricks_connection()
+
+    assert captured.get("access_token") == "tok"
+    assert "credentials_provider" not in captured
+
+
+def test_databricks_connection_uses_oauth_when_no_pat(monkeypatch):
+    import databricks.sql as dsql
+    import databricks.sdk.core as sdkcore
+
+    captured = {}
+    monkeypatch.setattr(dsql, "connect", lambda **kw: captured.update(kw) or object())
+    monkeypatch.setattr(sdkcore, "Config", lambda **kw: object())
+    monkeypatch.setenv("DATABRICKS_SERVER_HOSTNAME", "h")
+    monkeypatch.setenv("DATABRICKS_HTTP_PATH", "p")
+    monkeypatch.delenv("DATABRICKS_API_KEY", raising=False)
+
+    bf._databricks_connection()
+
+    assert "credentials_provider" in captured
+    assert "access_token" not in captured
