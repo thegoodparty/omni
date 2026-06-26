@@ -22,6 +22,7 @@ Briefing Assistant - Agenda Not Created,briefing_assistant_agenda_not_created,5b
 Briefing Assistant - Agenda Submission Failed,briefing_assistant_agenda_submission_failed,c339b19dec1b846127f34a99f0c6cf406e42a982,https://github.com/thegoodparty/omni/pull/30,2026-06-09,,,,2026-06-09,2026-06-25T01:35:48
 Briefing Assistant - Agenda Submitted,briefing_assistant_agenda_submitted,c339b19dec1b846127f34a99f0c6cf406e42a982,https://github.com/thegoodparty/omni/pull/30,2026-06-09,,,,2026-06-09,2026-06-25T01:35:48
 Briefing Assistant - Briefing Viewed,briefing_assistant_briefing_viewed,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,,,,2026-05-28,2026-06-25T01:35:48
+Briefing Assistant - Dictation Failed,briefing_assistant_dictation_failed,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,,,,2026-05-28,2026-06-26T21:50:53
 Briefing Assistant - Dictation Started,briefing_assistant_dictation_started,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,,,,2026-05-28,2026-06-25T01:35:48
 Briefing Assistant - Download Clicked,briefing_assistant_download_clicked,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,,,,2026-05-28,2026-06-25T01:35:48
 Briefing Assistant - Feedback Completed,briefing_assistant_feedback_completed,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,,,,2026-05-28,2026-06-25T01:35:48
@@ -66,9 +67,11 @@ Candidate Website - Unpublished,candidate_website_unpublished,b036da272037bd58ed
 Click to Call CTA Clicked,click_to_call_cta_clicked,,,,,,,,2026-06-25T01:35:48
 Click to Call CTA Viewed,click_to_call_cta_viewed,,,,,,,,2026-06-25T01:35:48
 Click to Call Phone Submitted,click_to_call_phone_submitted,,,,,,,,2026-06-25T01:35:48
+Community Issues - List Viewed,community_issues_list_viewed,f59a02ee308f8df11272dbd06c5e519b14abf96f,https://github.com/thegoodparty/omni/pull/246,2026-06-19,,,,2026-06-19,2026-06-26T21:50:53
 Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,,,,2025-09-14,2026-06-25T01:35:48
 Contacts - Contacts Viewed,contacts_contacts_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,,,,2026-06-17,2026-06-25T01:35:48
 Contacts - Download,contacts_download,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,,,,2025-09-14,2026-06-25T01:35:48
+Contacts - Outreach Timeline Viewed,contacts_outreach_timeline_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,,,,2026-06-17,2026-06-26T21:50:53
 Contacts - Segment Created,contacts_segment_created,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,,,,2025-09-14,2026-06-25T01:35:48
 Contacts - Segment Deleted,contacts_segment_deleted,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,,,,2025-09-14,2026-06-25T01:35:48
 Contacts - Segment Updated,contacts_segment_updated,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,,,,2025-09-14,2026-06-25T01:35:48
@@ -147,6 +150,8 @@ Onboarding - Candidate Office Searched,onboarding_candidate_office_searched,b03a
 Onboarding - Candidate Pledge Completed,onboarding_candidate_pledge_completed,a91befe9f1d10ad7c1319b0066b2f2a8035d8d70,https://github.com/thegoodparty/omni/pull/920,2025-09-17,,,,2025-09-17,2026-06-25T01:35:48
 Onboarding - Complete Step: Click Go to Dashboard,onboarding_complete_step_click_go_to_dashboard,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,,,,2025-02-26,2026-06-25T01:35:48
 Onboarding - Know Your Voters Completed,onboarding_know_your_voters_completed,712fb71051988420909b538f89ea4da4703c1b8b,https://github.com/thegoodparty/omni/pull/1804,2026-05-07,,,,2026-05-07,2026-06-25T01:35:48
+Onboarding - Magic Link Clicked,onboarding_magic_link_clicked,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Onboarding - Magic Link Sent,onboarding_magic_link_sent,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
 Onboarding - Office Selection Completed,onboarding_office_selection_completed,37bdbd6185ef7e74127482d6f2c69943a0fc2bfc,https://github.com/thegoodparty/omni/pull/1790,2026-05-05,,,,2026-05-05,2026-06-25T01:35:48
 Onboarding - Office Step: Click Can't See Office,onboarding_office_step_click_cant_see_office,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,,,,2025-02-26,2026-06-25T01:35:48
 Onboarding - Office Step: Click Next,onboarding_office_step_click_next,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,,,,2025-02-26,2026-06-25T01:35:48
@@ -336,10 +341,19 @@ Serve Onboarding - Add Image Viewed,serve_onboarding_add_image_viewed,3f61c919fc
 Serve Onboarding - BR Suggestion Changed,serve_onboarding_br_suggestion_changed,4cc1cb142febe9084e5dde6771d6bdbd29f25e46,https://github.com/thegoodparty/omni/pull/198,2026-06-18,,,,2026-06-18,2026-06-25T01:35:48
 Serve Onboarding - Constituency Profile Viewed,serve_onboarding_constituency_profile_viewed,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
 Serve Onboarding - Getting Started Viewed,serve_onboarding_getting_started_viewed,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
+Serve Onboarding - Know Your Constituents Completed,serve_onboarding_know_your_constituents_completed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Know Your Constituents Viewed,serve_onboarding_know_your_constituents_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
 Serve Onboarding - Magic Link Activated,serve_onboarding_magic_link_activated,4cc1cb142febe9084e5dde6771d6bdbd29f25e46,https://github.com/thegoodparty/omni/pull/198,2026-06-18,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,2026-06-24,2026-06-25T01:35:48
 Serve Onboarding - Magic Link Sent,serve_onboarding_magic_link_sent,4cc1cb142febe9084e5dde6771d6bdbd29f25e46,https://github.com/thegoodparty/omni/pull/198,2026-06-18,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,2026-06-24,2026-06-25T01:35:48
 Serve Onboarding - Meet Your Constituents Viewed,serve_onboarding_meet_your_constituents_viewed,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
 Serve Onboarding - Net New Completed,serve_onboarding_net_new_completed,4cc1cb142febe9084e5dde6771d6bdbd29f25e46,https://github.com/thegoodparty/omni/pull/198,2026-06-18,,,,2026-06-18,2026-06-25T01:35:48
+Serve Onboarding - Office Completed,serve_onboarding_office_completed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Office Status Viewed,serve_onboarding_office_status_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Office Viewed,serve_onboarding_office_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Party Designation Blocked,serve_onboarding_party_designation_blocked,ae984537c1f51541d46404e6025924407b40adad,https://github.com/thegoodparty/omni/pull/254,2026-06-22,,,,2026-06-22,2026-06-26T21:50:53
+Serve Onboarding - Party Designation Viewed,serve_onboarding_party_designation_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Pledge Completed,serve_onboarding_pledge_completed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Pledge Viewed,serve_onboarding_pledge_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
 Serve Onboarding - Poll Image Uploaded,serve_onboarding_poll_image_uploaded,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
 Serve Onboarding - Poll Preview Viewed,serve_onboarding_poll_preview_viewed,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
 Serve Onboarding - Poll Strategy Viewed,serve_onboarding_poll_strategy_viewed,3f61c919fcb19db7270362a4767ab98ed1a10a88,https://github.com/thegoodparty/omni/pull/1022,2025-10-09,,,,2025-10-09,2026-06-25T01:35:48
@@ -349,6 +363,8 @@ Serve Onboarding - SMS Poll Sent,serve_onboarding_sms_poll_sent,3f61c919fcb19db7
 Serve Onboarding - Success Page Viewed,serve_onboarding_success_page_viewed,33f319823719eb25aef1fe2812184a61b23a41f6,https://github.com/thegoodparty/omni/pull/1098,2025-10-29,,,,2025-10-29,2026-06-25T01:35:48
 Serve Onboarding - Sworn In Completed,serve_onboarding_sworn_in_completed,20a7ac0f8561471fa493aab7be2b3a8cd0c014de,https://github.com/thegoodparty/omni/pull/1103,2025-10-30,,,,2025-10-30,2026-06-25T01:35:48
 Serve Onboarding - Sworn In Viewed,serve_onboarding_sworn_in_viewed,33f319823719eb25aef1fe2812184a61b23a41f6,https://github.com/thegoodparty/omni/pull/1098,2025-10-29,,,,2025-10-29,2026-06-25T01:35:48
+Serve Onboarding - Term Dates Viewed,serve_onboarding_term_dates_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
+Serve Onboarding - Welcome Viewed,serve_onboarding_welcome_viewed,b2f1f6c21a0949156b851cf80326878d990a5950,https://github.com/thegoodparty/omni/pull/323,2026-06-24,,,,2026-06-24,2026-06-26T21:50:53
 Set Password: Click Set Password,set_password_click_set_password,aeb23786b697e849c6684f4fc08acb0964fae1fe,https://github.com/thegoodparty/omni/pull/513,2025-03-06,,,,2025-03-06,2026-06-25T01:35:48
 Settings - Account Settings: Click Manage Pro Subscription,settings_account_settings_click_manage_pro_subscription,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,,,,2025-02-26,2026-06-25T01:35:48
 Settings - Account Settings: Click Send Email,settings_account_settings_click_send_email,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,,,,2025-02-26,2026-06-25T01:35:48
@@ -403,6 +419,7 @@ Voter Outreach - 10DLC Compliance Started,voter_outreach_10dlc_compliance_starte
 Voter Outreach - Campaign Completed,voter_outreach_campaign_completed,703131cfff639170bd836b12c6d00c13e1fc1432,https://github.com/thegoodparty/omni/pull/708,2025-06-18,,,,2025-06-18,2026-06-25T01:35:48
 Voter Outreach - Free Texts Offer Redeemed,voter_outreach_free_texts_offer_redeemed,aa90af3d789823511f82e9d81dee84417a82b0c2,https://github.com/thegoodparty/omni/pull/520,2025-09-08,,,,2025-09-08,2026-06-25T01:35:48
 Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,,,,2025-09-09,2026-06-25T01:35:48
+Win Onboarding - Magic Link Sent,win_onboarding_magic_link_sent,a68dbdba9ae55bd61453beee21edff8edf1a949d,https://github.com/thegoodparty/omni/pull/318,2026-06-23,0457c312a51f110b32f82d85c2b2103969f8e8a5,https://github.com/thegoodparty/omni/pull/349,2026-06-24,2026-06-24,2026-06-26T21:50:53
 [AI Visibility] Brand Snapshot,ai_visibility_brand_snapshot,,,,,,,,2026-06-25T01:35:48
 [Amplitude] Dead Click,amplitude_dead_click,,,,,,,,2026-06-25T01:35:48
 [Amplitude] Element Changed,amplitude_element_changed,,,,,,,,2026-06-25T01:35:48
