@@ -4,7 +4,7 @@ import { useFlagOn } from './FeatureFlagsProvider'
 // end-state /opponent view). When on AND the campaign is Pro, the dashboard
 // surfaces the "Know your opponent" nav item + page. Same key in dev + prod
 // Amplitude environments.
-export const KNOW_YOUR_OPPONENT_FLAG_KEY = 'know-your-opponent'
+export const KNOW_YOUR_OPPONENT_FLAG_KEY = 'win-know-your-opponent'
 
 interface UseKnowYourOpponentFlagResult {
   ready: boolean
