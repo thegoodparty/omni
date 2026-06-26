@@ -97,6 +97,8 @@ select event_type, family, is_win, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
+# The 63-day window is relative to warehouse current_date(), independent of --today: the
+# firing axis is always live, so --today shifts only the local week math, not this query.
 WEEKLY_SQL = f"""
 select event_type,
        date_trunc('week', cast(event_time as date)) as week_start,
@@ -241,7 +243,7 @@ def rank_record(record: Mapping[str, Any]) -> int:
         return 1
     if anomaly and status == "active" and elevated:
         return 2
-    if anomaly and status in ("active", "system"):
+    if anomaly and status in ("active", "system", "code_unknown"):
         return 3
     if div.startswith("declared"):
         return 4
@@ -651,7 +653,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_STATE,
         help="prior-run state JSON for the changes diff (default: instrumentation_data/)",
     )
-    parser.add_argument("--today", help="override run date (YYYY-MM-DD); default = system date")
+    parser.add_argument(
+        "--today",
+        help="override the run date (YYYY-MM-DD); default = system date. Shifts only the "
+        "local reconciliation (dormant window, week cutoff, run-date label). The firing axis "
+        "is always live warehouse data (current_date(), event_count_30d), so this is a "
+        "label / diff aid for same-day reruns, not a historical replay.",
+    )
     args = parser.parse_args(argv)
 
     import databricks_oauth as dbc

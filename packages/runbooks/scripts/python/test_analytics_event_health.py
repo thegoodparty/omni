@@ -161,6 +161,10 @@ def test_rank_record_priority():
     assert eh.rank_record(rec(status="orphaned_firing")) == 1
     assert eh.rank_record(rec(status="active", elevated=True, anomaly={"current": 1, "baseline": 9})) == 2
     assert eh.rank_record(rec(status="active", anomaly={"current": 1, "baseline": 9})) == 3
+    assert eh.rank_record(rec(status="system", anomaly={"current": 1, "baseline": 9})) == 3
+    # code_unknown is anomaly-watched only, like system: a firing drop must still flag.
+    assert eh.rank_record(rec(status="code_unknown", anomaly={"current": 1, "baseline": 9})) == 3
+    assert eh.rank_record(rec(status="code_unknown")) == 99  # no anomaly -> unflagged
     assert eh.rank_record(rec(status="dormant", elevated=True)) == 5
     assert eh.rank_record(rec(status="instrumented_never_observed")) == 6
     assert eh.rank_record(rec(status="dormant")) == 7

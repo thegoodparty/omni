@@ -49,19 +49,22 @@ def _build_connect_kwargs(config: Any, http_path: str, *, oauth_m2m: Callable[[A
     if not http_path:
         raise ValueError("DATABRICKS_HTTP_PATH is not set (expected /sql/1.0/warehouses/<id>).")
 
+    # databricks-sql calls credentials_provider() once and expects a *header factory*
+    # back: a no-arg callable that returns the auth headers dict, which the connector then
+    # calls per request. oauth_service_principal(config) builds such a factory for M2M; the
+    # SDK's config.authenticate bound method already *is* one for the default profile. Both
+    # branches therefore yield a header factory. Do NOT call config.authenticate() here:
+    # that returns the headers dict, not the factory, and the connector would then try to
+    # call the dict and fail. Verified live against the default profile.
     if config.client_id and config.client_secret:
-
-        def credentials():
-            return oauth_m2m(config)
+        header_factory = oauth_m2m(config)
     else:
-
-        def credentials():
-            return config.authenticate
+        header_factory = config.authenticate
 
     return {
         "server_hostname": _server_hostname(config.host),
         "http_path": http_path,
-        "credentials_provider": credentials,
+        "credentials_provider": lambda: header_factory,
     }
 
 
