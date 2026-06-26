@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useArgs } from 'storybook/preview-api'
-import { Code, SquarePen } from 'lucide-react'
+import { Code, Eye, Lock, User } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
 
@@ -28,12 +28,16 @@ const SectionLabel = ({ children }: { children: string }) => (
 type PlaygroundArgs = {
   activationMode: 'automatic' | 'manual'
   value: string
+  showIcon: boolean
+  showBadge: boolean
 }
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
     activationMode: 'automatic',
     value: 'account',
+    showIcon: false,
+    showBadge: false,
   },
   argTypes: {
     activationMode: {
@@ -47,8 +51,16 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       options: ['account', 'password'],
       description: 'Controlled active tab.',
     },
+    showIcon: {
+      control: 'boolean',
+      description: 'Render a leading icon inside each trigger.',
+    },
+    showBadge: {
+      control: 'boolean',
+      description: 'Render a trailing count badge on the second trigger.',
+    },
   },
-  render: ({ activationMode, value }) => {
+  render: ({ activationMode, value, showIcon, showBadge }) => {
     const [, updateArgs] = useArgs()
     return (
       <Tabs
@@ -58,8 +70,15 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         className="w-[400px]"
       >
         <TabsList>
-          <TabsTrigger value="account">Account</TabsTrigger>
-          <TabsTrigger value="password">Password</TabsTrigger>
+          <TabsTrigger value="account">
+            {showIcon && <User />}
+            Account
+          </TabsTrigger>
+          <TabsTrigger value="password">
+            {showIcon && <Lock />}
+            Password
+            {showBadge && <Badge shape="pill">2</Badge>}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="account">
           <div className="space-y-4">
@@ -101,7 +120,7 @@ export const Variants: Story = {
         <Tabs defaultValue="preview" className="w-[360px]">
           <TabsList>
             <TabsTrigger value="preview">
-              <SquarePen />
+              <Eye />
               Preview
             </TabsTrigger>
             <TabsTrigger value="code">
@@ -121,20 +140,6 @@ export const Variants: Story = {
               Notifications
               <Badge shape="pill">3</Badge>
             </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <SectionLabel>
-          Scrolls when triggers exceed the width (active scrolls into view)
-        </SectionLabel>
-        <Tabs defaultValue="notifications" className="w-[280px]">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -181,22 +186,41 @@ export const States: Story = {
   ),
 }
 
+export const Scrollable: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-3">
+      <SectionLabel>
+        Overflows horizontally; the active trigger scrolls into view and a
+        neighbour peeks to signal more
+      </SectionLabel>
+      <Tabs defaultValue="notifications" className="w-[280px]">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+        </TabsList>
+      </Tabs>
+    </div>
+  ),
+}
+
 export const Anatomy: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <Tabs defaultValue="account" className="w-[400px]">
+      <SectionLabel>List + triggers</SectionLabel>
       <TabsList>
         <TabsTrigger value="account">Active trigger</TabsTrigger>
         <TabsTrigger value="password">Inactive trigger</TabsTrigger>
       </TabsList>
+      <SectionLabel>Content panel</SectionLabel>
       <TabsContent value="account">
-        <div className="space-y-1">
-          <p className="text-sm font-medium">Content panel</p>
-          <p className="text-sm text-muted-foreground">
-            The list holds the triggers; each trigger reveals its matching
-            content panel below.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          The list holds the triggers; each trigger reveals its matching content
+          panel below.
+        </p>
       </TabsContent>
       <TabsContent value="password">
         <p className="text-sm text-muted-foreground">Password content panel.</p>
