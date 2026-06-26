@@ -161,10 +161,30 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       service.chatCompletion({
         messages: [USER_MSG],
         models: ['claude-sonnet-4-6'],
-        retries: 0,
+        retries: 2,
       }),
     ).rejects.toThrow('400')
     expect(generateText).toHaveBeenCalledOnce()
+  })
+
+  it('retries transient errors up to the retry count', async () => {
+    const { service, generateText } = build()
+    generateText
+      .mockRejectedValueOnce(Object.assign(new Error('503'), { status: 503 }))
+      .mockResolvedValueOnce({
+        text: 'ok',
+        toolCalls: [],
+        totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      })
+
+    const result = await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 2,
+    })
+
+    expect(result.content).toBe('ok')
+    expect(generateText).toHaveBeenCalledTimes(2)
   })
 
   it('bails immediately on a permanent 4xx ai-SDK APICallError (statusCode)', async () => {
@@ -177,7 +197,7 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       service.chatCompletion({
         messages: [USER_MSG],
         models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
-        retries: 0,
+        retries: 2,
       }),
     ).rejects.toThrow('400')
     expect(generateText).toHaveBeenCalledOnce()
