@@ -10,6 +10,27 @@ Spans four packages: `gp-api` (data model, bootstrap, weekly cron, digest, MCP
 tool), `gp-webapp` (the Campaign Plan rendering), `packages/runbooks` (the CAP
 experiment), and `@goodparty_org/contracts` (the task catalog + experiment I/O).
 
+## Background
+
+Before this, the campaign plan and the weekly task list ran on two separate
+pipelines that never read each other, so candidates saw generic recurring
+filler instead of tasks driven by their own race (only about 4 of roughly 12
+mappable plan inputs reached the task list). Campaign Tracker v3 replaces the
+generic task generator with a plan-driven sequencer over a hand-authored,
+closed catalog (~31 static plus ~27 dynamic tasks across priority tiers) whose
+dynamic half is selected, ranked, and voiced per candidate. The model voices
+task copy and finds events only; it never invents the task list, dates,
+numbers, or compliance steps.
+
+The epic (ENG-10406) is structured as: ENG-10407 plan-to-tracker data contract
+(the keystone), ENG-10408 phase sequencer, ENG-10409 pills engine (deterministic
+parameterization plus the LLM copy pass), ENG-10410 gamified progress tracker +
+contact recording, ENG-10411 weekly prioritization ranker, and ENG-10412 tracker
+UI + analytics (`Win - Tracker Viewed` / `Win - Task Completed` / `Win - Phase
+Advanced` on Amplitude). The voter-contact and fundraising progress thermometers
+(ENG-10410) are part of the epic but may ship later (fundraising is gated on a
+donation processor).
+
 ## What the candidate sees
 
 The Campaign Plan page (`/dashboard/campaign-plan`) shows a four-phase rail:
