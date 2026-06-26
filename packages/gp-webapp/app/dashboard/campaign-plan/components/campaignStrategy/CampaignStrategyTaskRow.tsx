@@ -41,8 +41,12 @@ const CHANNEL_ICONS: Record<
   general: ClipboardListIcon,
 }
 
-const formatTaskDate = (date: string | null): string | null =>
-  date ? format(new Date(date.replace(/-/g, '/')), 'MMM d') : null
+// The catalog fallback passes date-only strings ("2026-07-11"); the tracker
+// passes the API's full ISO datetime ("2026-07-11T00:00:00.000Z"). Slice to the
+// date portion before the Safari-safe dash->slash local-midnight parse so both
+// render — the full ISO form would otherwise become an Invalid Date and throw.
+export const formatTaskDate = (date: string | null): string | null =>
+  date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
 // One task row: status marker, date chip, type icon, title, optional Pro and
 // "Do this next" badges, description, parameter, prerequisite hint, link.
