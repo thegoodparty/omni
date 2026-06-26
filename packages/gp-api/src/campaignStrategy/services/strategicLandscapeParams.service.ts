@@ -42,12 +42,21 @@ const slimCandidate = (c: Candidate): Candidate => ({
 // the candidate from their own opponents), 1 = incumbents (the real opponents),
 // 2 = the long tail dropped first when capping.
 const candidateRank = (c: Candidate, userEmail: string): number => {
-  const email = c.email?.toLowerCase().trim()
-  if (email && userEmail && email === userEmail.toLowerCase().trim()) return 0
+  if (userEmail) {
+    const email = c.email?.toLowerCase().trim()
+    if (email && email === userEmail.toLowerCase().trim()) return 0
+  }
   return c.is_incumbent ? 1 : 2
 }
 
 // Keep the highest-ranked candidates whose serialized bytes fit the budget.
+// Candidates are sorted by rank first, so the user's own row (rank 0) and
+// incumbents (rank 1) are offered to the budget before the long tail and
+// survive whenever the cap permits — the cap is the harder invariant, so a
+// budget too small for even those rows drops them rather than busting it (that
+// only arises when the fixed payload alone nears the cap; see the story-drop
+// path). Within a rank, skip (don't stop on) an over-budget candidate so one
+// long name can't starve the smaller ones behind it.
 const capRoster = (
   candidates: Candidate[],
   userEmail: string,
@@ -60,8 +69,6 @@ const capRoster = (
   let used = 2 // the enclosing '[]'
   for (const c of ranked) {
     const size = Buffer.byteLength(JSON.stringify(c)) + 1 // + ',' separator
-    // Skip (don't stop on) an over-budget candidate: rank-2 order is arbitrary,
-    // so one long name must not starve the smaller candidates behind it.
     if (used + size > budgetBytes) continue
     kept.push(c)
     used += size
@@ -161,6 +168,10 @@ const fitToBudget = (
   }
   const storylessBudget =
     MAX_PARAMS_BYTES - paramsBytes(withEmptyRosters(storyless))
+  // Pathological: even the fixed, roster-empty, story-less payload exceeds the
+  // cap (would only happen if the external race fields were themselves huge).
+  // Nothing left to trim — return the smallest payload as best-effort.
+  if (storylessBudget <= 2) return withEmptyRosters(storyless)
   return withCappedRosters(storyless, storylessBudget, userEmail)
 }
 
