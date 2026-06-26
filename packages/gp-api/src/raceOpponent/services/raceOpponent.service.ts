@@ -214,8 +214,15 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       return
     }
 
-    await this.dispatchCollection(campaign, clerkUserId, opponents)
+    // Clear the flag BEFORE dispatching. If we cleared after and the clear
+    // threw, the requeued message would be dropped on redelivery (the
+    // opposition_research run is already terminal COMPLETED), stranding the flag
+    // set forever while a live collection run exists. dispatchCollection's
+    // in-flight dedup makes clearing first safe against a double delivery, and a
+    // dispatch failure after the clear leaves a clean state the next collect()
+    // retries from.
     await this.clearCollectionPending(campaignId)
+    await this.dispatchCollection(campaign, clerkUserId, opponents)
   }
 
   private async markCollectionPending(campaignId: number): Promise<void> {
