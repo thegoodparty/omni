@@ -22,6 +22,7 @@ const meta: Meta<typeof PageLayout> = {
   parameters: {
     layout: 'fullscreen',
     backgrounds: { disable: true },
+    docs: { story: { height: '80px' } },
   },
   decorators: [
     (Story) => (
