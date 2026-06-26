@@ -363,6 +363,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     ```
 
 16. **Final report** — cover both repos, and say which repo each line refers to:
+    - Per repo, if you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty — the develop→qa promotion had landed before this run): note that no develop→qa merge was needed this run, and list the `qa → $TIP` PR opened (with URL). Do **not** report this as a merge that happened this run.
     - Per repo, if auto-merge landed cleanly: develop→qa merged (note "via auto-merge", or "via direct-merge fallback" if step 5's `--auto` wasn't allowed), `qa → $TIP` PR opened — with the open PR URL
     - Per repo, if merged via admin override (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
     - Per repo, if there were no changes between qa and develop: note it (no PRs opened)
