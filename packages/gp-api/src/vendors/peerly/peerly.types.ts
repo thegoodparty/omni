@@ -427,4 +427,7 @@ export interface PeerlyApiErrorContext {
   httpExceptionClass?: HttpExceptionConstructor
   customMessage?: string
   recoveryInfo?: PeerlyRecoveryInfo
+  // Background sweeps poll Peerly with no human waiting; a transient failure
+  // there should log + throw but not page the 10DLC Slack channel.
+  suppressSlackAlert?: boolean
 }

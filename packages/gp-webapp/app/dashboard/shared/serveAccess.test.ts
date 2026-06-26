@@ -135,7 +135,7 @@ describe('serveAccess', () => {
     )
   })
 
-  it('falls back to Briefing Assistant when the requested path is not a serve route', async () => {
+  it('falls back to the Chief of Staff home when the requested path is not a serve route', async () => {
     mockServerFetch.mockResolvedValue({ ok: false, data: null })
     mockGetCurrentUserOrganizations.mockResolvedValue([
       campaignOrg,
@@ -146,10 +146,9 @@ describe('serveAccess', () => {
 
     await serveAccess()
 
-    // Not the flag-gated Chief of Staff home, which would bounce a flag-off
-    // elected-office user back out.
+    // Chief of Staff is the default Serve landing page.
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/post-auth-redirect?next=%2Fdashboard%2Fbriefings',
+      '/post-auth-redirect?next=%2Fdashboard%2Fchief-of-staff',
     )
   })
 

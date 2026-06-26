@@ -382,6 +382,7 @@ export {
   type CreateAnnotationRequest,
   UpdateNoteRequestSchema,
   type UpdateNoteRequest,
+  ATTACHMENT_MAX_BYTES,
   AttachmentPresignRequestSchema,
   type AttachmentPresignRequest,
   AttachmentPresignResponseSchema,

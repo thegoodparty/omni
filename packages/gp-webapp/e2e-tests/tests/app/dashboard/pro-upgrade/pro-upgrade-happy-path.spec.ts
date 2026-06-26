@@ -90,6 +90,23 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByPlaceholder('jane@gmail.com').fill(user.email)
   await page.getByPlaceholder('(555) 555-5555').fill('(307) 555-1234')
 
+  // Filing address is required: the agentic TCR/Peerly submit resolves a postal
+  // address from this place_id, so the step blocks Continue until a real Google
+  // Places suggestion is selected. Type a known address, wait for Google's
+  // `.pac-item` dropdown (appended to <body>), and pick the first suggestion —
+  // ArrowDown+Enter so react-google-autocomplete fires onPlaceSelected.
+  const addressInput = page.getByPlaceholder('Address')
+  await addressInput.click()
+  await addressInput.pressSequentially('1700 Pennsylvania Ave NW, Washington', {
+    delay: 80,
+  })
+  const suggestion = page.locator('.pac-item').first()
+  await expect(suggestion).toBeVisible({ timeout: 15_000 })
+  await addressInput.press('ArrowDown')
+  await addressInput.press('Enter')
+  // onPlaceSelected writes the formatted address back into the input.
+  await expect(addressInput).not.toHaveValue('')
+
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 7. Candidate profile — ≥500-char bio (Quill editor) + one policy priority

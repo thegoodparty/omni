@@ -220,7 +220,7 @@ export default function ElectionResultPage(): React.JSX.Element {
       // Best-effort org switch: the office + campaign are already persisted, so
       // a failure to refresh the org list or resolve the new org slug must NOT
       // mask the success as an error (which would prompt a confusing retry).
-      // Briefings runs behind serveAccess, which routes through
+      // Chief of Staff runs behind serveAccess, which routes through
       // /post-auth-redirect to pin the elected-office org slug if it isn't set
       // here — so navigation always succeeds.
       try {
@@ -244,7 +244,7 @@ export default function ElectionResultPage(): React.JSX.Element {
       // deferred or the destination's data fetch throws, the component stays
       // mounted and must not be stuck with a permanently-disabled button.
       setRequestState({ submitting: false, error: false })
-      router.replace('/dashboard/briefings')
+      router.replace('/dashboard/chief-of-staff')
     } catch (e) {
       console.error('Error submitting General Result:', e)
       errorSnackbar('Failed to submit election result.')

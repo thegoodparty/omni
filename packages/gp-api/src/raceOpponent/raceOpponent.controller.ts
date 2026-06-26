@@ -36,12 +36,12 @@ export class RaceOpponentController {
     return this.raceOpponent.collect(campaign)
   }
 
-  @Get('raw')
+  @Get()
   @ResponseSchema(RaceOpponentResponseSchema)
   @UseCampaign({ include: { user: true } })
-  async getRaw(
+  async get(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentResponse> {
-    return this.raceOpponent.getRaw(campaign)
+    return this.raceOpponent.get(campaign)
   }
 }

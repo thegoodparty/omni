@@ -20,6 +20,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_COLLECTION,
@@ -41,6 +42,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     private readonly features: FeaturesService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly electionApi: ElectionApiService,
+    private readonly campaignStrategy: CampaignStrategyService,
   ) {
     super()
   }
@@ -78,13 +80,62 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       )
     }
 
-    const opponents = await this.buildOpponents(campaign.id)
-    if (opponents.length === 0) {
-      throw new BadRequestException(
-        'No opponents found — generate the campaign plan first.',
-      )
+    const { opponents, oppositionPersistedAt } = await this.loadOpposition(
+      campaign.id,
+    )
+
+    // Plan already identified opponents (the campaign plan ran, or a prior
+    // discovery landed names) — collect them now, exactly as before.
+    if (opponents.length > 0) {
+      return this.dispatchCollection(campaign, clerkUserId, opponents)
     }
 
+    // No names, but discovery already ran and found none: a genuinely
+    // uncontested race. Settle to idle rather than re-dispatching discovery on
+    // every poll/click. Keyed on the persist marker, NOT "opponents is empty"
+    // alone, so a never-discovered race still triggers discovery below.
+    if (oppositionPersistedAt) {
+      return { runId: null, status: 'idle' }
+    }
+
+    // No names and no discovery yet: discover opponents the same way the
+    // campaign plan does (opposition_research), then auto-chain collection when
+    // it completes (RaceOpponentPersistService). Discovery lives only in that
+    // experiment so the two paths can't drift.
+    const discovery =
+      await this.campaignStrategy.ensureOppositionResearch(campaign)
+
+    if (discovery.disposition === 'persisted') {
+      // Discovery completed between our read and the dispatch attempt — collect
+      // with whatever just landed (empty => still uncontested).
+      const discovered = await this.buildOpponents(campaign.id)
+      return discovered.length > 0
+        ? this.dispatchCollection(campaign, clerkUserId, discovered)
+        : { runId: null, status: 'idle' }
+    }
+
+    if (discovery.disposition === 'inflight') {
+      // Frontend-driven two-call: discovery is running. The page polls GET
+      // (which reports 'discovering' off the in-flight run) and re-fires collect
+      // once opponents persist — at which point the opponents-present branch
+      // above dispatches collection. No server-side flag to strand.
+      return { runId: discovery.oppositionRunId, status: 'discovering' }
+    }
+
+    // 'unavailable' — no race, election-api down, attempt cap reached, or SQS
+    // send failed. Logged inside ensureOppositionResearch; surface a calm idle
+    // rather than a 500 so the page shows its empty state.
+    return { runId: null, status: 'idle' }
+  }
+
+  // The in-flight dedup + race_opponent_collection dispatch. Reached from
+  // collect() once opponent names exist (from the plan, or from a discovery run
+  // the page re-fired collect after). The dedup is unchanged from the original.
+  private async dispatchCollection(
+    campaign: CampaignWith<'user'>,
+    clerkUserId: string,
+    opponents: { full_name: string }[],
+  ): Promise<RaceOpponentCollectResponse> {
     // Reuse an already-in-flight run instead of dispatching a duplicate: a
     // double-click or client retry would otherwise spawn a second paid Fargate
     // run whose persist would later wipe the first's rows on completion. Mirrors
@@ -115,8 +166,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       organizationSlug: campaign.organizationSlug,
       clerkUserId,
       params: {
-        // The contract types opponents as a non-empty tuple; the length guard
-        // above makes that true at runtime, but the type can't prove it.
+        // The contract types opponents as a non-empty tuple; the caller only
+        // passes non-empty arrays, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         opponents: opponents as CollectionInput['opponents'],
         race_context: await this.buildRaceContext(campaign),
@@ -131,7 +182,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: run.runId, status: 'running' }
   }
 
-  async getRaw(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
+  async get(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
     await this.assertAccess(campaign)
 
     const rows = await this.model.findMany({
@@ -142,18 +193,36 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return {
       opponents: this.groupByOpponent(rows),
       lastCollectedAt: this.lastCollectedAt(rows),
-      collectionStatus: await this.collectionStatus(campaign.organizationSlug),
+      collectionStatus: await this.collectionStatus(
+        campaign.id,
+        campaign.organizationSlug,
+      ),
     }
   }
 
   private async buildOpponents(
     campaignId: number,
   ): Promise<{ full_name: string }[]> {
+    return (await this.loadOpposition(campaignId)).opponents
+  }
+
+  // The plan's opponent names plus its opposition persist marker, read in one
+  // query. collect() needs both: the marker distinguishes "never discovered"
+  // (trigger discovery) from "discovered, uncontested" (settle to idle).
+  private async loadOpposition(campaignId: number): Promise<{
+    opponents: { full_name: string }[]
+    oppositionPersistedAt: Date | null
+  }> {
     const plan = await this.client.campaignStrategy.findUnique({
       where: { campaignId },
       include: { opponents: true },
     })
-    return (plan?.opponents ?? []).map((o) => ({ full_name: o.fullName }))
+    return {
+      opponents: (plan?.opponents ?? []).map((o) => ({
+        full_name: o.fullName,
+      })),
+      oppositionPersistedAt: plan?.oppositionPersistedAt ?? null,
+    }
   }
 
   // race_context is a discovery hint only (state/city/office/cycle). A missing
@@ -218,9 +287,18 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     )
   }
 
-  // Derived from the latest collection run for this org — there's no status
-  // column, the run table is the source of truth. No run -> idle.
+  // Derived purely from run state — there's no status column, the run table is
+  // the source of truth, so nothing can strand. The latest race_opponent_collection
+  // run wins. Before any collection run exists, the campaign's own discovery run
+  // (plan.oppositionRunId — scoped to THIS plan, never an org-wide/stale run)
+  // drives the status: in-flight -> 'discovering', FAILED -> 'failed', else
+  // 'idle'. A FAILED discovery MUST read as 'failed' (not 'idle'): the page
+  // auto-fires collect on a discovering->idle transition, and a FAILED run is
+  // re-dispatchable, so reporting 'idle' would loop the page into re-dispatching
+  // discovery until the attempt cap. 'failed' stops the auto-fire and lets the
+  // user retry manually.
   private async collectionStatus(
+    campaignId: number,
     organizationSlug: string,
   ): Promise<RaceOpponentCollectionStatus> {
     const run = await this.client.experimentRun.findFirst({
@@ -231,14 +309,33 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       orderBy: { createdAt: Prisma.SortOrder.desc },
       select: { status: true },
     })
-    if (!run) return 'idle'
-    switch (run.status) {
-      case ExperimentRunStatus.COMPLETED:
-        return 'completed'
-      case ExperimentRunStatus.FAILED:
-        return 'failed'
-      default:
-        return 'running'
+    if (run) {
+      switch (run.status) {
+        case ExperimentRunStatus.COMPLETED:
+          return 'completed'
+        case ExperimentRunStatus.FAILED:
+          return 'failed'
+        default:
+          return 'running'
+      }
     }
+
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      select: { oppositionRunId: true },
+    })
+    if (!plan?.oppositionRunId) return 'idle'
+
+    const discovery = await this.client.experimentRun.findUnique({
+      where: { runId: plan.oppositionRunId },
+      select: { status: true },
+    })
+    if (!discovery) return 'idle'
+    if (discovery.status === ExperimentRunStatus.FAILED) return 'failed'
+    const inFlight =
+      discovery.status === ExperimentRunStatus.QUEUED ||
+      discovery.status === ExperimentRunStatus.RUNNING ||
+      discovery.status === ExperimentRunStatus.AWAITING_RESUME
+    return inFlight ? 'discovering' : 'idle'
   }
 }

@@ -38,6 +38,9 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | -------------------------------------- | --------------------------------------------- |
 | **Working inside package X**           | **`packages/X/CLAUDE.md`** (then nested ones) |
 | Understanding the system / service map | `docs/architecture.md`                        |
+| Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
+| Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
+| Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
@@ -130,3 +133,24 @@ Full label reference, example queries, and an incident playbook: `docs/observabi
 Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
 Playwright, ClickUp). They need a few environment variables set in your shell — see
 `docs/mcp.md` for the list and what each server is for.
+
+## Output rules
+
+- Output only the modified code block; no full file rewrites, no setup guides, no
+  explanations unless I ask for them.
+- No setup guides or explanations unless I explicitly ask. Summaries are ok.
+- Show changed lines plus minimal surrounding context.
+
+## Model routing (my default policy)
+
+- Default to Sonnet for normal coding tasks.
+- Drop to Haiku for trivial edits, renames, and boilerplate.
+- Escalate to Opus 4.8 only for hard architecture or tricky debugging.
+- Use Opus 4.8 for initial planning of epics, technical documents, and ticket
+  creation/edits.
+- If you think a task needs a more capable model than the current one, say so before
+  proceeding.
+
+## Style
+
+- Be direct. Skip preambles and recaps.

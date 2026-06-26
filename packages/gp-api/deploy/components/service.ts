@@ -308,7 +308,10 @@ export function createService({
         enable: true,
         rollback: false,
       },
-      deploymentMinimumHealthyPercent: isProd ? 100 : 0,
+      // 100 (not 0) in every env: a 0 floor lets ECS drain the old task
+      // before the new one is healthy, creating a brief no-healthy-target
+      // window that flaps the health-probe alert on every non-prod deploy.
+      deploymentMinimumHealthyPercent: 100,
       deploymentMaximumPercent: 200,
       enableExecuteCommand: true,
       waitForSteadyState: true,
