@@ -95,17 +95,29 @@ export class FeaturesService {
    * evaluations target the same segments.
    */
   async getAllVariants(user: User): Promise<ExperimentVariants> {
-    const variants = await amplitude.fetchV2({
-      user_id: user.id.toString(),
-      user_properties: this.buildUserProperties(user),
-    })
+    try {
+      const variants = await amplitude.fetchV2({
+        user_id: user.id.toString(),
+        user_properties: this.buildUserProperties(user),
+      })
 
-    return Object.fromEntries(
-      Object.entries(variants).map(([flag, variant]) => [
-        flag,
-        { value: variant.value ?? variant.key, key: variant.key },
-      ]),
-    )
+      return Object.fromEntries(
+        Object.entries(variants).map(([flag, variant]) => [
+          flag,
+          { value: variant.value ?? variant.key, key: variant.key },
+        ]),
+      )
+    } catch (err) {
+      // Mirror isFeatureEnabled: an Amplitude outage must not 500 the seed
+      // endpoint. Returning no variants lets the client fall back to its own
+      // SDK evaluation rather than crashing the page that requested the seed.
+      this.logger.warn({
+        err,
+        userId: user.id,
+        msg: 'Amplitude fetchV2 failed in getAllVariants; returning empty variants',
+      })
+      return {}
+    }
   }
 
   private buildUserProperties(user: User): ExperimentUserProperties {

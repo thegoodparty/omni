@@ -151,4 +151,32 @@ describe('FeaturesService.isFeatureEnabled', () => {
 
     expect(result).toBe(true)
   })
+
+  // .env.test pins the placeholder key, so the prod fail-closed branch can't be
+  // reached without re-importing the module under a real key.
+  it('fails closed (returns false) when Amplitude fails with a real key', async () => {
+    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
+    vi.resetModules()
+    mockFetchV2.mockRejectedValue(new Error('status=401'))
+
+    const { FeaturesService: FS } =
+      await import('./services/features.service.js')
+    const svc = new FS(
+      {} as Partial<UsersService> as UsersService,
+      {
+        setContext: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      } as Partial<PinoLogger> as PinoLogger,
+    )
+
+    const result = await svc.isFeatureEnabled({
+      user: asUser({ id: 1, email: 'a@b.com' }),
+      feature: 'flag',
+    })
+
+    expect(result).toBe(false)
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
 })
