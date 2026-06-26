@@ -42,7 +42,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    Fire from the **webapp (frontend)** when the browser directly observes the moment: a screen view, a button click, a form submit, a funnel step the user navigates.
 
    Fire from **gp-api (backend)** when the moment is server truth the client cannot honestly observe:
-   - an async or AI job completes (the browser only knows it *started*),
+   - an async or AI job completes (the browser only knows it _started_),
    - a payment or subscription confirms,
    - a webhook lands, or a status changes (compliance, domain, publish),
    - the event needs server-only data, or must be tamper-proof / guaranteed to fire.
@@ -60,7 +60,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    ```
 
    - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
-   - If it is something the user *is* or *has* (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
+   - If it is something the user _is_ or _has_ (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
 
 4. **Register it in the `EVENTS` map.**
 
@@ -90,7 +90,6 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 5. **Fire it.**
 
    **Frontend** — `import { EVENTS, trackEvent } from 'helpers/analyticsHelper'`:
-
    - "Viewed" / screen-entry events fire in a `useEffect` so they run once per view, not on every render:
 
      ```ts
@@ -132,12 +131,28 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    `await` the call only when the outcome must propagate — e.g. a payment must not be considered tracked if Segment failed. `track` already merges in the user's email/hubspotId context and the impersonation flag.
 
+   **Emailable events — flatten collections into indexed scalar props.** If an event will drive a user email (a HubSpot workflow reads the event's properties to render the template), it must carry **flat scalar** properties, not arrays or nested objects — HubSpot custom-event properties are predefined flat fields and cannot index into an array. So encode a list as numbered scalar keys, not an array of objects:
+
+   ```ts
+   // ❌ HubSpot can't read into this
+   { topIssues: [{ title, summary, priority }, ...] }
+
+   // ✅ flat, indexed, HubSpot-friendly
+   {
+     topIssueCount: 5,
+     topIssue1Title: '…', topIssue1Summary: '…', topIssue1Priority: 'high',
+     topIssue2Title: '…', topIssue2Summary: '…', topIssue2Priority: 'medium',
+     // …trendingIssue1Title, etc.
+   }
+   ```
+
+   Key format stays camelCase: `<collection><N><Field>`, 1-based. Cap `N` at a fixed, documented max (e.g. top 5 by rank) so the property set stays bounded and predefinable in HubSpot, and keep the true total in a `<collection>Count` prop. This applies to **any** event a user email is built from, not just this one.
+
 6. **Record the event's metadata (frontend/client events).**
 
    **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff, then go to step 7.
 
    A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
-
    - `mode=add`,
    - `event` = the Title Case event-name string you just registered (e.g. `Briefing Assistant - Agenda Submitted`),
    - `purposeDraft` = the one-line question this event answers (you already reasoned about this when naming it),
@@ -181,11 +196,11 @@ If the change you are working on **removes** a `trackEvent` call (a frontend/cli
 1. Confirm with the human that it is an intentional removal, and ask the human for a one-line reason (e.g. "feature removed", "replaced by new flow"). Block until they supply it — the handoff path trusts the incoming `reason` and will not re-prompt for it.
 2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = the one-line reason the human gave. `event-metadata` stamps `not in use` with the date and PR.
 
-Adds and removes are **independent**. A removal happening in the same change as an addition does *not* mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
+Adds and removes are **independent**. A removal happening in the same change as an addition does _not_ mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
 ## Common mistakes
 
-- Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job *start*; let gp-api emit the completion.
+- Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job _start_; let gp-api emit the completion.
 - Renaming a backend event marked `⚠️ DO NOT MODIFY` — it breaks the HubSpot workflow that triggers on that exact string.
 - `await`-ing a non-critical backend `track` and letting a Segment hiccup block or fail the request — use `void … .catch(() => undefined)` for telemetry.
 - Passing a string literal to `trackEvent` / `track` instead of an `EVENTS` entry — defeats the single source of truth and drifts the catalog.
@@ -193,3 +208,4 @@ Adds and removes are **independent**. A removal happening in the same change as 
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.
 - Tracking something page views already cover, or a moment no dashboard question depends on.
+- Putting an array or nested object on an event that drives a HubSpot email — flatten the collection into indexed scalar props (`topIssue1Title`, …), see step 5.
