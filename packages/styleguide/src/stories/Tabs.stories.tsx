@@ -67,7 +67,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         activationMode={activationMode}
         value={value}
         onValueChange={(next) => updateArgs({ value: next })}
-        className="w-[400px]"
+        className="w-full max-w-[400px]"
       >
         <TabsList>
           <TabsTrigger value="account">
@@ -107,7 +107,7 @@ export const Variants: Story = {
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-3">
         <SectionLabel>Text only</SectionLabel>
-        <Tabs defaultValue="account" className="w-[360px]">
+        <Tabs defaultValue="account" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="password">Password</TabsTrigger>
@@ -117,7 +117,7 @@ export const Variants: Story = {
 
       <div className="flex flex-col gap-3">
         <SectionLabel>With icons</SectionLabel>
-        <Tabs defaultValue="preview" className="w-[360px]">
+        <Tabs defaultValue="preview" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="preview">
               <Eye />
@@ -133,7 +133,7 @@ export const Variants: Story = {
 
       <div className="flex flex-col gap-3">
         <SectionLabel>With trailing badge</SectionLabel>
-        <Tabs defaultValue="billing" className="w-[360px]">
+        <Tabs defaultValue="billing" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="billing">Billing</TabsTrigger>
             <TabsTrigger value="notifications">
@@ -153,7 +153,7 @@ export const States: Story = {
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-3">
         <SectionLabel>Default</SectionLabel>
-        <Tabs defaultValue="account" className="w-[360px]">
+        <Tabs defaultValue="account" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="account">Active</TabsTrigger>
             <TabsTrigger value="password">Inactive</TabsTrigger>
@@ -163,7 +163,7 @@ export const States: Story = {
 
       <div className="flex flex-col gap-3">
         <SectionLabel>Focused (tab to focus a trigger)</SectionLabel>
-        <Tabs defaultValue="account" className="w-[360px]">
+        <Tabs defaultValue="account" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="password">Password</TabsTrigger>
@@ -173,7 +173,7 @@ export const States: Story = {
 
       <div className="flex flex-col gap-3">
         <SectionLabel>Disabled</SectionLabel>
-        <Tabs defaultValue="active" className="w-[360px]">
+        <Tabs defaultValue="active" className="w-full max-w-[360px]">
           <TabsList>
             <TabsTrigger value="active">Active</TabsTrigger>
             <TabsTrigger value="disabled" disabled>
@@ -209,7 +209,7 @@ export const Scrollable: Story = {
 export const Anatomy: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <Tabs defaultValue="account" className="w-[400px]">
+    <Tabs defaultValue="account" className="w-full max-w-[400px]">
       <SectionLabel>List + triggers</SectionLabel>
       <TabsList>
         <TabsTrigger value="account">Active trigger</TabsTrigger>
