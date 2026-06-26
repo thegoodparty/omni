@@ -145,14 +145,29 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
 
   // Two-call discovery: collect() dispatches opposition_research and returns
   // 'discovering'; the collection run is deferred until opponent names exist.
-  // While discovery or collection is in flight, poll status.
+  // While discovery or collection is in flight, poll status. After a few
+  // consecutive poll failures, stop and notify rather than silently spinning on
+  // 'discovering' forever with the Collect button locked.
   useEffect(() => {
     if (status !== 'discovering' && status !== 'running') return
+    let consecutiveErrors = 0
     const id = setInterval(() => {
-      void loadStatus().catch(() => undefined)
+      void loadStatus()
+        .then(() => {
+          consecutiveErrors = 0
+        })
+        .catch(() => {
+          consecutiveErrors += 1
+          if (consecutiveErrors >= 3) {
+            clearInterval(id)
+            errorSnackbar(
+              'Lost contact with the server while checking status. Refresh to try again.',
+            )
+          }
+        })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [status, loadStatus])
+  }, [status, loadStatus, errorSnackbar])
 
   // When discovery succeeds (status goes 'discovering' -> 'idle'), auto-fire
   // collect once to dispatch the deferred collection run. This can't loop: a

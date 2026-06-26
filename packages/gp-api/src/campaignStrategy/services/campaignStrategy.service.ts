@@ -324,13 +324,28 @@ export class CampaignStrategyService
       freshStart,
     )
     if (result !== 'inflight') {
+      // 'dead' = opposition attempt cap reached (often burned by prior
+      // plan-endpoint retries; counters survive race changes). 'stalled' = the
+      // SQS dispatch failed this call. Log so the otherwise-silent 'unavailable'
+      // (which the race-opponent page renders as an empty state) is diagnosable.
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          raceId: brHashId,
+          result,
+          oppositionAttempts: plan.oppositionAttempts,
+        },
+        result === 'dead'
+          ? 'opposition attempt cap reached while discovering opponents; reporting unavailable'
+          : 'opposition dispatch stalled (SQS) while discovering opponents; reporting unavailable',
+      )
       return { disposition: 'unavailable', oppositionRunId: null }
     }
     // attemptOpposition swallows a transient fault on the run-id link and still
     // returns 'inflight'. An unlinked run is orphaned: onExperimentRunCompleted
     // looks the plan up by oppositionRunId and finds nothing, so opponents never
-    // persist and the chained collection silently no-ops. Report 'unavailable'
-    // so collect() settles instead of marking a doomed collection pending.
+    // persist. Report 'unavailable' so collect() settles to idle instead of
+    // returning a 'discovering' the page can never advance past.
     const linked = await this.findFirst({ where: { id: plan.id } })
     if (!linked?.oppositionRunId) {
       return { disposition: 'unavailable', oppositionRunId: null }
