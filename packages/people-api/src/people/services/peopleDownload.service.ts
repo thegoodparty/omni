@@ -12,6 +12,7 @@ import { DistrictService } from 'src/district/services/district.service'
 import { DownloadPeopleDTO } from '../people.schema'
 import { buildVoterSelectSql, ExtraSelectedField } from '../people.select'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
+import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.utils'
 import { resolveDistrict } from '../utils/resolveDistrict.utils'
 
@@ -138,6 +139,7 @@ export class PeopleDownloadService
         filters: dto.filters,
         districtName,
         districtType,
+        groupByHousehold: dto.groupByHousehold,
       })
       copyStream = client.query(copyTo(sql))
     } catch (err) {
@@ -217,6 +219,7 @@ export class PeopleDownloadService
     filters: DownloadPeopleDTO['filters']
     districtName: string
     districtType: string
+    groupByHousehold?: boolean
   }): string {
     const {
       client,
@@ -225,6 +228,7 @@ export class PeopleDownloadService
       filters,
       districtName,
       districtType,
+      groupByHousehold,
     } = args
 
     const { columnNames } = buildVoterSelectSql(EXTRA_FIELDS)
@@ -234,7 +238,18 @@ export class PeopleDownloadService
       .join(', ')
     const electionLocationLiteral = client.escapeLiteral(districtName)
     const electionTypeLiteral = client.escapeLiteral(districtType)
-    const selectList = `SELECT ${voterCols}, ${electionLocationLiteral} AS "electionLocation", ${electionTypeLiteral} AS "electionType"`
+
+    // Mirror the list endpoint's door-knocking de-dup: emit one row per
+    // physical household. DISTINCT ON keeps a single representative voter per
+    // residence-address composite; its leading ORDER BY must match the key,
+    // with v."id" as the deterministic tiebreaker.
+    const householdKey = groupByHousehold
+      ? inlinePrismaSql(buildHouseholdKeySql('v'), client)
+      : ''
+    const distinctOn = groupByHousehold ? `DISTINCT ON (${householdKey}) ` : ''
+    const orderBy = groupByHousehold ? `ORDER BY ${householdKey}, v."id"` : ''
+
+    const selectList = `SELECT ${distinctOn}${voterCols}, ${electionLocationLiteral} AS "electionLocation", ${electionTypeLiteral} AS "electionType"`
 
     const voterTable = `"${DATABASE_SCHEMA}"."${VOTER_TABLENAME}"`
     const dvTable = `"${DATABASE_SCHEMA}"."${DISTRICTVOTER_TABLENAME}"`
@@ -254,6 +269,7 @@ export class PeopleDownloadService
       FROM ${voterTable} v
       ${joinClause}
       ${whereClause}
+      ${orderBy}
     ) TO STDOUT WITH (FORMAT CSV, HEADER TRUE)`
   }
 }

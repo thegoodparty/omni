@@ -32,6 +32,7 @@ import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.s
 import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
 import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
+import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -137,6 +138,7 @@ export class QueueConsumerService {
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
+    private readonly raceOpponent: RaceOpponentPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly logger: PinoLogger,
   ) {
@@ -1057,6 +1059,11 @@ export class QueueConsumerService {
     // non-campaign-strategy runs, so this only throws on a real persist failure.
     await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
     await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
+
+    // Same contract as campaignStrategy above: markFailed-then-throw on a
+    // persist fault, no-op for other experiment types, and the persist is an
+    // idempotent replace so bounded redelivery is safe.
+    await this.raceOpponent.onExperimentRunCompleted(updatedRun)
 
     return true
   }

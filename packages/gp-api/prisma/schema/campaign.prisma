@@ -52,6 +52,7 @@ model Campaign {
   campaignStory            CampaignStory?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
+  raceOpponents            RaceOpponent[]
 
   @@index([slug])
   @@map("campaign")

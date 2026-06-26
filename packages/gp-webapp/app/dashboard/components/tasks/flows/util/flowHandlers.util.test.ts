@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { handleCreateOutreach } from './flowHandlers.util'
+import {
+  AUTO_VOTER_FILTER_NAME_PATTERN,
+  handleCreateOutreach,
+  handleCreateVoterFileFilter,
+} from './flowHandlers.util'
 
 const mockCreateOutreach = vi.fn()
+const mockCreateVoterFileFilter = vi.fn()
 
 vi.mock('helpers/createOutreach', () => ({
   createOutreach: (...args: unknown[]) => mockCreateOutreach(...args),
+}))
+
+vi.mock('helpers/createVoterFileFilter', () => ({
+  createVoterFileFilter: (...args: unknown[]) =>
+    mockCreateVoterFileFilter(...args),
 }))
 
 describe('handleCreateOutreach - campaignPlanDueDate', () => {
@@ -105,5 +115,33 @@ describe('handleCreateOutreach - text counts', () => {
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
     expect(payload).not.toHaveProperty('textCount')
     expect(payload).not.toHaveProperty('billableTextCount')
+  })
+})
+
+describe('handleCreateVoterFileFilter - identifiable name', () => {
+  beforeEach(() => {
+    mockCreateVoterFileFilter.mockReset().mockResolvedValue({ id: 1 })
+  })
+
+  it('names the auto-created list with the channel and send date', async () => {
+    await handleCreateVoterFileFilter({
+      type: 'text',
+      state: { audience: {}, voterCount: 100 },
+      now: new Date(2026, 5, 24),
+    })()
+
+    const payload = mockCreateVoterFileFilter.mock.calls[0]?.[0]
+    expect(payload.name).toBe('Texting outreach — Jun 24, 2026')
+  })
+
+  it('produces a name the saved-list selector still recognizes as throwaway', async () => {
+    await handleCreateVoterFileFilter({
+      type: 'text',
+      state: { audience: {}, voterCount: 100 },
+      now: new Date(2026, 5, 24),
+    })()
+
+    const payload = mockCreateVoterFileFilter.mock.calls[0]?.[0]
+    expect(AUTO_VOTER_FILTER_NAME_PATTERN.test(payload.name)).toBe(true)
   })
 })

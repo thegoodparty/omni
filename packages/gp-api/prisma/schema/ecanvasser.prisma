@@ -48,6 +48,7 @@ model EcanvasserContact {
   EcanvasserHouse   EcanvasserHouse? @relation(fields: [ecanvasserHouseId], references: [id])
   ecanvasserHouseId Int?
 
+  @@unique([ecanvasserId, externalId])
   @@index([ecanvasserId])
   @@map("ecanvasser_contact")
 }
@@ -56,6 +57,10 @@ model EcanvasserHouse {
   id           Int                 @id @default(autoincrement())
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")
+  // eCanvasser API house id (stable across re-syncs, unlike the local
+  // autoincrement id which a full re-sync regenerates). Keys the upsert so an
+  // overlapping sync window updates the house in place instead of duplicating.
+  externalId   Int?                @map("external_id")
   address      String
   latitude     Float?
   longitude    Float?
@@ -63,6 +68,7 @@ model EcanvasserHouse {
   ecanvasserId Int                 @map("ecanvasser_id")
   contacts     EcanvasserContact[]
 
+  @@unique([ecanvasserId, externalId])
   @@index([ecanvasserId])
   @@map("ecanvasser_house")
 }
@@ -85,6 +91,7 @@ model EcanvasserInteraction {
   ecanvasser   Ecanvasser @relation(fields: [ecanvasserId], references: [id], onDelete: Cascade)
   ecanvasserId Int        @map("ecanvasser_id")
 
+  @@unique([ecanvasserId, externalId])
   @@index([ecanvasserId])
   @@map("ecanvasser_interaction")
 }

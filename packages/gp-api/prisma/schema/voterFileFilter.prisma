@@ -3,6 +3,7 @@ model VoterFileFilter {
   createdAt                  DateTime      @default(now()) @map("created_at")
   updatedAt                  DateTime      @updatedAt @map("updated_at")
   name                       String?
+  search                     String?
   audienceSuperVoters        Boolean?      @default(false) @map("audience_super_voters")
   audienceLikelyVoters       Boolean?      @default(false) @map("audience_likely_voters")
   audienceUnreliableVoters   Boolean?      @default(false) @map("audience_unreliable_voters")

@@ -17,11 +17,10 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common'
-import { Interval } from '@nestjs/schedule'
+import { Cron } from '@nestjs/schedule'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { subHours } from 'date-fns'
-import ms from 'ms'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   PaginatedResults,
@@ -48,6 +47,7 @@ export type ResolvedActorIdentity =
 const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const TEST_USER_DOMAIN = '@test.goodparty.org'
+const CLERK_PAGE_SIZE = 500
 
 // Refusal shown to sales when an EO magic link targets an email that already
 // belongs to a real, self-owned GoodParty login (password set or owns a
@@ -747,13 +747,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
-   * Regularly deletes old e2e test users that were created more than 3 hours
+   * Regularly deletes old e2e test users that were created more than 24 hours
    * ago. Cleans out users from both the postgres db and from Clerk.
    */
-  @Interval(ms('6h'))
+  @Cron('0 */6 * * *')
   async deleteTestUsers() {
     try {
-      const cutoff = subHours(new Date(), 3)
+      const cutoff = subHours(new Date(), 24)
 
       // 1. Delete DB users.
       const dbUsers = await this.model.findMany({
@@ -761,12 +761,14 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           email: { endsWith: TEST_USER_DOMAIN },
           createdAt: { lt: cutoff },
         },
-        select: { id: true, email: true },
+        select: { id: true },
       })
 
+      let dbDeleted = 0
       for (const dbUser of dbUsers) {
         try {
           await this.model.delete({ where: { id: dbUser.id } })
+          dbDeleted++
           this.logger.info({ userId: dbUser.id }, 'Deleted DB test user')
         } catch (err) {
           this.logger.error(
@@ -776,40 +778,66 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         }
       }
 
-      // 2. Delete Clerk users.
-      // For now, don't worry about paginating. This 500 limit will always
-      // catch up at our current pace of test user creation.
-      const { data: clerkUsers } = await clerkThrottle(() =>
-        this.clerkClient.users.getUserList({
-          limit: 500,
-          query: TEST_USER_DOMAIN,
-          orderBy: '+created_at',
-        }),
-      )
-
-      const clerkUsersToDelete = clerkUsers
-        .filter((user) =>
-          user.emailAddresses.some((e) =>
-            e.emailAddress.endsWith(TEST_USER_DOMAIN),
-          ),
+      // 2. Delete Clerk users. Page through users oldest-first, deleting any
+      // on the test domain created before the cutoff. Clerk's SDK has no
+      // server-side created-at or email-domain filter, so we filter both
+      // client-side and advance `offset` past the users we leave behind each
+      // page (non-test users and any failed deletes) while deleted users drop
+      // out of the list. This drains the entire backlog across passes rather
+      // than only ever inspecting the most recent page — the old `query`
+      // search never surfaced the bulk of the backlog.
+      const cutoffMs = cutoff.getTime()
+      let clerkDeleted = 0
+      let offset = 0
+      for (;;) {
+        const { data: page } = await clerkThrottle(() =>
+          this.clerkClient.users.getUserList({
+            limit: CLERK_PAGE_SIZE,
+            offset,
+            orderBy: '+created_at',
+          }),
         )
-        .filter((user) => user.createdAt < cutoff.getTime())
+        if (page.length === 0) break
 
-      for (const clerkUser of clerkUsersToDelete) {
-        try {
-          await clerkThrottle(() =>
-            this.clerkClient.users.deleteUser(clerkUser.id),
-          )
-          this.logger.info({ userId: clerkUser.id }, 'Deleted Clerk test user')
-        } catch (err) {
-          this.logger.error(
-            { err, userId: clerkUser.id },
-            'Failed to delete Clerk test user, skipping',
-          )
+        const toDelete = page.filter(
+          (user) =>
+            user.createdAt < cutoffMs &&
+            user.emailAddresses.some((e) =>
+              e.emailAddress.endsWith(TEST_USER_DOMAIN),
+            ),
+        )
+
+        let deletedThisPage = 0
+        for (const clerkUser of toDelete) {
+          try {
+            await clerkThrottle(() =>
+              this.clerkClient.users.deleteUser(clerkUser.id),
+            )
+            clerkDeleted++
+            deletedThisPage++
+            this.logger.info(
+              { userId: clerkUser.id },
+              'Deleted Clerk test user',
+            )
+          } catch (err) {
+            this.logger.error(
+              { err, userId: clerkUser.id },
+              'Failed to delete Clerk test user, skipping',
+            )
+          }
         }
+
+        // Oldest-first: once a page holds no users older than the cutoff,
+        // every later page is newer too, so there is nothing left to clean up.
+        if (!page.some((user) => user.createdAt < cutoffMs)) break
+        if (page.length < CLERK_PAGE_SIZE) break
+        offset += page.length - deletedThisPage
       }
 
-      this.logger.info('Test user cleanup pass complete')
+      this.logger.info(
+        { dbDeleted, clerkDeleted },
+        'Test user cleanup pass complete',
+      )
     } catch (err) {
       this.logger.error({ err }, 'Failed to delete test users')
     }
