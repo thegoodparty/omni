@@ -16,6 +16,15 @@ share a goal and almost no code:
 The two meet at exactly one seam: interactive agents **read** the artifacts that
 background agents **produce**. Nothing else crosses.
 
+## What CAP is not
+
+CAP is always about agents that run **within the product** — work done on behalf of a
+candidate or elected official, surfaced to them inside the app. It is **not** the
+internal-facing AI work we do to run the business: agents or pipelines that analyze
+customer patterns, score leads, summarize support, or otherwise inform our own
+operations are out of scope here, even when they reuse the same broker or models. If
+the agent's output is for us rather than for the user it serves, it isn't CAP.
+
 ## Naming — what this thing is called in code
 
 "CAP" is the name we say out loud. The code almost never uses it. Before you go
