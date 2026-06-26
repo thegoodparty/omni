@@ -716,7 +716,7 @@ export type APIEndpoints = {
 
   'POST /v1/campaigns/mine/race-opponent/collect': {
     Request: {}
-    Response: { collectionStatus: RaceOpponentCollectionStatus }
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
   }
 }
 
@@ -756,7 +756,12 @@ export type CommunityIssueCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'advocacy_org'
   url?: string | null
   publisher?: string | null
   article_type?: string | null

@@ -33,6 +33,20 @@ src/
 3. Export from `src/components/ui/index.ts`
 4. Create story in `src/stories/NewComponent.stories.tsx`
 
+## Tests
+
+Component tests run in this package's own Vitest (jsdom + Testing Library),
+configured in `vitest.config.ts` / `vitest.setup.ts`. CI runs them via
+`.github/workflows/styleguide.yml`.
+
+```bash
+# from repo root
+npm run test -w packages/styleguide
+```
+
+Co-locate `*.test.tsx` next to the component (`src/components/ui/switch.test.tsx`)
+and import it with a relative path.
+
 ## Storybook
 
 Storybook config lives in `packages/gp-webapp/.storybook/`. Stories are discovered

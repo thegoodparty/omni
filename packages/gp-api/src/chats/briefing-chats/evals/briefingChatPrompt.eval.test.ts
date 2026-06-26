@@ -16,7 +16,7 @@ import { overrideEnvForEvals } from '../../evals/envOverride'
 overrideEnvForEvals()
 
 import { describe, expect, it } from 'vitest'
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import type { LlmMessage } from '@/llm/types/llmMessages.types'
 import { LlmService } from '@/llm/services/llm.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
@@ -36,7 +36,7 @@ const ask = async (
   systemPrompt: string,
   userMessage: string,
 ): Promise<string> => {
-  const messages: ChatCompletionMessageParam[] = [
+  const messages: LlmMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userMessage },
   ]

@@ -2,7 +2,7 @@
 
 # Top Community Issues
 
-Given an elected official's jurisdiction, produce a ranked list of up to 10 community issues that constituents are actively talking about — **each one a specific, named, currently-relevant problem**, not a policy category. This is a **demand-side** list: the question it answers is "what is on residents' minds here," not "what is on the office's agenda." Two signals are combined. Resident-demand web sources (local news, letters/op-eds, community advocacy groups, petitions, 311) are the **salience signal** — they say what residents are raising and how loudly. Haystaq priority scores from Databricks (`int__l2_nationwide_uniform_w_haystaq`) are a **lean annotation only** — they say how the local electorate *tilts* on an issue once salience has surfaced it, never which issue to rank. **The governing body's own record is excluded as a source** (no council/select-board agendas, minutes, ordinances, or legislative portals): the office's agenda is exactly the filter this list is meant to see around. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's jurisdiction, produce a ranked list of up to 10 community issues that constituents are actively talking about — **each one a specific, named, currently-relevant problem**, not a policy category. This is a **demand-side** list: the question it answers is "what is on residents' minds here," not "what is on the office's agenda." Two signals are combined. Resident-demand web sources (local news, letters/op-eds, community advocacy groups, petitions, 311) are the **salience signal** — they say what residents are raising and how loudly. Haystaq priority scores from Databricks (`int__l2_nationwide_uniform_w_haystaq`) are a **lean annotation only** — they say how the local electorate _tilts_ on an issue once salience has surfaced it, never which issue to rank. **The governing body's own record is excluded as a source** (no council/select-board agendas, minutes, ordinances, or legislative portals): the office's agenda is exactly the filter this list is meant to see around. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## What counts as an issue (this drives everything)
 
@@ -45,8 +45,8 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 3. `WebSearch` the **local civic news + letters/op-eds** for the jurisdiction. Identify candidate named issues residents are raising, with dollars/dates/locations.
 4. `WebSearch` the **community advocacy groups** (associations, BIAs, neighborhood councils, coalitions). Record each group's name and any party affiliation; prefer nonpartisan; pull the issues they are pushing.
 5. `WebSearch` **petitions / organized campaigns**, then **311 / service requests** and a **resident survey** if discoverable. Flag any layer not found.
-6. Discover candidate `hs_*` issue columns via `information_schema.columns`; run a distribution check on 3 to confirm 0-100 continuous scores.
-7. Run ONE batched aggregation returning per-domain `ROUND(AVG(hs_x),1)`, coverage `COUNT(hs_x)`, and `COUNT(*) AS n`. Drop any column below ~80% coverage. Compute distinctiveness = `AVG - 50` and a lean chip per domain.
+6. Pick ~12-15 community-relevant `hs_*` columns from the **inline Haystaq catalog** (CRITICAL RULES) — do NOT query `information_schema`. When `l2_district_type` is set, discover the exact L2 district value with one `SELECT DISTINCT`.
+7. Run ONE batched aggregation returning per-domain `ROUND(AVG(hs_x),1)`, coverage `COUNT(hs_x)`, and `COUNT(*) AS n`, **scoped to the district** (`l2_district_type` clause) when present, else state scope. Drop any column below ~80% coverage. Compute distinctiveness = `AVG - 50` and a lean chip per domain.
 8. Rank candidate issues by **resident attention mass** (recency + breadth + how many independent sources corroborate). Ground top rows in a live source; label any row inferred from the lean alone as inferred. A single-source issue is low-confidence by construction.
 9. Re-verify each issue against a current source; capture dollars, dates, votes, locations; verify the source URL is live with `pmf_runtime.http.head`. Drop anything you cannot confirm.
 10. Match each output issue against the existing feed: carry `existing_issue_id` when it maps to an existing record. Prefer carrying the ID over creating a duplicate. If the feed was empty/404, say so in `data_quality_reason`.
@@ -83,13 +83,42 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
   The module exports `connect()`, `Connection`, `Cursor`, `ScopeViolation`, `UpstreamError`. There is no `databricks.query()` shortcut — you must `connect() → cursor() → execute() → fetchall()`. Skipping this snippet costs 3+ turns to discover via `dir()`.
 
 - A query can return `state=PENDING` with no fetch-by-id (async). If so, just re-run the same statement.
-- The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clause your query needs is `Voters_Active = 'A'`.
+- The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` (and any city clause) into every query. **DO NOT add a state or `Residence_Addresses_City` clause yourself** — it returns HTTP 422 `ScopeViolation: scope_predicate_override`. The WHERE clauses your query needs are the **L2 district column** (when `L2_TYPE` is set) and `Voters_Active = 'A'`. **The L2 district column NAME is the VALUE of `L2_TYPE`** (e.g. `City_Ward`, `City_Council_Commissioner_District`); backtick-quote it and match the Step-4-confirmed value: `` `City_Ward` = :l2_name ``. When `L2_TYPE` is absent, `Voters_Active = 'A'` alone is correct — that is state scope. State scope is a fallback, not the goal: an unscoped statewide average makes the lean meaningless (see Step 4).
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). They are **within-state percentile ranks** (mean ~50, SD ~29), so the lean is `AVG(hs_x) - 50` ("distance from the average voter in this state"), NOT absolute support. Do not compute separate state/national priors; both collapse to 50. Because the scores center on 50 by construction, a raw "count >= 50" is roughly half the cohort regardless of domain — that is why Haystaq is a lean annotation here, not the salience ranker.
 - **Use `AVG` for the lean, not a thresholded count.** `SUM(CASE WHEN ... THEN 1 ELSE 0 END)` and Postgres `COUNT(*) FILTER (WHERE ...)` are not how the lean is computed; `FILTER` is also a Databricks syntax error.
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
 - **Named placeholders bind VALUES, not IDENTIFIERS.** Column names must be string-interpolated (f-string). Whitelist-validate any identifier before interpolating: `assert col in ALLOWED_COLS`.
-- **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected. `information_schema.columns` discovery is allowed as long as the query references the allowlisted table in its WHERE clause.
+- **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
+- **Do NOT query `information_schema.columns` or `SHOW COLUMNS`** — the broker blocks them (`ScopeViolation: disallowed_table` / `disallowed_verb`), and probing burns turns. Use the **inline Haystaq catalog** below for column names; it is the complete, L2-verified set for this experiment. `ALLOWED_COLS` (Step 4) is exactly the columns listed there.
+
+#### Inline Haystaq catalog (L2-verified)
+
+Pick `~12-15` community-relevant columns from this catalog for the Step-4 batched
+lean query. This is the **complete** set available to this experiment — do not
+query a dictionary/metadata table at runtime. Columns are continuous 0-100
+within-state percentile ranks (see the score rule above); the entry names encode
+direction. Grouped into 9 topics:
+
+**housing** — `hs_affordable_housing_gov_has_role` (gov has a role in affordable housing), `hs_affordable_housing_gov_no_role` (opposes gov role), `hs_gentrification_support`, `hs_gentrification_oppose`, `hs_new_home_buyer`, `hs_any_home_buyer`
+
+**taxes** — `hs_tax_cuts_support`, `hs_tax_cuts_oppose`, `hs_gas_tax_support`, `hs_gas_tax_oppose`, `hs_social_security_tax_increase_support`, `hs_social_security_tax_increase_oppose`, `hs_min_wage_15_increase_support`, `hs_min_wage_15_increase_oppose`, `hs_ideology_fiscal_conserv`, `hs_ideology_fiscal_liberal`
+
+**education** — `hs_school_choice_support`, `hs_school_choice_oppose`, `hs_school_funding_more`, `hs_school_funding_less`, `hs_charter_schools_support`, `hs_charter_schools_oppose`, `hs_teachers_union_positive`, `hs_teachers_union_negative`, `hs_community_college_free_support`, `hs_community_college_free_oppose`
+
+**healthcare** — `hs_medicaid_expansion_support`, `hs_medicaid_expansion_oppose`, `hs_medicare_for_all_support`, `hs_medicare_for_all_oppose`, `hs_obamacare_aca_expand`, `hs_obamacare_aca_protect`, `hs_obamacare_aca_oppose`, `hs_family_medical_leave_support`, `hs_family_medical_leave_oppose`, `hs_opioid_crisis_treat`, `hs_opioid_crisis_enforce`
+
+**climate_energy** — `hs_climate_change_believer`, `hs_climate_change_nonbeliever`, `hs_electric_vehicle_likely_buyer`, `hs_electric_vehicle_not_likely`, `hs_solar_panel_buyer_yes`, `hs_solar_panel_buyer_no`, `hs_pipeline_fracking_support`, `hs_pipeline_fracking_oppose`, `hs_green_new_deal_support`, `hs_green_new_deal_oppose`, `hs_sell_federal_lands_support`, `hs_sell_federal_lands_oppose`
+
+**immigration** — `hs_mass_deporations_support`, `hs_mass_deporations_oppose`, `hs_mexican_wall_support`, `hs_mexican_wall_oppose`, `hs_immigration_process_unfair`, `hs_immigration_undesirable`
+
+**crime_safety** — `hs_violent_crime_very_worried`, `hs_violent_crime_not_worried`, `hs_gun_control_support`, `hs_gun_control_oppose`, `hs_police_trust_yes`, `hs_police_trust_no`, `hs_death_penalty_support`, `hs_death_penalty_oppose`
+
+**social_issues** — `hs_abortion_pro_choice`, `hs_abortion_pro_life`, `hs_same_sex_marriage_support`, `hs_same_sex_marriage_oppose`, `hs_trans_athlete_yes`, `hs_trans_athlete_no`, `hs_dei_support`, `hs_dei_oppose`, `hs_religion_important`, `hs_religion_not_important`
+
+**regulation_economy** — `hs_regulations_too_harsh`, `hs_regulations_good`, `hs_capitalism_believe_sound`, `hs_capitalism_believe_flawed`, `hs_unions_beneficial`, `hs_unions_not_beneficial`, `hs_income_inequality_serious`, `hs_income_inequality_no_issue`, `hs_infrastructure_funding_fund_more`, `hs_infrastructure_funding_enough_spent`
+
+`INLINE_HAYSTAQ_COLUMNS` (Step 4's `ALLOWED_COLS`) is the set of every `hs_*` name listed above. Note: coverage varies by state — some columns return near-zero `cov_*` and are dropped in Step 4 (informative, not a gap).
 
 **Web (`WebSearch` + `pmf_runtime.http`)**:
 
@@ -136,6 +165,10 @@ ORG_SLUG = PARAMS["organization_slug"]
 STATE = PARAMS["state"]
 OFFICE = PARAMS["office"]
 DISTRICT = PARAMS["district_descriptor"]
+# Optional L2 district key. When present, the Haystaq lean is scoped to this
+# office's constituents; when absent, it falls back to state scope (Step 4).
+L2_TYPE = PARAMS.get("l2_district_type")  # L2 column name, e.g. "City_Ward"
+L2_NAME = PARAMS.get("l2_district_name")  # value to match, e.g. "FAYETTEVILLE CITY WARD 2"
 RUN_ID = os.environ.get("RUN_ID", "unknown")
 ```
 
@@ -164,32 +197,68 @@ For each candidate, capture the **named instance** (the project, rate, vote, dol
 
 ### Step 4 — Haystaq lean annotation (Databricks)
 
-Discover candidate columns, confirm they are 0-100 continuous, then one batched aggregation for the lean.
+Pick community-relevant columns from the **inline Haystaq catalog** (CRITICAL
+RULES below) — do NOT query `information_schema`/`SHOW COLUMNS`; the broker
+blocks them and the catalog is the complete, L2-verified column set. Then scope
+the lean to **this office's district**: discover the exact L2 district value,
+and run ONE batched aggregation — **district scope when `L2_TYPE` is set and
+confirmed, otherwise state scope** (the broker auto-injects the state clause).
+Scoping matters: `hs_*` are within-state percentile ranks, so averaging them
+over the whole state collapses every lean to ~0. The district scope is what
+makes the lean meaningful.
 
 ```python
+import re
 from pmf_runtime import databricks as sql
 conn = sql.connect(); cur = conn.cursor()
-cur.execute("""
-  SELECT column_name FROM information_schema.columns
-  WHERE table_name = 'int__l2_nationwide_uniform_w_haystaq' AND column_name LIKE 'hs_%'
-  ORDER BY column_name
-""", {})
-hs_cols = [r[0] for r in cur.fetchall()]
 
-ALLOWED_COLS = set(hs_cols)
-candidate_cols = [...]  # ~12-15 community-relevant columns; assert all in ALLOWED_COLS
+# Columns come from the inline catalog — NOT from information_schema.
+ALLOWED_COLS = INLINE_HAYSTAQ_COLUMNS  # the set of column names in the catalog below
+candidate_cols = [...]  # ~12-15 community-relevant columns picked from the catalog
+assert all(re.fullmatch(r"hs_[a-z0-9_]{1,60}", c) for c in candidate_cols)
+assert all(c in ALLOWED_COLS for c in candidate_cols)
+
+# Discover the exact L2 district value (only when L2_TYPE is set). PARAMS may
+# pass L2_NAME='25' while the L2 value is 'NEW YORK CITY CNCL DIST 25 (EST.)'.
+district_value = None
+if L2_TYPE:
+    assert re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", L2_TYPE)  # ASCII identifier
+    cur.execute(f"""
+      SELECT DISTINCT `{L2_TYPE}` AS district_value, COUNT(*) AS n
+      FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
+      WHERE Voters_Active = 'A'
+      GROUP BY `{L2_TYPE}` ORDER BY n DESC LIMIT 200
+    """, {})
+    rows = cur.fetchall()
+    # exact, else case-insensitive substring match against L2_NAME
+    district_value = next((r[0] for r in rows if r[0] == L2_NAME), None) or next(
+        (r[0] for r in rows if L2_NAME and L2_NAME.lower() in str(r[0]).lower()), None
+    )
+
 sums_sql = ", ".join(
     f"ROUND(AVG(`{c}`),1) AS `avg_{c}`, COUNT(`{c}`) AS `cov_{c}`" for c in candidate_cols
 )
+# District scope when confirmed; otherwise state scope (broker injects state).
+where = "Voters_Active = 'A'"
+params = {}
+if district_value is not None:
+    where = f"`{L2_TYPE}` = :l2_name AND " + where
+    params = {"l2_name": district_value}
 cur.execute(f"""
   SELECT COUNT(*) AS n, {sums_sql}
   FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
-  WHERE Voters_Active = 'A'
-""", {})
+  WHERE {where}
+""", params)
 row = cur.fetchone()
 ```
 
-Drop any column whose coverage `cov_*` is below ~80% of `n` (no coverage in this state — record it). For survivors, distinctiveness = `avg_* - 50`; translate to a chip (e.g. `+11` → "+11 pro-transit", `-19` → "-19 low police trust"). This lean annotates issues; it never ranks them.
+`n` should look like one district, not the whole state — if `L2_TYPE` was set
+but `n` is in the millions, the district clause did not apply; record
+`haystaq_scope: "state_fallback"` in `notes` and treat the lean as low-confidence.
+Drop any column whose coverage `cov_*` is below ~80% of `n` (no coverage here —
+record it). For survivors, distinctiveness = `avg_* - 50`; translate to a chip
+(e.g. `+11` → "+11 pro-transit", `-19` → "-19 low police trust"). This lean
+annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 
@@ -260,16 +329,16 @@ After validation passes, verify:
 
 ## Failure modes
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| Rows are categories ("Housing", "Safety") not named issues | Stopped at the domain | Find the specific project/rate/vote/location residents are raising; that is the title |
-| List mirrors the council agenda | Used the governing-body record as a source | Drop it; this is demand-side — rank by what residents raise in news/advocacy/petitions |
-| List feels stale or one-week-thin | Confused trending with sustained | Require ~6 months of resident attention; send one-week flare-ups to `trending_issues` |
-| Haystaq drives the ranking | Treated the lean as salience | Rank by resident attention mass; Haystaq only annotates lean via `AVG - 50` |
-| All Haystaq leans near 0 / all domains ~50% | Used a thresholded count on percentile-rank scores | Use `AVG - 50`; scores center on 50 by construction |
-| A Haystaq domain shows 0 coverage | No coverage for that model in this state | Drop it; record in `data_quality_reason` |
-| `ScopeViolation: scope_predicate_override` | Added `WHERE Residence_Addresses_State/City` manually | Remove those clauses; broker auto-injects them |
-| Partisan group's claim ranked as resident salience | Skipped the nonpartisan-corroboration rule | Flag affiliation; require a second independent source |
-| `source_id` not found in `detail.sources[]` | Referenced a source you never added | Add the matching entry to `detail.sources[]` |
-| Validator: missing/empty `overview` | `detail.overview.summary` omitted or empty | Always emit a substantive `overview.summary`; it is required |
-| `GET_community_issues` 404 | Organization has no feed yet | Treat as empty feed; note it in `data_quality_reason` |
+| Symptom                                                    | Cause                                                 | Fix                                                                                    |
+| ---------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Rows are categories ("Housing", "Safety") not named issues | Stopped at the domain                                 | Find the specific project/rate/vote/location residents are raising; that is the title  |
+| List mirrors the council agenda                            | Used the governing-body record as a source            | Drop it; this is demand-side — rank by what residents raise in news/advocacy/petitions |
+| List feels stale or one-week-thin                          | Confused trending with sustained                      | Require ~6 months of resident attention; send one-week flare-ups to `trending_issues`  |
+| Haystaq drives the ranking                                 | Treated the lean as salience                          | Rank by resident attention mass; Haystaq only annotates lean via `AVG - 50`            |
+| All Haystaq leans near 0 / all domains ~50%                | Used a thresholded count on percentile-rank scores    | Use `AVG - 50`; scores center on 50 by construction                                    |
+| A Haystaq domain shows 0 coverage                          | No coverage for that model in this state              | Drop it; record in `data_quality_reason`                                               |
+| `ScopeViolation: scope_predicate_override`                 | Added `WHERE Residence_Addresses_State/City` manually | Remove those clauses; broker auto-injects them                                         |
+| Partisan group's claim ranked as resident salience         | Skipped the nonpartisan-corroboration rule            | Flag affiliation; require a second independent source                                  |
+| `source_id` not found in `detail.sources[]`                | Referenced a source you never added                   | Add the matching entry to `detail.sources[]`                                           |
+| Validator: missing/empty `overview`                        | `detail.overview.summary` omitted or empty            | Always emit a substantive `overview.summary`; it is required                           |
+| `GET_community_issues` 404                                 | Organization has no feed yet                          | Treat as empty feed; note it in `data_quality_reason`                                  |

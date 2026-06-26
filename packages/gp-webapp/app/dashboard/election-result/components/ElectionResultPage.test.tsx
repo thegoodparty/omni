@@ -231,7 +231,7 @@ describe('ElectionResultPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
-      expect(router.replace).toHaveBeenCalledWith('/dashboard/briefings')
+      expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff')
     })
     // The office is created already-onboarded (term dates + completion marker) so
     // post-auth routing keeps the just-won official on the dashboard.
@@ -274,7 +274,7 @@ describe('ElectionResultPage', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
-  it('still navigates to briefings when the post-create org refresh fails', async () => {
+  it('still navigates to the Chief of Staff home when the post-create org refresh fails', async () => {
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
 
     api.mock('POST /v1/elected-office', () => ({
@@ -294,7 +294,7 @@ describe('ElectionResultPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
-      expect(router.replace).toHaveBeenCalledWith('/dashboard/briefings')
+      expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff')
     })
     expect(mockErrorSnackbar).not.toHaveBeenCalled()
   })

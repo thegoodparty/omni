@@ -33,7 +33,12 @@ export default async function Page(): Promise<React.JSX.Element> {
     loadElectedOfficeId(),
   ])
   return (
-    <DashboardLayout pathname="/dashboard/briefings" showAlert={false}>
+    <DashboardLayout
+      pathname="/dashboard/briefings"
+      showAlert={false}
+      wrapperClassName="!p-0"
+      navHeader={{ icon: 'clipboard', label: 'Briefing Assistant' }}
+    >
       <TrackBriefingListViewed />
       <BriefingsLanding
         summaries={summaries}

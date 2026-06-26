@@ -91,7 +91,7 @@ describe('<RaceOpponentList>', () => {
   it('triggers a collection and reflects the returned status', async () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
-      data: { collectionStatus: 'running' },
+      data: { runId: 'run-1', status: 'running' },
     })
     const user = userEvent.setup()
 
@@ -100,5 +100,86 @@ describe('<RaceOpponentList>', () => {
     await user.click(screen.getByRole('button', { name: /collect now/i }))
 
     await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
+  })
+
+  it('shows discovering and keeps Collect disabled while discovering', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 200,
+      data: { runId: 'opposition-1', status: 'discovering' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.click(screen.getByRole('button', { name: /collect now/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText('Discovering opponents')).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: /collect now/i })).toBeDisabled()
+  })
+
+  it('polls while discovering and auto-fires collect once discovery completes', async () => {
+    // First poll: discovery still running. Second poll: discovery finished
+    // (status left 'discovering'), which should auto-fire collect.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'discovering' } },
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+      { status: 200, data: { ...empty, collectionStatus: 'running' } },
+    ])
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 200,
+      data: { runId: 'collection-1', status: 'running' },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      // Two 5s poll ticks: discovering -> idle (auto-fires collect -> running).
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(screen.getByText('Running')).toBeInTheDocument(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not auto-fire collect when discovery fails (no re-dispatch loop)', async () => {
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'failed' } },
+      { status: 200, data: { ...empty, collectionStatus: 'failed' } },
+    ])
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'should-not-fire', status: 'discovering' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      // Poll resolves the discovery as failed; the auto-fire must not trigger.
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(screen.getByText('Failed')).toBeInTheDocument(),
+      )
+      expect(collectHandler).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: /collect now/i })).toBeEnabled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

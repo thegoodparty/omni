@@ -335,7 +335,7 @@ describe('OrganizationPicker', () => {
     })
   })
 
-  it('routes to /dashboard/briefings when switching to an elected office org', async () => {
+  it('routes to /dashboard/chief-of-staff when switching to an elected office org', async () => {
     const user = userEvent.setup()
     renderPicker()
 
@@ -343,7 +343,7 @@ describe('OrganizationPicker', () => {
     await user.click(screen.getByText('Organization Two'))
 
     await waitFor(() => {
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/briefings')
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
     })
   })
 
