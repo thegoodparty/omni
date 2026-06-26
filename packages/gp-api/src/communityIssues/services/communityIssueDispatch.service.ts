@@ -28,6 +28,8 @@ type ResolvedDispatchContext = {
   state: string
   positionName: string
   districtDescriptor: string
+  l2DistrictType?: string
+  l2DistrictName?: string
   isServeIcp?: boolean | null
 }
 
@@ -101,6 +103,8 @@ export class CommunityIssueDispatchService extends createPrismaBase(
           state: ctx.state,
           office: ctx.positionName,
           district_descriptor: ctx.districtDescriptor,
+          l2_district_type: ctx.l2DistrictType,
+          l2_district_name: ctx.l2DistrictName,
         },
       })
     }
@@ -385,6 +389,8 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       state: serveCtx.state,
       positionName: serveCtx.positionName,
       districtDescriptor,
+      l2DistrictType: serveCtx.l2DistrictType,
+      l2DistrictName: serveCtx.l2DistrictName,
       isServeIcp: serveCtx.isServeIcp,
     }
   }
