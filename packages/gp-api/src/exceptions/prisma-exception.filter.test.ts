@@ -83,4 +83,36 @@ describe('PrismaExceptionFilter', () => {
     )
     expect(JSON.stringify(sent.body)).not.toContain('secret-host')
   })
+
+  it('returns a generic rust-panic message without the raw exception detail', () => {
+    const exc = new Prisma.PrismaClientRustPanicError(
+      'Rust panic: internal secret detail',
+      'x',
+    )
+    const { host, sent } = makeHost()
+    filter.catch(exc, host)
+
+    expect(sent.code).toBe(500)
+    expect(sent.body?.error).toBe(
+      'A Prisma internal error occured. Please try again later.',
+    )
+    expect(JSON.stringify(sent.body)).not.toContain('secret')
+    expect(typeof sent.body?.timestamp).toBe('string')
+  })
+
+  it('returns a generic unknown-request message without the raw exception detail', () => {
+    const exc = new Prisma.PrismaClientUnknownRequestError(
+      'Unknown error: secret-internal-detail',
+      { clientVersion: 'x' },
+    )
+    const { host, sent } = makeHost()
+    filter.catch(exc, host)
+
+    expect(sent.code).toBe(400)
+    expect(sent.body?.error).toBe(
+      'An unknown error occured while processing the request.',
+    )
+    expect(JSON.stringify(sent.body)).not.toContain('secret')
+    expect(typeof sent.body?.timestamp).toBe('string')
+  })
 })

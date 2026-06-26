@@ -18,8 +18,9 @@ const ZIP64_SENTINEL = 0xffffffff
 /**
  * Total of every ZIP entry's declared uncompressed size, read from the central
  * directory (no decompression). Returns `Infinity` on a ZIP64 sentinel (safe
- * conservative reject), or `null` if the buffer is not a parseable ZIP — in
- * which case the caller should let the real parser surface the error.
+ * conservative reject), or `null` if the buffer is not a parseable ZIP — the
+ * caller decides how to treat that (the DOCX extractor fails closed: an
+ * unparseable CD is rejected, never passed to the inflating parser).
  */
 export const declaredZipUncompressedSize = (buf: Buffer): number | null => {
   // The End Of Central Directory record sits at the end, optionally followed by
