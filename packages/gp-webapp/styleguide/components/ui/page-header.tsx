@@ -6,7 +6,7 @@ import { IconButton } from './icon-button'
 import { Separator } from './separator'
 import { cn } from '@styleguide/lib/utils'
 
-export interface PageLayoutProps extends React.HTMLAttributes<HTMLElement> {
+export interface PageHeaderProps extends React.HTMLAttributes<HTMLElement> {
   /** Main bar: section heading. */
   heading?: React.ReactNode
   /**
@@ -34,7 +34,7 @@ export interface PageLayoutProps extends React.HTMLAttributes<HTMLElement> {
   subBarContent?: React.ReactNode
 }
 
-function PageLayout({
+function PageHeader({
   heading,
   leading,
   trailing,
@@ -45,7 +45,7 @@ function PageLayout({
   subBarContent,
   className,
   ...props
-}: PageLayoutProps) {
+}: PageHeaderProps) {
   const hasSubBar = !!(onBack ?? backHref ?? subBarTrailing ?? subBarContent)
 
   const backEl = backHref ? (
@@ -94,12 +94,12 @@ function PageLayout({
 
   return (
     <header
-      data-slot="page-layout"
+      data-slot="page-header"
       className={cn('flex flex-col w-full sticky top-0 z-10', className)}
       {...props}
     >
       <div
-        data-slot="page-layout-bar"
+        data-slot="page-header-bar"
         className="flex items-center h-16 px-4 bg-sidebar border-b border-sidebar-border"
       >
         {leadingEl && (
@@ -131,7 +131,7 @@ function PageLayout({
 
       {hasSubBar && (
         <div
-          data-slot="page-layout-sub-bar"
+          data-slot="page-header-sub-bar"
           className="flex items-center gap-2 h-12 px-4 bg-sidebar border-b border-sidebar-border"
         >
           {backEl && <div className="flex items-center shrink-0">{backEl}</div>}
@@ -151,4 +151,4 @@ function PageLayout({
   )
 }
 
-export { PageLayout }
+export { PageHeader }

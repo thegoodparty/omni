@@ -4,11 +4,11 @@ import { MenuIcon, PlusIcon, ShareIcon } from '../components/ui/icons'
 import { Button } from '../components/ui/button'
 import { IconButton } from '../components/ui/icon-button'
 import { SidebarProvider } from '../components/ui/sidebar'
-import { PageLayout } from '../components/ui/page-layout'
+import { PageHeader } from '../components/ui/page-header'
 
-const meta: Meta<typeof PageLayout> = {
-  component: PageLayout,
-  title: 'Patterns/Page Layout',
+const meta: Meta<typeof PageHeader> = {
+  component: PageHeader,
+  title: 'Patterns/Page Header',
   tags: ['autodocs'],
   argTypes: {
     leading: { table: { disable: true } },
@@ -100,7 +100,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     showBackLabel,
     showSubBarTrailing,
   }) => (
-    <PageLayout
+    <PageHeader
       heading={heading}
       trailing={showTrailing ? <Burger /> : undefined}
       onBack={showBack ? () => alert('back') : undefined}
@@ -116,9 +116,9 @@ export const MainBar: StoryObj = {
   render: () => (
     <div className="flex flex-col gap-0">
       {label('Mobile — logo + title + burger')}
-      <PageLayout heading="Campaign Manager" trailing={<Burger />} />
+      <PageHeader heading="Campaign Manager" trailing={<Burger />} />
       {label('Desktop — title only')}
-      <PageLayout heading="Campaign Manager" />
+      <PageHeader heading="Campaign Manager" />
     </div>
   ),
 }
@@ -129,20 +129,20 @@ export const SubBar: StoryObj = {
   render: () => (
     <div className="flex flex-col gap-0">
       {label('Back arrow only')}
-      <PageLayout
+      <PageHeader
         heading="Briefings"
         trailing={<Burger />}
         onBack={() => alert('back')}
       />
       {label('Back with label')}
-      <PageLayout
+      <PageHeader
         heading="Briefings"
         trailing={<Burger />}
         onBack={() => alert('back')}
         backLabel="Briefings"
       />
       {label('Back + actions')}
-      <PageLayout
+      <PageHeader
         heading="Q3 Voter Outreach Meeting"
         trailing={<Burger />}
         onBack={() => alert('back')}
@@ -150,7 +150,7 @@ export const SubBar: StoryObj = {
         subBarTrailing={<SubBarActions />}
       />
       {label('Actions only (no back)')}
-      <PageLayout
+      <PageHeader
         heading="Q3 Voter Outreach Meeting"
         trailing={<Burger />}
         subBarTrailing={<SubBarActions />}
