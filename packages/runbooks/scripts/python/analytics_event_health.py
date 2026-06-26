@@ -271,13 +271,21 @@ def weekly_series(
 
 def propose_watchlist_additions(
     catalog: Sequence[Mapping[str, Any]],
+    code: Mapping[str, Mapping[str, Any]],
     watched_families: Iterable[str],
     watchlist_events: Iterable[str],
     today: date,
     window_days: int = PROPOSAL_WINDOW_DAYS,
 ) -> list[dict]:
-    """Self-healing watchlist: catalog events in a watched family, first seen within the
-    window, not already on the curated list and not system/auto-tracked.
+    """Self-healing watchlist: events worth adding to the curated list.
+
+    A proposal is a catalog event that is in a watched family, first seen within the
+    window, not already on the list, not system/auto-tracked, and **currently live** —
+    firing in the last 30 days and not retired in code. The liveness gate is what keeps
+    dead events out of the queue: dormant / retired-and-quiet events fire zero times so
+    they fail the firing check, and orphaned-firing events (the retired old half of a
+    rename, still trickling from old clients) are excluded by the code-retired check.
+    Brand-new events that fire but are not in the provenance CSV yet still qualify.
 
     Returns ``[{event_type, family, first_seen_date}]`` newest-first — the proposal queue
     the runbook triages with a human before adding rows to ``monitored_events.yaml``.
@@ -293,6 +301,11 @@ def propose_watchlist_additions(
             continue
         if is_system(family, event_type):
             continue
+        if int(row.get("event_count_30d") or 0) <= 0:
+            continue  # not firing -> dormant / retired-and-quiet; do not propose a dead event
+        crow = code.get(event_type)
+        if crow and to_date(crow.get(RETIRED_COL)):
+            continue  # retired in code -> orphaned-firing old half of a rename; do not propose
         first_seen = to_date(row.get("first_seen_date"))
         if first_seen is None or first_seen < cutoff:
             continue
@@ -395,7 +408,7 @@ def reconcile(
         "other_missing_count": sum(1 for r in scored if not r["has_description"] and not r["elevated"]),
     }
 
-    proposals = propose_watchlist_additions(catalog, watched_families, watchlist_events, today)
+    proposals = propose_watchlist_additions(catalog, code, watched_families, watchlist_events, today)
 
     return {
         "run_date": today,

@@ -183,25 +183,41 @@ def test_weekly_series_excludes_in_progress_week_and_sorts():
 # --- propose_watchlist_additions ---------------------------------------------
 
 
+def _prop(event_type, family, first_seen, cnt30=10):
+    return {
+        "event_type": event_type,
+        "family": family,
+        "first_seen_date": first_seen,
+        "event_count_30d": cnt30,
+    }
+
+
 def test_propose_watchlist_additions():
     catalog = [
-        # in a watched family, recent, not on the list -> proposed
-        {"event_type": "Onboarding - New Step", "family": "win_onboarding", "first_seen_date": date(2026, 6, 1)},
+        # in a watched family, recent, firing, not on the list -> proposed
+        _prop("Onboarding - New Step", "win_onboarding", date(2026, 6, 1)),
         # already on the curated list -> skipped
-        {"event_type": "Onboarding - User Created", "family": "win_onboarding", "first_seen_date": date(2026, 6, 2)},
+        _prop("Onboarding - User Created", "win_onboarding", date(2026, 6, 2)),
         # watched family but first seen too long ago -> skipped
-        {"event_type": "Onboarding - Old Step", "family": "win_onboarding", "first_seen_date": date(2025, 1, 1)},
+        _prop("Onboarding - Old Step", "win_onboarding", date(2025, 1, 1)),
         # not a watched family -> skipped
-        {"event_type": "Misc Thing", "family": "other", "first_seen_date": date(2026, 6, 3)},
+        _prop("Misc Thing", "other", date(2026, 6, 3)),
         # system event in a watched family -> skipped
-        {"event_type": "page", "family": "win_onboarding", "first_seen_date": date(2026, 6, 4)},
+        _prop("page", "win_onboarding", date(2026, 6, 4)),
+        # recent + in family but NOT firing (dormant / retired-and-quiet) -> skipped
+        _prop("Onboarding - Dead Step", "win_onboarding", date(2026, 6, 5), cnt30=0),
+        # recent + firing but RETIRED in code (orphaned-firing old half of a rename) -> skipped
+        _prop("Onboarding - Renamed Away", "win_onboarding", date(2026, 6, 6)),
     ]
+    code = {"Onboarding - Renamed Away": {"retired_date": "2026-06-10", "instrumented_pr": "#1"}}
     proposals = eh.propose_watchlist_additions(
         catalog,
+        code,
         watched_families={"win_onboarding"},
         watchlist_events={"Onboarding - User Created"},
         today=TODAY,
     )
+    # only the live, recent, in-family, not-already-watched event survives
     assert [p["event_type"] for p in proposals] == ["Onboarding - New Step"]
     assert proposals[0]["family"] == "win_onboarding"
 
