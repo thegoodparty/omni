@@ -126,6 +126,10 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
     expect(
       JSON.parse(result.toolCalls?.[0].function.arguments ?? '{}'),
     ).toEqual({ city: 'Austin' })
+    expect(generateText.mock.calls[0][0].toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'extractLocation',
+    })
   })
 
   it('falls back to the next model on a transient error', async () => {
@@ -157,6 +161,22 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       service.chatCompletion({
         messages: [USER_MSG],
         models: ['claude-sonnet-4-6'],
+        retries: 0,
+      }),
+    ).rejects.toThrow('400')
+    expect(generateText).toHaveBeenCalledOnce()
+  })
+
+  it('bails immediately on a permanent 4xx ai-SDK APICallError (statusCode)', async () => {
+    const { service, generateText } = build()
+    generateText.mockRejectedValue(
+      Object.assign(new Error('400'), { statusCode: 400 }),
+    )
+
+    await expect(
+      service.chatCompletion({
+        messages: [USER_MSG],
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
         retries: 0,
       }),
     ).rejects.toThrow('400')
