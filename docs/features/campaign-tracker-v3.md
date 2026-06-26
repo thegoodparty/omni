@@ -259,6 +259,63 @@ The table below is the cross-package file index:
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
 
+## Teardown (when campaign-story is fully ramped)
+
+Everything in this section exists **only** to keep the story-off (pre-tracker)
+experience working during coexistence. Once `campaign-story` is ramped to 100%
+in prod and the legacy cohort is empty, remove it. This is the checklist for
+that cleanup PR.
+
+**gp-api**
+
+- **Digest:** delete `fetchLegacyDigestRows` and the
+  `NOT EXISTS (campaign_tracker_tasks)` guard in
+  `weeklyTasksDigestHandler.service.ts`; the handler collapses back to the
+  single tracker query (and its unit/integration tests for the legacy cohort).
+- **Legacy generator:** `campaignTasks.service.ts → generateDefaultTasks` and
+  the `@Sse('generate/stream')` controller route, once nothing calls them.
+- **Community events backend:** the `communityEvents` service / persister /
+  prompts / schema, the `POST /campaignStrategy/mine/community-events` route,
+  and the `campaign_strategy.community_events` JSON column (a migration).
+- **`campaign_task` table** itself, after confirming no remaining readers
+  (completion history, exports, analytics).
+- **Slack:** `notifySlackDefaultTasksCreated` / `notifySlackOnProUpgrade` /
+  `sendCampaignPlanSlackMessage` in `campaignTasks.service.ts`. See the known
+  gap below first.
+
+**gp-webapp**
+
+- **Routing:** collapse `resolvePostPledgeRoute` to always
+  `/dashboard/campaign-story` (drop the success-page and dashboard branches).
+- **Onboarding success page:** the `/onboarding/success` tree and its
+  community-events pieces (`useCommunityEvents`, `planContent` `civicEvents`, the
+  PlanSections Community Events subsection, the PDF Community Events table, the
+  SuccessPage events wiring), plus the `prewarmCommunityEvents` call in
+  `OnboardingFlow`.
+- **`useCampaignPlanData`:** drop the `communityEventsEnabled` param (always
+  off once there is no legacy cohort).
+- **`CampaignManager`:** drop the story-off branch and `LegacyDashboardTasks`
+  (and the then-unused `useTaskGenerationStream`, `TasksList`, `LoadingState`,
+  `FailedToGenerate`, `EmptyState` if nothing else imports them).
+- **`CampaignPlanView`:** drop the story-off (legacy plan) branch and render the
+  tracker unconditionally.
+- **Flag reads:** remove `campaign-story` gating from `CampaignPlanRouter`,
+  `CampaignPlanView`, `CampaignManager`, `DashboardMenu`, and `OnboardingFlow`.
+
+**Flags:** retire the `campaign-story` flag in Amplitude (and revisit
+`campaign-strategy`) once the UI no longer reads it.
+
+### Known gap: the tracker has no generation Slack message
+
+The legacy generator posts to the `casClickupTasks` Slack channel when a **Pro**
+candidate's default tasks are created, and again on Pro upgrade
+(`notifySlackOnProUpgrade`). The tracker flow has **no equivalent**, and
+`notifySlackOnProUpgrade` counts legacy `campaign_task` rows, so a story-on Pro
+campaign (which has only `campaign_tracker_tasks` rows) fires **neither**
+message. Before retiring the legacy path, decide whether that notification still
+matters to the CAS team: if so, port it onto the tracker bootstrap / first CAP
+completion; if not, drop it with the rest of the legacy Slack code above.
+
 ## How this diverged from the original TDD
 
 The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed
