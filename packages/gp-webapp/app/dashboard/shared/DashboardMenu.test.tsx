@@ -15,6 +15,7 @@ const links = (
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
     communityIssuesEnabled = true,
+    knowYourOpponentEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
@@ -23,6 +24,7 @@ const links = (
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
     communityIssuesEnabled?: boolean
+    knowYourOpponentEnabled?: boolean
   } = {},
 ) =>
   getDashboardMenuItems(
@@ -36,6 +38,7 @@ const links = (
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    knowYourOpponentEnabled,
   )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
@@ -147,6 +150,7 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       false, // winVoterDataEnabled
       true, // campaignStoryEnabled
       false, // communityIssuesEnabled
+      false, // knowYourOpponentEnabled
     )
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
@@ -168,6 +172,26 @@ describe('getDashboardMenuItems — Website tab retired (ENG-10505)', () => {
     const items = links(freeCampaign)
     expect(items.some((i) => i.id === 'website-dashboard')).toBe(false)
     expect(items.some((i) => i.link === '/dashboard/website')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Know your opponent nav gating', () => {
+  it('shows the nav item when the flag is on and the campaign is Pro', () => {
+    const items = links(proCampaign, { knowYourOpponentEnabled: true })
+    const item = items.find((i) => i.id === 'race-opponent-dashboard')
+    expect(item).toBeDefined()
+    expect(item?.link).toBe('/dashboard/race-opponent')
+    expect(item?.v2Category).toBe('campaign')
+  })
+
+  it('hides the nav item when the flag is off', () => {
+    const items = links(proCampaign, { knowYourOpponentEnabled: false })
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
+  })
+
+  it('hides the nav item for a non-pro campaign even when the flag is on', () => {
+    const items = links(freeCampaign, { knowYourOpponentEnabled: true })
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
   })
 })
 

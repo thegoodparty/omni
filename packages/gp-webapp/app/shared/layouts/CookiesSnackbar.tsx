@@ -11,7 +11,7 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
   useEffect(() => {
     const cookie = getCookie('cookiesAccepted')
     const isBot = isbot(navigator.userAgent)
-    if (!cookie && !isBot) {
+    if (!cookie && !isBot && !navigator.webdriver) {
       setShowBanner(true)
     }
   }, [])

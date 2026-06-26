@@ -1,5 +1,4 @@
 export type OnboardingStepId =
-  | 'intent'
   | 'welcome'
   | 'ballot-status'
   | 'party-affiliation'

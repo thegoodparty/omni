@@ -1,75 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import { BrowserContext, type Page, test } from '@playwright/test'
 import axios, { type AxiosInstance } from 'axios'
-import { createClerkClient } from '@clerk/backend'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from 'src/helpers/data.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
+import {
+  apiURL,
+  clerkBackend,
+  mintApiToken,
+  withGatewayRetry,
+  type Race,
+} from './headless-user'
 
 const baseURL = process.env.BASE_URL
 
 if (!baseURL) {
   throw new Error('BASE_URL is not set')
 }
-
-const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY
-
-if (!CLERK_SECRET_KEY) {
-  throw new Error('CLERK_SECRET_KEY is not set')
-}
-
-const clerkBackend = createClerkClient({ secretKey: CLERK_SECRET_KEY })
-
-// A cold PR-preview gp-api stack returns gateway 5xx (502/503/504) on its first
-// requests until the ECS target passes health checks, and can refuse the
-// connection outright. These are pre-backend — the request never got a
-// successful response through a healthy task — so re-issuing is safe even for
-// the campaign-creation write (and the users are disposable @test.goodparty.org
-// accounts the sweep deletes). Without this a single cold-start 5xx hard-fails an
-// unrelated test in setup before its scenario even runs.
-const RETRIABLE_GATEWAY_STATUSES = new Set([502, 503, 504])
-
-const isRetriableGatewayError = (error: unknown): boolean => {
-  if (!axios.isAxiosError(error)) return false
-  const status = error.response?.status
-  // No response at all = connection refused/reset against a cold stack.
-  if (status === undefined) return true
-  return RETRIABLE_GATEWAY_STATUSES.has(status)
-}
-
-const GATEWAY_RETRY_ATTEMPTS = 5
-
-const withGatewayRetry = async <T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> => {
-  let lastError: unknown
-  for (let attempt = 1; attempt <= GATEWAY_RETRY_ATTEMPTS; attempt++) {
-    try {
-      return await fn()
-    } catch (error) {
-      lastError = error
-      if (
-        attempt === GATEWAY_RETRY_ATTEMPTS ||
-        !isRetriableGatewayError(error)
-      ) {
-        throw error
-      }
-      const backoffMs = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
-      if (process.env.DEBUG) {
-        console.log(
-          `[api-registration] ${label} transient gateway error on attempt ` +
-            `${attempt}/${GATEWAY_RETRY_ATTEMPTS}, retrying in ${backoffMs}ms`,
-        )
-      }
-      await new Promise((resolve) => setTimeout(resolve, backoffMs))
-    }
-  }
-  throw lastError
-}
-
-const apiBaseURL = process.env.API_BASE_URL || baseURL
-const apiURL = `${apiBaseURL}/api`
 
 const COOKIE_DOMAIN =
   baseURL.replace('http://', '').replace('https://', '').split('/')[0] ?? ''
@@ -118,26 +65,6 @@ export type AuthenticatedUser = {
   password: string
 }
 
-type Race = {
-  id: string
-  brPositionId: string
-  filingPeriods?: { startOn: string; endOn: string }[]
-  election: {
-    id?: string
-    electionDay: string
-    name?: string
-    state?: string
-  }
-  position: {
-    id?: string
-    hasPrimary?: boolean
-    partisanType?: string
-    level: string
-    name: string
-    state: string
-  }
-}
-
 type BootstrappedUser = {
   user: AuthenticatedUser
   token: string
@@ -166,27 +93,6 @@ async function signInUser(page: Page, email: string): Promise<void> {
       }),
     5,
   )
-}
-
-// Browser-minted Clerk session tokens expire after 60 seconds, so a token
-// baked into a static Authorization header dies partway through any long
-// test (the polls flow runs 10+ minutes and its late `client` calls were
-// all 401ing). Mint the API token from a backend session instead, with a
-// lifetime that outlasts the CI job.
-const E2E_TOKEN_TTL_SECONDS = 60 * 60
-
-async function mintApiToken(clerkUserId: string): Promise<string> {
-  const session = await clerkThrottle(() =>
-    clerkBackend.sessions.createSession({ userId: clerkUserId }),
-  )
-  const { jwt } = await clerkThrottle(() =>
-    clerkBackend.sessions.getToken(
-      session.id,
-      undefined,
-      E2E_TOKEN_TTL_SECONDS,
-    ),
-  )
-  return jwt
 }
 
 const bootstrapTestUser = async (

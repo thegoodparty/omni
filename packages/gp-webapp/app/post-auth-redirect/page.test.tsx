@@ -304,7 +304,7 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
   })
 
-  it('routes an incomplete EO to serve onboarding even when a campaign org is listed first', async () => {
+  it('routes an incomplete serve-lead EO (no campaign) to serve onboarding even when a campaign org is listed first', async () => {
     const electedOfficeOrg = {
       ...orgFixture,
       slug: 'serve-org',
@@ -326,9 +326,12 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    // A genuine serve lead: incomplete onboarding AND no campaign of origin.
     api.mock('GET /v1/elected-office/mine', {
       status: 200,
-      data: [{ id: 'eo-9', onboardingCompletedAt: null }] as any,
+      data: [
+        { id: 'eo-9', onboardingCompletedAt: null, campaignId: null },
+      ] as any,
     })
 
     render(<PostAuthRedirectPage />)
@@ -336,6 +339,47 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() =>
       expect(replaceSpy).toHaveBeenCalledWith('/serve/onboarding'),
     )
+  })
+
+  it('routes a just-won, win-origin EO (has campaign, no term dates) to the dashboard, not serve onboarding', async () => {
+    // The just-won routing bug: an office created by winning a campaign carries a
+    // campaignId and has already onboarded as a candidate, so a missing
+    // onboardingCompletedAt/term date must NOT drag it into serve onboarding.
+    const electedOfficeOrg = {
+      ...orgFixture,
+      slug: 'serve-org',
+      name: 'Serve Org',
+      electedOfficeId: 'eo-win',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture, electedOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [
+        {
+          id: 'eo-win',
+          onboardingCompletedAt: null,
+          campaignId: 7,
+          termStartDate: null,
+          termEndDate: null,
+        },
+      ] as any,
+    })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
   })
 
   it('routes to /dashboard (not serve onboarding) when an EO org exists but no EO record resolves', async () => {

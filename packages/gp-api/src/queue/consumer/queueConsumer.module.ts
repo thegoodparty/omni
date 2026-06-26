@@ -18,6 +18,7 @@ import { MeetingsModule } from 'src/meetings/meetings.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { AnnotationsModule } from 'src/annotations/annotations.module'
 import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
+import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
 import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
 
 @Module({
@@ -46,6 +47,7 @@ import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.modul
     MeetingsModule,
     AnnotationsModule,
     CampaignStrategyModule,
+    RaceOpponentModule,
     CommunityIssuesModule,
   ],
   providers: [QueueConsumerService],

@@ -120,13 +120,22 @@ const PostAuthRedirectPage = () => {
         const myElectedOffices = electedMineRes.ok
           ? (electedMineRes.data as ElectedOffice[])
           : []
-        // Route to serve onboarding whenever ANY office the user holds is
-        // incomplete (scan all orgs, not just the slug-resolved one). An
-        // incomplete office wins over a completed `current` so a not-yet-
-        // onboarded EO behind a campaign org isn't stranded on /dashboard.
-        const incompleteEO = myElectedOffices.find(
-          (eo) => !eo.onboardingCompletedAt,
-        )
+        // Serve onboarding is for genuine serve LEADS only — a sales/magic-link/
+        // BallotReady official who was never a GoodParty.org candidate. An office
+        // created by winning a campaign (the "I won" flow) carries a `campaignId`
+        // and has ALREADY onboarded as a candidate, so it must never be dragged
+        // into serve onboarding merely for a missing onboardingCompletedAt/term
+        // date — that's the just-won routing bug. Such a win-origin office is
+        // routed to the dashboard, where the lightweight term-dates modal
+        // collects any missing dates. Term-date-less, campaign-less, not-yet-
+        // completed offices are the only ones that still need serve onboarding.
+        const needsServeOnboarding = (eo: ElectedOffice): boolean =>
+          !eo.onboardingCompletedAt && eo.campaignId == null
+        // Route to serve onboarding whenever ANY office the user holds still needs
+        // it (scan all orgs, not just the slug-resolved one). An office that needs
+        // onboarding wins over a completed `current` so a not-yet-onboarded serve
+        // lead behind a campaign org isn't stranded on /dashboard.
+        const incompleteEO = myElectedOffices.find(needsServeOnboarding)
         const relevantEO =
           incompleteEO ?? currentEO ?? myElectedOffices[0] ?? null
         const hasElectedOffice = !!relevantEO || !!electedOrg
@@ -136,7 +145,7 @@ const PostAuthRedirectPage = () => {
         // win→serve user lands on /dashboard instead of being looped back into
         // /serve/onboarding on every login.
         const electedOfficeOnboardingComplete = relevantEO
-          ? !!relevantEO.onboardingCompletedAt
+          ? !needsServeOnboarding(relevantEO)
           : true
 
         // Fire the registration event only on a true fresh sign-up. The
