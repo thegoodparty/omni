@@ -22,13 +22,13 @@ const meta: Meta<typeof PageLayout> = {
   parameters: {
     layout: 'fullscreen',
     backgrounds: { disable: true },
-    docs: { story: { height: '80px' } },
   },
   decorators: [
     (Story) => (
       // -m-6 cancels the 1.5rem padding the global preview decorator injects
-      <div className="-m-6 bg-background">
-        <SidebarProvider>
+      // overflow-hidden + max-h clamps the SidebarProvider's min-h-svh in docs mode
+      <div className="-m-6 bg-background overflow-hidden">
+        <SidebarProvider style={{ minHeight: 'unset' }}>
           <Story />
         </SidebarProvider>
       </div>
