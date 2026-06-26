@@ -131,7 +131,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: run.runId, status: 'running' }
   }
 
-  async getRaw(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
+  async get(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
     await this.assertAccess(campaign)
 
     const rows = await this.model.findMany({
