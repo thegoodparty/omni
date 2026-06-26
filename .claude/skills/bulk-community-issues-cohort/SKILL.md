@@ -300,16 +300,16 @@ Everything above targets prod. To dispatch the **same flow against dev** (e.g.
 over a cohort from `create-representative-test-cohort`), the steps are identical
 except for the env-specific endpoints/secrets below. Verified 2026-06-26.
 
-| Concern                | Prod                                     | Dev                                                                                                                                                                                                        |
-| ---------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dispatch endpoint      | `https://gp-api.goodparty.org/...`       | `https://gp-api-dev.goodparty.org/v1/community-issues/dispatch`                                                                                                                                            |
-| M2M **caller** secret  | `GP_PROD_MACHINE_SECRET`                 | `GP_DEV_MACHINE_SECRET` (same gp-admin Vercel project `prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`; the `getval` helper's `'production' in target` filter still matches it)                                          |
-| Clerk keys for minting | from `GP_API_PROD`                       | the **dev test instance** keys (`sk_test_`/`pk_test_`) in `packages/gp-webapp/e2e-tests/.env` — NOT a `GP_API_*` secret                                                                                    |
-| DB host                | `gp-api-db-prod.cluster-cmb1uukjsfbe...` | `gp-api-db.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com` (the **bare** `gp-api-db` cluster is dev; `-prod`/`-qa` are the others), db `gpdb`, user `gpuser`, password = `DB_PASSWORD` from `GP_API_DEV` |
-| Artifacts S3 bucket    | `gp-agent-artifacts-prod`                | `gp-agent-artifacts-dev`                                                                                                                                                                                   |
-| Experiment manifests   | `agent-experiment-metadata-prod`         | `agent-experiment-metadata-dev` (auto-published on merge to `develop` by `.github/workflows/publish-experiments.yml`)                                                                                      |
+| Concern                | Prod                               | Dev                                                                                                                                                                                     |
+| ---------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dispatch endpoint      | `https://gp-api.goodparty.org/...` | `https://gp-api-dev.goodparty.org/v1/community-issues/dispatch`                                                                                                                         |
+| M2M **caller** secret  | `GP_PROD_MACHINE_SECRET`           | `GP_DEV_MACHINE_SECRET` (same gp-admin-web Vercel project as the prod section; the `getval` helper's `'production' in target` filter still matches it)                                  |
+| Clerk keys for minting | from `GP_API_PROD`                 | the **dev test instance** keys (`sk_test_`/`pk_test_`) in `packages/gp-webapp/e2e-tests/.env` — NOT a `GP_API_*` secret                                                                 |
+| DB                     | `GP_API_PROD` + the prod cluster   | the **bare** `gp-api-db` Aurora cluster (vs `-prod`/`-qa`) — resolve its endpoint with `aws rds describe-db-clusters`; same db/user as prod, password = `DB_PASSWORD` from `GP_API_DEV` |
+| Artifacts S3 bucket    | `gp-agent-artifacts-prod`          | `gp-agent-artifacts-dev`                                                                                                                                                                |
+| Experiment manifests   | `agent-experiment-metadata-prod`   | `agent-experiment-metadata-dev` (auto-published on merge to `develop` by `.github/workflows/publish-experiments.yml`)                                                                   |
 
-AWS access: the `gp-admin` SSO profile covers dev too (account `333022194791`).
+AWS access: the `gp-admin` SSO profile covers dev too.
 
 Mint a dev M2M token (run from `packages/gp-webapp/e2e-tests`, which loads the dev
 Clerk keys via `cohort-env`):
