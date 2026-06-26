@@ -1,9 +1,18 @@
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { Injectable } from '@nestjs/common'
-import { ExperimentRun } from '../../generated/prisma'
+import {
+  CommunityIssueList,
+  ExperimentRun,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
-import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
+import {
+  CommunityIssueUpsertService,
+  CommunityIssueUpsertSummary,
+} from './communityIssueUpsert.service'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -23,6 +32,7 @@ export class CommunityIssueService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly upsert: CommunityIssueUpsertService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -77,6 +87,93 @@ export class CommunityIssueService extends createPrismaBase(
       )
       return
     }
-    await this.upsert.upsertFromArtifact(run, validation.artifact)
+    const summary = await this.upsert.upsertFromArtifact(
+      run,
+      validation.artifact,
+    )
+    if (!summary) return
+
+    await this.emitGenerationEvents(run, summary)
+  }
+
+  private async emitGenerationEvents(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { userId: true },
+    })
+    const userId = office?.userId
+    if (!userId) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office user; skipping analytics',
+      )
+      return
+    }
+
+    // Fires once per org, when the second of the two lists completes its
+    // first-ever generation — i.e. the org now has both lists populated.
+    if (summary.wasFirstGenerationForList) {
+      const otherList =
+        summary.list === CommunityIssueList.top_community
+          ? CommunityIssueList.trending
+          : CommunityIssueList.top_community
+      const otherListCount = await this.model.count({
+        where: { organizationSlug: run.organizationSlug, list: otherList },
+      })
+      if (otherListCount > 0) {
+        const [topIssues, trendingIssues] = await Promise.all([
+          this.model.findMany({
+            where: {
+              organizationSlug: run.organizationSlug,
+              list: CommunityIssueList.top_community,
+              archivedAt: null,
+            },
+            select: { title: true, summary: true },
+            orderBy: { rank: Prisma.SortOrder.asc },
+          }),
+          this.model.findMany({
+            where: {
+              organizationSlug: run.organizationSlug,
+              list: CommunityIssueList.trending,
+              archivedAt: null,
+            },
+            select: { title: true, summary: true },
+            orderBy: { rank: Prisma.SortOrder.asc },
+          }),
+        ])
+        void this.analytics
+          .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
+            topIssueCount: topIssues.length,
+            trendingIssueCount: trendingIssues.length,
+            topIssues,
+            trendingIssues,
+          })
+          .catch(() => undefined)
+      }
+    }
+
+    // A high-priority trending issue that is newly created on a refresh run
+    // (never on the org's first trending generation, where every issue is new).
+    if (
+      summary.list === CommunityIssueList.trending &&
+      !summary.wasFirstGenerationForList
+    ) {
+      for (const issue of summary.newHighPriorityTrending) {
+        void this.analytics
+          .track(
+            userId,
+            EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
+            {
+              issueId: issue.id,
+              title: issue.title,
+              summary: issue.summary,
+            },
+          )
+          .catch(() => undefined)
+      }
+    }
   }
 }

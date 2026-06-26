@@ -92,6 +92,14 @@ export const EVENTS = {
     ResponseCompleted: 'AI Assistant - Response Completed',
     ResponseFailed: 'AI Assistant - Response Failed',
   },
+  // Community issues (Serve). The agent jobs generate the feed server-side; the
+  // browser only sees a job *start*. These fire on job completion and carry the
+  // issue headline + summary so a downstream email (HubSpot) can render them.
+  CommunityIssues: {
+    InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
+    HighPriorityTrendingIssueCreated:
+      'Community Issues - High Priority Trending Issue Created',
+  },
 }
 
 export type UserContext = {
