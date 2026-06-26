@@ -8,7 +8,7 @@ import { PageHeader } from '../components/ui/page-header'
 
 const meta: Meta<typeof PageHeader> = {
   component: PageHeader,
-  title: 'Patterns/Page Header',
+  title: 'Patterns/Page Headers',
   tags: ['autodocs'],
   argTypes: {
     leading: { table: { disable: true } },
