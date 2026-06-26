@@ -557,12 +557,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       // of bouncing the user back into the candidate/Win flow. Mirrors the Win
       // flow's setCookie(ORG_SLUG_COOKIE, 'campaign-<id>') pattern, then routes
       // through post-auth-redirect so the cookie + serve context are
-      // established before landing on briefings.
+      // established before landing on the Chief of Staff home.
       if (electedOfficeId) {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
       window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/briefings',
+        '/dashboard/chief-of-staff',
       )}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
