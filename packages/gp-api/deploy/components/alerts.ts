@@ -54,7 +54,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'serve-background-job-failed',
     name: '[Serve] Background job failed',
     type: 'log',
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Message processing failed" |= "poll" [5m]))',
+    // Poll-job failures only. The consumer logs the SQS message in
+    // message_Body; match its `type` (pollCreation / pollExpansion /
+    // pollAnalysisComplete) so sibling jobs that share the consumer (AI
+    // content, websites) don't page the serve-bugs group.
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
     threshold: 0,
     for: '0m',
     message: [
@@ -71,16 +75,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Excluding: happens when users input an incorrect PIN.
-      '!= "Campaign Verify Verify PIN API request failed"',
-      // Excluding: transient phone list status error, safe to ignore.
-      '!= "There may be an error with the phone list for context"',
+      // Scope to genuine Peerly vendor API errors only. Keying off
+      // request_endpoint matched every error logged during a p2p/tcr/outreach
+      // request (LLM, election-api, etc.), not Peerly — 5/5 fires were collateral.
+      '|= "Peerly API ERROR"',
       '| json',
       '| detected_level = "error"',
-      '| request_endpoint =~ ".*(p2p|tcr-compliance|outreach).*"',
-      '| request_endpoint != "GET /v1/campaigns/tcr-compliance/mine"',
-      // Excluding: HttpExceptionFilter duplicates every error, would double-count.
-      '| context != "HttpExceptionFilter"',
+      '| context =~ "Peerly.+Service"',
       '[15m]))',
     ].join(' '),
     threshold: 0,

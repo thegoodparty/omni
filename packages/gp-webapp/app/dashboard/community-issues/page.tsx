@@ -21,7 +21,11 @@ export default async function Page(): Promise<React.JSX.Element> {
   ])
 
   return (
-    <DashboardLayout pathname="/dashboard/community-issues" showAlert={false}>
+    <DashboardLayout
+      pathname="/dashboard/community-issues"
+      showAlert={false}
+      wrapperClassName="!p-0"
+    >
       <IssueFeedList
         topCommunity={topCommunity.data}
         trending={trending.data}

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const config: StorybookConfig = {
-  stories: ['../styleguide/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
+  stories: ['../../styleguide/src/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
   staticDirs: ['../public'],
   addons: ['@chromatic-com/storybook', '@storybook/addon-docs'],
   framework: {
@@ -16,7 +16,7 @@ const config: StorybookConfig = {
     config.resolve = config.resolve || {}
     config.resolve.alias = {
       ...(config.resolve.alias as Record<string, string>),
-      '@styleguide': path.resolve(__dirname, '../styleguide'),
+      '@styleguide': path.resolve(__dirname, '../../styleguide/src'),
       '@shared': path.resolve(__dirname, '../app/shared'),
     }
     return config

@@ -1,9 +1,11 @@
+import { format } from 'date-fns'
 import { createOutreach } from 'helpers/createOutreach'
 import { createVoterFileFilter } from 'helpers/createVoterFileFilter'
 import { createP2pPhoneList, PhoneListInput } from 'helpers/createP2pPhoneList'
 import { noop, noopAsync } from '@shared/utils/noop'
 import { getEffectiveOutreachType } from 'app/dashboard/outreach/util/getEffectiveOutreachType'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
+import { DISPLAY_TASK_TYPES } from 'app/dashboard/shared/constants/tasks.const'
 import { VoterFileFilters } from 'helpers/types'
 import { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachType } from 'gpApi/types/outreach.types'
@@ -67,7 +69,32 @@ interface CreateVoterFileFilterParams {
     voterCount?: number
   }
   errorSnackbar?: (message: string) => void
+  // Injectable for deterministic tests; the name carries the send date so
+  // candidates can tell auto-created lists apart (ENG-10521).
+  now?: Date
 }
+
+// Auto-created outreach filters get a name carrying the send date so candidates
+// can tell them apart (ENG-10521). They're still throwaways created on every
+// send, not lists a candidate built — AUTO_VOTER_FILTER_NAME_PATTERN keeps them
+// out of the saved-list selector (ENG-10514). Both live here so the produced
+// name and the matcher that hides it can't drift apart.
+const AUTO_VOTER_FILTER_NAME_SUFFIX = ' outreach — '
+
+const buildAutoVoterFileFilterName = (
+  type: OutreachType,
+  now: Date,
+): string => {
+  const label = DISPLAY_TASK_TYPES[type] || type
+  return `${label}${AUTO_VOTER_FILTER_NAME_SUFFIX}${format(now, 'MMM d, yyyy')}`
+}
+
+export const AUTO_VOTER_FILTER_NAME_PATTERN = new RegExp(
+  `${AUTO_VOTER_FILTER_NAME_SUFFIX.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  )}[A-Z][a-z]{2} \\d{1,2}, \\d{4}$`,
+)
 
 // MappedAudience is the subset of VoterFileFilters used for audience mapping
 type MappedAudience = Pick<
@@ -250,12 +277,13 @@ export const handleCreateVoterFileFilter =
     type,
     state: { audience, voterCount },
     errorSnackbar = noop,
+    now = new Date(),
   }: CreateVoterFileFilterParams) =>
   async (): Promise<PhoneListInput | undefined> => {
     const chosenAudiences = mapAudienceForPersistence(audience)
 
     const voterFileFilter = await createVoterFileFilter({
-      name: `${type} Campaign`,
+      name: buildAutoVoterFileFilterName(type, now),
       ...chosenAudiences,
       voterCount,
     })

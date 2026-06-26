@@ -2,6 +2,8 @@ import type {
   ExperimentVariantsResponse,
   Priority,
   ChatAnchor,
+  RaceOpponentSourceType,
+  RaceOpponentCollectionStatus,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -507,6 +509,10 @@ export type APIEndpoints = {
     Request: {}
     Response: Person
   }
+  'POST /v1/contacts/count': {
+    Request: Record<string, unknown>
+    Response: { count: number }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
@@ -702,6 +708,38 @@ export type APIEndpoints = {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
   }
+
+  'GET /v1/campaigns/mine/race-opponent': {
+    Request: {}
+    Response: RaceOpponentResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/collect': {
+    Request: {}
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+}
+
+// Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
+// RaceOpponentResponseSchema in @goodparty_org/contracts, but dates arrive over
+// JSON as ISO strings (the contract type coerces them to Date), so they're
+// typed as string here.
+export type RaceOpponentItem = {
+  id: number
+  opponentName: string
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string | null
+  content: unknown
+  collectedAt: string
+}
+
+export type RaceOpponentResponse = {
+  opponents: Array<{
+    opponentName: string
+    items: RaceOpponentItem[]
+  }>
+  lastCollectedAt: string | null
+  collectionStatus: RaceOpponentCollectionStatus
 }
 
 export type CommunityIssueCard = {
@@ -718,7 +756,12 @@ export type CommunityIssueCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'advocacy_org'
   url?: string | null
   publisher?: string | null
   article_type?: string | null
@@ -942,6 +985,19 @@ export type ElectedOffice = {
   party: string | null
   pledgedAt: string | null
   onboardingCompletedAt: string | null
+  // True when the holder self-reported their office/term via the net-new serve
+  // onboarding flow (vs a sales/BallotReady prefill). Drives deterministic
+  // resume branch classification.
+  selfReported: boolean
+  // Resume checkpoint: the furthest serve-onboarding step the holder reached,
+  // written on every "Continue". Null when no checkpoint has been recorded.
+  onboardingStep: string | null
+  // The campaign this office was created from, when the holder reached office by
+  // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
+  // win-origin official who already onboarded as a candidate, so post-auth
+  // routing must NOT send them into serve onboarding for a missing term/date.
+  campaignId: number | null
 }
 
 export type ElectedOfficeInput = {
@@ -952,6 +1008,8 @@ export type ElectedOfficeInput = {
   party?: string | null
   pledgedAt?: string | null
   onboardingCompletedAt?: string | null
+  selfReported?: boolean
+  onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
   overrideDistrictId?: string | null

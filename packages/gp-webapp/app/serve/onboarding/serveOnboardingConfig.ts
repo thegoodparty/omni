@@ -74,6 +74,176 @@ export const getServeBranchSteps = (branch: ServeBranch): ServeStepId[] =>
   branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
 
 /**
+ * Which of the data-collecting answers are already persisted on the EO/org
+ * record when the flow loads. The source of truth for resuming is the saved
+ * data itself, not a separate step pointer.
+ *
+ * `hasParty` is the user's own first answer — `welcome` and `inOffice` collect
+ * nothing persisted, and the office / term dates can be pre-filled by sales or
+ * BallotReady rather than the user. So `party` is the signal that the user has
+ * actually started the flow.
+ */
+export interface ServeResumeState {
+  hasParty: boolean
+  hasOffice: boolean
+  hasDates: boolean
+}
+
+/**
+ * Inputs to the branch decision made once at load from the persisted record.
+ *
+ *  - `officePresent` / `datesPresent` — the EO org carries a position, and/or
+ *    the EO record carries (any) term date. Together they mean "office/term
+ *    data already exists on this record".
+ *  - `selfReported` — the explicit marker set when the user themselves began the
+ *    net-new collect path (answering the party step in the net-new branch). It
+ *    is the source of truth that disambiguates an office the USER picked from one
+ *    a sales/BallotReady prefill provisioned: both end up as a position on the
+ *    org, so the populated fields alone cannot tell them apart on resume.
+ */
+export interface ServeBranchInputs {
+  officePresent: boolean
+  datesPresent: boolean
+  selfReported: boolean
+}
+
+/**
+ * Decide the onboarding branch from the persisted record.
+ *
+ * A record is a `prefill` when it arrived with office/term data that the user
+ * did NOT enter themselves — i.e. office/dates are present AND the self-reported
+ * marker is absent. This is the same condition that arms the BallotReady
+ * suggestion-accuracy snapshot, so a partial prefill (office present, no dates,
+ * marker absent) is correctly classified `prefill` and its snapshot fires.
+ *
+ * Once the user self-reports (marker set), the record is deterministically
+ * `net-new` even after their own office lands on the org — so they resume in the
+ * net-new branch (no misleading "pulled from public records" confirm hub) and
+ * no snapshot is emitted for data they supplied.
+ */
+export const resolveServeBranch = ({
+  officePresent,
+  datesPresent,
+  selfReported,
+}: ServeBranchInputs): ServeBranch =>
+  (officePresent || datesPresent) && !selfReported ? 'prefill' : 'net-new'
+
+/**
+ * Resume target for a returning user so we don't re-ask answered questions.
+ *
+ *  - Until the user has answered `party`, restart at `welcome` and run the full
+ *    intro — a pre-filled office/dates pair is sales/BallotReady context, not
+ *    user progress, so it must not skip the introduction.
+ *  - Once `party` is answered, resume at the first step after it whose data is
+ *    still missing. In the prefill branch the office and term dates are
+ *    reviewed/edited on the `confirm` hub, so an incomplete pair resumes there;
+ *    in the net-new branch they are their own steps.
+ *
+ * Never returns `pledge`: a completed office is redirected away before the flow
+ * renders, and the pledge is the completion action the user must always take.
+ */
+export const computeServeResumeStep = (
+  branch: ServeBranch,
+  { hasParty, hasOffice, hasDates }: ServeResumeState,
+): ServeStepId => {
+  if (!hasParty) return 'welcome'
+  if (branch === 'prefill') {
+    return hasOffice && hasDates ? 'constituents' : 'confirm'
+  }
+  if (!hasOffice) return 'office'
+  if (!hasDates) return 'term-dates'
+  return 'constituents'
+}
+
+/**
+ * The furthest step the persisted DATA can safely support landing on, used to
+ * clamp the step checkpoint. `welcome`, `inOffice`, and `party` collect no
+ * gated persisted data (party is entered AT the party step), so the floor is
+ * `party` until the user has actually saved an answer; beyond that each step
+ * requires its predecessor's data to have been persisted. This is the guardrail
+ * that stops a checkpoint written after a best-effort save that later failed
+ * from skipping a step whose answer never reached the database.
+ */
+const maxDataSufficientStep = (
+  branch: ServeBranch,
+  { hasParty, hasOffice, hasDates }: ServeResumeState,
+): ServeStepId => {
+  if (!hasParty) return 'party'
+  if (branch === 'prefill') return hasOffice && hasDates ? 'pledge' : 'confirm'
+  if (!hasOffice) return 'office'
+  if (!hasDates) return 'term-dates'
+  return 'pledge'
+}
+
+/**
+ * Resume target that honors the persisted step checkpoint (written on every
+ * "Continue") so a returning user lands on the EXACT most recent step — even
+ * steps with no data field (`inOffice`, `constituents`) that the data-derived
+ * `computeServeResumeStep` cannot pinpoint.
+ *
+ *  - No checkpoint (legacy rows / sales prefills provisioned before this
+ *    existed) → fall back to the data-derived step, preserving prior behavior.
+ *  - A checkpoint that isn't a real step for the resolved branch is ignored
+ *    (defensive against a branch flip between sessions).
+ *  - The checkpoint is clamped to `maxDataSufficientStep` so it can never route
+ *    PAST a step whose required answer was never persisted (a save that
+ *    degraded gracefully), in which case we resume at that missing-data step.
+ */
+export const resolveServeResumeStep = (
+  branch: ServeBranch,
+  checkpoint: ServeStepId | null | undefined,
+  dataState: ServeResumeState,
+): ServeStepId => {
+  if (!checkpoint) return computeServeResumeStep(branch, dataState)
+  const steps = getServeBranchSteps(branch)
+  if (!steps.includes(checkpoint)) {
+    return computeServeResumeStep(branch, dataState)
+  }
+  const furthestSafe = maxDataSufficientStep(branch, dataState)
+  return steps.indexOf(checkpoint) > steps.indexOf(furthestSafe)
+    ? furthestSafe
+    : checkpoint
+}
+
+/**
+ * Prompt-first gating for the prefill `confirm` hub. The confirm screen is only
+ * ever shown once the office AND valid term dates are present, so whenever the
+ * flow wants to land the user on `confirm` (resume, the prefill party Continue,
+ * or returning from a detour) we first route them to fill any missing/invalid
+ * piece — office, then term dates — instead of surfacing a red error on the hub.
+ *
+ *  - `officeReady` — a real office is resolvable (a fresh pick or a prefilled
+ *    position name), not the default placeholder label.
+ *  - `datesReady` — both bounds are present, the end is after the start, and the
+ *    term does not overlap an existing one (the flow's term-date invariants).
+ *
+ * The caller arms the return-to-confirm detour flag when this returns a
+ * collection step, so the step's Continue brings the user back to re-evaluate.
+ */
+export interface ServeConfirmReadiness {
+  officeReady: boolean
+  datesReady: boolean
+}
+
+export const resolveConfirmEntryStep = ({
+  officeReady,
+  datesReady,
+}: ServeConfirmReadiness): ServeStepId => {
+  if (!officeReady) return 'office'
+  if (!datesReady) return 'term-dates'
+  return 'confirm'
+}
+
+/**
+ * Whether the resolved resume step is past the intro screens (`welcome` /
+ * `inOffice`), in which case the UX-only `inOffice` answer should be seeded so
+ * backing up to the inOffice step isn't a dead end (its Continue gate needs a
+ * selection). Resuming AT `welcome`/`inOffice` leaves it for the user to pick.
+ */
+export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
+  step !== 'welcome' && step !== 'inOffice'
+
+/**
  * Resolve the active step's 1-based position and the branch's total count for
  * the "Step X of N" label + segmented bar. Detour steps (`office`/`term-dates`
  * in the prefill branch) map back onto `confirm` so the bar doesn't jump.
@@ -136,6 +306,8 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     title: 'Does this look right?',
     description:
       'We pulled this from public records. Confirm your office and term dates, or change anything that looks off.',
+    whyWeAsk:
+      'These details ensure we pull the right information and data to help you serve your community',
   },
   constituents: {
     title: "Here's everything to know about your constituents",

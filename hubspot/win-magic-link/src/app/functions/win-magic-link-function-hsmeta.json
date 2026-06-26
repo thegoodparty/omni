@@ -1,0 +1,12 @@
+{
+  "uid": "win_magic_link_function",
+  "type": "app-function",
+  "config": {
+    "entrypoint": "/app/functions/sendMagicLink.js",
+    "secretKeys": [
+      "GP_API_M2M_TOKEN",
+      "HUBSPOT_TRANSACTIONAL_TOKEN",
+      "WIN_MAGIC_LINK_EMAIL_ID"
+    ]
+  }
+}

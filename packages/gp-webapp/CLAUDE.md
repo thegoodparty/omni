@@ -141,9 +141,11 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Styleguide
 
+The design system is the `@goodparty_org/styleguide` package (in `packages/styleguide`), consumed here via the `@styleguide` alias and `transpilePackages: ['@goodparty_org/styleguide']` in `tsconfig.json`. All component, token, and icon authoring happens in the package, not in an in-app folder.
+
 ### Components
 
-Always use styleguide components (`Button`, `Input`, `Label`, etc.) imported from `@styleguide` instead of raw HTML elements (`<button>`, `<input>`, `<label>`). Raw elements are only acceptable inside styleguide component definitions themselves (`styleguide/components/ui/`).
+Always use styleguide components (`Button`, `Input`, `Label`, etc.) imported from `@styleguide` instead of raw HTML elements (`<button>`, `<input>`, `<label>`). Raw elements are only acceptable inside styleguide component definitions themselves (in `packages/styleguide/src/components/ui/`).
 
 Before implementing a pattern manually (wrapper divs, absolute positioning, ad-hoc layout), check whether the primitive component should support it as a prop instead. Build capability at the component level so it is reusable.
 
@@ -157,12 +159,12 @@ Always pass a defined `value` to controlled Radix components — never use `valu
 
 Always use `lucide-react` for icons. Never use `react-icons` or other icon libraries. Check `lucide-react` for an equivalent before considering any alternative.
 
-**Approved-icons gate.** New icon usage must go through `styleguide/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from `./icons`. The full lucide catalog is browseable in Storybook (`Foundations/Icons`). Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
+**Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is browseable in Storybook (`Foundations/Icons`). Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
 
 ### Design Tokens
 
 - Never use raw hex colors, hardcoded pixel values, or Tailwind default color palette (e.g. `blue-600`, `slate-300`) in component code. Always reference a design token.
-- Check `styleguide/design-tokens.css` for available tokens and `styleguide/tailwind-theme.css` for their Tailwind utility class names.
+- Check `packages/styleguide/src/design-tokens.css` for available tokens and `packages/styleguide/src/tailwind-theme.css` for their Tailwind utility class names.
 - Colors in `tailwind-theme.css` are registered as `--color-*` and have a corresponding Tailwind utility (e.g. `--color-components-input-active` → `border-components-input-active`). **Never** use CSS variable bracket syntax (e.g. `bg-[--some-variable]`, `border-[--some-variable]`) — it does not reliably render in Tailwind v4. Always use the registered utility class name.
 - Never modify shared CSS variables (`--input`, `--border`, etc.) to fix a single component's appearance — these affect borders, backgrounds, and focus rings globally. Fix at the component level using the correct token.
 

@@ -223,9 +223,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // in-flight (`waiting_to_finalize`) record be re-submitted.
     let profileResponse: PeerlyIdentityProfileResponseBody | null
     try {
+      // This is a background sweep with no human waiting, so a transient Peerly
+      // read failure must not page the 10DLC Slack channel (it logs + throws
+      // below, and the next sweep retries).
       profileResponse = await this.peerlyIdentityService.getIdentityProfile(
         peerlyIdentityId,
         campaign,
+        { suppressSlackAlert: true },
       )
     } catch (err) {
       // A deleted/orphaned Peerly identity 404s here; skip rather than letting
@@ -408,6 +412,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       fecCommitteeId,
       committeeType,
     } = tcrComplianceCreatePayload
+
+    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // campaign.placeId via Google Places (peerlyIdentity.service
+    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // compliance agent treats as transient and retries forever (campaign
+    // 325553). A 10DLC brand can't be registered without an address, so fail
+    // fast with a non-recoverable 4xx that names the real cause instead.
+    if (!campaign.placeId?.trim()) {
+      throw new BadRequestException(
+        'Cannot submit TCR registration to Peerly: the campaign has no ' +
+          'address on file (placeId missing). The candidate must add their ' +
+          'address before TCR registration can proceed.',
+      )
+    }
 
     const userFullName = getUserFullName(user)
     const { ballotLevel } = campaign.details as { ballotLevel?: string }
@@ -1002,6 +1020,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // Guard on agenticRunId IS NULL: an SQS redelivery arriving after a
       // successful dispatch (e.g., user edited the campaign and broke
       // electionDate in between) must not overwrite status on a live record.
+      await this.model.updateMany({
+        where: { id: tcrComplianceId, agenticRunId: null },
+        data: { status: TcrComplianceStatus.error },
+      })
+      return
+    }
+
+    // Peerly TCR submission resolves the postal address from campaign.placeId
+    // (peerlyIdentity.service getAddressByPlaceId). Without it the run publishes
+    // a site, reaches website_verified_live, then can't submit — and the agent
+    // reports `partial`, so the resume sweep re-dispatches a full paid run every
+    // few minutes until it gives up (~$10 burned per stuck candidate). Reject at
+    // kickoff so the candidate is told to add their address instead of looping.
+    if (!campaign.placeId?.trim()) {
+      this.logger.error(
+        { campaignId, tcrComplianceId },
+        '[TCR Compliance] Cannot dispatch compliance_setup: ' +
+          'campaign.placeId is missing; Peerly requires a postal address',
+      )
       await this.model.updateMany({
         where: { id: tcrComplianceId, agenticRunId: null },
         data: { status: TcrComplianceStatus.error },

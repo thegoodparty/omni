@@ -169,5 +169,8 @@ export function transformToPersonOutput(
     ethnicityGroup: mapEthnicity(person.EthnicGroups_EthnicGroup1Desc),
     language: mapLanguage(person.Language_Code),
     estimatedIncomeAmount: person.Estimated_Income_Amount_Int,
+    householdId: person.householdId ?? null,
+    householdSize:
+      person.householdSize == null ? null : Number(person.householdSize),
   }
 }

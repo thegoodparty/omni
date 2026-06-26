@@ -44,10 +44,14 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         },
         'Encountered known prisma exception',
       )
+      // Client-facing messages are intentionally generic: the raw Prisma
+      // message / meta.target leaks internal model, column, and constraint
+      // names that a caller (incl. unauthenticated, via @PublicAccess routes)
+      // could use to map the schema (CWE-209). Full detail is logged above.
       switch (exception.code) {
         case 'P2002': // Unique constraint violation
           statusCode = HttpStatus.CONFLICT
-          message = `Duplicate field: ${exception.meta?.target}`
+          message = 'A record with the provided value already exists'
           break
         case 'P2025': // Record not found
           statusCode = HttpStatus.NOT_FOUND
@@ -55,7 +59,7 @@ export class PrismaExceptionFilter implements ExceptionFilter {
           break
         default:
           statusCode = HttpStatus.BAD_REQUEST
-          message = exception.message
+          message = 'The request could not be completed'
           break
       }
     } else if (exception instanceof Prisma.PrismaClientRustPanicError) {
@@ -63,13 +67,13 @@ export class PrismaExceptionFilter implements ExceptionFilter {
       message = 'A Prisma internal error occured. Please try again later.'
     } else if (exception instanceof Prisma.PrismaClientValidationError) {
       statusCode = HttpStatus.BAD_REQUEST
-      message = 'Validation error: ' + exception.message
+      message = 'Invalid request data'
     } else if (exception instanceof Prisma.PrismaClientUnknownRequestError) {
       statusCode = HttpStatus.BAD_REQUEST
       message = 'An unknown error occured while processing the request.'
     } else if (exception instanceof Prisma.PrismaClientInitializationError) {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
-      message = 'Failed to initialize Prisma Client: ' + exception.message
+      message = 'A database error occurred. Please try again later.'
     }
 
     if (!statusCode || !message) {
@@ -93,7 +97,7 @@ export class PrismaExceptionFilter implements ExceptionFilter {
     }
     typedResponse.status(statusCode).send({
       statusCode,
-      timestamp: new Date().toISOString,
+      timestamp: new Date().toISOString(),
       path: (request as { url: string }).url,
       error: message,
     })

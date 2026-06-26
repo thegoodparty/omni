@@ -62,15 +62,76 @@ describe('S2SAuthGuard', () => {
     }
   })
 
+  const signValid = (overrides: Record<string, unknown> = {}) => {
+    const now = Math.floor(Date.now() / 1000)
+    return jwt.sign(
+      {
+        iss: 'gp-api',
+        aud: 'people-api',
+        iat: now,
+        exp: now + 300,
+        ...overrides,
+      },
+      SECRET,
+    )
+  }
+
   it('accepts a valid Bearer token regardless of host/ip', () => {
-    const token = jwt.sign({ iss: 'gp-api' }, SECRET)
     const request: Record<string, unknown> = {
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${signValid()}` },
       ip: '203.0.113.7',
       hostname: 'people-api',
     }
     expect(guard.canActivate(makeContext(request))).toBe(true)
     expect(request.s2s).toBeDefined()
+  })
+
+  it('rejects a token with the wrong issuer', () => {
+    const ctx = makeContext({
+      headers: { authorization: `Bearer ${signValid({ iss: 'evil' })}` },
+      ip: '127.0.0.1',
+    })
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException)
+  })
+
+  it('rejects a token with the wrong audience', () => {
+    const ctx = makeContext({
+      headers: {
+        authorization: `Bearer ${signValid({ aud: 'someone-else' })}`,
+      },
+      ip: '127.0.0.1',
+    })
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException)
+  })
+
+  it('rejects an unbounded (no-exp) token older than maxAge', () => {
+    // jsonwebtoken only enforces exp when present; maxAge bounds lifetime via
+    // iat, so a token minted without exp cannot be replayed indefinitely.
+    const stale = Math.floor(Date.now() / 1000) - 600
+    const token = jwt.sign(
+      { iss: 'gp-api', aud: 'people-api', iat: stale },
+      SECRET,
+    )
+    const ctx = makeContext({
+      headers: { authorization: `Bearer ${token}` },
+      ip: '127.0.0.1',
+    })
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException)
+  })
+
+  it('accepts a no-exp token while still within maxAge', () => {
+    // Guards against maxAge being set too tight: a fresh token without exp is
+    // still valid until it ages past maxAge.
+    const now = Math.floor(Date.now() / 1000)
+    const token = jwt.sign(
+      { iss: 'gp-api', aud: 'people-api', iat: now },
+      SECRET,
+    )
+    const ctx = makeContext({
+      headers: { authorization: `Bearer ${token}` },
+      ip: '127.0.0.1',
+    })
+    expect(guard.canActivate(ctx)).toBe(true)
   })
 
   it('rejects an invalid Bearer token', () => {

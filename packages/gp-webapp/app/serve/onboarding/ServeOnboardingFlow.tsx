@@ -2,16 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Label } from '@styleguide'
-import { GoodPartyOrgLogoWordmark } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Compass,
-  LoaderCircle,
-  Pencil,
-} from 'lucide-react'
+import { Check, LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
@@ -20,6 +12,8 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
+import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
+import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import ServeOfficePicker from './ServeOfficePicker'
 import {
@@ -30,6 +24,7 @@ import {
   overlapsExisting as overlapsExistingRanges,
   TermDatesFields,
   termDateError,
+  termDatesValid,
   toApiDate,
   toDate,
   type DisabledRange,
@@ -41,6 +36,10 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  resolveConfirmEntryStep,
+  resolveServeBranch,
+  resolveServeResumeStep,
+  shouldSeedInOfficeOnResume,
   getServeProgress,
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
@@ -54,6 +53,18 @@ import {
 } from './serveOnboardingConfig'
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
+
+// Screens whose "Viewed" event fires once on view (in a useEffect). The two
+// selection screens (`inOffice`, `party`) are deliberately absent: their
+// "Viewed" events carry the chosen card title and so fire on Continue instead.
+const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
+  welcome: SERVE_ONBOARDING_EVENTS.WelcomeViewed,
+  office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
+  confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
+  'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
+  constituents: SERVE_ONBOARDING_EVENTS.KnowYourConstituentsViewed,
+  pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
+}
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
@@ -69,6 +80,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [switchToCampaign, setSwitchToCampaign] = useState(false)
 
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
+  // Mirror of `currentEO` for synchronous reads inside async save handlers, so
+  // create-on-first-answer is single-flight: the EO id created by one Continue
+  // is visible to the next save call before React has re-rendered the state.
+  const currentEORef = useRef<ElectedOffice | null>(null)
   const [otherRanges, setOtherRanges] = useState<DisabledRange[]>([])
 
   // UX-only: drives the onboarding branch (e.g. `campaigning` hands off to the
@@ -129,6 +144,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           mine[0] ??
           null
         setCurrentEO(eo)
+        currentEORef.current = eo
 
         let officePrefilled = false
         let prefillPositionId: string | undefined = undefined
@@ -165,21 +181,39 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           }
         }
 
-        setOtherRanges(buildDisabledRanges(mine, eo?.id))
-
-        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Activated, {
-          electedOfficeId: eo?.id,
-        })
+        const disabledRanges = buildDisabledRanges(mine, eo?.id)
+        setOtherRanges(disabledRanges)
 
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
-        const hasBrPrefill = officePrefilled || termPrefilled
+        // Resume markers from the persisted record. `party` is the user's first
+        // real answer (welcome/inOffice persist nothing), so it signals the
+        // user has started; term dates count as set only when BOTH bounds are
+        // present, mirroring the flow's both-bounds requirement.
+        const hasParty = !!eo?.party
+        const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
+
+        // Branch off the explicit `selfReported` marker rather than inferring
+        // from which fields happen to be populated. A net-new user who picked
+        // their own office and a sales/BR prefill BOTH end up with a position on
+        // the org, so populated fields can't tell them apart — the marker can.
+        // `resolveServeBranch` keeps a self-reported record net-new (no
+        // misleading confirm hub, no snapshot for the user's own pick) while a
+        // prefill (marker absent) with any office/term data stays prefill, so
+        // its BR suggestion-accuracy snapshot still fires — even a partial one.
+        const isPrefill =
+          resolveServeBranch({
+            officePresent: officePrefilled,
+            datesPresent: termPrefilled,
+            selfReported: !!eo?.selfReported,
+          }) === 'prefill'
+        const resolvedBranch: ServeBranch = isPrefill ? 'prefill' : 'net-new'
         // Freeze the BR suggestion now, before any edits, normalizing the term
         // dates through the same yyyy-MM-dd round-trip the final pick uses so
         // the from/to diff is apples-to-apples. The single suggested position
         // is also the user's lone known BR-officeholder position here, so it
         // doubles as the officeholder-position set for the match check.
         setBrPrefill(
-          hasBrPrefill
+          isPrefill
             ? {
                 positionId: prefillPositionId,
                 positionName: prefillPositionName,
@@ -192,7 +226,45 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               }
             : null,
         )
-        setBranch(hasBrPrefill ? 'prefill' : 'net-new')
+        setBranch(resolvedBranch)
+
+        // Route to the persisted step checkpoint (the exact most recent step,
+        // written on every Continue) when present, clamped so it can't outrun
+        // the persisted data; otherwise fall back to the data-derived first
+        // unanswered step (legacy rows / prefills provisioned before the
+        // checkpoint existed still run the intro from `welcome` when un-started).
+        const resumeStep = resolveServeResumeStep(
+          resolvedBranch,
+          eo?.onboardingStep as ServeStepId | null | undefined,
+          { hasParty, hasOffice: officePrefilled, hasDates },
+        )
+        // Prompt-first confirm gating: a prefill that resumes onto the `confirm`
+        // hub with a missing office or invalid/absent term dates is routed to
+        // fill that piece FIRST (office, then term dates) rather than landing on
+        // confirm with a red error. `officePrefilled` alone isn't enough — a
+        // position id without a display name still shows the placeholder label —
+        // so office-readiness mirrors the render's `officeIsChosen` (a resolved
+        // position NAME). Arm the return-to-confirm detour so the collection
+        // step's Continue brings the user back to re-evaluate.
+        let landingStep = resumeStep
+        if (resumeStep === 'confirm') {
+          landingStep = resolveConfirmEntryStep({
+            officeReady: !!prefillPositionName,
+            datesReady: termDatesValid(
+              toDate(eo?.termStartDate),
+              toDate(eo?.termEndDate),
+              disabledRanges,
+            ),
+          })
+          if (landingStep !== 'confirm') setReturnToConfirm(true)
+        }
+        // Seed the UX-only `inOffice` answer whenever we resume past the intro,
+        // so backing up to the inOffice step isn't a dead end (its Continue gate
+        // needs a selection) and a mis-click on "still campaigning" can't eject
+        // a resumed official into the Win flow. Resuming AT welcome/inOffice
+        // leaves it unset for the user to choose.
+        if (shouldSeedInOfficeOnResume(landingStep)) setInOffice('in-office')
+        setStep(landingStep)
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
@@ -223,6 +295,34 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       })
     }
   }, [step, party, currentEO?.id])
+
+  // Per-screen funnel instrumentation: fire each screen's dedicated "Viewed"
+  // event once when the user lands on it (deduped via a Set ref so a
+  // back-and-forth — e.g. the prefill confirm→office→confirm detour, or
+  // stepping Back — doesn't re-fire and inflate the funnel). Gated on
+  // `!loading` so the initial render and resume-step resolution settle first,
+  // and so a resumed user only logs the screens they actually view this
+  // session. The `inOffice` and `party` screens are intentionally NOT fired
+  // here: their "Viewed" events carry the user's selected card title, so they
+  // fire on Continue (see handleContinue) once the selection is known.
+  const viewedStepsRef = useRef<Set<ServeStepId>>(new Set())
+  useEffect(() => {
+    if (loading) return
+    const viewedEvent = SERVE_STEP_VIEWED_EVENTS[step]
+    if (!viewedEvent) return
+    if (viewedStepsRef.current.has(step)) return
+    viewedStepsRef.current.add(step)
+    trackServeOnboarding(viewedEvent, {
+      branch,
+      electedOfficeId: currentEO?.id,
+    })
+  }, [loading, step, branch, currentEO?.id])
+
+  // One-shot guards for the two selection screens whose "Viewed" event fires on
+  // Continue (with the chosen card title) rather than on view, so re-advancing
+  // after a Back doesn't double-count them.
+  const officeStatusViewedRef = useRef(false)
+  const partyViewedRef = useRef(false)
 
   const officeIsChosen = Boolean(
     office?.positionId ||
@@ -262,35 +362,109 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // back-and-forth through the constituents step doesn't re-PATCH needlessly.
   const patchedOfficeRef = useRef<string | undefined>(undefined)
 
-  // Point the EO org at the selected position BEFORE the constituents step so
-  // the org-derived voter-issues / contacts-stats endpoints have a district to
-  // resolve. persist() re-writes the same pointer at the end; this just brings
-  // it forward and is idempotent.
-  const ensureOrgOfficeForConstituents = async (): Promise<void> => {
-    const positionId = office?.positionId
-    if (!currentEO || !positionId) return
-    if (patchedOfficeRef.current === positionId) return
-    await clientRequest('PATCH /v1/organizations/:slug', {
-      slug: `eo-${currentEO.id}`,
-      ballotReadyPositionId: positionId,
-      customPositionName: null,
-    })
-    patchedOfficeRef.current = positionId
+  // Create-on-first-answer: a truly net-new user has no ElectedOffice to write
+  // to, so the incremental saves used to silently no-op and nothing reached the
+  // DB until the final completion POST. Instead, lazily create the EO the first
+  // time we need an id (the inOffice Continue — the user's first real answer,
+  // gated so a Win-flow switcher never mints one), then PUT/PATCH against it on
+  // every subsequent step. The backend create() is idempotent per user (advisory lock
+  // + placeholder adoption), so a sales/magic-link stub is reused rather than
+  // duplicated, and a double create returns the same record. Returns null only
+  // when creation fails, in which case the caller degrades gracefully (the
+  // session keeps answers in state and the completion POST is the safety net).
+  const ensureElectedOffice = async (): Promise<ElectedOffice | null> => {
+    if (currentEORef.current) return currentEORef.current
+    const created = await clientRequest('POST /v1/elected-office', {})
+    if (!created.ok || !created.data) return null
+    const eo = created.data as ElectedOffice
+    currentEORef.current = eo
+    setCurrentEO(eo)
+    // Pin the EO org so subsequent in-flow requests (and the office PATCH below)
+    // resolve against `eo-<id>` rather than a stale candidate org.
+    setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
+    return eo
   }
 
-  const goToConstituents = async (): Promise<void> => {
+  // The office PATCH payload for the chosen office, or undefined when no office
+  // is chosen this session (e.g. a prefill the user never re-picked) so no
+  // needless PATCH fires.
+  const officePayload = ():
+    | {
+        ballotReadyPositionId: string | null
+        customPositionName: string | null
+      }
+    | undefined => {
+    const positionId = office?.positionId
+    const custom = customOfficeName.trim()
+    if (!positionId && !custom) return undefined
+    return {
+      ballotReadyPositionId: positionId ?? null,
+      customPositionName: custom || null,
+    }
+  }
+
+  // Single incremental write for a Continue: ensure the EO exists, optionally
+  // PATCH the chosen office onto its org (idempotent via patchedOfficeRef), then
+  // PUT the step's data fields together with the `onboardingStep` checkpoint.
+  // Folding the checkpoint into the data PUT keeps them atomic — a failed write
+  // leaves neither the answer nor a checkpoint that outruns it. onboardingCompletedAt
+  // is never sent here, so the completion guard stays untouched.
+  const saveProgress = async ({
+    targetStep,
+    eoFields,
+    office: officeToPatch,
+  }: {
+    targetStep: ServeStepId
+    eoFields?: {
+      party?: string
+      termStartDate?: string | null
+      termEndDate?: string | null
+      selfReported?: boolean
+    }
+    office?: {
+      ballotReadyPositionId: string | null
+      customPositionName: string | null
+    }
+  }): Promise<void> => {
+    const eo = await ensureElectedOffice()
+    if (!eo) return
+    if (officeToPatch) {
+      const patchKey =
+        officeToPatch.ballotReadyPositionId ??
+        `custom:${officeToPatch.customPositionName ?? ''}`
+      if (patchedOfficeRef.current !== patchKey) {
+        await clientRequest('PATCH /v1/organizations/:slug', {
+          slug: `eo-${eo.id}`,
+          ballotReadyPositionId: officeToPatch.ballotReadyPositionId,
+          customPositionName: officeToPatch.customPositionName,
+        })
+        patchedOfficeRef.current = patchKey
+      }
+    }
+    await clientRequest('PUT /v1/elected-office/:id', {
+      id: eo.id,
+      ...eoFields,
+      onboardingStep: targetStep,
+    })
+  }
+
+  // Run a best-effort incremental save, then advance. A failed save logs to
+  // Sentry but never blocks navigation — the session keeps the answer in state
+  // and the final persist() rewrites everything at completion, so resume just
+  // misses that one checkpoint rather than trapping the user.
+  const persistAndAdvance = async (
+    args: Parameters<typeof saveProgress>[0],
+    applyNav: () => void,
+    context: string,
+  ): Promise<void> => {
     setSaving(true)
     try {
-      await ensureOrgOfficeForConstituents()
+      await saveProgress(args)
     } catch (err) {
-      // Degrade gracefully: the constituents step still renders, the
-      // org-derived sections just stay empty if the pointer didn't land.
-      reportErrorToSentry(err, {
-        context: 'serveOnboarding.ensureOrgOfficeForConstituents',
-      })
+      reportErrorToSentry(err, { context })
     } finally {
       setSaving(false)
-      setStep('constituents')
+      applyNav()
     }
   }
 
@@ -303,6 +477,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       party,
       pledgedAt: nowIso,
       onboardingCompletedAt: nowIso,
+      // Stamp the marker at completion too, so a net-new user whose incremental
+      // saves never landed (creation failed throughout → POST fallback below)
+      // still records it. Omitted in the prefill branch so the record stays
+      // classified as a prefill.
+      ...(branch === 'net-new' ? { selfReported: true } : {}),
+      onboardingStep: 'pledge' as const,
       ...(office?.positionId
         ? { ballotReadyPositionId: office.positionId }
         : {}),
@@ -312,18 +492,24 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
 
     try {
-      let electedOfficeId = currentEO?.id
+      // The EO was almost always created earlier (create-on-first-answer), so
+      // completion is a PUT. ensureElectedOffice covers the rare case where
+      // every prior create failed: it makes one last attempt, and only if THAT
+      // also fails do we fall back to a completion POST (which carries the full
+      // body, so nothing is lost).
+      const eo = await ensureElectedOffice()
+      let electedOfficeId = eo?.id
 
-      if (currentEO) {
+      if (eo) {
         if (office?.positionId || customOfficeName.trim()) {
           await clientRequest('PATCH /v1/organizations/:slug', {
-            slug: `eo-${currentEO.id}`,
+            slug: `eo-${eo.id}`,
             ballotReadyPositionId: office?.positionId ?? null,
             customPositionName: customOfficeName.trim() || null,
           })
         }
         await clientRequest('PUT /v1/elected-office/:id', {
-          id: currentEO.id,
+          id: eo.id,
           ...body,
         })
       } else {
@@ -346,13 +532,23 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         },
       })
       if (brSuggestion.hadBrPrefill && brSuggestion.changedField) {
-        trackServeOnboarding(
+        // Await so the event flushes before the redirect below unloads the page.
+        await trackServeOnboarding(
           SERVE_ONBOARDING_EVENTS.SuggestionChanged,
           brSuggestion,
         )
       }
 
-      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
+      // Pledge submitted: the per-screen completion of the final pledge step.
+      // Awaited (like the events around it) so it flushes before the redirect.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PledgeCompleted, {
+        branch,
+        electedOfficeId,
+      })
+
+      // The established serve completion metric (kept as-is). Await so the
+      // event flushes before the redirect below unloads the page.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
       })
 
@@ -361,12 +557,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       // of bouncing the user back into the candidate/Win flow. Mirrors the Win
       // flow's setCookie(ORG_SLUG_COOKIE, 'campaign-<id>') pattern, then routes
       // through post-auth-redirect so the cookie + serve context are
-      // established before landing on briefings.
+      // established before landing on the Chief of Staff home.
       if (electedOfficeId) {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
       window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/briefings',
+        '/dashboard/chief-of-staff',
       )}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
@@ -374,6 +570,26 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       setSaving(false)
     }
   }
+
+  // Prompt-first entry to the prefill confirm hub: route to the first
+  // missing/invalid piece (office, then term dates) so confirm is only ever
+  // shown once both are present and valid. A collection-step detour arms
+  // `returnToConfirm` so that step's Continue/Back loops back here to
+  // re-evaluate; once everything is ready we land on confirm and clear the flag.
+  const enterConfirmHub = () => {
+    const target = resolveConfirmEntryStep({
+      officeReady: officeIsChosen,
+      datesReady: datesValid,
+    })
+    setReturnToConfirm(target !== 'confirm')
+    setStep(target)
+  }
+
+  // The step Back returns to from a prefill office/term-dates detour: the
+  // confirm hub when it's satisfiable, otherwise the prior real step (`party`),
+  // so a prompt-first detour for still-missing data doesn't bounce off the gate.
+  const backFromConfirmDetour = (): ServeStepId =>
+    officeIsChosen && datesValid ? 'confirm' : 'party'
 
   // Navigation only. The "BR Suggestion Changed" event is emitted at completion
   // (see persist) where the user's FINAL office/dates are known and can be
@@ -393,35 +609,141 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const handleContinue = () => {
     switch (step) {
       case 'welcome':
+        // Navigation only — deliberately do NOT create the EO here. Welcome is a
+        // pure intro with no answer, and the very next step lets the user pick
+        // "still campaigning", which hands off to the Win flow. Minting an EO on
+        // this Continue would strand a campaigning user with a dangling
+        // onboardingCompletedAt:null record that the `mine` resume fallback would
+        // later drag them back into serve onboarding with. Create-on-first-answer
+        // is deferred to the inOffice Continue (the first real "I'm in office").
         setStep('inOffice')
         return
-      case 'inOffice':
+      case 'inOffice': {
+        // The office-status "Viewed" event carries the user's selected card
+        // title, so it fires here (once) rather than on view. Firing on BOTH
+        // the campaigning and non-campaigning paths captures the "still
+        // campaigning" hand-off as a `selection` value — the funnel drop-off
+        // signal that the removed standalone "Switched to Campaign" event used
+        // to provide.
+        if (!officeStatusViewedRef.current && inOffice) {
+          officeStatusViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeStatusViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_IN_OFFICE_OPTIONS.find((o) => o.value === inOffice)
+              ?.title,
+          })
+        }
         if (inOffice === 'campaigning') {
           setSwitchToCampaign(true)
           return
         }
-        setStep('party')
+        // Create-on-first-answer: this non-campaigning Continue is the user's
+        // first real commitment to the serve flow, so it mints the EO (for
+        // net-new users with none) and writes the first `party` checkpoint. A
+        // user who picked "campaigning" above returns before reaching here, so
+        // no EO is ever created for a Win-flow switcher.
+        void persistAndAdvance(
+          { targetStep: 'party' },
+          () => setStep('party'),
+          'serveOnboarding.checkpoint.inOffice',
+        )
         return
-      case 'party':
-        setStep(branch === 'prefill' ? 'confirm' : 'office')
-        return
-      case 'office':
-        setStep(returnToConfirm ? 'confirm' : 'term-dates')
-        setReturnToConfirm(false)
-        return
-      case 'term-dates':
-        if (returnToConfirm) {
-          setStep('confirm')
-        } else {
-          void goToConstituents()
+      }
+      case 'party': {
+        // The party-designation "Viewed" event carries the chosen party card
+        // title, so it fires here (once) rather than on view. Continue is gated
+        // on a non-major-party pick, so this only fires for valid selections
+        // that proceed; major-party picks are covered by PartyDesignationBlocked.
+        if (!partyViewedRef.current && party) {
+          partyViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PartyDesignationViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_PARTY_OPTIONS.find((o) => o.value === party)
+              ?.title,
+          })
         }
-        setReturnToConfirm(false)
+        // The party PUT also stamps the net-new `selfReported` marker (the
+        // record's first user-driven write): the office the user picks next
+        // lands on the org indistinguishably from a prefill, so we record HERE
+        // that this is the user's own net-new entry. Prefill leaves it untouched.
+        //
+        // Prefill checkpoints at `confirm` but navigates through the prompt-first
+        // gate (enterConfirmHub), which detours to office/term-dates first when
+        // either is still missing instead of dropping the user on confirm.
+        const target = branch === 'prefill' ? 'confirm' : 'office'
+        void persistAndAdvance(
+          {
+            targetStep: target,
+            eoFields: {
+              party: party ?? undefined,
+              ...(branch === 'net-new' ? { selfReported: true } : {}),
+            },
+          },
+          branch === 'prefill' ? enterConfirmHub : () => setStep('office'),
+          'serveOnboarding.persistPartyProgress',
+        )
         return
+      }
+      case 'office': {
+        // Office picker completed: carry the selected office title on the
+        // dedicated completion event (the natural moment a selection exists).
+        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeCompleted, {
+          branch,
+          electedOfficeId: currentEO?.id,
+          selection: officeDisplayLabel,
+        })
+        // On the prefill detour, re-enter the confirm hub through the gate
+        // (enterConfirmHub) — picking an office may still leave term dates to
+        // collect, in which case it forwards to term-dates rather than confirm.
+        const target = returnToConfirm ? 'confirm' : 'term-dates'
+        void persistAndAdvance(
+          { targetStep: target, office: officePayload() },
+          returnToConfirm ? enterConfirmHub : () => setStep('term-dates'),
+          'serveOnboarding.persistOfficeProgress',
+        )
+        return
+      }
+      case 'term-dates': {
+        const target = returnToConfirm ? 'confirm' : 'constituents'
+        void persistAndAdvance(
+          {
+            targetStep: target,
+            eoFields: {
+              termStartDate: toApiDate(termStartDate),
+              termEndDate: toApiDate(termEndDate),
+            },
+            // Carry the office pointer forward to the EO org before the
+            // constituents step (idempotent if already patched) so its
+            // org-derived voter sections can resolve a district. Skipped on the
+            // confirm detour, which only edits dates.
+            ...(target === 'constituents' ? { office: officePayload() } : {}),
+          },
+          // Continue is gated on valid dates here, so the confirm detour returns
+          // straight to the (now satisfiable) hub via enterConfirmHub.
+          returnToConfirm ? enterConfirmHub : () => setStep('constituents'),
+          'serveOnboarding.persistTermDatesProgress',
+        )
+        return
+      }
       case 'confirm':
-        void goToConstituents()
+        void persistAndAdvance(
+          { targetStep: 'constituents', office: officePayload() },
+          () => setStep('constituents'),
+          'serveOnboarding.persistOfficeProgress',
+        )
         return
       case 'constituents':
-        setStep('pledge')
+        trackServeOnboarding(
+          SERVE_ONBOARDING_EVENTS.KnowYourConstituentsCompleted,
+          { branch, electedOfficeId: currentEO?.id },
+        )
+        void persistAndAdvance(
+          { targetStep: 'pledge' },
+          () => setStep('pledge'),
+          'serveOnboarding.checkpoint.constituents',
+        )
         return
       case 'pledge':
         void persist()
@@ -442,13 +764,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'office':
         if (returnToConfirm) {
           setReturnToConfirm(false)
-          setStep('confirm')
+          setStep(backFromConfirmDetour())
         } else {
           setStep('party')
         }
         return
       case 'term-dates':
         if (returnToConfirm) {
+          // The term-dates detour is only reachable when an office is already
+          // chosen, so backing out always returns to the confirm hub. (Unlike
+          // the office detour, dates are invalid by construction here, so
+          // backFromConfirmDetour would wrongly fall back to `party`.)
           setReturnToConfirm(false)
           setStep('confirm')
         } else {
@@ -498,129 +824,133 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
 
   if (switchToCampaign) {
     return (
-      <div className="min-h-screen w-full bg-background pb-12">
-        <FlowHeader />
+      <div className="min-h-screen bg-base-surface pb-28 text-foreground">
+        <OnboardingTopBar
+          currentStep={progress.current}
+          totalSteps={progress.total}
+        />
         <SwitchToCampaignStep onBack={() => setSwitchToCampaign(false)} />
       </div>
     )
   }
 
+  // The current step's explainer copy. When present it renders in the right
+  // rail on wide viewports and stacks below the content on narrow ones — the
+  // same responsive treatment as the Win flow's "Why this matters" aside.
+  const whyThisMatters = SERVE_STEP_COPY[step].whyWeAsk
+
   return (
-    <div className="min-h-screen w-full bg-background pb-24">
-      <FlowHeader />
+    <div className="min-h-screen bg-base-surface pb-28 text-foreground">
+      <OnboardingTopBar
+        currentStep={progress.current}
+        totalSteps={progress.total}
+      />
 
-      <div className="relative mx-auto max-w-5xl px-6 pt-8">
-        <div className="pointer-events-none absolute inset-x-6 top-0 flex h-8 items-center justify-end text-xs font-medium text-muted-foreground">
-          Step {progress.current} of {progress.total}
-        </div>
-        <div className="flex w-full items-center gap-1.5">
-          {Array.from({ length: progress.total }).map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                'h-1.5 flex-1 rounded-full transition-colors',
-                progress.current - 1 >= i ? 'bg-primary' : 'bg-muted',
-              )}
-            />
-          ))}
-        </div>
-      </div>
-
-      {step === 'welcome' && <WelcomeStep />}
-      {step === 'inOffice' && (
-        <InOfficeStep value={inOffice} onChange={setInOffice} />
-      )}
-      {step === 'party' && <PartyStep value={party} onChange={setParty} />}
-      {step === 'office' && (
-        <OfficeStep
-          office={office}
-          customOfficeName={customOfficeName}
-          manualEntry={manualEntry}
-          zip={zip}
-          onZipChange={setZip}
-          onSelectOffice={(selected) => {
-            setOffice(selected)
-            setCustomOfficeName('')
-          }}
-          onCustomOfficeNameChange={setCustomOfficeName}
-          onEnableManual={() => setManualEntry(true)}
-          onDisableManual={() => setManualEntry(false)}
-        />
-      )}
-      {step === 'term-dates' && (
-        <TermDatesStep
-          termStartDate={termStartDate}
-          termEndDate={termEndDate}
-          onStartChange={setTermStartDate}
-          onEndChange={setTermEndDate}
-          otherRanges={otherRanges}
-          calendarStart={CALENDAR_START}
-          calendarEnd={CALENDAR_END}
-          error={dateError}
-        />
-      )}
-      {step === 'confirm' && (
-        <ConfirmStep
-          officeLabel={officeIsChosen ? officeDisplayLabel : 'Add your office'}
-          officeValid={officeIsChosen}
-          termStartDate={termStartDate}
-          termEndDate={termEndDate}
-          datesValid={datesValid}
-          dateError={dateError}
-          onChangeOffice={goToOfficeFromConfirm}
-          onChangeDates={goToDatesFromConfirm}
-        />
-      )}
-      {step === 'constituents' && (
-        <ConstituentsStep
-          orgPositionId={constituentsPositionId}
-          office={officeDisplayLabel}
-          city={office?.city}
-          state={office?.state ?? orgState}
-        />
-      )}
-      {step === 'pledge' && <PledgeStep />}
-
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-base-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
         <div
           className={cn(
-            'mx-auto flex w-full max-w-5xl items-center gap-4 px-6 py-4',
-            step === 'welcome' ? 'justify-end' : 'justify-between',
+            'grid grid-cols-1 gap-8',
+            whyThisMatters &&
+              'md:grid-cols-[minmax(0,1fr)_280px] md:items-start',
           )}
         >
-          {step !== 'welcome' && (
-            <Button
-              variant="ghost"
-              onClick={handleBack}
-              icon={<ArrowLeft className="h-4 w-4" />}
-              disabled={saving}
+          <section
+            className={cn('space-y-8', step === 'welcome' && 'text-center')}
+          >
+            {step === 'welcome' && <WelcomeStep />}
+            {step === 'inOffice' && (
+              <InOfficeStep value={inOffice} onChange={setInOffice} />
+            )}
+            {step === 'party' && (
+              <PartyStep value={party} onChange={setParty} />
+            )}
+            {step === 'office' && (
+              <OfficeStep
+                office={office}
+                customOfficeName={customOfficeName}
+                manualEntry={manualEntry}
+                zip={zip}
+                onZipChange={setZip}
+                onSelectOffice={(selected) => {
+                  setOffice(selected)
+                  setCustomOfficeName('')
+                }}
+                onCustomOfficeNameChange={setCustomOfficeName}
+                onEnableManual={() => setManualEntry(true)}
+                onDisableManual={() => setManualEntry(false)}
+              />
+            )}
+            {step === 'term-dates' && (
+              <TermDatesStep
+                termStartDate={termStartDate}
+                termEndDate={termEndDate}
+                onStartChange={setTermStartDate}
+                onEndChange={setTermEndDate}
+                otherRanges={otherRanges}
+                calendarStart={CALENDAR_START}
+                calendarEnd={CALENDAR_END}
+                error={dateError}
+              />
+            )}
+            {step === 'confirm' && (
+              <ConfirmStep
+                officeLabel={officeDisplayLabel}
+                termStartDate={termStartDate}
+                termEndDate={termEndDate}
+                onChangeOffice={goToOfficeFromConfirm}
+                onChangeDates={goToDatesFromConfirm}
+              />
+            )}
+            {step === 'constituents' && (
+              <ConstituentsStep
+                orgPositionId={constituentsPositionId}
+                office={officeDisplayLabel}
+                city={office?.city}
+                state={office?.state ?? orgState}
+              />
+            )}
+            {step === 'pledge' && <PledgeStep />}
+          </section>
+
+          {whyThisMatters && (
+            <aside
+              className="md:fixed md:top-28 md:w-[280px]"
+              style={{
+                right: 'max(2rem, calc((100vw - 56rem) / 2 + 2rem))',
+              }}
             >
-              Back
-            </Button>
+              <WhyThisMatters text={whyThisMatters} />
+            </aside>
           )}
+        </div>
+      </main>
+
+      <div className="fixed inset-x-0 bottom-0 bg-base-surface">
+        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between border-t border-base-border px-4 sm:px-8">
           <Button
             type="button"
+            variant="ghost"
+            size="large"
+            onClick={handleBack}
+            disabled={saving || step === 'welcome'}
+          >
+            Back
+          </Button>
+          <Button
+            type="button"
+            variant="default"
             size="large"
             onClick={handleContinue}
             disabled={!canContinue || saving}
             loading={saving}
-            icon={<ArrowRight className="h-4 w-4" />}
-            iconPosition="right"
-            className="px-8"
           >
             {step === 'pledge' ? 'Agree & Continue' : 'Continue'}
           </Button>
         </div>
-      </footer>
+      </div>
     </div>
   )
 }
-
-const FlowHeader = (): React.JSX.Element => (
-  <header className="flex items-center border-b border-base-border px-6 py-4">
-    <GoodPartyOrgLogoWordmark size="small" textVariant="dark" />
-  </header>
-)
 
 const Panel = ({
   className,
@@ -637,19 +967,6 @@ const Panel = ({
   >
     {children}
   </div>
-)
-
-const WhyWeAsk = ({
-  children,
-}: {
-  children: React.ReactNode
-}): React.JSX.Element => (
-  <Panel className="mt-6 p-4">
-    <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-      <Compass className="h-3.5 w-3.5" /> Why we ask
-    </div>
-    <p className="mt-2 text-sm leading-relaxed text-foreground">{children}</p>
-  </Panel>
 )
 
 const StepHeading = ({
@@ -677,7 +994,7 @@ const StepHeading = ({
 const WelcomeStep = (): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.welcome
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8 text-center">
+    <div>
       <h1
         className="text-4xl leading-tight font-semibold tracking-tight text-foreground md:text-5xl"
         style={{ fontFamily: 'var(--font-geist)' }}
@@ -712,7 +1029,7 @@ const WelcomeStep = (): React.JSX.Element => {
         <span className="font-semibold text-foreground">Continue</span> to get
         started.
       </p>
-    </main>
+    </div>
   )
 }
 
@@ -763,7 +1080,7 @@ const InOfficeStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.inOffice
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
       <div className="mt-8 space-y-3">
         {SERVE_IN_OFFICE_OPTIONS.map((option) => (
@@ -776,8 +1093,7 @@ const InOfficeStep = ({
           />
         ))}
       </div>
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -790,7 +1106,7 @@ const PartyStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.party
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
       {isServeMajorParty(value) && (
         <div className="mt-8">
@@ -808,8 +1124,7 @@ const PartyStep = ({
           />
         ))}
       </div>
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -836,7 +1151,7 @@ const OfficeStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.office
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-4 sm:p-6">
@@ -868,9 +1183,7 @@ const OfficeStep = ({
           />
         )}
       </Panel>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -895,7 +1208,7 @@ const TermDatesStep = ({
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY['term-dates']
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-4 sm:p-6">
@@ -910,22 +1223,18 @@ const TermDatesStep = ({
           error={error}
         />
       </Panel>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
 const ConfirmRow = ({
   label,
   value,
-  invalid,
   onChange,
   changeLabel,
 }: {
   label: string
   value: string
-  invalid?: boolean
   onChange: () => void
   changeLabel: string
 }): React.JSX.Element => (
@@ -934,12 +1243,7 @@ const ConfirmRow = ({
       <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {label}
       </div>
-      <div
-        className={cn(
-          'mt-1 font-medium break-words',
-          invalid ? 'text-destructive' : 'text-foreground',
-        )}
-      >
+      <div className="mt-1 font-medium break-words text-foreground">
         {value}
       </div>
     </div>
@@ -954,32 +1258,27 @@ const ConfirmRow = ({
   </div>
 )
 
+// The confirm hub is reached only once the office and valid term dates are both
+// present (prompt-first routing detours to fill any missing piece first — see
+// enterConfirmHub / resolveConfirmEntryStep), so this screen always shows
+// real values and never the old red error-on-confirm state.
 const ConfirmStep = ({
   officeLabel,
-  officeValid,
   termStartDate,
   termEndDate,
-  datesValid,
-  dateError,
   onChangeOffice,
   onChangeDates,
 }: {
   officeLabel: string
-  officeValid: boolean
   termStartDate: Date | undefined
   termEndDate: Date | undefined
-  datesValid: boolean
-  dateError: string | null
   onChangeOffice: () => void
   onChangeDates: () => void
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.confirm
-  const datesValue =
-    termStartDate || termEndDate
-      ? `${formatDisplay(termStartDate)} – ${formatDisplay(termEndDate)}`
-      : 'Add your term dates'
+  const datesValue = `${formatDisplay(termStartDate)} – ${formatDisplay(termEndDate)}`
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 px-6">
@@ -987,26 +1286,18 @@ const ConfirmStep = ({
           <ConfirmRow
             label="Office"
             value={officeLabel}
-            invalid={!officeValid}
             onChange={onChangeOffice}
             changeLabel="Change office"
           />
           <ConfirmRow
             label="Term dates"
             value={datesValue}
-            invalid={!datesValid}
             onChange={onChangeDates}
             changeLabel="Change dates"
           />
         </div>
       </Panel>
-
-      {!datesValid && dateError && (
-        <p className="mt-4 text-sm text-destructive">{dateError}</p>
-      )}
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
@@ -1027,7 +1318,7 @@ const ConstituentsStep = ({
   // valid code so a missing/full-name state never fires a doomed request.
   const hasValidState = /^[A-Za-z]{2}$/.test(state ?? '')
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <h1
         className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
         style={{ fontFamily: 'var(--font-geist)' }}
@@ -1041,24 +1332,30 @@ const ConstituentsStep = ({
       </p>
 
       <div className="mt-8">
+        {/* Reuse the Win flow's demographics step, but override its
+            candidate-facing "voter" copy with constituent wording for the
+            elected-official audience. Defaults keep the Win flow unchanged. */}
         <VoterDemographicsStep
           orgPositionId={orgPositionId}
           office={office}
           city={city}
           state={state}
           showLocalNewsSources={hasValidState}
+          demographicsHeading="Constituent Demographics"
+          totalLabel="Total Constituents"
+          ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
+          topIssuesHeading="Top issues for your constituents"
+          topIssuesDescription="The issues constituents in your district care about most right now."
         />
       </div>
-
-      {copy.whyWeAsk && <WhyWeAsk>{copy.whyWeAsk}</WhyWeAsk>}
-    </main>
+    </div>
   )
 }
 
 const PledgeStep = (): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.pledge
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-8">
+    <div>
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-6 sm:p-8">
@@ -1108,7 +1405,7 @@ const PledgeStep = (): React.JSX.Element => {
           .
         </p>
       </Panel>
-    </main>
+    </div>
   )
 }
 
@@ -1119,12 +1416,14 @@ const SwitchToCampaignStep = ({
 }): React.JSX.Element => {
   const handleSwitch = () => {
     // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-    // Hand off to the Win flow's entry point.
+    // Hand off to the Win flow's entry point. The hand-off itself is captured
+    // as the `selection: "I'm still campaigning"` value on the Office Status
+    // Viewed event (fired on the inOffice Continue), so no event fires here.
     window.location.href = '/onboarding/office-selection'
   }
   return (
     <>
-      <main className="mx-auto max-w-3xl px-6 pt-12 pb-28">
+      <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
         <h1
           className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
           style={{ fontFamily: 'var(--font-geist)' }}
@@ -1138,26 +1437,21 @@ const SwitchToCampaignStep = ({
         </p>
       </main>
 
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-base-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          <Button
-            variant="ghost"
-            onClick={onBack}
-            icon={<ArrowLeft className="h-4 w-4" />}
-          >
+      <div className="fixed inset-x-0 bottom-0 bg-base-surface">
+        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between border-t border-base-border px-4 sm:px-8">
+          <Button type="button" variant="ghost" size="large" onClick={onBack}>
             Back
           </Button>
           <Button
+            type="button"
+            variant="default"
             size="large"
             onClick={handleSwitch}
-            icon={<ArrowRight className="h-4 w-4" />}
-            iconPosition="right"
-            className="px-8"
           >
             Switch to Campaign
           </Button>
         </div>
-      </footer>
+      </div>
     </>
   )
 }

@@ -28,6 +28,46 @@ export const closeOrgSwitcher = async (page: Page) => {
   await page.keyboard.press('Escape')
 }
 
+// Pick a date in one term-date popover. The fields are popover calendar pickers
+// (stable trigger ids `term-start-date` / `term-end-date`, shared with serve
+// onboarding), not free-text inputs. Drive it the way a user would: open the
+// popover, navigate via the native month/year dropdowns (selected by option
+// value so it's locale-independent), then click the ISO day cell. Mirrors
+// serve-onboarding.spec.ts#pickTermDate.
+const pickTermDate = async (
+  page: Page,
+  triggerId: string,
+  isoDate: string,
+): Promise<void> => {
+  const [year, month] = isoDate.split('-')
+  await page.locator(`#${triggerId}`).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('combobox').nth(1).selectOption(year!)
+  await dialog
+    .getByRole('combobox')
+    .nth(0)
+    .selectOption(String(Number(month) - 1))
+  await dialog.locator(`td[data-day="${isoDate}"] button`).click()
+  await expect(dialog).toBeHidden()
+}
+
+// Drive the "I won" flow end to end: confirm the win, then complete the inline
+// term-dates step the flow now requires before the elected office is created
+// (so the EO is never left term-date-less / in serve-onboarding limbo). Lands on
+// the Chief of Staff home once the office is created.
+export const winRaceWithTermDates = async (page: Page): Promise<void> => {
+  await page.goto('/dashboard/election-result')
+  await wait(250)
+  await page
+    .getByRole('button', { name: 'I won my race' })
+    .click({ timeout: 10_000 })
+  await pickTermDate(page, 'term-start-date', '2023-01-01')
+  await pickTermDate(page, 'term-end-date', '2027-01-01')
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 15_000 })
+}
+
 type SetupResult = {
   user: AuthenticatedUser
   client: AxiosInstance
@@ -47,12 +87,7 @@ export const setupElectedOfficeUser = async (
     race,
   })
 
-  await page.goto('/dashboard/election-result')
-  await wait(250)
-  await page
-    .getByRole('button', { name: 'I won my race' })
-    .click({ timeout: 10000 })
-  await page.waitForURL('**/dashboard/briefings', { timeout: 15000 })
+  await winRaceWithTermDates(page)
 
   const electedOfficeOrgSlug = await eventually(
     { that: 'an elected office organization is created' },
@@ -131,13 +166,8 @@ export const setupReelectionEligibleUser = async (
   // the just-created campaign's raceId at the BallotReady race hash.
   await client.put('/v1/campaigns/mine', { details: { raceId: hydrated.id } })
 
-  // Win the race -> create the elected office (now with a derivable term).
-  await page.goto('/dashboard/election-result')
-  await wait(250)
-  await page
-    .getByRole('button', { name: 'I won my race' })
-    .click({ timeout: 10_000 })
-  await page.waitForURL('**/dashboard/briefings', { timeout: 15_000 })
+  // Win the race -> create the elected office (term dates entered inline).
+  await winRaceWithTermDates(page)
 
   return client
 }

@@ -5,12 +5,11 @@ import {
   ChatMessageSegmentKind,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
-import { z } from 'zod'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
   LlmService,
   LlmStreamResult,
-  LlmStreamTool,
+  LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
@@ -38,7 +37,7 @@ export interface StreamArgs {
   conversationId: string
   ownerUserId: number
   systemPrompt: string
-  tools: Record<string, LlmStreamTool<z.ZodTypeAny>>
+  tools: Record<string, LlmTool>
   userMessage: string
   signal?: AbortSignal
   clientMessageId?: string
@@ -121,10 +120,8 @@ const roleToOpenAiRole = (
 const toLlmMessages = (
   systemPrompt: string,
   history: ChatMessage[],
-): ChatCompletionMessageParam[] => {
-  const out: ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-  ]
+): LlmMessage[] => {
+  const out: LlmMessage[] = [{ role: 'system', content: systemPrompt }]
   for (const m of history) {
     const role = roleToOpenAiRole(m.role)
     if (role === 'system') {

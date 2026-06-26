@@ -176,7 +176,9 @@ export const OrganizationPicker = () => {
 
     const isOnSharedPage = SHARED_PATHS.some((p) => pathname?.startsWith(p))
     if (!isOnSharedPage) {
-      router.push(org.electedOfficeId ? '/dashboard/briefings' : '/dashboard')
+      router.push(
+        org.electedOfficeId ? '/dashboard/chief-of-staff' : '/dashboard',
+      )
     }
   }
 
