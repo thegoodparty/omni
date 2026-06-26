@@ -20,6 +20,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_COLLECTION,
@@ -41,6 +42,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     private readonly features: FeaturesService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly electionApi: ElectionApiService,
+    private readonly campaignStrategy: CampaignStrategyService,
   ) {
     super()
   }
@@ -78,13 +80,59 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       )
     }
 
-    const opponents = await this.buildOpponents(campaign.id)
-    if (opponents.length === 0) {
-      throw new BadRequestException(
-        'No opponents found — generate the campaign plan first.',
-      )
+    const { opponents, oppositionPersistedAt } = await this.loadOpposition(
+      campaign.id,
+    )
+
+    // Plan already identified opponents (the campaign plan ran, or a prior
+    // discovery landed names) — collect them now, exactly as before.
+    if (opponents.length > 0) {
+      return this.dispatchCollection(campaign, clerkUserId, opponents)
     }
 
+    // No names, but discovery already ran and found none: a genuinely
+    // uncontested race. Settle to idle rather than re-dispatching discovery on
+    // every poll/click. Keyed on the persist marker, NOT "opponents is empty"
+    // alone, so a never-discovered race still triggers discovery below.
+    if (oppositionPersistedAt) {
+      return { runId: null, status: 'idle' }
+    }
+
+    // No names and no discovery yet: discover opponents the same way the
+    // campaign plan does (opposition_research), then auto-chain collection when
+    // it completes (RaceOpponentPersistService). Discovery lives only in that
+    // experiment so the two paths can't drift.
+    const discovery =
+      await this.campaignStrategy.ensureOppositionResearch(campaign)
+
+    if (discovery.disposition === 'persisted') {
+      // Discovery completed between our read and the dispatch attempt — collect
+      // with whatever just landed (empty => still uncontested).
+      const discovered = await this.buildOpponents(campaign.id)
+      return discovered.length > 0
+        ? this.dispatchCollection(campaign, clerkUserId, discovered)
+        : { runId: null, status: 'idle' }
+    }
+
+    if (discovery.disposition === 'inflight') {
+      await this.markCollectionPending(campaign.id)
+      return { runId: discovery.oppositionRunId, status: 'discovering' }
+    }
+
+    // 'unavailable' — no race, election-api down, attempt cap reached, or SQS
+    // send failed. Logged inside ensureOppositionResearch; surface a calm idle
+    // rather than a 500 so the page shows its empty state.
+    return { runId: null, status: 'idle' }
+  }
+
+  // Shared collection-dispatch path: the in-flight dedup + race_opponent_collection
+  // dispatch, reused by collect() (plan opponents present) and the auto-chain
+  // after discovery. The dedup is unchanged from the original collect().
+  private async dispatchCollection(
+    campaign: CampaignWith<'user'>,
+    clerkUserId: string,
+    opponents: { full_name: string }[],
+  ): Promise<RaceOpponentCollectResponse> {
     // Reuse an already-in-flight run instead of dispatching a duplicate: a
     // double-click or client retry would otherwise spawn a second paid Fargate
     // run whose persist would later wipe the first's rows on completion. Mirrors
@@ -115,8 +163,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       organizationSlug: campaign.organizationSlug,
       clerkUserId,
       params: {
-        // The contract types opponents as a non-empty tuple; the length guard
-        // above makes that true at runtime, but the type can't prove it.
+        // The contract types opponents as a non-empty tuple; the caller only
+        // passes non-empty arrays, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         opponents: opponents as CollectionInput['opponents'],
         race_context: await this.buildRaceContext(campaign),
@@ -131,6 +179,59 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: run.runId, status: 'running' }
   }
 
+  // Auto-chain entry point, called from RaceOpponentPersistService when an
+  // opposition_research run completes (the plan's hook has already persisted
+  // the opponents upstream in the queue consumer). If collect() left a
+  // collection pending, dispatch it now with the freshly-persisted names, then
+  // clear the flag. The flag is the idempotency guard: a duplicate completion
+  // delivery finds it cleared and no-ops. Zero opponents (uncontested race)
+  // clears the flag WITHOUT dispatching, so the next poll settles to idle
+  // instead of re-discovering.
+  async chainCollectionAfterDiscovery(campaignId: number): Promise<void> {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      select: { raceOpponentCollectionPendingAt: true },
+    })
+    if (!plan?.raceOpponentCollectionPendingAt) return
+
+    const opponents = await this.buildOpponents(campaignId)
+    if (opponents.length === 0) {
+      await this.clearCollectionPending(campaignId)
+      return
+    }
+
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    const clerkUserId = campaign?.user?.clerkId
+    if (!campaign || !clerkUserId) {
+      this.logger.warn(
+        { campaignId },
+        'opponents discovered but campaign/user unavailable; clearing pending',
+      )
+      await this.clearCollectionPending(campaignId)
+      return
+    }
+
+    await this.dispatchCollection(campaign, clerkUserId, opponents)
+    await this.clearCollectionPending(campaignId)
+  }
+
+  private async markCollectionPending(campaignId: number): Promise<void> {
+    await this.client.campaignStrategy.update({
+      where: { campaignId },
+      data: { raceOpponentCollectionPendingAt: new Date() },
+    })
+  }
+
+  private async clearCollectionPending(campaignId: number): Promise<void> {
+    await this.client.campaignStrategy.update({
+      where: { campaignId },
+      data: { raceOpponentCollectionPendingAt: null },
+    })
+  }
+
   async get(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
     await this.assertAccess(campaign)
 
@@ -142,18 +243,36 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return {
       opponents: this.groupByOpponent(rows),
       lastCollectedAt: this.lastCollectedAt(rows),
-      collectionStatus: await this.collectionStatus(campaign.organizationSlug),
+      collectionStatus: await this.collectionStatus(
+        campaign.id,
+        campaign.organizationSlug,
+      ),
     }
   }
 
   private async buildOpponents(
     campaignId: number,
   ): Promise<{ full_name: string }[]> {
+    return (await this.loadOpposition(campaignId)).opponents
+  }
+
+  // The plan's opponent names plus its opposition persist marker, read in one
+  // query. collect() needs both: the marker distinguishes "never discovered"
+  // (trigger discovery) from "discovered, uncontested" (settle to idle).
+  private async loadOpposition(campaignId: number): Promise<{
+    opponents: { full_name: string }[]
+    oppositionPersistedAt: Date | null
+  }> {
     const plan = await this.client.campaignStrategy.findUnique({
       where: { campaignId },
       include: { opponents: true },
     })
-    return (plan?.opponents ?? []).map((o) => ({ full_name: o.fullName }))
+    return {
+      opponents: (plan?.opponents ?? []).map((o) => ({
+        full_name: o.fullName,
+      })),
+      oppositionPersistedAt: plan?.oppositionPersistedAt ?? null,
+    }
   }
 
   // race_context is a discovery hint only (state/city/office/cycle). A missing
@@ -220,9 +339,21 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   // Derived from the latest collection run for this org — there's no status
   // column, the run table is the source of truth. No run -> idle.
+  //
+  // A pending discovery (collect() dispatched opposition_research and is waiting
+  // to auto-chain collection) has no race_opponent_collection run yet, so it
+  // reads as 'discovering' off the plan flag. Once collection is dispatched the
+  // flag is cleared and the run table below takes over (running -> completed).
   private async collectionStatus(
+    campaignId: number,
     organizationSlug: string,
   ): Promise<RaceOpponentCollectionStatus> {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      select: { raceOpponentCollectionPendingAt: true },
+    })
+    if (plan?.raceOpponentCollectionPendingAt) return 'discovering'
+
     const run = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug,

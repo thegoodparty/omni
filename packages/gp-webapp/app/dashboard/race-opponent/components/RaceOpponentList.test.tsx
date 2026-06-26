@@ -101,4 +101,21 @@ describe('<RaceOpponentList>', () => {
 
     await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
   })
+
+  it('shows discovering and keeps Collect disabled while discovering', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 200,
+      data: { runId: 'opposition-1', status: 'discovering' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.click(screen.getByRole('button', { name: /collect now/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText('Discovering opponents')).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: /collect now/i })).toBeDisabled()
+  })
 })

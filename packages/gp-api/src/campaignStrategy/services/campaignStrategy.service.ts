@@ -44,7 +44,10 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { isTestCampaign } from '@/users/util/users.util'
 
-const OPPOSITION = 'opposition_research'
+// Exported so the race-opponent flow can match this experiment type on
+// completion (auto-chaining collection after discovery) without re-declaring
+// the literal.
+export const OPPOSITION_RESEARCH = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
 
 const EMPTY_COMMUNITY_EVENTS: CommunityEventsResult = { events: [] }
@@ -255,13 +258,91 @@ export class CampaignStrategyService
     })
   }
 
+  // Dispatch port for the race-opponent flow: ensure opposition_research has
+  // run (or is running) for this campaign so opponent NAMES get discovered —
+  // without also dispatching the paid opportunities_and_challenges section that
+  // getOrGenerateStrategicLandscape would. Reuses the plan's own dedup +
+  // attempt-cap machinery (upsert/align, sectionState, attemptOpposition), so
+  // discovery lives in exactly one place and the two paths can't drift.
+  //
+  // Degrades to 'unavailable' (logged, never thrown) when there's no race,
+  // election-api is down, or the attempt cap / SQS send fails, so the
+  // race-opponent collect path never 500s on a setup gap.
+  async ensureOppositionResearch(campaign: CampaignWith<'user'>): Promise<{
+    disposition: 'inflight' | 'persisted' | 'unavailable'
+    oppositionRunId: string | null
+  }> {
+    const clerkUserId = campaign.user?.clerkId
+    if (!clerkUserId)
+      return { disposition: 'unavailable', oppositionRunId: null }
+
+    const parsed = CampaignDetailsSchema.safeParse(campaign.details)
+    const brHashId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
+    if (brHashId.length === 0) {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+
+    const plan = await this.alignPlanWithRace(
+      await this.upsertForCampaign(campaign.id, brHashId),
+      brHashId,
+    )
+
+    const [opposition, opportunities] = await Promise.all([
+      this.runFor(plan.oppositionRunId),
+      this.runFor(plan.opportunitiesRunId),
+    ])
+    const state = this.sectionState(opposition, plan.oppositionPersistedAt)
+    if (state === 'persisted') {
+      return { disposition: 'persisted', oppositionRunId: plan.oppositionRunId }
+    }
+    if (state === 'inflight') {
+      return { disposition: 'inflight', oppositionRunId: plan.oppositionRunId }
+    }
+
+    // 'redispatch': build params (election-api) then claim+dispatch opposition.
+    let params: StrategicLandscapeParams
+    try {
+      params = await this.params.build(campaign, brHashId)
+    } catch (error) {
+      if (
+        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof BadGatewayException
+      ) {
+        this.logger.warn(
+          { error, campaignId: campaign.id, raceId: brHashId },
+          'election-api unavailable while discovering opponents; reporting unavailable',
+        )
+        return { disposition: 'unavailable', oppositionRunId: null }
+      }
+      throw error
+    }
+
+    const freshStart =
+      this.sectionState(opportunities, plan.opportunitiesPersistedAt) !==
+      'inflight'
+    const result = await this.attemptOpposition(
+      campaign.userId,
+      plan,
+      { organizationSlug: campaign.organizationSlug, clerkUserId, params },
+      freshStart,
+    )
+    if (result !== 'inflight') {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+    const linked = await this.findFirst({ where: { id: plan.id } })
+    return {
+      disposition: 'inflight',
+      oppositionRunId: linked?.oppositionRunId ?? null,
+    }
+  }
+
   // Queue-consumer hook: when one of the two CAP runs completes, load its
   // artifact and persist that section. Each section persists independently;
   // the endpoint reports 'ready' once both sections are persisted.
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
     if (run.status !== ExperimentRunStatus.COMPLETED) return
     if (
-      run.experimentType !== OPPOSITION &&
+      run.experimentType !== OPPOSITION_RESEARCH &&
       run.experimentType !== OPPORTUNITIES
     ) {
       return
@@ -279,7 +360,7 @@ export class CampaignStrategyService
 
     const plan = await this.findFirst({
       where:
-        run.experimentType === OPPOSITION
+        run.experimentType === OPPOSITION_RESEARCH
           ? { oppositionRunId: run.runId }
           : { opportunitiesRunId: run.runId },
     })
@@ -307,7 +388,7 @@ export class CampaignStrategyService
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
 
-      if (run.experimentType === OPPOSITION) {
+      if (run.experimentType === OPPOSITION_RESEARCH) {
         await this.persister.persistOpponents(
           plan.id,
           runRace,
@@ -712,7 +793,7 @@ export class CampaignStrategyService
     })
     if (claimed.count === 0) return 'dead'
 
-    const runId = await this.tryDispatch(OPPOSITION, base)
+    const runId = await this.tryDispatch(OPPOSITION_RESEARCH, base)
     if (!runId) return 'stalled'
 
     if (freshStart) {
@@ -828,7 +909,7 @@ export class CampaignStrategyService
   // it's bounded by MAX_SECTION_ATTEMPTS). We don't touch dispatchRun's throw
   // contract here because it's shared (meetings/TCR/admin).
   private async tryDispatch(
-    type: typeof OPPOSITION | typeof OPPORTUNITIES,
+    type: typeof OPPOSITION_RESEARCH | typeof OPPORTUNITIES,
     base: DispatchBase,
   ): Promise<string | undefined> {
     try {

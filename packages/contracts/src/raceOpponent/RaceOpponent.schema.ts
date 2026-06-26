@@ -26,6 +26,9 @@ export type RaceOpponent = z.infer<typeof RaceOpponentSchema>
 
 export const RACE_OPPONENT_COLLECTION_STATUS_VALUES = [
   'idle',
+  // Opponents aren't known yet: opposition_research is identifying them (or its
+  // auto-chained collection is pending) before collection can begin.
+  'discovering',
   'running',
   'completed',
   'failed',

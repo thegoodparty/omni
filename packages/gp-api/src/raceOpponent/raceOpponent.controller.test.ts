@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
+import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunStatus } from '@/generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,10 +17,13 @@ const GET_PATH = '/v1/campaigns/mine/race-opponent'
 const JANE = 'Jane Rival'
 const BALLOTPEDIA = 'ballotpedia'
 
+const RACE_HASH = 'race-hash-1'
+
 const seedCampaign = async (opts: {
   slug: string
   ownerId: number
   isPro: boolean
+  raceId?: string
 }) => {
   await service.prisma.organization.create({
     data: { slug: opts.slug, ownerId: opts.ownerId },
@@ -30,13 +34,16 @@ const seedCampaign = async (opts: {
       slug: `${opts.slug}-campaign`,
       organizationSlug: opts.slug,
       isPro: opts.isPro,
+      ...(opts.raceId ? { details: { raceId: opts.raceId } } : {}),
     },
   })
 }
 
 const seedOpponents = async (campaignId: number, names: string[]) => {
-  const plan = await service.prisma.campaignStrategy.create({
-    data: { campaignId, raceId: 'race-hash-1' },
+  const plan = await service.prisma.campaignStrategy.upsert({
+    where: { campaignId },
+    create: { campaignId, raceId: RACE_HASH },
+    update: {},
   })
   await service.prisma.campaignStrategyOpponent.createMany({
     data: names.map((fullName) => ({
@@ -45,6 +52,17 @@ const seedOpponents = async (campaignId: number, names: string[]) => {
       partyAffiliation: 'Independent',
     })),
   })
+  return plan
+}
+
+// Stub the opposition_research params build (election-api) so a discovery
+// dispatch is exercised without real HTTP. dispatchRun itself is stubbed
+// per-test; the fire-and-forget analytics track is a no-op in test env.
+const stubDiscoveryDispatch = () => {
+  vi.spyOn(
+    service.app.get(StrategicLandscapeParamsService),
+    'build',
+  ).mockResolvedValue({} as never)
 }
 
 const flagOn = () =>
@@ -73,6 +91,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
 
     expect(result.status).toBe(201)
     expect(result.data).toEqual({ runId: 'run-123', status: 'running' })
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'race_opponent_collection',
@@ -81,6 +100,10 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
           opponents: [{ full_name: JANE }, { full_name: 'John Foe' }],
         }),
       }),
+    )
+    // Plan already has opponents — no discovery run.
+    expect(dispatchRun).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'opposition_research' }),
     )
   })
 
@@ -116,13 +139,90 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
-  it('400s when the campaign has no plan opponents', async () => {
+  it('dispatches opposition_research (not a 400) when there are no plan opponents but a resolvable race', async () => {
+    await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+      raceId: RACE_HASH,
+    })
+    flagOn()
+    stubDiscoveryDispatch()
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'opp-run-1' } as never)
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ runId: 'opp-run-1', status: 'discovering' })
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'opposition_research' }),
+    )
+    // No names yet — collection is deferred until discovery completes.
+    expect(dispatchRun).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_collection' }),
+    )
+    const plan = await service.prisma.campaignStrategy.findFirstOrThrow({
+      where: { raceId: RACE_HASH },
+    })
+    expect(plan.raceOpponentCollectionPendingAt).not.toBeNull()
+  })
+
+  it('reuses an in-flight opposition_research run instead of dispatching a duplicate', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
+      raceId: RACE_HASH,
     })
-    expect(campaign.id).toBeGreaterThan(0)
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-inflight',
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: 'opp-inflight',
+      },
+    })
+    flagOn()
+    stubDiscoveryDispatch()
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      runId: 'opp-inflight',
+      status: 'discovering',
+    })
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('settles to idle (no 500, no dispatch) when there is no resolvable race', async () => {
+    await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
     flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
@@ -135,7 +235,41 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       { headers: { [ORG_SLUG_HEADER]: SLUG } },
     )
 
-    expect(result.status).toBe(400)
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ runId: null, status: 'idle' })
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('does not re-dispatch discovery for an uncontested race already discovered', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+      raceId: RACE_HASH,
+    })
+    // Discovery already ran and found nobody: persisted marker set, no opponents.
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionPersistedAt: new Date(),
+      },
+    })
+    flagOn()
+    stubDiscoveryDispatch()
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ runId: null, status: 'idle' })
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
@@ -282,6 +416,29 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
       collectionStatus: 'idle',
     })
   })
+
+  it('reports discovering while a discovery collection is pending', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        raceOpponentCollectionPendingAt: new Date(),
+      },
+    })
+    flagOn()
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('discovering')
+  })
 })
 
 describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
@@ -371,12 +528,12 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
     expect(rows[0].runId).toBe('run-b')
   })
 
-  it('is a no-op for a non-race_opponent_collection run', async () => {
+  it('is a no-op for an unrelated experiment type', async () => {
     const run = await service.prisma.experimentRun.create({
       data: {
         runId: 'run-other',
         organizationSlug: SLUG,
-        experimentType: 'opposition_research',
+        experimentType: 'meeting_briefing',
         status: ExperimentRunStatus.COMPLETED,
         artifactBucket: 'bucket',
         artifactKey: 'run-other.json',
@@ -393,6 +550,80 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(0)
+  })
+
+  it('auto-chains race_opponent_collection when discovery completes with a pending collection', async () => {
+    const plan = await seedOpponents(campaignId, [JANE])
+    await service.prisma.campaignStrategy.update({
+      where: { id: plan.id },
+      data: { raceOpponentCollectionPendingAt: new Date() },
+    })
+    const oppositionRun = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-done',
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'opp-done.json',
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'collection-run' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(oppositionRun)
+
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'race_opponent_collection',
+        params: expect.objectContaining({
+          opponents: [{ full_name: JANE }],
+        }),
+      }),
+    )
+    const cleared = await service.prisma.campaignStrategy.findUniqueOrThrow({
+      where: { id: plan.id },
+    })
+    expect(cleared.raceOpponentCollectionPendingAt).toBeNull()
+  })
+
+  it('clears pending without dispatching when discovery found no opponents', async () => {
+    const plan = await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId,
+        raceId: RACE_HASH,
+        oppositionPersistedAt: new Date(),
+        raceOpponentCollectionPendingAt: new Date(),
+      },
+    })
+    const oppositionRun = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-empty',
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'opp-empty.json',
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(oppositionRun)
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+    const cleared = await service.prisma.campaignStrategy.findUniqueOrThrow({
+      where: { id: plan.id },
+    })
+    expect(cleared.raceOpponentCollectionPendingAt).toBeNull()
   })
 
   it('drops items with no source_url but keeps valid ones, run stays COMPLETED', async () => {

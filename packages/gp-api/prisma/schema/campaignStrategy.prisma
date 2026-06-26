@@ -49,6 +49,14 @@ model CampaignStrategy {
   // Sidecar type: PrismaJson.CommunityEventsResult.
   communityEvents Json? @map("community_events")
 
+  // Set when a race-opponent collection was requested for a campaign that had
+  // no plan opponents yet, so collect() kicked off opposition_research to
+  // discover them first. The auto-chain (RaceOpponentPersistService) reads this
+  // when opposition_research completes: if set, it dispatches
+  // race_opponent_collection with the freshly-persisted opponents, then clears
+  // it. Nullable = no pending collection.
+  raceOpponentCollectionPendingAt DateTime? @map("race_opponent_collection_pending_at")
+
   @@index([oppositionRunId])
   @@index([opportunitiesRunId])
   @@map("campaign_strategy")

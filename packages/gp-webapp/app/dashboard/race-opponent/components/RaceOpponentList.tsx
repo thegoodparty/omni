@@ -20,6 +20,7 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
 const STATUS_LABELS: Record<RaceOpponentResponse['collectionStatus'], string> =
   {
     idle: 'Idle',
+    discovering: 'Discovering opponents',
     running: 'Running',
     completed: 'Completed',
     failed: 'Failed',
@@ -133,7 +134,11 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
     }
   }
 
-  const isRunning = data.collectionStatus === 'running'
+  // Discovery (opposition_research) and collection both keep the run busy, so
+  // both disable a fresh Collect to avoid stacking paid runs.
+  const isBusy =
+    data.collectionStatus === 'running' ||
+    data.collectionStatus === 'discovering'
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
@@ -158,7 +163,7 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={collect}
-            disabled={collecting || isRunning}
+            disabled={collecting || isBusy}
             className="flex items-center gap-1.5"
           >
             <RefreshIcon className="size-4" aria-hidden />
