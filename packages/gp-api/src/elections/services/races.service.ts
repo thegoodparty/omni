@@ -465,12 +465,8 @@ export class RacesService {
     let decodedContent: Record<string, string> = {}
     try {
       const completion = await this.llm.toolCompletion({
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        messages: messages as Parameters<
-          typeof this.llm.toolCompletion
-        >[0]['messages'],
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        tools: [tool] as Parameters<typeof this.llm.toolCompletion>[0]['tools'],
+        messages,
+        tools: [tool],
         toolChoice,
       })
 

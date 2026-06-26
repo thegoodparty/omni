@@ -3,7 +3,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 const VALID_ROLES = new Set(['system', 'user', 'assistant'])
 
 /**
- * Convert a stored chat-message-shaped record into an OpenAI
+ * Convert a stored chat-message-shaped record into an
  * `LlmMessage`. Returns `undefined` for any record
  * whose role is not one of `'system' | 'user' | 'assistant'`.
  *

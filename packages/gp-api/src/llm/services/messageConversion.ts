@@ -43,7 +43,8 @@ const convertMessage = (
       return convertToolMessage(m, toolCallNames)
     default: {
       const exhaustiveCheck: never = m
-      return exhaustiveCheck
+      const role = (exhaustiveCheck as { role?: string }).role ?? 'unknown'
+      throw new Error(`Unsupported message role for AI SDK conversion: ${role}`)
     }
   }
 }
