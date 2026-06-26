@@ -210,5 +210,21 @@ export class CommunityIssueService extends createPrismaBase(
           .catch(() => undefined)
       }
     }
+
+    // An existing main-list issue whose priority moved this refresh — answers
+    // "is something on the main list changing in urgency?". Only top_community
+    // changes are collected, and these only occur on refreshes (a first
+    // generation has no existing issues to change).
+    for (const issue of summary.topPriorityChanges) {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TopIssuePriorityChanged, {
+          issueId: issue.id,
+          title: issue.title,
+          summary: issue.summary,
+          previousPriority: issue.previousPriority,
+          priority: issue.priority,
+        })
+        .catch(() => undefined)
+    }
   }
 }

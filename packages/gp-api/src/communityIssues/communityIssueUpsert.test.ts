@@ -589,4 +589,57 @@ describe('CommunityIssueService analytics events', () => {
     expect(high).toHaveLength(1)
     expect(high[0][2]).toMatchObject({ title: 'New High Issue' })
   })
+
+  it('fires Top Issue Priority Changed when a main-list issue changes priority', async () => {
+    const existing = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.low,
+        title: 'Pothole backlog',
+        summary: 'Crews are behind on road repairs.',
+        rank: 1,
+      },
+    })
+
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(1, {
+        existing_issue_id: existing.id,
+        priority: 'high',
+        title: 'Pothole backlog',
+        summary: 'Crews are behind on road repairs.',
+      }),
+    ])
+
+    const changes = callsFor(EVENTS.CommunityIssues.TopIssuePriorityChanged)
+    expect(changes).toHaveLength(1)
+    expect(changes[0][2]).toMatchObject({
+      issueId: existing.id,
+      previousPriority: 'low',
+      priority: 'high',
+    })
+  })
+
+  it('does not fire Top Issue Priority Changed for the trending list', async () => {
+    const existing = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueList.trending,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.low,
+        title: 'Parking fee proposal',
+        summary: 'Pushback on a meter rate hike.',
+        rank: 1,
+      },
+    })
+
+    await generate('trending_issues', 'trending', [
+      makeIssue(1, { existing_issue_id: existing.id, priority: 'high' }),
+    ])
+
+    expect(
+      callsFor(EVENTS.CommunityIssues.TopIssuePriorityChanged),
+    ).toHaveLength(0)
+  })
 })

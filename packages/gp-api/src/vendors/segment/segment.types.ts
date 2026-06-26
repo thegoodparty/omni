@@ -99,6 +99,7 @@ export const EVENTS = {
     InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
     HighPriorityTrendingIssueCreated:
       'Community Issues - High Priority Trending Issue Created',
+    TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
   },
 }
 

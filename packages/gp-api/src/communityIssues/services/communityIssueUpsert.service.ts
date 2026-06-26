@@ -17,6 +17,14 @@ export type CommunityIssueUpsertSummary = {
   wasFirstGenerationForList: boolean
   // Rows newly created (not refreshed) on the trending list with high priority.
   newHighPriorityTrending: { id: string; title: string; summary: string }[]
+  // Existing top_community (main list) issues whose priority changed this run.
+  topPriorityChanges: {
+    id: string
+    title: string
+    summary: string
+    previousPriority: CommunityIssuePriority
+    priority: CommunityIssuePriority
+  }[]
 }
 
 @Injectable()
@@ -52,44 +60,52 @@ export class CommunityIssueUpsertService extends createPrismaBase(
       (i) => typeof i.existing_issue_id !== 'string',
     )
 
-    if (idCarrying.length > 0) {
-      const rows = await this.model.findMany({
-        where: {
-          id: { in: idCarrying.map((i) => i.existing_issue_id) },
-        },
-        select: { id: true, organizationSlug: true, list: true },
-      })
-      const rowMap = new Map(rows.map((r) => [r.id, r]))
-      for (const issue of idCarrying) {
-        const row = rowMap.get(issue.existing_issue_id)
-        if (!row) {
-          this.logger.error(
-            { runId: run.runId, existingIssueId: issue.existing_issue_id },
-            'existing_issue_id not found — rejecting run',
-          )
-          return null
-        }
-        if (
-          row.organizationSlug !== artifact.organization_slug ||
-          row.list !== list
-        ) {
-          this.logger.error(
-            {
-              runId: run.runId,
-              existingIssueId: issue.existing_issue_id,
-              rowOrg: row.organizationSlug,
-              rowList: row.list,
-              artifactOrg: artifact.organization_slug,
-              artifactList: list,
+    const existingRows =
+      idCarrying.length > 0
+        ? await this.model.findMany({
+            where: {
+              id: { in: idCarrying.map((i) => i.existing_issue_id) },
             },
-            'existing_issue_id belongs to wrong org or list — rejecting run',
-          )
-          return null
-        }
+            select: {
+              id: true,
+              organizationSlug: true,
+              list: true,
+              priority: true,
+            },
+          })
+        : []
+    const existingById = new Map(existingRows.map((r) => [r.id, r]))
+    for (const issue of idCarrying) {
+      const row = existingById.get(issue.existing_issue_id)
+      if (!row) {
+        this.logger.error(
+          { runId: run.runId, existingIssueId: issue.existing_issue_id },
+          'existing_issue_id not found — rejecting run',
+        )
+        return null
+      }
+      if (
+        row.organizationSlug !== artifact.organization_slug ||
+        row.list !== list
+      ) {
+        this.logger.error(
+          {
+            runId: run.runId,
+            existingIssueId: issue.existing_issue_id,
+            rowOrg: row.organizationSlug,
+            rowList: row.list,
+            artifactOrg: artifact.organization_slug,
+            artifactList: list,
+          },
+          'existing_issue_id belongs to wrong org or list — rejecting run',
+        )
+        return null
       }
     }
 
     const newHighPriorityTrending: CommunityIssueUpsertSummary['newHighPriorityTrending'] =
+      []
+    const topPriorityChanges: CommunityIssueUpsertSummary['topPriorityChanges'] =
       []
 
     // Assumes at most one in-flight run per (org, list). Concurrent runs for the
@@ -110,6 +126,20 @@ export class CommunityIssueUpsertService extends createPrismaBase(
             lastRefreshedRunId: run.runId,
           },
         })
+        const previous = existingById.get(issue.existing_issue_id)
+        if (
+          list === CommunityIssueList.top_community &&
+          previous &&
+          previous.priority !== issue.priority
+        ) {
+          topPriorityChanges.push({
+            id: issue.existing_issue_id,
+            title: issue.title,
+            summary: issue.summary,
+            previousPriority: previous.priority,
+            priority: issue.priority,
+          })
+        }
       }
 
       const updatedIds = new Set(idCarrying.map((i) => i.existing_issue_id))
@@ -155,6 +185,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
       list,
       wasFirstGenerationForList: existingCount === 0 && idLess.length > 0,
       newHighPriorityTrending,
+      topPriorityChanges,
     }
   }
 }
