@@ -9,16 +9,14 @@ import {
   type UserModelMessage,
 } from 'ai'
 import {
-  ChatCompletionAssistantMessageParam,
-  ChatCompletionContentPart,
-  ChatCompletionContentPartText,
-  ChatCompletionMessageParam,
-  ChatCompletionToolMessageParam,
-} from 'openai/resources/chat/completions'
+  type LlmAssistantMessage,
+  type LlmMessage,
+  type LlmSystemMessage,
+  type LlmToolMessage,
+  type LlmUserMessage,
+} from '../types/llmMessages.types'
 
-export const toModelMessages = (
-  messages: ChatCompletionMessageParam[],
-): ModelMessage[] => {
+export const toModelMessages = (messages: LlmMessage[]): ModelMessage[] => {
   const toolCallNames = new Map<string, string>()
   return messages.map((m) => {
     if (m.role === 'assistant' && m.tool_calls) {
@@ -31,7 +29,7 @@ export const toModelMessages = (
 }
 
 const convertMessage = (
-  m: ChatCompletionMessageParam,
+  m: LlmMessage,
   toolCallNames: Map<string, string>,
 ): ModelMessage => {
   switch (m.role) {
@@ -43,11 +41,6 @@ const convertMessage = (
       return convertAssistantMessage(m)
     case 'tool':
       return convertToolMessage(m, toolCallNames)
-    case 'function':
-    case 'developer':
-      throw new Error(
-        `Unsupported message role for AI SDK conversion: ${m.role}`,
-      )
     default: {
       const exhaustiveCheck: never = m
       return exhaustiveCheck
@@ -55,10 +48,7 @@ const convertMessage = (
   }
 }
 
-const convertSystemMessage = (m: {
-  role: 'system'
-  content: string | Array<ChatCompletionContentPartText>
-}): SystemModelMessage => {
+const convertSystemMessage = (m: LlmSystemMessage): SystemModelMessage => {
   const content =
     typeof m.content === 'string'
       ? m.content
@@ -66,10 +56,7 @@ const convertSystemMessage = (m: {
   return { role: 'system', content }
 }
 
-const convertUserMessage = (m: {
-  role: 'user'
-  content: string | Array<ChatCompletionContentPart>
-}): UserModelMessage => {
+const convertUserMessage = (m: LlmUserMessage): UserModelMessage => {
   if (typeof m.content === 'string') {
     return { role: 'user', content: m.content }
   }
@@ -80,8 +67,6 @@ const convertUserMessage = (m: {
         parts.push({ type: 'text', text: part.text })
         break
       case 'image_url':
-      case 'input_audio':
-      case 'file':
         break
       default: {
         const exhaustiveCheck: never = part
@@ -94,7 +79,7 @@ const convertUserMessage = (m: {
 }
 
 const convertAssistantMessage = (
-  m: ChatCompletionAssistantMessageParam,
+  m: LlmAssistantMessage,
 ): AssistantModelMessage => {
   const textContent = extractAssistantText(m.content)
 
@@ -118,30 +103,19 @@ const convertAssistantMessage = (
 }
 
 const extractAssistantText = (
-  content: ChatCompletionAssistantMessageParam['content'],
+  content: LlmAssistantMessage['content'],
 ): string => {
   if (typeof content === 'string') {
     return content
   }
   if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        switch (part.type) {
-          case 'text':
-            return part.text
-          case 'refusal':
-            return ''
-          default:
-            return ''
-        }
-      })
-      .join('')
+    return content.map((part) => part.text).join('')
   }
   return ''
 }
 
 const convertToolMessage = (
-  m: ChatCompletionToolMessageParam,
+  m: LlmToolMessage,
   toolCallNames: Map<string, string>,
 ): ToolModelMessage => {
   const text =

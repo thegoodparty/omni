@@ -1,10 +1,10 @@
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 
 const VALID_ROLES = new Set(['system', 'user', 'assistant'])
 
 /**
  * Convert a stored chat-message-shaped record into an OpenAI
- * `ChatCompletionMessageParam`. Returns `undefined` for any record
+ * `LlmMessage`. Returns `undefined` for any record
  * whose role is not one of `'system' | 'user' | 'assistant'`.
  *
  * The input is intentionally loose because callers receive messages
@@ -14,7 +14,7 @@ const VALID_ROLES = new Set(['system', 'user', 'assistant'])
 export const toChatCompletionMessage = (m: {
   role?: unknown
   content?: unknown
-}): ChatCompletionMessageParam | undefined => {
+}): LlmMessage | undefined => {
   const role = typeof m.role === 'string' ? m.role : undefined
   const content = typeof m.content === 'string' ? m.content : undefined
   if (!role || content === undefined || !VALID_ROLES.has(role)) {
@@ -33,5 +33,5 @@ export const toChatCompletionMessage = (m: {
 }
 
 export const isChatCompletionMessage = (
-  m: ChatCompletionMessageParam | undefined,
-): m is ChatCompletionMessageParam => m !== undefined
+  m: LlmMessage | undefined,
+): m is LlmMessage => m !== undefined

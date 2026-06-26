@@ -8,11 +8,12 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import type { JSONSchema7 } from 'json-schema'
 import {
-  ChatCompletionMessageParam,
-  ChatCompletionNamedToolChoice,
-  ChatCompletionTool,
-} from 'openai/resources/chat/completions'
+  type LlmFunctionTool,
+  type LlmMessage,
+  type LlmToolChoice,
+} from '@/llm/types/llmMessages.types'
 import { PositionLevel } from 'src/generated/graphql.types'
 import { LlmService } from '@/llm/services/llm.service'
 import { extractToolCallContent } from '@/ai/util/llmResponseFormat.util'
@@ -397,10 +398,7 @@ export class RacesService {
       }
     }
 
-    const toolProperties: Record<
-      string,
-      { type: string; description: string }
-    > = {}
+    const toolProperties: Record<string, JSONSchema7> = {}
     let systemPrompt: string | undefined
     if (level === 'county') {
       systemPrompt = COUNTY_PROMPT
@@ -438,7 +436,7 @@ export class RacesService {
       description: 'The county name.',
     }
 
-    const tool: ChatCompletionTool = {
+    const tool: LlmFunctionTool = {
       type: 'function',
       function: {
         name: 'extractLocation',
@@ -450,7 +448,7 @@ export class RacesService {
       },
     }
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
@@ -459,7 +457,7 @@ export class RacesService {
       },
     ]
 
-    const toolChoice: ChatCompletionNamedToolChoice = {
+    const toolChoice: LlmToolChoice = {
       type: 'function',
       function: { name: 'extractLocation' },
     }
@@ -467,8 +465,12 @@ export class RacesService {
     let decodedContent: Record<string, string> = {}
     try {
       const completion = await this.llm.toolCompletion({
-        messages,
-        tools: [tool],
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        messages: messages as Parameters<
+          typeof this.llm.toolCompletion
+        >[0]['messages'],
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        tools: [tool] as Parameters<typeof this.llm.toolCompletion>[0]['tools'],
         toolChoice,
       })
 

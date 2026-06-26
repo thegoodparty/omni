@@ -29,7 +29,7 @@ import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { chunk } from 'es-toolkit'
 import ms from 'ms'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
@@ -1178,7 +1178,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       )
       .join('\n')
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'system',
         content:

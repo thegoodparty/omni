@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import retry from 'async-retry'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { LlmService } from 'src/llm/services/llm.service'
 import {
   BraintrustService,
@@ -171,7 +171,7 @@ export class PollBiasAnalysisService {
 
   private async getMessagesWithFallback(
     pollText: string,
-  ): Promise<ChatCompletionMessageParam[]> {
+  ): Promise<LlmMessage[]> {
     const fallback = createPollBiasAnalysisPrompt(pollText)
 
     if (!this.braintrust.enabled) {
@@ -179,9 +179,8 @@ export class PollBiasAnalysisService {
     }
 
     const fallbackMessages = fallback
-      .filter(
-        (msg): msg is ChatCompletionMessageParam & { role: ValidChatRole } =>
-          isValidChatRole(msg.role),
+      .filter((msg): msg is LlmMessage & { role: ValidChatRole } =>
+        isValidChatRole(msg.role),
       )
       .map((msg) => ({
         role: msg.role,
