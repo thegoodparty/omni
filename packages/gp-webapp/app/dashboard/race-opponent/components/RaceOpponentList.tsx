@@ -124,7 +124,7 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
       )
       setData((prev) => ({
         ...prev,
-        collectionStatus: result.collectionStatus,
+        collectionStatus: result.status,
       }))
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')

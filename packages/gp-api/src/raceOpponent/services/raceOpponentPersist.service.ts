@@ -109,15 +109,20 @@ export class RaceOpponentPersistService extends createPrismaBase(
   // cleanly rather than accumulating duplicates.
   //
   // Empty items means either the agent found nothing or every item was dropped
-  // for failing per-item validation. Either way we keep the prior rows rather
-  // than wiping them: a re-collection that yields no trustworthy data must not
-  // destroy a campaign's previously-collected opponents.
+  // for failing per-item validation. We throw rather than no-op: the caller's
+  // catch marks the run FAILED, so the derived status reports failed instead of
+  // sitting completed with stale rows. The throw happens before any deleteMany,
+  // so the campaign's previously-collected opponents are preserved.
   private async replaceForCampaign(
     campaignId: number,
     runId: string,
     items: ArtifactItem[],
   ): Promise<void> {
-    if (items.length === 0) return
+    if (items.length === 0) {
+      throw new Error(
+        'artifact yielded zero valid items — prior rows preserved, run marked failed',
+      )
+    }
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({

@@ -427,7 +427,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
     expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
   })
 
-  it('keeps existing rows when every item is dropped, run stays COMPLETED', async () => {
+  it('keeps existing rows but marks the run FAILED when every item is dropped', async () => {
     await service.prisma.raceOpponent.create({
       data: {
         campaignId,
@@ -452,10 +452,11 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       },
     ])
 
-    await service.app
-      .get(RaceOpponentPersistService)
-      .onExperimentRunCompleted(run)
+    await expect(
+      service.app.get(RaceOpponentPersistService).onExperimentRunCompleted(run),
+    ).rejects.toThrow()
 
+    // Prior rows are preserved — the throw happens before any deleteMany.
     const rows = await service.prisma.raceOpponent.findMany({
       where: { campaignId },
     })
@@ -465,7 +466,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-all-invalid' },
     })
-    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
   })
 
   it('marks the run FAILED when the artifact envelope is unparseable', async () => {

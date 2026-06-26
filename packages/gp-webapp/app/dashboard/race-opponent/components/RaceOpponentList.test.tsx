@@ -91,7 +91,7 @@ describe('<RaceOpponentList>', () => {
   it('triggers a collection and reflects the returned status', async () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
-      data: { collectionStatus: 'running' },
+      data: { runId: 'run-1', status: 'running' },
     })
     const user = userEvent.setup()
 
