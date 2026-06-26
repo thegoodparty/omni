@@ -54,7 +54,11 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
     // On the new tracker = has tracker rows, which only exist after story +
     // plan + launch/pre-launch generation — so this is the cohort gate.
     const campaigns = await this.model.findMany({
-      where: { isActive: true, campaignTrackerTasks: { some: {} } },
+      where: {
+        isActive: true,
+        isDemo: false,
+        campaignTrackerTasks: { some: {} },
+      },
       include: { user: true },
     })
 

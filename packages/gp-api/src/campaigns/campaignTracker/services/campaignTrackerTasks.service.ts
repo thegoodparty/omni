@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { addDays, format, nextMonday, startOfDay } from 'date-fns'
+import { addDays, format, startOfDay } from 'date-fns'
 import { z } from 'zod'
 import {
   Campaign,
@@ -8,7 +8,11 @@ import {
   Prisma,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { parseIsoDateString } from 'src/shared/util/date.util'
+import {
+  CENTRAL_TIMEZONE,
+  nextMondayUtcMidnight,
+  parseIsoDateString,
+} from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
@@ -86,7 +90,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     // for an existing campaign onboarded long ago, whose createdAt-anchored
     // tasks would otherwise all land in the past. Stamped once (idempotent);
     // election-relative tasks still key off the election date.
-    const start = nextMonday(startOfDay(new Date()))
+    const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
     const rows = buildStaticTrackerTaskRows(
       campaign.id,
       start,
@@ -264,12 +268,12 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       if (!raw) throw new Error('artifact is missing or empty')
       const { tasks } = trackerArtifactSchema.parse(JSON.parse(raw))
 
-      const start = startOfDay(new Date())
-      // Dateless tasks are dated across the upcoming Mon-Sun week (index 0 =
-      // next Monday). That window matches the weekly digest's
-      // nextMonday(now)..+7 filter, so the generation's tasks actually land in
-      // the digest instead of falling just before windowStart.
-      const weekStart = nextMonday(start)
+      // Date dateless tasks across the upcoming Mon-Sun week (index 0 = next
+      // Monday). nextMondayUtcMidnight is timezone-aware and shared with the
+      // digest's window calculation, so the generation's tasks land in the
+      // same week the digest filters on, rather than skewing a week past
+      // windowStart when the run completes after UTC-midnight on Monday.
+      const weekStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
       // `week` is the generation index: each run appends the next one, the
       // frontend renders only the highest (latest) dynamic generation, and
       // older generations persist for completion history + prior-task dedupe.

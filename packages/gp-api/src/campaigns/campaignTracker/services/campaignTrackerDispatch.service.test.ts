@@ -62,7 +62,11 @@ describe('CampaignTrackerDispatchService.dispatchWeeklyRegen', () => {
     await h.service.dispatchWeeklyRegen()
     expect(h.prisma.campaign.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { isActive: true, campaignTrackerTasks: { some: {} } },
+        where: {
+          isActive: true,
+          isDemo: false,
+          campaignTrackerTasks: { some: {} },
+        },
       }),
     )
     expect(h.cronLock.markCompleted).toHaveBeenCalled()
