@@ -1,6 +1,5 @@
 'use client'
 import Paper from '@shared/utils/Paper'
-import { UsersRoundIcon } from '@styleguide/components/ui/icons'
 import DashboardLayout from '../../../shared/DashboardLayout'
 import ContactsTable from './ContactsTable'
 import PersonOverlay from './person/PersonOverlay'
@@ -50,7 +49,7 @@ export default function ContactsPage() {
       <DashboardLayout
         navHeader={
           isWinContextReady && !isWinContext
-            ? { icon: UsersRoundIcon, label: labels.dataTitle }
+            ? { icon: 'users', label: labels.dataTitle }
             : undefined
         }
       >

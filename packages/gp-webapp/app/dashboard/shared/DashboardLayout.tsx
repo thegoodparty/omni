@@ -1,9 +1,8 @@
 'use client'
 import { ReactNode, useEffect } from 'react'
-import type { LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
-import DashboardNavHeader from './DashboardNavHeader'
+import DashboardNavHeader, { type NavHeaderIconKey } from './DashboardNavHeader'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -28,7 +27,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
-  navHeader?: { icon: LucideIcon; label: string }
+  navHeader?: { icon: NavHeaderIconKey; label: string }
 }
 
 const DashboardLayout = ({

@@ -5,7 +5,6 @@ import Paper from '@shared/utils/Paper'
 import { PollsTable } from './PollsTable'
 import PollWelcomePage from 'app/polls/welcome/components/PollWelcomePage'
 import { Button, PlusIcon } from '@styleguide'
-import { SendIcon } from '@styleguide/components/ui/icons'
 import Link from 'next/link'
 import { Poll } from '../shared/poll-types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -22,7 +21,7 @@ export default function PollsPage({ pathname, polls }: PollsPageProps) {
     <DashboardLayout
       pathname={pathname}
       showAlert={false}
-      navHeader={{ icon: SendIcon, label: 'Polls' }}
+      navHeader={{ icon: 'send', label: 'Polls' }}
     >
       <Paper className="min-h-full">
         <div className="flex justify-between items-center">

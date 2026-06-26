@@ -2,7 +2,6 @@ import pageMetaData from 'helpers/metadataHelper'
 import { getBriefingsList } from '@shared/briefings/server'
 import { serverRequest } from 'gpApi/server-request'
 import { IS_DEV, IS_LOCAL } from 'appEnv'
-import { ClipboardListIcon } from '@styleguide/components/ui/icons'
 import serveAccess from '../shared/serveAccess'
 import DashboardLayout from '../shared/DashboardLayout'
 import BriefingsLanding from './components/BriefingsLanding'
@@ -38,7 +37,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       pathname="/dashboard/briefings"
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{ icon: ClipboardListIcon, label: 'Briefing Assistant' }}
+      navHeader={{ icon: 'clipboard', label: 'Briefing Assistant' }}
     >
       <TrackBriefingListViewed />
       <BriefingsLanding
