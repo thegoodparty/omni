@@ -16,17 +16,17 @@
  */
 
 /* 1. Raw CSS variables that @theme will reference via var() */
-@import '../styleguide/design-tokens.css';
+@import '../../styleguide/src/design-tokens.css';
 
 /* 2. Core Tailwind - MUST come before @theme, @plugin, @source */
 @import 'tailwindcss';
 
 /* 3. Theme tokens - @theme MUST come AFTER @import "tailwindcss" */
-@import '../styleguide/tailwind-theme.css';
+@import '../../styleguide/src/tailwind-theme.css';
 
 /* 4. Additional CSS imports (all @import must precede @plugin/@source/@custom-variant for PostCSS/Storybook) */
-@import '../styleguide/typography.css';
-@import '../styleguide/styleguide-scope.css';
+@import '../../styleguide/src/typography.css';
+@import '../../styleguide/src/styleguide-scope.css';
 @import 'tw-animate-css';
 
 /* 5. Tailwind v4 plugin (replaces plugins[] in tailwind.config.js) */
@@ -35,7 +35,7 @@
 /* 6. Content sources (replaces content[] in tailwind.config.js) */
 @source "../app";
 @source "../components";
-@source "../styleguide";
+@source "../../styleguide/src";
 
 /* Dark mode variant */
 @custom-variant dark (&:is(.dark *));
@@ -439,6 +439,23 @@ strong {
 @page {
   size: auto;
   margin: 20mm;
+}
+
+/*
+ * The HubSpot chat/help bubble (#hubspot-messages-iframe-container) is injected
+ * with a near-max inline z-index, so an open Radix overlay (Sheet/Dialog) can't
+ * out-stack it by raising its own z-index. Radix locks the body while a modal is
+ * open (data-scroll-locked), so hide the bubble for that window — it reappears
+ * when the overlay closes. Vaul (used for Drawer) does not set data-scroll-locked;
+ * it mounts a [data-vaul-overlay] element only while the drawer is open or
+ * animating closed, so match its mere presence — keying off data-state=open
+ * would unhide the bubble mid-close-animation while the dim overlay is still up.
+ * Use display:none (not visibility:hidden) so the widget also leaves the a11y
+ * tree and tab order while the modal traps focus. ENG-10515.
+ */
+body[data-scroll-locked] #hubspot-messages-iframe-container,
+body:has([data-vaul-overlay]) #hubspot-messages-iframe-container {
+  display: none !important;
 }
 
 .pac-container {

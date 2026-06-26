@@ -36,6 +36,68 @@ describe('people query schemas', () => {
     ).toThrow()
   })
 
+  it('defaults resultsPerPage and page when omitted', () => {
+    const parsed = listPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: {},
+    })
+
+    expect(parsed.resultsPerPage).toBe(50)
+    expect(parsed.page).toBe(1)
+  })
+
+  it('rejects an unbounded resultsPerPage (full-dataset extraction / OOM)', () => {
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        resultsPerPage: 100000000,
+      }),
+    ).toThrow()
+  })
+
+  it('rejects a non-positive page (negative SQL OFFSET)', () => {
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        page: 0,
+      }),
+    ).toThrow()
+  })
+
+  it('rejects an excessively deep page (enormous SQL OFFSET / full scan)', () => {
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        page: 2147483647,
+      }),
+    ).toThrow()
+  })
+
+  it('accepts resultsPerPage at the max bound', () => {
+    const parsed = listPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: {},
+      resultsPerPage: 10000,
+    })
+
+    expect(parsed.resultsPerPage).toBe(10000)
+  })
+
+  it('rejects a page × resultsPerPage offset beyond the cap', () => {
+    // (201 - 1) * 10000 = 2,000,000 > 1,000,000.
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        page: 201,
+        resultsPerPage: 10000,
+      }),
+    ).toThrow()
+  })
+
   it('accepts districtId stats query', () => {
     const parsed = StatsDTO.create({ districtId: DISTRICT_ID })
     expect(parsed.districtId).toBe(DISTRICT_ID)

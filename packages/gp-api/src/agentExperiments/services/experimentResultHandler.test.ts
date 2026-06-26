@@ -66,6 +66,15 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let meetingBriefings: {
     onExperimentRunCompleted: ReturnType<typeof vi.fn>
   }
+  let communityIssue: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
+  let campaignStrategy: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
+  let raceOpponent: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
   let s3Service: { getFile: ReturnType<typeof vi.fn> }
   let logger: PinoLogger
 
@@ -93,6 +102,15 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     meetingBriefings = {
       onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
     }
+    communityIssue = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
+    campaignStrategy = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
+    raceOpponent = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
     s3Service = { getFile: vi.fn().mockResolvedValue(undefined) }
 
     service = new QueueConsumerService(
@@ -102,6 +120,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       {} as never,
       {} as never,
+      {
+        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+      } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -115,12 +136,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       experimentRunsService as never,
       meetingBriefings as never,
-      {
-        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
-      } as never,
-      {
-        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
-      } as never,
+      communityIssue as never,
+      campaignStrategy as never,
+      raceOpponent as never,
       {} as never,
       logger,
     )
@@ -156,6 +174,40 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(meetingBriefings.onExperimentRunCompleted).toHaveBeenCalledWith(
       expect.objectContaining({ status: ExperimentRunStatus.COMPLETED }),
     )
+    expect(communityIssue.onExperimentRunCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ status: ExperimentRunStatus.COMPLETED }),
+    )
+    expect(campaignStrategy.onExperimentRunCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ status: ExperimentRunStatus.COMPLETED }),
+    )
+    expect(raceOpponent.onExperimentRunCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ status: ExperimentRunStatus.COMPLETED }),
+    )
+  })
+
+  // raceOpponent + campaignStrategy persist via a raw await (no .catch), so a
+  // persist fault must propagate out of processMessage — that's what makes SQS
+  // requeue the message instead of silently acking a run that never persisted.
+  // Locks the contract so a future .catch() can't regress it. Contrast with the
+  // meetingBriefings/communityIssue hooks, which deliberately swallow.
+  it('propagates a raceOpponent persist failure so SQS requeues', async () => {
+    raceOpponent.onExperimentRunCompleted.mockRejectedValue(
+      new Error('persist boom'),
+    )
+
+    await expect(
+      service.processMessage(makeMessage({ status: 'success' })),
+    ).rejects.toThrow('persist boom')
+  })
+
+  it('propagates a campaignStrategy persist failure so SQS requeues', async () => {
+    campaignStrategy.onExperimentRunCompleted.mockRejectedValue(
+      new Error('strategy boom'),
+    )
+
+    await expect(
+      service.processMessage(makeMessage({ status: 'success' })),
+    ).rejects.toThrow('strategy boom')
   })
 
   it('modifier returns only writable scalars — no relation FKs or unique keys (would break Prisma update)', async () => {

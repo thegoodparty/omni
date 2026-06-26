@@ -4,13 +4,30 @@ import {
   format,
   isBefore,
   isValid,
+  nextMonday,
   parse,
   parseISO,
   startOfDay,
   subDays,
 } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 
 const ISO_DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export const CENTRAL_TIMEZONE = 'America/Chicago'
+
+// The upcoming calendar Monday at UTC midnight, picked in `timeZone` so the
+// "which Monday" choice follows local intent — e.g. Sunday 11pm Central is
+// still "Sunday" locally though it is already Monday in UTC. Shared by the
+// weekly digest window and the tracker task dating so both agree on the week
+// boundary (tasks are stored as naive UTC-midnight calendar dates).
+export const nextMondayUtcMidnight = (now: Date, timeZone: string): Date => {
+  const nowInZone = toZonedTime(now, timeZone)
+  const monday = nextMonday(nowInZone)
+  return new Date(
+    Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
+  )
+}
 
 export const toDateOnlyString = (d?: Date | null) => {
   return d ? d.toISOString().slice(0, 10) : undefined

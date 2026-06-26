@@ -24,6 +24,7 @@ import {
   overlapsExisting as overlapsExistingRanges,
   TermDatesFields,
   termDateError,
+  termDatesValid,
   toApiDate,
   toDate,
   type DisabledRange,
@@ -35,6 +36,7 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
   shouldSeedInOfficeOnResume,
@@ -51,6 +53,18 @@ import {
 } from './serveOnboardingConfig'
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
+
+// Screens whose "Viewed" event fires once on view (in a useEffect). The two
+// selection screens (`inOffice`, `party`) are deliberately absent: their
+// "Viewed" events carry the chosen card title and so fire on Continue instead.
+const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
+  welcome: SERVE_ONBOARDING_EVENTS.WelcomeViewed,
+  office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
+  confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
+  'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
+  constituents: SERVE_ONBOARDING_EVENTS.KnowYourConstituentsViewed,
+  pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
+}
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
@@ -167,11 +181,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           }
         }
 
-        setOtherRanges(buildDisabledRanges(mine, eo?.id))
-
-        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Activated, {
-          electedOfficeId: eo?.id,
-        })
+        const disabledRanges = buildDisabledRanges(mine, eo?.id)
+        setOtherRanges(disabledRanges)
 
         const termPrefilled = !!(eo?.termStartDate || eo?.termEndDate)
         // Resume markers from the persisted record. `party` is the user's first
@@ -227,13 +238,33 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           eo?.onboardingStep as ServeStepId | null | undefined,
           { hasParty, hasOffice: officePrefilled, hasDates },
         )
+        // Prompt-first confirm gating: a prefill that resumes onto the `confirm`
+        // hub with a missing office or invalid/absent term dates is routed to
+        // fill that piece FIRST (office, then term dates) rather than landing on
+        // confirm with a red error. `officePrefilled` alone isn't enough — a
+        // position id without a display name still shows the placeholder label —
+        // so office-readiness mirrors the render's `officeIsChosen` (a resolved
+        // position NAME). Arm the return-to-confirm detour so the collection
+        // step's Continue brings the user back to re-evaluate.
+        let landingStep = resumeStep
+        if (resumeStep === 'confirm') {
+          landingStep = resolveConfirmEntryStep({
+            officeReady: !!prefillPositionName,
+            datesReady: termDatesValid(
+              toDate(eo?.termStartDate),
+              toDate(eo?.termEndDate),
+              disabledRanges,
+            ),
+          })
+          if (landingStep !== 'confirm') setReturnToConfirm(true)
+        }
         // Seed the UX-only `inOffice` answer whenever we resume past the intro,
         // so backing up to the inOffice step isn't a dead end (its Continue gate
         // needs a selection) and a mis-click on "still campaigning" can't eject
         // a resumed official into the Win flow. Resuming AT welcome/inOffice
         // leaves it unset for the user to choose.
-        if (shouldSeedInOfficeOnResume(resumeStep)) setInOffice('in-office')
-        setStep(resumeStep)
+        if (shouldSeedInOfficeOnResume(landingStep)) setInOffice('in-office')
+        setStep(landingStep)
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
@@ -264,6 +295,34 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       })
     }
   }, [step, party, currentEO?.id])
+
+  // Per-screen funnel instrumentation: fire each screen's dedicated "Viewed"
+  // event once when the user lands on it (deduped via a Set ref so a
+  // back-and-forth — e.g. the prefill confirm→office→confirm detour, or
+  // stepping Back — doesn't re-fire and inflate the funnel). Gated on
+  // `!loading` so the initial render and resume-step resolution settle first,
+  // and so a resumed user only logs the screens they actually view this
+  // session. The `inOffice` and `party` screens are intentionally NOT fired
+  // here: their "Viewed" events carry the user's selected card title, so they
+  // fire on Continue (see handleContinue) once the selection is known.
+  const viewedStepsRef = useRef<Set<ServeStepId>>(new Set())
+  useEffect(() => {
+    if (loading) return
+    const viewedEvent = SERVE_STEP_VIEWED_EVENTS[step]
+    if (!viewedEvent) return
+    if (viewedStepsRef.current.has(step)) return
+    viewedStepsRef.current.add(step)
+    trackServeOnboarding(viewedEvent, {
+      branch,
+      electedOfficeId: currentEO?.id,
+    })
+  }, [loading, step, branch, currentEO?.id])
+
+  // One-shot guards for the two selection screens whose "Viewed" event fires on
+  // Continue (with the chosen card title) rather than on view, so re-advancing
+  // after a Back doesn't double-count them.
+  const officeStatusViewedRef = useRef(false)
+  const partyViewedRef = useRef(false)
 
   const officeIsChosen = Boolean(
     office?.positionId ||
@@ -473,13 +532,23 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         },
       })
       if (brSuggestion.hadBrPrefill && brSuggestion.changedField) {
-        trackServeOnboarding(
+        // Await so the event flushes before the redirect below unloads the page.
+        await trackServeOnboarding(
           SERVE_ONBOARDING_EVENTS.SuggestionChanged,
           brSuggestion,
         )
       }
 
-      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
+      // Pledge submitted: the per-screen completion of the final pledge step.
+      // Awaited (like the events around it) so it flushes before the redirect.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PledgeCompleted, {
+        branch,
+        electedOfficeId,
+      })
+
+      // The established serve completion metric (kept as-is). Await so the
+      // event flushes before the redirect below unloads the page.
+      await trackServeOnboarding(SERVE_ONBOARDING_EVENTS.Completed, {
         electedOfficeId,
       })
 
@@ -488,12 +557,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       // of bouncing the user back into the candidate/Win flow. Mirrors the Win
       // flow's setCookie(ORG_SLUG_COOKIE, 'campaign-<id>') pattern, then routes
       // through post-auth-redirect so the cookie + serve context are
-      // established before landing on briefings.
+      // established before landing on the Chief of Staff home.
       if (electedOfficeId) {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
       window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/briefings',
+        '/dashboard/chief-of-staff',
       )}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
@@ -501,6 +570,26 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       setSaving(false)
     }
   }
+
+  // Prompt-first entry to the prefill confirm hub: route to the first
+  // missing/invalid piece (office, then term dates) so confirm is only ever
+  // shown once both are present and valid. A collection-step detour arms
+  // `returnToConfirm` so that step's Continue/Back loops back here to
+  // re-evaluate; once everything is ready we land on confirm and clear the flag.
+  const enterConfirmHub = () => {
+    const target = resolveConfirmEntryStep({
+      officeReady: officeIsChosen,
+      datesReady: datesValid,
+    })
+    setReturnToConfirm(target !== 'confirm')
+    setStep(target)
+  }
+
+  // The step Back returns to from a prefill office/term-dates detour: the
+  // confirm hub when it's satisfiable, otherwise the prior real step (`party`),
+  // so a prompt-first detour for still-missing data doesn't bounce off the gate.
+  const backFromConfirmDetour = (): ServeStepId =>
+    officeIsChosen && datesValid ? 'confirm' : 'party'
 
   // Navigation only. The "BR Suggestion Changed" event is emitted at completion
   // (see persist) where the user's FINAL office/dates are known and can be
@@ -529,7 +618,22 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // is deferred to the inOffice Continue (the first real "I'm in office").
         setStep('inOffice')
         return
-      case 'inOffice':
+      case 'inOffice': {
+        // The office-status "Viewed" event carries the user's selected card
+        // title, so it fires here (once) rather than on view. Firing on BOTH
+        // the campaigning and non-campaigning paths captures the "still
+        // campaigning" hand-off as a `selection` value — the funnel drop-off
+        // signal that the removed standalone "Switched to Campaign" event used
+        // to provide.
+        if (!officeStatusViewedRef.current && inOffice) {
+          officeStatusViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeStatusViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_IN_OFFICE_OPTIONS.find((o) => o.value === inOffice)
+              ?.title,
+          })
+        }
         if (inOffice === 'campaigning') {
           setSwitchToCampaign(true)
           return
@@ -545,11 +649,29 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           'serveOnboarding.checkpoint.inOffice',
         )
         return
+      }
       case 'party': {
+        // The party-designation "Viewed" event carries the chosen party card
+        // title, so it fires here (once) rather than on view. Continue is gated
+        // on a non-major-party pick, so this only fires for valid selections
+        // that proceed; major-party picks are covered by PartyDesignationBlocked.
+        if (!partyViewedRef.current && party) {
+          partyViewedRef.current = true
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PartyDesignationViewed, {
+            branch,
+            electedOfficeId: currentEO?.id,
+            selection: SERVE_PARTY_OPTIONS.find((o) => o.value === party)
+              ?.title,
+          })
+        }
         // The party PUT also stamps the net-new `selfReported` marker (the
         // record's first user-driven write): the office the user picks next
         // lands on the org indistinguishably from a prefill, so we record HERE
         // that this is the user's own net-new entry. Prefill leaves it untouched.
+        //
+        // Prefill checkpoints at `confirm` but navigates through the prompt-first
+        // gate (enterConfirmHub), which detours to office/term-dates first when
+        // either is still missing instead of dropping the user on confirm.
         const target = branch === 'prefill' ? 'confirm' : 'office'
         void persistAndAdvance(
           {
@@ -559,19 +681,26 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               ...(branch === 'net-new' ? { selfReported: true } : {}),
             },
           },
-          () => setStep(target),
+          branch === 'prefill' ? enterConfirmHub : () => setStep('office'),
           'serveOnboarding.persistPartyProgress',
         )
         return
       }
       case 'office': {
+        // Office picker completed: carry the selected office title on the
+        // dedicated completion event (the natural moment a selection exists).
+        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeCompleted, {
+          branch,
+          electedOfficeId: currentEO?.id,
+          selection: officeDisplayLabel,
+        })
+        // On the prefill detour, re-enter the confirm hub through the gate
+        // (enterConfirmHub) — picking an office may still leave term dates to
+        // collect, in which case it forwards to term-dates rather than confirm.
         const target = returnToConfirm ? 'confirm' : 'term-dates'
         void persistAndAdvance(
           { targetStep: target, office: officePayload() },
-          () => {
-            setReturnToConfirm(false)
-            setStep(target)
-          },
+          returnToConfirm ? enterConfirmHub : () => setStep('term-dates'),
           'serveOnboarding.persistOfficeProgress',
         )
         return
@@ -591,10 +720,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             // confirm detour, which only edits dates.
             ...(target === 'constituents' ? { office: officePayload() } : {}),
           },
-          () => {
-            setReturnToConfirm(false)
-            setStep(target)
-          },
+          // Continue is gated on valid dates here, so the confirm detour returns
+          // straight to the (now satisfiable) hub via enterConfirmHub.
+          returnToConfirm ? enterConfirmHub : () => setStep('constituents'),
           'serveOnboarding.persistTermDatesProgress',
         )
         return
@@ -607,6 +735,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         )
         return
       case 'constituents':
+        trackServeOnboarding(
+          SERVE_ONBOARDING_EVENTS.KnowYourConstituentsCompleted,
+          { branch, electedOfficeId: currentEO?.id },
+        )
         void persistAndAdvance(
           { targetStep: 'pledge' },
           () => setStep('pledge'),
@@ -632,13 +764,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'office':
         if (returnToConfirm) {
           setReturnToConfirm(false)
-          setStep('confirm')
+          setStep(backFromConfirmDetour())
         } else {
           setStep('party')
         }
         return
       case 'term-dates':
         if (returnToConfirm) {
+          // The term-dates detour is only reachable when an office is already
+          // chosen, so backing out always returns to the confirm hub. (Unlike
+          // the office detour, dates are invalid by construction here, so
+          // backFromConfirmDetour would wrongly fall back to `party`.)
           setReturnToConfirm(false)
           setStep('confirm')
         } else {
@@ -758,14 +894,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             )}
             {step === 'confirm' && (
               <ConfirmStep
-                officeLabel={
-                  officeIsChosen ? officeDisplayLabel : 'Add your office'
-                }
-                officeValid={officeIsChosen}
+                officeLabel={officeDisplayLabel}
                 termStartDate={termStartDate}
                 termEndDate={termEndDate}
-                datesValid={datesValid}
-                dateError={dateError}
                 onChangeOffice={goToOfficeFromConfirm}
                 onChangeDates={goToDatesFromConfirm}
               />
@@ -1099,13 +1230,11 @@ const TermDatesStep = ({
 const ConfirmRow = ({
   label,
   value,
-  invalid,
   onChange,
   changeLabel,
 }: {
   label: string
   value: string
-  invalid?: boolean
   onChange: () => void
   changeLabel: string
 }): React.JSX.Element => (
@@ -1114,12 +1243,7 @@ const ConfirmRow = ({
       <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {label}
       </div>
-      <div
-        className={cn(
-          'mt-1 font-medium break-words',
-          invalid ? 'text-destructive' : 'text-foreground',
-        )}
-      >
+      <div className="mt-1 font-medium break-words text-foreground">
         {value}
       </div>
     </div>
@@ -1134,30 +1258,25 @@ const ConfirmRow = ({
   </div>
 )
 
+// The confirm hub is reached only once the office and valid term dates are both
+// present (prompt-first routing detours to fill any missing piece first — see
+// enterConfirmHub / resolveConfirmEntryStep), so this screen always shows
+// real values and never the old red error-on-confirm state.
 const ConfirmStep = ({
   officeLabel,
-  officeValid,
   termStartDate,
   termEndDate,
-  datesValid,
-  dateError,
   onChangeOffice,
   onChangeDates,
 }: {
   officeLabel: string
-  officeValid: boolean
   termStartDate: Date | undefined
   termEndDate: Date | undefined
-  datesValid: boolean
-  dateError: string | null
   onChangeOffice: () => void
   onChangeDates: () => void
 }): React.JSX.Element => {
   const copy = SERVE_STEP_COPY.confirm
-  const datesValue =
-    termStartDate || termEndDate
-      ? `${formatDisplay(termStartDate)} – ${formatDisplay(termEndDate)}`
-      : 'Add your term dates'
+  const datesValue = `${formatDisplay(termStartDate)} – ${formatDisplay(termEndDate)}`
   return (
     <div>
       <StepHeading title={copy.title} description={copy.description} />
@@ -1167,23 +1286,17 @@ const ConfirmStep = ({
           <ConfirmRow
             label="Office"
             value={officeLabel}
-            invalid={!officeValid}
             onChange={onChangeOffice}
             changeLabel="Change office"
           />
           <ConfirmRow
             label="Term dates"
             value={datesValue}
-            invalid={!datesValid}
             onChange={onChangeDates}
             changeLabel="Change dates"
           />
         </div>
       </Panel>
-
-      {!datesValid && dateError && (
-        <p className="mt-4 text-sm text-destructive">{dateError}</p>
-      )}
     </div>
   )
 }
@@ -1303,7 +1416,9 @@ const SwitchToCampaignStep = ({
 }): React.JSX.Element => {
   const handleSwitch = () => {
     // "Still campaigning" belongs in the candidate/Win onboarding, not serve.
-    // Hand off to the Win flow's entry point.
+    // Hand off to the Win flow's entry point. The hand-off itself is captured
+    // as the `selection: "I'm still campaigning"` value on the Office Status
+    // Viewed event (fired on the inOffice Continue), so no event fires here.
     window.location.href = '/onboarding/office-selection'
   }
   return (

@@ -34,6 +34,52 @@ describe('tcrComplianceBaseShape.fecCommitteeId', () => {
   })
 })
 
+describe('tcrComplianceBaseShape address fields', () => {
+  it('rejects an empty placeId so compliance cannot start without an address', () => {
+    expect(tcrComplianceBaseShape.placeId.safeParse('').success).toBe(false)
+  })
+
+  it('rejects an empty formattedAddress', () => {
+    expect(tcrComplianceBaseShape.formattedAddress.safeParse('').success).toBe(
+      false,
+    )
+  })
+
+  it('rejects a whitespace-only placeId (trim runs before min)', () => {
+    expect(tcrComplianceBaseShape.placeId.safeParse('   ').success).toBe(false)
+  })
+
+  it('rejects a whitespace-only formattedAddress (trim runs before min)', () => {
+    expect(
+      tcrComplianceBaseShape.formattedAddress.safeParse('   ').success,
+    ).toBe(false)
+  })
+
+  it('accepts a resolved placeId and address', () => {
+    expect(
+      tcrComplianceBaseShape.placeId.safeParse('ChIJYTIMy9dP1oAR_sLgDF5Xg04')
+        .success,
+    ).toBe(true)
+    expect(
+      tcrComplianceBaseShape.formattedAddress.safeParse(
+        '525 Montano Dr, San Luis, AZ 85349',
+      ).success,
+    ).toBe(true)
+  })
+
+  it('rejects an empty or whitespace-only committeeName', () => {
+    expect(tcrComplianceBaseShape.committeeName.safeParse('').success).toBe(
+      false,
+    )
+    expect(tcrComplianceBaseShape.committeeName.safeParse('   ').success).toBe(
+      false,
+    )
+    expect(
+      tcrComplianceBaseShape.committeeName.safeParse('Friends of Jane').success,
+    ).toBe(true)
+  })
+})
+
 describe('tcrComplianceSuperRefine — fecCommitteeId', () => {
   it('requires fecCommitteeId for federal by default', () => {
     const result = schema().safeParse(federalBase)

@@ -1,32 +1,20 @@
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible'
 import {
   LlmService,
-  type AiSdkProviderFactory,
+  type AnthropicProvider,
   type AnthropicProviderFactory,
-  type OpenAIClientFactory,
-  type OpenAIClientLike,
+  type GenerateObjectFn,
+  type GenerateTextFn,
   type StreamTextFn,
 } from './llm.service'
 
-const noopProviderFactory: AiSdkProviderFactory = () =>
+const stubAnthropicFactory: AnthropicProviderFactory = () =>
   ({
-    chatModel: (model: string) =>
-      ({
-        modelId: model,
-      }) as never,
-  }) as unknown as OpenAICompatibleProvider
-
-const stubClientFactory: OpenAIClientFactory = (): OpenAIClientLike => ({
-  chat: {
-    completions: {
-      create: vi.fn(),
-    },
-  },
-  baseURL: 'https://api.together.xyz/v1',
-})
+    languageModel: (model: string) => ({ modelId: model }) as never,
+    webSearchTool: () => ({}) as never,
+  }) as AnthropicProvider
 
 const USER_MSG = { role: 'user' as const, content: 'Hi' }
 
@@ -75,12 +63,12 @@ const buildStreamService = (): {
   streamTextFn: ReturnType<typeof vi.fn>
 } => {
   const streamTextFn = vi.fn()
-  const fakeStream = streamTextFn as unknown as StreamTextFn
   const service = new LlmService(
     createMockLogger(),
-    fakeStream,
-    stubClientFactory,
-    noopProviderFactory,
+    streamTextFn as unknown as StreamTextFn,
+    vi.fn() as unknown as GenerateTextFn,
+    vi.fn() as unknown as GenerateObjectFn,
+    stubAnthropicFactory,
   )
   return { service, streamTextFn }
 }
@@ -90,8 +78,9 @@ describe('LlmService.streamChatCompletion', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env }
-    process.env.TOGETHER_AI_KEY = 'test-api-key'
-    process.env.AI_MODELS = 'model1,model2,model3'
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    process.env.AI_MODELS = 'claude-sonnet-4-6,claude-opus-4-7'
+    delete process.env.TOGETHER_AI_KEY
   })
 
   afterEach(() => {
@@ -111,7 +100,7 @@ describe('LlmService.streamChatCompletion', () => {
 
     const result = await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
     })
 
@@ -120,7 +109,7 @@ describe('LlmService.streamChatCompletion', () => {
 
     expect(chunks).toEqual(['Hello', ' ', 'world'])
     expect(await result.finalText).toBe('Hello world')
-    expect(result.model).toBe('m1')
+    expect(result.model).toBe('claude-sonnet-4-6')
 
     const usage = await result.usage
     expect(usage).toEqual({
@@ -137,7 +126,7 @@ describe('LlmService.streamChatCompletion', () => {
 
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       abortSignal: controller.signal,
       temperature: 0.5,
@@ -170,7 +159,7 @@ describe('LlmService.streamChatCompletion', () => {
 
     const result = await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
     })
 
@@ -193,7 +182,7 @@ describe('LlmService.streamChatCompletion', () => {
 
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       tools: {
         lookup_voter: {
@@ -227,11 +216,11 @@ describe('LlmService.streamChatCompletion', () => {
 
     const result = await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1', 'm2'],
+      models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
       retries: 0,
     })
 
-    expect(result.model).toBe('m2')
+    expect(result.model).toBe('claude-opus-4-7')
     expect(await result.finalText).toBe('recovered')
     expect(streamTextFn).toHaveBeenCalledTimes(2)
   })
@@ -246,7 +235,7 @@ describe('LlmService.streamChatCompletion', () => {
     await expect(
       service.streamChatCompletion({
         messages: [USER_MSG],
-        models: ['m1', 'm2'],
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
         retries: 0,
       }),
     ).rejects.toThrow('unauthorized')
@@ -263,21 +252,10 @@ describe('LlmService.streamChatCompletion', () => {
       retries: 0,
     })
 
-    expect(result.model).toBe('model1')
+    expect(result.model).toBe('claude-sonnet-4-6')
   })
 
-  it('routes claude-* model names to the anthropic provider', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-
-    const togetherChatModel = vi.fn((model: string) => ({
-      provider: 'together',
-      modelId: model,
-    }))
-    const togetherProviderFactory: AiSdkProviderFactory = () =>
-      ({
-        chatModel: togetherChatModel,
-      }) as unknown as OpenAICompatibleProvider
-
+  it('routes model names through the anthropic provider', async () => {
     const anthropicResolve = vi.fn((model: string) => ({
       provider: 'anthropic',
       modelId: model,
@@ -291,8 +269,8 @@ describe('LlmService.streamChatCompletion', () => {
     const service = new LlmService(
       createMockLogger(),
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      togetherProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
       anthropicProviderFactory,
     )
 
@@ -306,7 +284,6 @@ describe('LlmService.streamChatCompletion', () => {
       apiKey: 'test-anthropic-key',
     })
     expect(anthropicResolve).toHaveBeenCalledWith('claude-sonnet-4-6')
-    expect(togetherChatModel).not.toHaveBeenCalled()
     expect(streamTextFn.mock.calls[0][0].model).toEqual({
       provider: 'anthropic',
       modelId: 'claude-sonnet-4-6',
@@ -314,7 +291,6 @@ describe('LlmService.streamChatCompletion', () => {
   })
 
   it('registers Anthropic native web search and sets onChunk', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
     const nativeTool = { __native: true }
     const webSearchTool = vi.fn(() => nativeTool)
     const anthropicProviderFactory: AnthropicProviderFactory = () => ({
@@ -328,8 +304,8 @@ describe('LlmService.streamChatCompletion', () => {
     const service = new LlmService(
       createMockLogger(),
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
       anthropicProviderFactory,
     )
 
@@ -347,36 +323,7 @@ describe('LlmService.streamChatCompletion', () => {
     expect(typeof call.onChunk).toBe('function')
   })
 
-  it('skips native web search and warns when ANTHROPIC_API_KEY is unset', async () => {
-    delete process.env.ANTHROPIC_API_KEY
-    const logger = createMockLogger()
-    const togetherProviderFactory: AiSdkProviderFactory = () =>
-      ({
-        chatModel: (m: string) => ({ provider: 'together', modelId: m }),
-      }) as unknown as OpenAICompatibleProvider
-    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
-    const service = new LlmService(
-      logger,
-      streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      togetherProviderFactory,
-    )
-
-    await service.streamChatCompletion({
-      messages: [USER_MSG],
-      models: ['model1'],
-      tools: { web_search: { kind: 'native_web_search', maxUses: 3 } },
-      retries: 0,
-    })
-
-    expect(logger.warn).toHaveBeenCalled()
-    const call = streamTextFn.mock.calls[0][0]
-    expect(call.tools?.web_search).toBeUndefined()
-    expect(call.onChunk).toBeUndefined()
-  })
-
   it('fires tool hooks for native web search from onChunk', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
     const anthropicProviderFactory: AnthropicProviderFactory = () => ({
       languageModel: ((m: string) => ({
         provider: 'anthropic',
@@ -388,8 +335,8 @@ describe('LlmService.streamChatCompletion', () => {
     const service = new LlmService(
       createMockLogger(),
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
       anthropicProviderFactory,
     )
     const onToolCallStart = vi.fn()
@@ -427,59 +374,6 @@ describe('LlmService.streamChatCompletion', () => {
       output: { results: [] },
     })
   })
-
-  it('routes non-claude model names through the openai-compatible provider', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-
-    const togetherChatModel = vi.fn((model: string) => ({
-      provider: 'together',
-      modelId: model,
-    }))
-    const togetherProviderFactory: AiSdkProviderFactory = () =>
-      ({
-        chatModel: togetherChatModel,
-      }) as unknown as OpenAICompatibleProvider
-
-    const anthropicResolve = vi.fn()
-    const anthropicProviderFactory: AnthropicProviderFactory = () => ({
-      languageModel: anthropicResolve as never,
-      webSearchTool: vi.fn() as never,
-    })
-
-    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
-    const service = new LlmService(
-      createMockLogger(),
-      streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      togetherProviderFactory,
-      anthropicProviderFactory,
-    )
-
-    await service.streamChatCompletion({
-      messages: [USER_MSG],
-      models: ['deepseek-ai/DeepSeek-V4-Pro'],
-      retries: 0,
-    })
-
-    expect(togetherChatModel).toHaveBeenCalledWith(
-      'deepseek-ai/DeepSeek-V4-Pro',
-    )
-    expect(anthropicResolve).not.toHaveBeenCalled()
-  })
-
-  it('throws when a claude-* model is requested without ANTHROPIC_API_KEY set', async () => {
-    delete process.env.ANTHROPIC_API_KEY
-
-    const { service } = buildStreamService()
-
-    await expect(
-      service.streamChatCompletion({
-        messages: [USER_MSG],
-        models: ['claude-sonnet-4-6'],
-        retries: 0,
-      }),
-    ).rejects.toThrow(/ANTHROPIC_API_KEY/)
-  })
 })
 
 describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
@@ -487,8 +381,9 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env }
-    process.env.TOGETHER_AI_KEY = 'test-api-key'
-    process.env.AI_MODELS = 'm1'
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    process.env.AI_MODELS = 'claude-sonnet-4-6'
+    delete process.env.TOGETHER_AI_KEY
   })
 
   afterEach(() => {
@@ -501,8 +396,9 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const service = new LlmService(
       logger,
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
     )
 
     const events: Array<{
@@ -514,7 +410,7 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
 
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       tools: {
         lookup_voter: {
@@ -557,13 +453,14 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const service = new LlmService(
       logger,
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
     )
 
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       tools: {
         lookup_voter: {
@@ -600,14 +497,15 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const service = new LlmService(
       logger,
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
     )
 
     const upstream = new Error('upstream broke')
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       tools: {
         broken_tool: {
@@ -644,14 +542,15 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const service = new LlmService(
       logger,
       streamTextFn as unknown as StreamTextFn,
-      stubClientFactory,
-      noopProviderFactory,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
     )
 
     const upstream = new Error('boom')
     await service.streamChatCompletion({
       messages: [USER_MSG],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
       tools: {
         bigint_tool: {
@@ -687,8 +586,9 @@ describe('toModelMessages conversion', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env }
-    process.env.TOGETHER_AI_KEY = 'test-api-key'
-    process.env.AI_MODELS = 'm1'
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    process.env.AI_MODELS = 'claude-sonnet-4-6'
+    delete process.env.TOGETHER_AI_KEY
   })
 
   afterEach(() => {
@@ -701,7 +601,7 @@ describe('toModelMessages conversion', () => {
 
     await service.streamChatCompletion({
       messages: [{ role: 'user', content: 'hello' }],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
     })
 
@@ -724,7 +624,7 @@ describe('toModelMessages conversion', () => {
           ],
         },
       ],
-      models: ['m1'],
+      models: ['claude-sonnet-4-6'],
       retries: 0,
     })
 
@@ -745,13 +645,9 @@ describe('toModelMessages conversion', () => {
     await expect(
       service.streamChatCompletion({
         messages: [
-          {
-            role: 'function',
-            name: 'old_fn',
-            content: 'legacy',
-          },
+          { role: 'function', name: 'old_fn', content: 'legacy' } as never,
         ],
-        models: ['m1'],
+        models: ['claude-sonnet-4-6'],
         retries: 0,
       }),
     ).rejects.toThrow(

@@ -34,6 +34,12 @@ describe('WeeklyTasksDigestHandlerService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
+    // handleWeeklyTasksDigest issues two queries (tracker cohort, then legacy
+    // cohort). Each test's mockResolvedValueOnce feeds the first (tracker)
+    // call; default the rest to [] so the legacy call is empty here. The
+    // cohort SQL itself is exercised in the integration test.
+    mockQueryRaw.mockResolvedValue([])
+
     service = new WeeklyTasksDigestHandlerService(
       mockAnalytics as AnalyticsService,
     )

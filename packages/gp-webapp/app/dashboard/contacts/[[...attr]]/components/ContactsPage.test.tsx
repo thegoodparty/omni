@@ -15,7 +15,18 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 })
 vi.mock('@shared/hooks/useCampaign', () => ({ useCampaign: () => [null] }))
 vi.mock('../../../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <>
+      {navHeader && <h1>{navHeader.label}</h1>}
+      {children}
+    </>
+  ),
 }))
 vi.mock('../hooks/ContactProModal', () => ({
   ContactProModalProvider: ({ children }: { children: React.ReactNode }) => (
@@ -161,6 +172,8 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
 
     render(<ContactsPage />)
 
+    // Serve shows the title in the full-bleed nav header (an <h1>), replacing
+    // the in-page heading so it isn't duplicated.
     expect(
       screen.getByRole('heading', { level: 1, name: 'Constituent Data' }),
     ).toBeInTheDocument()

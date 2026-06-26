@@ -56,6 +56,7 @@ export {
   type PeopleListPagination,
   PeopleListResponseSchema,
   type PeopleListResponse,
+  HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
 } from "./people/Person.schema";
 
 export { EmailSchema } from "./shared/Email.schema";
@@ -70,6 +71,9 @@ export {
   SortablePaginationSchema,
   FilterablePaginationSchema,
   paginationFilter,
+  MAX_RESULTS_PER_PAGE,
+  MAX_PAGE,
+  MAX_PAGINATION_OFFSET,
   PaginationMetaSchema,
   type PaginationMeta,
   type PaginatedList,
@@ -206,6 +210,31 @@ export {
   CampaignStoryRewriteSchema,
   type CampaignStoryRewrite,
 } from "./campaigns/CampaignStoryRewrite.schema";
+
+export {
+  CampaignStrategyPhaseKeySchema,
+  TaskTypeSchema,
+  TaskChannelSchema,
+  DayOfWeekSchema,
+  TaskStatusSchema,
+  TaskPersonalizationSchema,
+  PriorityTierSchema,
+  GeneratorSourceSchema,
+  TaskTimingSchema,
+  CampaignTaskDefinitionSchema,
+  type CampaignStrategyPhaseKey,
+  type TaskType,
+  type TaskChannel,
+  type DayOfWeek,
+  type TaskStatus,
+  type TaskPersonalization,
+  type PriorityTier,
+  type GeneratorSource,
+  type TaskTiming,
+  type CampaignTaskDefinition,
+} from './campaigns/CampaignTaskCatalog.schema'
+
+export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
 
 export {
   CampaignWithPositionNameSchema,
@@ -378,6 +407,7 @@ export {
   type CreateAnnotationRequest,
   UpdateNoteRequestSchema,
   type UpdateNoteRequest,
+  ATTACHMENT_MAX_BYTES,
   AttachmentPresignRequestSchema,
   type AttachmentPresignRequest,
   AttachmentPresignResponseSchema,
@@ -408,6 +438,8 @@ export {
 } from "./artifactFeedback/ArtifactFeedback.schema";
 
 export * from "./artifactReview";
+
+export * from "./raceOpponent";
 
 export * from "./experiments";
 

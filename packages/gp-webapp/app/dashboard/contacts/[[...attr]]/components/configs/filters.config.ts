@@ -65,11 +65,11 @@ const filterSections = [
         key: 'voter_likely',
         label: 'Voter Likely',
         options: [
+          { key: 'audienceUnknown', label: 'Unknown' },
           { key: 'audienceFirstTimeVoters', label: 'First Time' },
+          { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
           { key: 'audienceLikelyVoters', label: 'Likely' },
           { key: 'audienceSuperVoters', label: 'Super' },
-          { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
-          { key: 'audienceUnknown', label: 'Unknown' },
         ],
       },
       {

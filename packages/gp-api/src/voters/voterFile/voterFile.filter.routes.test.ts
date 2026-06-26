@@ -100,6 +100,38 @@ describe('voter-file segment CRUD for a campaign org', () => {
     ).toBeNull()
   })
 
+  it('does not delete a filter owned by another org', async () => {
+    await seedWinCampaign()
+    const OTHER_SLUG = 'campaign-other-org'
+    await service.prisma.organization.create({
+      data: { slug: OTHER_SLUG, ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${OTHER_SLUG}-campaign`,
+        organizationSlug: OTHER_SLUG,
+        isPro: true,
+      },
+    })
+
+    const otherFilter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: OTHER_SLUG, ...partySegmentBody },
+    })
+
+    const attempt = await service.client.delete(
+      `/v1/voters/voter-file/filter/${otherFilter.id}`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(attempt.status).toBe(404)
+    expect(
+      await service.prisma.voterFileFilter.findUnique({
+        where: { id: otherFilter.id },
+      }),
+    ).not.toBeNull()
+  })
+
   it('rejects segment creation for a non-pro Win campaign', async () => {
     await seedWinCampaign(false)
 

@@ -22,6 +22,7 @@ function getTrackSpy(): TrackSpy {
 async function makeCampaign(
   opts: {
     electionDate?: string | null
+    isActive?: boolean
   } = {},
 ) {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -52,6 +53,7 @@ async function makeCampaign(
       slug: `digest-${unique}`,
       details,
       organizationSlug: org.slug,
+      isActive: opts.isActive ?? true,
     },
   })
 }
@@ -67,11 +69,37 @@ async function makeTask(
     week?: number
   } = {},
 ) {
-  return service.prisma.campaignTask.create({
+  return service.prisma.campaignTrackerTask.create({
     data: {
       campaignId,
       title: overrides.title ?? 'Task',
       description: overrides.description ?? 'A task',
+      flowType: overrides.flowType ?? CampaignTaskType.education,
+      week: overrides.week ?? 10,
+      date: overrides.date ?? new Date('2026-04-22T00:00:00.000Z'),
+      completed: overrides.completed ?? false,
+    },
+  })
+}
+
+// Legacy (pre-v3) campaign_task rows — the cohort that never went through
+// campaign story and so never bootstrapped the tracker.
+async function makeLegacyTask(
+  campaignId: number,
+  overrides: {
+    date?: Date
+    completed?: boolean
+    flowType?: CampaignTaskType
+    title?: string
+    description?: string
+    week?: number
+  } = {},
+) {
+  return service.prisma.campaignTask.create({
+    data: {
+      campaignId,
+      title: overrides.title ?? 'Legacy Task',
+      description: overrides.description ?? 'A legacy task',
       flowType: overrides.flowType ?? CampaignTaskType.education,
       week: overrides.week ?? 10,
       date: overrides.date ?? new Date('2026-04-22T00:00:00.000Z'),
@@ -98,6 +126,20 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
 
     it('excludes campaigns with no electionDate in details', async () => {
       const campaign = await makeCampaign({ electionDate: null })
+      for (let i = 0; i < 5; i++) await makeTask(campaign.id)
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).not.toHaveBeenCalled()
+    })
+
+    it('excludes inactive campaigns so churned candidates are not emailed', async () => {
+      const campaign = await makeCampaign({ isActive: false })
       for (let i = 0; i < 5; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
@@ -185,7 +227,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
   })
 
   describe('task selection', () => {
-    it('returns exactly 5 tasks when a campaign has more than 5 incomplete', async () => {
+    it('returns exactly 3 tasks when a campaign has more than 3 incomplete', async () => {
       const campaign = await makeCampaign()
       for (let i = 0; i < 8; i++) {
         await makeTask(campaign.id, { title: `Task ${i}` })
@@ -203,9 +245,43 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         string,
         Record<string, unknown>,
       ]
-      expect(properties.task_name_5).not.toBe('')
-      // Since we always send 5 slots, check that plan_total_tasks reflects the real count
+      // Top 3 surfaced; the event still carries 5 slots (slots 4-5 blank) so
+      // HubSpot clears stale data — no change needed on the email side.
+      expect(properties.task_name_3).not.toBe('')
+      expect(properties.task_name_4).toBe('')
+      expect(properties.task_name_5).toBe('')
+      // plan_total_tasks still reflects the real incomplete count, not the cap
       expect(properties.plan_total_tasks).toBe(8)
+    })
+
+    it('counts only the latest dynamic generation, not stale prior generations', async () => {
+      const campaign = await makeCampaign()
+      // Weekly regen appends generations; a prior generation's rows stay in the
+      // table. Only the latest (highest week) should count — not both.
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `Old ${i}`, week: 1 })
+      }
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `New ${i}`, week: 2 })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      // 3 latest-generation tasks, not 6 — the stale week-1 rows are excluded.
+      expect(properties.plan_total_tasks).toBe(3)
+      expect(properties.task_name_1).toContain('New')
+      expect(properties.task_name_2).toContain('New')
+      expect(properties.task_name_3).toContain('New')
     })
 
     it('prioritizes outreach task types (text, robocall, doorKnocking, phoneBanking) over others', async () => {
@@ -528,6 +604,83 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         EVENTS.CampaignPlan.WeeklyTasksDigest,
         expect.any(Object),
       )
+    })
+  })
+
+  describe('legacy cohort (no tracker rows)', () => {
+    it('sends the legacy campaign_task digest for a campaign with no tracker rows', async () => {
+      const campaign = await makeCampaign()
+      for (let i = 0; i < 3; i++) await makeLegacyTask(campaign.id)
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      expect(trackSpy).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.CampaignPlan.WeeklyTasksDigest,
+        expect.any(Object),
+      )
+    })
+
+    it('counts only legacy tasks, ignoring tracker latest-generation scoping', async () => {
+      const campaign = await makeCampaign()
+      // 5 legacy tasks across two "weeks" — campaign_task has no generation
+      // model, so all in-window rows count (unlike the tracker cohort).
+      for (let i = 0; i < 3; i++) {
+        await makeLegacyTask(campaign.id, { title: `W1 ${i}`, week: 1 })
+      }
+      for (let i = 0; i < 2; i++) {
+        await makeLegacyTask(campaign.id, { title: `W2 ${i}`, week: 2 })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(5)
+    })
+
+    it('routes a migrated campaign (both legacy + tracker rows) to the tracker cohort only, no double-send', async () => {
+      const campaign = await makeCampaign()
+      // Old legacy rows linger from before the campaign migrated to v3.
+      for (let i = 0; i < 5; i++) {
+        await makeLegacyTask(campaign.id, { title: `Legacy ${i}` })
+      }
+      // New tracker rows from after migration.
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `Tracker ${i}` })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      // Exactly one digest (mutual exclusion via the NOT EXISTS guard), and it
+      // is the tracker digest — only the 3 tracker rows, never the 5 legacy.
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(3)
+      expect(properties.task_name_1).toContain('Tracker')
     })
   })
 

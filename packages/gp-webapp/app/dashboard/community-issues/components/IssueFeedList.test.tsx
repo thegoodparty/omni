@@ -4,6 +4,8 @@ import { render } from 'helpers/test-utils/render'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import IssueFeedList from './IssueFeedList'
 
+vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
+
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [null, vi.fn(), false],
 }))
@@ -71,11 +73,11 @@ describe('IssueFeedList', () => {
 
     render(<IssueFeedList topCommunity={topCommunity} trending={emptyFeed} />)
 
-    const rankBadges = screen.getAllByText(/^#\d+$/)
+    const rankBadges = screen.getAllByText(/^\d+$/)
     expect(rankBadges).toHaveLength(3)
-    expect(rankBadges[0]).toHaveTextContent('#1')
-    expect(rankBadges[1]).toHaveTextContent('#2')
-    expect(rankBadges[2]).toHaveTextContent('#3')
+    expect(rankBadges[0]).toHaveTextContent('1')
+    expect(rankBadges[1]).toHaveTextContent('2')
+    expect(rankBadges[2]).toHaveTextContent('3')
   })
 
   it('shows generating placeholder when feed is empty and refresh is running', () => {

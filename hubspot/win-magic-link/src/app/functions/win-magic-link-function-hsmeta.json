@@ -5,7 +5,6 @@
     "entrypoint": "/app/functions/sendMagicLink.js",
     "secretKeys": [
       "GP_API_M2M_TOKEN",
-      "GP_API_URL",
       "HUBSPOT_TRANSACTIONAL_TOKEN",
       "WIN_MAGIC_LINK_EMAIL_ID"
     ]

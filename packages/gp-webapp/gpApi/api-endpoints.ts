@@ -2,6 +2,8 @@ import type {
   ExperimentVariantsResponse,
   Priority,
   ChatAnchor,
+  RaceOpponentSourceType,
+  RaceOpponentCollectionStatus,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -59,6 +61,28 @@ export interface MeetingsListItemDto {
 }
 
 export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+
+/**
+ * A Campaign Tracker task row (campaign_tracker_tasks). Mirrors the gp-api
+ * CampaignTrackerTask model returned by the /campaigns/tracker-tasks endpoints.
+ */
+export type CampaignTrackerTask = {
+  id: string
+  title: string
+  description: string
+  cta: string | null
+  link: string | null
+  flowType: string | null
+  week: number
+  date: string
+  completed: boolean
+  phase: string | null
+  proRequired: boolean | null
+  // true for the static launch/pre-launch rows materialized at bootstrap;
+  // false for the dynamic tasks + events the CAP run produces. Lets the client
+  // tell "still generating" (only static present) from "done".
+  isDefaultTask: boolean
+}
 
 /** Request/response shapes for the user-agenda-upload flow. */
 export type UserAgendaSubmitRequest =
@@ -298,10 +322,12 @@ export type APIEndpoints = {
     Response: StrategicLandscapeResponse
   }
 
-  // Section 7 community events. Polling endpoint — same shape as
-  // strategic-landscape. 200 → ready (events array up to length 3), 202 →
-  // generating (poll again ~3s). Mirrors `CommunityEventsResponseSchema`
-  // in `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`.
+  // Section 7 community events (legacy / story-off plan only). Polling
+  // endpoint — same shape as strategic-landscape. 200 → ready (events array up
+  // to length 3), 202 → generating (poll again ~3s). Mirrors
+  // `CommunityEventsResponseSchema` in
+  // `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`. Story-on
+  // campaigns get events from the campaign tracker (CAP) instead.
   'POST /v1/campaignStrategy/mine/community-events': {
     Request: {}
     Response: CommunityEventsResponse
@@ -313,6 +339,23 @@ export type APIEndpoints = {
   'GET /v1/campaignStrategy/mine/exists': {
     Request: {}
     Response: { exists: boolean }
+  }
+
+  // Campaign Tracker tasks (campaign_tracker_tasks). The new tracker reads and
+  // completes these; mirrors /campaigns/tracker-tasks in gp-api.
+  'GET /v1/campaigns/tracker-tasks': {
+    Request: {}
+    Response: CampaignTrackerTask[]
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string; type?: string; quantity?: number }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
   }
 
   'GET /v1/elected-office/current': {
@@ -506,6 +549,10 @@ export type APIEndpoints = {
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
+  }
+  'POST /v1/contacts/count': {
+    Request: Record<string, unknown>
+    Response: { count: number }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
@@ -702,6 +749,38 @@ export type APIEndpoints = {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
   }
+
+  'GET /v1/campaigns/mine/race-opponent': {
+    Request: {}
+    Response: RaceOpponentResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/collect': {
+    Request: {}
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+}
+
+// Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
+// RaceOpponentResponseSchema in @goodparty_org/contracts, but dates arrive over
+// JSON as ISO strings (the contract type coerces them to Date), so they're
+// typed as string here.
+export type RaceOpponentItem = {
+  id: number
+  opponentName: string
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string | null
+  content: unknown
+  collectedAt: string
+}
+
+export type RaceOpponentResponse = {
+  opponents: Array<{
+    opponentName: string
+    items: RaceOpponentItem[]
+  }>
+  lastCollectedAt: string | null
+  collectionStatus: RaceOpponentCollectionStatus
 }
 
 export type CommunityIssueCard = {
@@ -718,7 +797,12 @@ export type CommunityIssueCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'advocacy_org'
   url?: string | null
   publisher?: string | null
   article_type?: string | null
@@ -949,6 +1033,12 @@ export type ElectedOffice = {
   // Resume checkpoint: the furthest serve-onboarding step the holder reached,
   // written on every "Continue". Null when no checkpoint has been recorded.
   onboardingStep: string | null
+  // The campaign this office was created from, when the holder reached office by
+  // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
+  // win-origin official who already onboarded as a candidate, so post-auth
+  // routing must NOT send them into serve onboarding for a missing term/date.
+  campaignId: number | null
 }
 
 export type ElectedOfficeInput = {
