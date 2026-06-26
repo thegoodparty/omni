@@ -68,7 +68,8 @@ const capRoster = (
   const kept: Candidate[] = []
   let used = 2 // the enclosing '[]'
   for (const c of ranked) {
-    const size = Buffer.byteLength(JSON.stringify(c)) + 1 // + ',' separator
+    const comma = kept.length > 0 ? 1 : 0 // none before the first element
+    const size = Buffer.byteLength(JSON.stringify(c)) + comma
     if (used + size > budgetBytes) continue
     kept.push(c)
     used += size
