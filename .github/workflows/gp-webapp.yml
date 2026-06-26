@@ -29,7 +29,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
-          build-contracts: "true"
+          build-contracts: 'true'
 
       - name: Next typegen
         working-directory: ${{ env.WORKSPACE }}
@@ -66,7 +66,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
-          build-contracts: "true"
+          build-contracts: 'true'
 
       # develop -> dev.goodparty.org, qa -> qa.goodparty.org (preview target +
       # branch-scoped env vars, then aliased); master -> production; PRs get a
@@ -128,7 +128,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
-          build-contracts: "true"
+          build-contracts: 'true'
 
       - name: Deploy to Vercel
         uses: ./.github/actions/vercel-deploy
@@ -346,7 +346,7 @@ jobs:
           --shard=${{ matrix.shard }}/4 --reporter=blob
           ${{ github.event_name == 'pull_request' && '--grep-invert @dev-only' || '' }}
         env:
-          TEST_RUN_NAME: "E2E Tests - PR Preview"
+          TEST_RUN_NAME: 'E2E Tests - PR Preview'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -576,6 +576,51 @@ jobs:
                 body,
               })
             }
+
+      # Surface the same results + HTML-report link on the run's Summary page.
+      # The PR comment above only fires on pull_request events, so post-merge
+      # develop pushes (which have no PR to comment on) had no link to the
+      # Playwright report. The job summary shows up under the run — reachable
+      # from the "E2E" check's Details on any run, including failed develop runs.
+      - name: Write E2E summary
+        if: >-
+          ${{ always()
+          && (needs.e2e-shard.result == 'success'
+              || needs.e2e-shard.result == 'failure') }}
+        env:
+          REPORT_URL: ${{ steps.report.outputs.url }}
+          TOTAL: ${{ steps.results.outputs.total }}
+          PASSED: ${{ steps.results.outputs.passed }}
+          FAILED: ${{ steps.results.outputs.failed }}
+          FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          TEST_OUTCOME: ${{ needs.e2e-shard.result }}
+        run: |
+          status="✅"
+          if [ "${FAILED:-0}" != "0" ] || [ "$TEST_OUTCOME" != "success" ]; then
+            status="❌"
+          fi
+          {
+            echo "## ${status} gp-webapp E2E results"
+            echo ""
+            echo "**Preview:** ${BASE_URL:-(unknown)}"
+            echo ""
+            echo "| Result | Count |"
+            echo "|--------|-------|"
+            echo "| ✅ Passed | ${PASSED:-0} |"
+            echo "| ❌ Failed | ${FAILED:-0} |"
+            echo "| 📊 Total | ${TOTAL:-0} |"
+            echo ""
+            if [ "${FAILED:-0}" != "0" ] && [ -n "$FAILED_TESTS" ]; then
+              echo "**Failed tests:**"
+              echo "$FAILED_TESTS"
+              echo ""
+            fi
+            if [ -n "$REPORT_URL" ]; then
+              echo "[View HTML report]($REPORT_URL)"
+            else
+              echo "_HTML report not published (no playwright-report/ artifact)._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Make the required "E2E" check red exactly when a shard had a failure (or
       # was skipped because the gp-api gate failed). always() so an earlier
