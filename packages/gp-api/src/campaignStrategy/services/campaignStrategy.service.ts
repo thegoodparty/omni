@@ -329,10 +329,18 @@ export class CampaignStrategyService
     if (result !== 'inflight') {
       return { disposition: 'unavailable', oppositionRunId: null }
     }
+    // attemptOpposition swallows a transient fault on the run-id link and still
+    // returns 'inflight'. An unlinked run is orphaned: onExperimentRunCompleted
+    // looks the plan up by oppositionRunId and finds nothing, so opponents never
+    // persist and the chained collection silently no-ops. Report 'unavailable'
+    // so collect() settles instead of marking a doomed collection pending.
     const linked = await this.findFirst({ where: { id: plan.id } })
+    if (!linked?.oppositionRunId) {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
     return {
       disposition: 'inflight',
-      oppositionRunId: linked?.oppositionRunId ?? null,
+      oppositionRunId: linked.oppositionRunId,
     }
   }
 

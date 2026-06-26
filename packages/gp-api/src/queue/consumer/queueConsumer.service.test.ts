@@ -1571,4 +1571,35 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(runs.get('run-done')?.status).toBe('COMPLETED')
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
+
+  // The race-opponent hook is the only path that clears the discovery pending
+  // flag, so it must run even when the campaign-strategy hook throws — otherwise
+  // a failed opposition_research persist strands collectionStatus at
+  // 'discovering' forever (the FAILED run is dropped on redelivery).
+  it('runs the race-opponent hook even when the campaign-strategy hook throws, then surfaces the error', async () => {
+    seedRun('opp-complete', 'RUNNING')
+    type Hook = { onExperimentRunCompleted: ReturnType<typeof vi.fn> }
+    // The completed-run branch fires four hooks; the meeting/community ones are
+    // `.catch`-chained, so their mocks must return a promise.
+    module
+      .get<Hook>(MeetingBriefingsService)
+      .onExperimentRunCompleted.mockResolvedValue(undefined)
+    module
+      .get<Hook>(CommunityIssueService)
+      .onExperimentRunCompleted.mockResolvedValue(undefined)
+    const strategy = module.get<Hook>(CampaignStrategyService)
+    const raceOpponent = module.get<Hook>(RaceOpponentPersistService)
+    strategy.onExperimentRunCompleted.mockRejectedValue(
+      new Error('opponent persist failed'),
+    )
+    raceOpponent.onExperimentRunCompleted.mockResolvedValue(undefined)
+
+    await expect(
+      service.processMessage(
+        agentResultMessage({ runId: 'opp-complete', status: 'success' }),
+      ),
+    ).rejects.toThrow('opponent persist failed')
+
+    expect(raceOpponent.onExperimentRunCompleted).toHaveBeenCalledTimes(1)
+  })
 })
