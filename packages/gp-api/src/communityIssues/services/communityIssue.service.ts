@@ -96,9 +96,15 @@ export class CommunityIssueService extends createPrismaBase(
     if (!validation.ok) {
       this.logger.error(
         { runId: run.runId, reason: validation.reason },
-        'community-issue artifact failed validation',
+        'community-issue artifact envelope failed validation',
       )
       return
+    }
+    if (validation.dropped.length > 0) {
+      this.logger.warn(
+        { runId: run.runId, dropped: validation.dropped },
+        'community-issue artifact: dropped invalid issues, persisting the rest',
+      )
     }
     if (
       validation.artifact.organization_slug !== run.organizationSlug ||
@@ -112,6 +118,20 @@ export class CommunityIssueService extends createPrismaBase(
           artifactRunId: validation.artifact.generated_for_run_id,
         },
         'community-issue artifact org or run id does not match run — skipping',
+      )
+      return
+    }
+    // A run whose issues ALL failed validation shouldn't wipe an org's feed via
+    // the upsert's archive-by-omission. But a genuinely empty result (the agent
+    // returned no issues and none were dropped) is a real "archive all" signal
+    // — e.g. trending routinely empties — so let that through to the upsert.
+    if (
+      validation.artifact.issues.length === 0 &&
+      validation.dropped.length > 0
+    ) {
+      this.logger.warn(
+        { runId: run.runId, dropped: validation.dropped.length },
+        'community-issue artifact: all issues failed validation — skipping upsert',
       )
       return
     }

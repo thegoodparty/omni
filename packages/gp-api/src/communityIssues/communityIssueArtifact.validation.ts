@@ -9,7 +9,13 @@ const SourceSchema = z.object({
   name: z.string(),
   retrieved_at: z.string(),
   retrieved_text_or_snapshot: z.string(),
-  source_type: z.enum(['news', 'government_website', 'research', 'poll']),
+  source_type: z.enum([
+    'news',
+    'government_website',
+    'research',
+    'poll',
+    'advocacy_org',
+  ]),
   url: z.string().nullish(),
   publisher: z.string().nullish(),
   article_date: z.string().nullish(),
@@ -88,26 +94,47 @@ const IssueSchema = z.object({
 
 export type CommunityIssuesArtifactIssue = z.infer<typeof IssueSchema>
 
-const ArtifactSchema = z.object({
+// The envelope is validated strictly (its fields are required and several map
+// to real DB enum columns). Issues are validated individually below so one
+// malformed issue does not discard a whole run's worth of good ones — the
+// max(10) cap stays here because it's an envelope-level invariant.
+const ArtifactEnvelopeSchema = z.object({
   schema_version: z.literal(1),
   list: z.enum(['top_community', 'trending']),
   organization_slug: z.string(),
   generated_for_run_id: z.string(),
   data_quality: z.enum(['ok', 'partial', 'insufficient_signal']),
   data_quality_reason: z.string().optional(),
-  issues: z.array(IssueSchema).max(10),
+  issues: z.array(z.unknown()).max(10),
   notes: z.string().optional(),
   sources_used: z.array(z.string()).optional(),
 })
 
-export type CommunityIssuesArtifact = z.infer<typeof ArtifactSchema>
+export type CommunityIssuesArtifact = Omit<
+  z.infer<typeof ArtifactEnvelopeSchema>,
+  'issues'
+> & { issues: CommunityIssuesArtifactIssue[] }
 
+export type DroppedIssue = { index: number; reason: string }
+
+// Returns ok:false only when the envelope itself is invalid. A valid envelope
+// always returns ok:true with the issues that passed IssueSchema; any that
+// failed are reported in `dropped` (and the caller persists the remainder).
 export const validateCommunityIssuesArtifact = (
   raw: unknown,
 ):
-  | { ok: true; artifact: CommunityIssuesArtifact }
+  | { ok: true; artifact: CommunityIssuesArtifact; dropped: DroppedIssue[] }
   | { ok: false; reason: string } => {
-  const result = ArtifactSchema.safeParse(raw)
-  if (result.success) return { ok: true, artifact: result.data }
-  return { ok: false, reason: result.error.message }
+  const envelope = ArtifactEnvelopeSchema.safeParse(raw)
+  if (!envelope.success) return { ok: false, reason: envelope.error.message }
+
+  const issues: CommunityIssuesArtifactIssue[] = []
+  const dropped: DroppedIssue[] = []
+  envelope.data.issues.forEach((rawIssue, index) => {
+    const result = IssueSchema.safeParse(rawIssue)
+    if (result.success) issues.push(result.data)
+    else dropped.push({ index, reason: result.error.message })
+  })
+
+  return { ok: true, artifact: { ...envelope.data, issues }, dropped }
 }
