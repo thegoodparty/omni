@@ -317,7 +317,7 @@ Clerk keys via `cohort-env`):
 ```bash
 export GP_DEV_MACHINE_SECRET=...   # from gp-admin Vercel, same getval as prod
 export CLERK_TELEMETRY_DISABLED=1  # keep the telemetry banner out of stdout
-TOKEN=$(../../../node_modules/.bin/tsx -e 'import "./tests/utils/cohort-env";import{createClerkClient}from"@clerk/backend";(async()=>{const c=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY,publishableKey:process.env.CLERK_PUBLISHABLE_KEY});const m=await c.m2m.createToken({machineSecretKey:process.env.GP_DEV_MACHINE_SECRET,secondsUntilExpiration:600});process.stdout.write((m.token||"")+"\n")})()' 2>/dev/null | grep '^mt_')
+TOKEN=$(../../../node_modules/.bin/tsx -e 'import "./tests/utils/cohort-env";import{createClerkClient}from"@clerk/backend";(async()=>{const c=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY,publishableKey:process.env.CLERK_PUBLISHABLE_KEY});const m=await c.m2m.createToken({machineSecretKey:process.env.GP_DEV_MACHINE_SECRET,secondsUntilExpiration:600});process.stdout.write((m.token||"")+"\n")})().catch(e=>{console.error(e);process.exit(2)})')
 ```
 
 Preflight (`{"orgSlugs":[]}` → HTTP 400) and the real dispatch are byte-identical
