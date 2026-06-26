@@ -18,8 +18,8 @@ import ServeOnboardingFlow from './ServeOnboardingFlow'
  *    org's X-Organization-Slug). If the user owns an EO org that isn't the
  *    active slug, route through /post-auth-redirect to switch it and return —
  *    the same trick as `serveAccess`.
- *  - If onboarding is already complete, send them to their briefings instead of
- *    re-running onboarding.
+ *  - If onboarding is already complete, send them to the Chief of Staff home
+ *    (the default Serve landing) instead of re-running onboarding.
  */
 export default async function ServeOnboardingPage(): Promise<React.JSX.Element> {
   await requireAuth()
@@ -33,7 +33,7 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice
     if (eo.onboardingCompletedAt) {
-      redirect('/dashboard/briefings')
+      redirect('/dashboard/chief-of-staff')
     }
   } else {
     // The EO org isn't the active org (e.g. a logged-in user with a campaign

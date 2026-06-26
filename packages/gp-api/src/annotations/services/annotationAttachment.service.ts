@@ -12,6 +12,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import {
+  ATTACHMENT_MAX_BYTES,
   AttachmentDownloadUrlResponse,
   AttachmentPresignRequest,
   AttachmentPresignResponse,
@@ -193,15 +194,23 @@ export class AnnotationAttachmentService extends createPrismaBase(
       throw new BadRequestException('attachment_already_processed')
     }
 
-    // HEAD instead of full GET — we only need to know the object is there,
-    // not read its bytes (the OCR worker reads the bytes later via
-    // OcrService).
-    const exists = await this.s3.objectExists(
-      this.bucket,
-      attachment.storageKey,
-    )
-    if (!exists) {
+    // HEAD (not a full GET) to confirm the object landed AND re-validate its
+    // actual size. Presigned PUT URLs carry no content-length condition, so the
+    // presign-time size_bytes cap is advisory — without this a client can PUT an
+    // object far larger than ATTACHMENT_MAX_BYTES that the OCR worker would then
+    // buffer/inflate in-process and OOM the shared API (CWE-409). Mirrors the
+    // userAgendaUpload finalize re-check.
+    const head = await this.s3.headObject(this.bucket, attachment.storageKey)
+    if (!head) {
       throw new BadRequestException('upload_not_received')
+    }
+    // Reject an unverifiable size (null) as well as an over-cap one: a size we
+    // can't confirm must not be trusted past the OCR worker.
+    if (
+      head.contentLength === null ||
+      head.contentLength > ATTACHMENT_MAX_BYTES
+    ) {
+      throw new BadRequestException('upload_too_large')
     }
 
     await this.queue.sendMessage(

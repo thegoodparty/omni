@@ -152,6 +152,14 @@ export interface AgentJobContracts {
        */
       district_descriptor: string
       /**
+       * Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type.
+       */
+      l2_district_name?: string
+      /**
+       * Optional. L2 voter-file column name for the office's district (e.g. 'City_Ward'). When present with l2_district_name, the Haystaq lean query is scoped to the district; when absent, it falls back to state scope.
+       */
+      l2_district_type?: string
+      /**
        * Name of the elected official's office (e.g. 'City Council Member').
        */
       office: string

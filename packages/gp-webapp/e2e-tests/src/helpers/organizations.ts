@@ -55,7 +55,7 @@ const pickTermDate = async (
 // Drive the "I won" flow end to end: confirm the win, then complete the inline
 // term-dates step the flow now requires before the elected office is created
 // (so the EO is never left term-date-less / in serve-onboarding limbo). Lands on
-// briefings once the office is created.
+// the Chief of Staff home once the office is created.
 export const winRaceWithTermDates = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/election-result')
   await wait(250)
@@ -65,7 +65,7 @@ export const winRaceWithTermDates = async (page: Page): Promise<void> => {
   await pickTermDate(page, 'term-start-date', '2023-01-01')
   await pickTermDate(page, 'term-end-date', '2027-01-01')
   await page.getByRole('button', { name: /^continue$/i }).click()
-  await page.waitForURL('**/dashboard/briefings', { timeout: 15_000 })
+  await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 15_000 })
 }
 
 type SetupResult = {
