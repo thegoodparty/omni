@@ -67,6 +67,7 @@ const planViewProps = (plan = buildPlanData(makeInput())) =>
     planReady: true,
     state: 'CA',
     strategyState: sectionState,
+    eventsState: sectionState,
     pressOutletsState: sectionState,
     voterInsightsContext: {},
     onDownload: vi.fn(),

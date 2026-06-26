@@ -48,9 +48,10 @@ const CampaignPlanRouter = ({
   // for every plan visitor — mirrors DashboardMenu.
   const { ready: storyReady, enabled: storyEnabled } =
     useCampaignStoryFlag(false)
-  // The strategy-only cohort (campaign-strategy on, campaign-story off) used to
-  // land on the onboarding success page, which is being retired in favor of
-  // this page. They have no story to gate on; the plan generates on the page.
+  // The strategy-only cohort (campaign-strategy on, campaign-story off) lands
+  // on the onboarding success page post-pledge, but can still open this page
+  // from the menu — they have no story to gate on and see the legacy plan
+  // content (no tracker; CampaignPlanView branches on the story flag).
   const { ready: strategyReady, enabled: strategyEnabled } =
     useCampaignStrategyFlag()
   const ready = storyReady && strategyReady

@@ -3,7 +3,6 @@
 import { useMemo } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Card } from '@styleguide'
-import { buildCampaignStrategy } from './buildCampaignStrategy'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   useToggleTrackerTaskComplete,
@@ -11,24 +10,19 @@ import {
 } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 
-// The "Campaign strategy" section on the campaign plan page: the campaign
-// tasks rendered as a four-phase, dated, prioritized list of cards using
-// styleguide components. Data is assembled by buildCampaignStrategy from the
-// campaign's metrics and its already-generated community events (see
-// buildCampaignStrategy for the provisional notes pending the plan-to-tracker
-// data contract).
+// The "Campaign strategy" section on the campaign plan page: the persisted
+// campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
+// dated, prioritized list of cards. The tracker only exists once a campaign
+// has gone through campaign story, so this section is rendered only for the
+// story cohort (see CampaignPlanView) — there is no client-catalog fallback.
+// While the tracker is bootstrapping (no rows yet) it shows a setup state.
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
 
-  // Completion only persists for real tracker rows; the catalog fallback has no
-  // backing rows to toggle, so the circle stays a plain status marker there.
-  const onToggleComplete =
-    !isPending && tasks.length > 0
-      ? (id: string, completed: boolean) =>
-          toggleComplete.mutate({ id, completed })
-      : undefined
+  const onToggleComplete = (id: string, completed: boolean) =>
+    toggleComplete.mutate({ id, completed })
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -37,47 +31,24 @@ const CampaignStrategySection = (): React.JSX.Element => {
     campaign?.details?.electionDate ??
     campaign?.electionDate ??
     null
-  // Anchor the early (asap / onboarding / launch) tasks to when the campaign
-  // was created, so Pre-launch reads as "now" at the start and eventually rolls
-  // to done — rather than re-pinning to today on every render.
-  const campaignStartIso = campaign?.createdAt ?? null
 
-  // Prefer the persisted tracker rows (the new campaign_tracker_tasks table)
-  // once they exist; fall back to the client-side catalog for campaigns that
-  // aren't on the new tracker yet.
+  // Render only from persisted rows. null until the first generation lands.
   const strategy = useMemo(() => {
+    if (tasks.length === 0) return null
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    // Only fall back to the client-side catalog once the fetch has settled and
-    // confirmed there are no tracker rows — otherwise the pending window would
-    // flash the wrong (non-interactive) content for a campaign that has rows.
-    if (!isPending && tasks.length > 0) {
-      return buildTrackerStrategy(tasks, { electionDate })
-    }
-    return buildCampaignStrategy({
-      electionDate,
-      campaignStart: campaignStartIso ? new Date(campaignStartIso) : null,
-      uniqueCellphones: metrics?.uniqueCellphones ?? null,
-      uniqueLandlines: metrics?.uniqueLandlines ?? null,
-    })
-  }, [
-    isPending,
-    tasks,
-    electionDateIso,
-    campaignStartIso,
-    metrics?.uniqueCellphones,
-    metrics?.uniqueLandlines,
-  ])
+    return buildTrackerStrategy(tasks, { electionDate })
+  }, [tasks, electionDateIso])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const openPhases = strategy.phases
+  const openPhases = (strategy?.phases ?? [])
     .filter((phase) => phase.status === 'active')
     .map((phase) => phase.key)
   const defaultOpen =
     openPhases.length > 0
       ? openPhases
-      : strategy.phases[0]
+      : strategy?.phases[0]
         ? [strategy.phases[0].key]
         : []
 
@@ -105,6 +76,16 @@ const CampaignStrategySection = (): React.JSX.Element => {
           <p className="text-muted-foreground text-sm">
             We could not load your tasks just now. Refresh the page to try
             again.
+          </p>
+        </Card>
+      ) : !strategy ? (
+        // Plan just completed; the tracker is bootstrapping. Static rows land
+        // first (seconds), then the dynamic tasks + events (a few minutes).
+        <Card className="flex items-center gap-3 p-4">
+          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
+          <p className="text-muted-foreground text-sm">
+            Setting up your campaign tracker. Your tasks will appear here
+            automatically in a few minutes.
           </p>
         </Card>
       ) : (

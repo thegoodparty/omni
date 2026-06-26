@@ -48,21 +48,37 @@ dated task cards the candidate works through and marks complete.
 - A **Monday digest** emails the candidate their top 3 uncompleted tasks for
   the week.
 
-## Lifecycle (GA: hard flip, no legacy path)
+## Lifecycle (coexists with the legacy path, gated on campaign story)
 
-All candidates go through the same flow. There is no coexistence with the old
-`campaign_task` tracker; legacy tasks are never generated or shown.
+The tracker is the **campaign-story cohort's** experience. It takes the campaign
+story (why / background / issues) as input, so it only exists once a campaign
+goes through Campaign Story. The legacy `campaign_task` path is fully preserved
+for the story-off cohort. This is deliberately **not** a hard flip, so the
+branch is safe to ship to prod while `campaign-story` is still gated there.
+
+Story cohort (`campaign-story` on):
 
 1. Candidate completes **Campaign Story** (why / background / issues).
 2. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
-   sections). When both sections persist, the tracker bootstraps.
+   sections, with the story as input). When both sections persist **and a
+   `campaign_story` row exists**, the tracker bootstraps.
 3. **Bootstrap** materializes the static rows and dispatches the first CAP run.
 4. Each **Sunday** (once the weekly cron is enabled) a CAP run re-prioritizes
    the week and refreshes events.
 
-Existing candidates who onboarded before this shipped are routed back through
-Campaign Story by the flow gating; their tracker bootstraps when they
-regenerate. There is no backfill of pre-existing campaigns by design.
+Story-off cohort (legacy, = prod today): no campaign story, so the plan still
+generates but the tracker never bootstraps. The candidate keeps the legacy
+onboarding success page, the dashboard `campaign_task` list, the
+`community_events` JSON column, and the legacy weekly digest, exactly as before
+the tracker shipped.
+
+Two gate signals:
+
+- the **`campaign-story` flag** gates routing + which UI surfaces render
+  (post-pledge route, dashboard task slot, campaign-plan page layout);
+- **`campaign_story` existence (data)** gates the tracker bootstrap, so the
+  tracker can't materialize for a campaign that never wrote a story regardless
+  of flag state.
 
 ## Data model
 
@@ -107,8 +123,9 @@ choice and it has consequences every consumer must respect:
 ### Bootstrap (initial run)
 
 `campaignStrategy.service.ts → bootstrapTrackerIfPlanComplete` fires once both
-plan sections have persisted, calling
-`CampaignTrackerTasksService.bootstrapForCampaign`:
+plan sections have persisted **and the campaign has a `campaign_story` row**
+(the story-data gate, so story-off plans complete but never bootstrap), then
+calls `CampaignTrackerTasksService.bootstrapForCampaign`:
 
 1. **Atomic claim.** A single conditional update flips
    `CampaignStrategy.trackerBootstrapped` `false → true`. The two plan sections
@@ -159,11 +176,20 @@ retries). Dispatches `mode = weekly` at default priority.
 
 ### Weekly digest
 
-`weeklyTasksDigestHandler.service.ts` reads `campaign_tracker_tasks`, scopes to
-the latest dynamic generation plus static rows, and emails the **top 3
-uncompleted** tasks dated in the upcoming Monday-Sunday window. It excludes GOTV
-tasks until the election is within 30 days (matching the UI), and excludes
-inactive / demo campaigns. Election date falls back to `primaryElectionDate`.
+`weeklyTasksDigestHandler.service.ts` serves **both cohorts** from one trigger,
+routed per campaign:
+
+- **Tracker cohort** (`fetchTrackerDigestRows`): reads `campaign_tracker_tasks`,
+  scopes to the latest dynamic generation plus static rows, excludes GOTV tasks
+  until the election is within 30 days (matching the UI), and excludes inactive
+  / demo campaigns.
+- **Legacy cohort** (`fetchLegacyDigestRows`): the unchanged pre-tracker digest
+  over `campaign_task`, guarded by `NOT EXISTS (campaign_tracker_tasks)` so a
+  migrated campaign isn't double-counted. The two cohorts are mutually
+  exclusive, so each campaign gets exactly one digest.
+
+Both email the **top 3 uncompleted** tasks dated in the upcoming Monday-Sunday
+window. Election date falls back to `primaryElectionDate`.
 
 ## Key files
 
@@ -206,18 +232,29 @@ The table below is the cross-package file index:
 - `useTrackerTasks.ts` polls fast (20s) while dynamic tasks are still
   generating, then drops to a slow background poll (so a weekly regen is picked
   up) with a fast-poll budget cap.
-- `CampaignStrategySection.tsx` shows loading / error / generating states and
-  falls back to the client-side catalog only once the fetch settles with no
-  rows.
+- `CampaignStrategySection.tsx` renders only from persisted tracker rows
+  (loading / error / a "setting up your tracker" state while bootstrap is in
+  flight, then the accordion). There is **no** client-side catalog fallback.
+  The section is rendered only for the story cohort (`CampaignPlanView` branches
+  on the `campaign-story` flag), so a no-rows state means bootstrap hasn't
+  landed yet, not "legacy campaign with no tracker."
+- `CampaignPlanView.tsx` is the cohort switch on the campaign-plan page: story
+  cohort gets the tracker hero + `CampaignStrategySection` above the plan;
+  story-off gets the legacy plan content (strategic landscape, **community
+  events**, voter insights) with no tracker. It gates the legacy
+  community-events poll (`useCampaignPlanData(_, communityEventsEnabled)`) off
+  for the story cohort.
 
 ## Rollout and ops
 
 - **Weekly cron:** `CAMPAIGN_TRACKER_AUTOMATION_ENABLED=true` (env) turns on
   Sunday regeneration. Ships disabled.
-- **Flow gating:** the `campaign-story` / `campaign-strategy` Amplitude flags
-  gate the campaign-story → plan → tracker flow. The plan is to drop these and
-  hard-flip (a follow-up), since the off state is not a usable fallback once the
-  legacy task display was removed.
+- **Flow gating:** the `campaign-story` flag is the master switch for the new
+  flow (routing, dashboard task slot, campaign-plan page layout); `campaign_story`
+  existence gates the bootstrap. Story-off is a fully usable legacy fallback
+  (success page, legacy dashboard tasks, legacy digest), so the flag can ramp
+  safely and the branch is safe to merge while `campaign-story` is off in prod.
+  `campaign-strategy` gates the campaign-plan page itself.
 - Cost is roughly $0.94 per candidate per run (validated on dev cohorts;
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
@@ -226,11 +263,15 @@ The table below is the cross-package file index:
 
 The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed
 coexistence with the legacy tracker and a weekly **wholesale replace** of
-dynamic rows. Two GA decisions changed that:
+dynamic rows. One of those held; the other changed:
 
-1. **Hard flip, no coexistence.** Legacy `campaign_task` generation and display
-   were retired; all candidates use this tracker. There is no per-campaign
-   routing between old and new.
+1. **Coexistence, gated on campaign story.** An earlier iteration hard-flipped
+   (retired the legacy `campaign_task` generation + display). That was reverted:
+   because `campaign-story` is still gated in prod and dev auto-merges to prod
+   daily, the off state must remain a fully usable legacy experience. So the new
+   tracker is the story cohort's path, the legacy path is preserved for
+   story-off, and routing/digest/UI cohort-split per campaign on the
+   `campaign-story` flag + `campaign_story` existence.
 2. **Append, not replace.** Wholesale-replace wiped completion every week and
    kept no history for the agent. The append model preserves both, at the cost
    of every consumer scoping to the latest generation.

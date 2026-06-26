@@ -82,6 +82,32 @@ async function makeTask(
   })
 }
 
+// Legacy (pre-v3) campaign_task rows — the cohort that never went through
+// campaign story and so never bootstrapped the tracker.
+async function makeLegacyTask(
+  campaignId: number,
+  overrides: {
+    date?: Date
+    completed?: boolean
+    flowType?: CampaignTaskType
+    title?: string
+    description?: string
+    week?: number
+  } = {},
+) {
+  return service.prisma.campaignTask.create({
+    data: {
+      campaignId,
+      title: overrides.title ?? 'Legacy Task',
+      description: overrides.description ?? 'A legacy task',
+      flowType: overrides.flowType ?? CampaignTaskType.education,
+      week: overrides.week ?? 10,
+      date: overrides.date ?? new Date('2026-04-22T00:00:00.000Z'),
+      completed: overrides.completed ?? false,
+    },
+  })
+}
+
 describe('WeeklyTasksDigestHandlerService integration', () => {
   describe('campaign eligibility', () => {
     it('excludes campaigns with a past election date', async () => {
@@ -578,6 +604,83 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         EVENTS.CampaignPlan.WeeklyTasksDigest,
         expect.any(Object),
       )
+    })
+  })
+
+  describe('legacy cohort (no tracker rows)', () => {
+    it('sends the legacy campaign_task digest for a campaign with no tracker rows', async () => {
+      const campaign = await makeCampaign()
+      for (let i = 0; i < 3; i++) await makeLegacyTask(campaign.id)
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      expect(trackSpy).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.CampaignPlan.WeeklyTasksDigest,
+        expect.any(Object),
+      )
+    })
+
+    it('counts only legacy tasks, ignoring tracker latest-generation scoping', async () => {
+      const campaign = await makeCampaign()
+      // 5 legacy tasks across two "weeks" — campaign_task has no generation
+      // model, so all in-window rows count (unlike the tracker cohort).
+      for (let i = 0; i < 3; i++) {
+        await makeLegacyTask(campaign.id, { title: `W1 ${i}`, week: 1 })
+      }
+      for (let i = 0; i < 2; i++) {
+        await makeLegacyTask(campaign.id, { title: `W2 ${i}`, week: 2 })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(5)
+    })
+
+    it('routes a migrated campaign (both legacy + tracker rows) to the tracker cohort only, no double-send', async () => {
+      const campaign = await makeCampaign()
+      // Old legacy rows linger from before the campaign migrated to v3.
+      for (let i = 0; i < 5; i++) {
+        await makeLegacyTask(campaign.id, { title: `Legacy ${i}` })
+      }
+      // New tracker rows from after migration.
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, { title: `Tracker ${i}` })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      // Exactly one digest (mutual exclusion via the NOT EXISTS guard), and it
+      // is the tracker digest — only the 3 tracker rows, never the 5 legacy.
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(3)
+      expect(properties.task_name_1).toContain('Tracker')
     })
   })
 

@@ -1,5 +1,8 @@
 import { dateUsHelper } from 'helpers/dateHelper'
-import type { StrategicLandscapeData } from 'gpApi/api-endpoints'
+import type {
+  CommunityEventsData,
+  StrategicLandscapeData,
+} from 'gpApi/api-endpoints'
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
 import {
   computeBudget,
@@ -92,8 +95,14 @@ export interface PlanInput {
   // raceCandidates + the legacy runningAgainst + hubspotIncumbent fallback
   // for opponents and is the only source for opportunities + challenges.
   strategicLandscape?: StrategicLandscapeData
-  // Press outlets from GET /v1/onboarding/local-news. Undefined while
-  // polling or on error, real array
+  // Community events from /campaignStrategy/mine/community-events.
+  // Undefined while polling or on error; when present overrides the
+  // templated `buildCivicEvents` fallback rows. An empty events array is
+  // a meaningful "ready, found nothing" state — the section renders an
+  // empty state without falling back to templates.
+  communityEvents?: CommunityEventsData
+  // Press outlets from GET /v1/onboarding/local-news. Same semantics as
+  // communityEvents — undefined while polling or on error, real array
   // (possibly empty) when ready. Falls back to `buildPressOutlets`
   // templated rows when undefined.
   pressOutletsFromApi?: ApiPressOutlet[]
@@ -163,6 +172,13 @@ export interface TimeRow {
 export interface FundraisingRow {
   source: string
   share: string
+}
+
+export interface CivicEvent {
+  event: string
+  address: string
+  date: string
+  why: string
 }
 
 export interface PressOutlet {
@@ -239,6 +255,7 @@ export interface PlanData {
   volunteerHourTarget: number
   totalBudget: number
   averageTouchesPerVoter: number
+  eventCount: number
   mediaCount: number
 
   weeksRemaining: number
@@ -266,6 +283,7 @@ export interface PlanData {
   totalCampaignHours: number
   fundraisingMix: FundraisingRow[]
 
+  civicEvents: CivicEvent[]
   pressOutlets: PressOutlet[]
 
   contactSchedule: ContactSend[]
@@ -286,6 +304,7 @@ const buildTimeline = (
   filingDateStart: Date | null,
   filingDateEnd: Date | null,
   milestones: RaceMilestones | null,
+  eventCount: number,
   stateCode: string,
 ): {
   timeline: TimelineRow[]
@@ -535,7 +554,11 @@ const buildTimeline = (
     {
       date: addDays(electionDate, -20),
       description:
-        'Identify community events in your area to attend in person.',
+        eventCount > 0
+          ? `${eventCount} community event${
+              eventCount === 1 ? '' : 's'
+            } that you should personally attend.`
+          : 'Identify community events in your area to attend in person.',
     },
     voterRegHasNoDeadline
       ? {
@@ -633,6 +656,23 @@ const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
   }))
 }
 
+const buildCivicEvents = (
+  communityEvents: CommunityEventsData | undefined,
+): CivicEvent[] => {
+  // Only renders real LLM-sourced events. If the endpoint hasn't resolved
+  // or errored, returns []; the renderer shows an empty/skeleton state
+  // rather than templated rows with invented event names and dates.
+  // `address` is the venue's physical street address from BR/search,
+  // null when the search data had no address.
+  if (!communityEvents) return []
+  return communityEvents.events.map((e) => ({
+    event: e.title,
+    address: e.address ?? '',
+    date: dateUsHelper(e.date),
+    why: e.description,
+  }))
+}
+
 const OUTLET_TYPE_LABEL: Record<ApiPressOutlet['type'], string> = {
   TV: 'Television',
   print: 'Print',
@@ -648,7 +688,7 @@ const formatOutletContact = (outlet: ApiPressOutlet): string =>
 
 // Returns empty when the local-news endpoint hasn't resolved yet — the
 // renderer shows a skeleton on the empty + generating combination so the
-// user never sees stale templated rows.
+// user never sees stale templated rows. Mirrors the civicEvents handling.
 const buildPressOutlets = (
   outletsFromApi: ApiPressOutlet[] | undefined,
 ): PressOutlet[] => {
@@ -849,6 +889,7 @@ const buildPlanAtAGlance = (
   projectedTurnout: number,
   contactWindowStart: string,
   electionDate: string,
+  eventCount: number,
 ): { title: string; body: string }[] => [
   {
     title: 'Voter turnout is the ball game.',
@@ -864,7 +905,12 @@ const buildPlanAtAGlance = (
   },
   {
     title: 'Show up in person.',
-    body: 'Attending community events in person carries more weight per hour than any paid channel.',
+    body:
+      eventCount > 0
+        ? `${eventCount} high-density community event${
+            eventCount === 1 ? '' : 's'
+          } during your campaign carry more weight per hour than any paid channel.`
+        : 'Attending community events in person carries more weight per hour than any paid channel.',
   },
   {
     title: 'Message discipline.',
@@ -1124,7 +1170,13 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     : []
   const totalCampaignHours = campaignHours.totalHours
 
+  // civicEvents must be computed before buildTimeline so the Section 6
+  // keyDates entry can substitute the actual event count instead of a
+  // raw `{N}` placeholder. pressOutlets has no such dependency but is
+  // grouped here with civicEvents for clarity.
+  const civicEvents = buildCivicEvents(input.communityEvents)
   const pressOutlets = buildPressOutlets(input.pressOutletsFromApi)
+  const eventCount = civicEvents.length
   const mediaCount = pressOutlets.length
 
   const { timeline, keyDates } = buildTimeline(
@@ -1132,6 +1184,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     filingDateStart,
     filingDateEnd,
     input.milestones,
+    eventCount,
     input.state,
   )
   const contactSchedule = buildContactSchedule(electionDateValid)
@@ -1151,6 +1204,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     projectedTurnout,
     contactWindowStart,
     electionDate,
+    eventCount,
   )
 
   const opponents = buildOpponents(
@@ -1254,6 +1308,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     volunteerHourTarget,
     totalBudget,
     averageTouchesPerVoter,
+    eventCount,
     mediaCount,
     weeksRemaining,
     filingDateStart: formatDateMaybe(input.filingDateStartIso),
@@ -1275,6 +1330,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     timeBreakdown,
     totalCampaignHours,
     fundraisingMix: FUNDRAISING_MIX,
+    civicEvents,
     pressOutlets,
     contactSchedule,
     dataSources: DATA_SOURCES,

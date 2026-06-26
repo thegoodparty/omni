@@ -11,9 +11,8 @@ cards the candidate checks off. Feature overview + backend:
 | File | Role |
 |------|------|
 | `useTrackerTasks.ts` | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while generating, slow background poll after, with a fast-poll budget cap. |
-| `buildTrackerStrategy.ts` | Builds the render shape from persisted rows (the canonical path). |
-| `buildCampaignStrategy.ts` | Client-side catalog fallback for campaigns with no rows yet. |
-| `CampaignStrategySection.tsx` | The section: loading / error / generating states, then the accordion. |
+| `buildTrackerStrategy.ts` | Builds the render shape from persisted rows (the only path). |
+| `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows. |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle). |
 | `CampaignStrategyPhase.tsx` | A phase accordion item + the "N more unlock" hint. |
 | `campaignStrategy.types.ts` | Render-shape types shared by both builders. |
@@ -32,9 +31,12 @@ cards the candidate checks off. Feature overview + backend:
   completedCount`, surface `hiddenCount`. GOTV is gated behind a window message
   until the election is within 30 days. These caps/gates are deterministic here,
   not in the agent.
-- **`CampaignStrategySection` only falls back to the catalog once the fetch has
-  settled** (not during `isPending`, and an error shows an error state) so the
-  tracker doesn't flash non-interactive catalog rows.
+- **The section renders only for the story cohort, only from persisted rows.**
+  `CampaignPlanView` branches on the `campaign-story` flag: story cohort gets
+  the tracker, story-off gets the legacy plan content (incl. community events)
+  with no tracker. There is no client-catalog fallback. When the fetch settles
+  with no rows the section shows a "setting up your tracker" state (bootstrap in
+  flight), since a rendered story-cohort campaign always bootstraps.
 
 ## Gotchas
 

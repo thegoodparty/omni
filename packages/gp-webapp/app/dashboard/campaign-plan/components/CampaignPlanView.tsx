@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import PlanView, {
   type PlanContinueSource,
   type PlanDownloadSource,
@@ -35,7 +36,16 @@ const CampaignPlanView = ({
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
   const [campaign] = useCampaign()
-  const data = useCampaignPlanData(initialUser)
+  // The campaign tracker is the story cohort's experience; the story-off
+  // (legacy) cohort sees the old plan content + community events and no
+  // tracker. trackExposure=false: the campaign-story page is the treatment
+  // surface, not this one (mirrors CampaignPlanRouter / DashboardMenu).
+  const { ready: storyReady, enabled: storyEnabled } =
+    useCampaignStoryFlag(false)
+  // Community events are a story-off-only plan section (story-on events come
+  // from the tracker). Gate the poll so the story cohort never triggers a
+  // legacy community-events generation.
+  const data = useCampaignPlanData(initialUser, storyReady && !storyEnabled)
   const { campaignId, strategy, media } = data
   const [heroDownloading, setHeroDownloading] = useState(false)
 
@@ -121,6 +131,43 @@ const CampaignPlanView = ({
     router.push('/dashboard')
   }
 
+  // Wait for the flag so we don't flash the wrong cohort's layout (story-off
+  // briefly seeing the tracker, or story-on seeing the legacy hero + events).
+  if (!storyReady) {
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <div className="border-primary size-8 animate-spin rounded-full border-b-2" />
+      </div>
+    )
+  }
+
+  // Story-off (legacy): the old plan content + community events, the plan's own
+  // hero, and the bottom download bar — no campaign tracker.
+  if (!storyEnabled) {
+    return (
+      <PlanView
+        plan={data.plan}
+        planReady={data.planReady}
+        state={data.state}
+        strategyState={data.strategyState}
+        eventsState={data.eventsState}
+        pressOutletsState={data.pressOutletsState}
+        voterInsightsContext={data.voterInsightsContext}
+        onDownload={handleDownload}
+        onShared={handleShared}
+        onContinue={handleContinue}
+        showConfetti={false}
+        rootClassName="bg-transparent"
+        contentClassName="max-w-3xl px-4"
+        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
+        navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
+      />
+    )
+  }
+
+  // Story cohort: campaign tracker on top, then the plan below it (the plan's
+  // own hero + bottom download are hidden — the tracker hero owns them, and
+  // community events come from the tracker, not the legacy events section).
   return (
     <>
       <div className="mx-auto w-full max-w-3xl px-4 pt-8">

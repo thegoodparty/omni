@@ -8,6 +8,7 @@ import ProUpgradeBanner from './ProUpgradeBanner'
 import ProUpgrade3ComplianceCard from './ProUpgrade3ComplianceCard'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { TcrCompliance } from 'helpers/types'
 import ElectionOver from '../ElectionOver'
 import PrimaryResultModal from '../PrimaryResultModal'
@@ -15,19 +16,25 @@ import { usePostElectionState } from '../usePostElectionState'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import Link from 'next/link'
 import { Button, Card } from '@styleguide'
+import LegacyDashboardTasks from './LegacyDashboardTasks'
 
-// The legacy campaign_task generator + task list has been retired: every
-// candidate now goes through Campaign Story → Campaign Plan, where the campaign
-// tracker owns the weekly task list. The dashboard home keeps its header /
-// progress chrome and points at the Campaign Plan.
+// The dashboard home keeps its header / progress chrome and, in the task slot,
+// branches on the campaign-story flag. Story cohort: tasks live in the campaign
+// tracker on the Campaign Plan page, so point there. Story-off (legacy)
+// cohort: the old campaign_task generator + checklist (LegacyDashboardTasks).
 export default function CampaignManager({
   pathname,
+  tcrCompliance,
 }: {
   pathname: string
   tcrCompliance: TcrCompliance | null
 }) {
   const [campaign] = useCampaign()
   const positionName = usePositionName()
+  // trackExposure=false: this isn't the experiment's treatment surface (the
+  // campaign-story page is), so reading the flag here must not fire exposure.
+  const { ready: storyReady, enabled: storyEnabled } =
+    useCampaignStoryFlag(false)
   const {
     electionInPast,
     primaryLost,
@@ -59,17 +66,24 @@ export default function CampaignManager({
                 <ProUpgradeBanner />
                 <ProUpgrade3ComplianceCard />
                 <ProgressSection />
-                <Card className="mt-4 flex flex-col items-start gap-3 p-6">
-                  <p className="text-muted-foreground">
-                    Your weekly tasks live in your Campaign Plan, tailored to
-                    your story and plan.
-                  </p>
-                  <Button asChild>
-                    <Link href="/dashboard/campaign-plan">
-                      Go to Campaign Plan
-                    </Link>
-                  </Button>
-                </Card>
+                {!storyReady ? null : storyEnabled ? (
+                  <Card className="mt-4 flex flex-col items-start gap-3 p-6">
+                    <p className="text-muted-foreground">
+                      Your weekly tasks live in your Campaign Plan, tailored to
+                      your story and plan.
+                    </p>
+                    <Button asChild>
+                      <Link href="/dashboard/campaign-plan">
+                        Go to Campaign Plan
+                      </Link>
+                    </Button>
+                  </Card>
+                ) : (
+                  <LegacyDashboardTasks
+                    campaign={campaign}
+                    tcrCompliance={tcrCompliance}
+                  />
+                )}
               </>
             )}
           </div>

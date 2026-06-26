@@ -1181,6 +1181,29 @@ export const CampaignPlanPdfDocument = ({
         intro="Earned media and in-person visibility are the highest-ROI channels in a race this size. A single mention in a local outlet or a strong showing at a civic association meeting can move more voters than any paid channel at this budget."
         transition="These are your highest-value rooms and your best media targets. Once you tell us why you're running and what you stand for in Campaign Manager, we can turn this list into ready-to-use talking points and press pitches."
       >
+        {/* Community Events are a story-off (legacy) section only. Story-on
+            plans carry no civicEvents (events live in the tracker), so omit
+            the table entirely rather than print an empty header. */}
+        {plan.civicEvents.length > 0 && (
+          <>
+            <Text style={styles.h3}>Community Events</Text>
+            <PlanTable
+              columns={[
+                { key: 'event', header: 'Event', flex: 1.5 },
+                { key: 'address', header: 'Address', flex: 1.3 },
+                { key: 'date', header: 'Date', width: 90 },
+                { key: 'why', header: 'Why It Matters', flex: 1.8 },
+              ]}
+              rows={plan.civicEvents.map((e) => ({
+                event: e.event,
+                address: e.address,
+                date: e.date,
+                why: e.why,
+              }))}
+            />
+          </>
+        )}
+
         <Text style={styles.h3}>Press & Media Outlets</Text>
         <Text style={styles.para}>
           Target at least one earned-media placement per week between{' '}

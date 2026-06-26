@@ -24,7 +24,12 @@ overview: `docs/features/campaign-tracker-v3.md`.
   keeps history for the weekly agent's prior-task lookup. Consequence: every
   reader must scope to the latest generation. The frontend (`buildTrackerStrategy`)
   and the digest (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
-- **Bootstrap is an atomic claim.** Two plan sections complete on independent SQS
+- **Bootstrap is gated on campaign story, then an atomic claim.**
+  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
+  proceeds if a `campaign_story` row exists. The tracker takes the story as
+  input, so story-off (legacy) campaigns generate their plan but never bootstrap
+  the tracker. The gate is on the story *data*, not the flag, so it holds
+  regardless of flag state. Then: two plan sections complete on independent SQS
   messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
   with one conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
@@ -46,5 +51,13 @@ overview: `docs/features/campaign-tracker-v3.md`.
   first (so static `week` never pollutes the max).
 - The digest is a *separate* consumer of this table; a change to what counts as
   "current" must be mirrored in `weeklyTasksDigestHandler.service.ts`.
-- Legacy `campaign_task` generation is retired (hard flip). The dead
-  `community_events` column + its orphaned route are left for a separate teardown.
+- **The digest serves two cohorts.** `weeklyTasksDigestHandler` runs one query
+  over `campaign_tracker_tasks` (this table) and a second over the legacy
+  `campaign_task` table, guarded by `NOT EXISTS (campaign_tracker_tasks)` so the
+  two cohorts are mutually exclusive, so each campaign gets exactly one digest.
+  Don't assume a campaign in the digest is on the tracker.
+- **Legacy `campaign_task` coexists** (not a hard flip): story-off campaigns
+  keep the legacy generator, dashboard task list, onboarding success page, and
+  `community_events` JSON column. The new tracker is the story cohort's path
+  only. Gating lives on the `campaign-story` flag (routing/UI) + `campaign_story`
+  existence (bootstrap).

@@ -13,6 +13,7 @@ import {
 import ConfettiCanvas from './ConfettiCanvas'
 import HeroCard from './HeroCard'
 import PlanSections, {
+  type EventsState,
   type PressOutletsState,
   type StrategyState,
   type VoterInsightsContext,
@@ -34,6 +35,9 @@ interface PlanViewProps {
   planReady: boolean
   state: string
   strategyState: StrategyState
+  // Story-off (legacy) plan only — drives the Section 7 Community Events
+  // table. Omitted on the story-on dashboard (events live in the tracker).
+  eventsState?: EventsState
   pressOutletsState: PressOutletsState
   voterInsightsContext: VoterInsightsContext
   // Analytics notification — fires when a download actually starts.
@@ -75,6 +79,7 @@ const PlanView = ({
   planReady,
   state,
   strategyState,
+  eventsState,
   pressOutletsState,
   voterInsightsContext,
   onDownload,
@@ -199,6 +204,7 @@ const PlanView = ({
           <PlanSections
             plan={plan}
             strategyState={strategyState}
+            eventsState={eventsState}
             pressOutletsState={pressOutletsState}
             voterInsightsContext={voterInsightsContext}
             navStuckClassName={navStuckClassName}

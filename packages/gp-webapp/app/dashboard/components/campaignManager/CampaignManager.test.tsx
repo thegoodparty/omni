@@ -7,6 +7,7 @@ import CampaignManager from './CampaignManager'
 
 const mockUseCampaign = vi.fn()
 const mockUsePostElectionState = vi.fn()
+const mockStoryFlag = vi.fn()
 
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -42,6 +43,12 @@ vi.mock('../ElectionOver', () => ({
 vi.mock('../PrimaryResultModal', () => ({
   default: () => null,
 }))
+vi.mock('@shared/experiments/campaignStoryFlag', () => ({
+  useCampaignStoryFlag: () => mockStoryFlag(),
+}))
+vi.mock('./LegacyDashboardTasks', () => ({
+  default: () => <div>Legacy task list</div>,
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,14 +63,34 @@ beforeEach(() => {
     electionDate: '2026-11-03',
     closePrimaryResultModal: vi.fn(),
   })
+  mockStoryFlag.mockReturnValue({ ready: true, enabled: true })
 })
 
 describe('CampaignManager', () => {
-  it('points to the Campaign Plan (no legacy task list)', () => {
+  it('points to the Campaign Plan for the story cohort (no legacy task list)', () => {
+    mockStoryFlag.mockReturnValue({ ready: true, enabled: true })
     render(<CampaignManager pathname="/dashboard" tcrCompliance={null} />)
     expect(screen.getByText('Go to Campaign Plan')).toBeInTheDocument()
+    expect(screen.queryByText('Legacy task list')).not.toBeInTheDocument()
     expect(screen.getByText('Header')).toBeInTheDocument()
     expect(screen.getByText('Progress')).toBeInTheDocument()
+  })
+
+  it('renders the legacy task list for the story-off cohort', () => {
+    mockStoryFlag.mockReturnValue({ ready: true, enabled: false })
+    render(<CampaignManager pathname="/dashboard" tcrCompliance={null} />)
+    expect(screen.getByText('Legacy task list')).toBeInTheDocument()
+    expect(screen.queryByText('Go to Campaign Plan')).not.toBeInTheDocument()
+    expect(screen.getByText('Header')).toBeInTheDocument()
+  })
+
+  it('shows neither task surface until the story flag resolves', () => {
+    mockStoryFlag.mockReturnValue({ ready: false, enabled: false })
+    render(<CampaignManager pathname="/dashboard" tcrCompliance={null} />)
+    expect(screen.queryByText('Legacy task list')).not.toBeInTheDocument()
+    expect(screen.queryByText('Go to Campaign Plan')).not.toBeInTheDocument()
+    // Chrome still renders while the flag loads.
+    expect(screen.getByText('Header')).toBeInTheDocument()
   })
 
   it('renders ElectionOver and hides the rest when the election is in the past', () => {

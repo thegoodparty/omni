@@ -381,6 +381,16 @@ export class CampaignStrategyService
     const plan = await this.findFirst({ where: { id: planId } })
     if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) return
 
+    // The tracker uses the campaign story as input, so it only exists once the
+    // campaign has gone through campaign story. Legacy (campaign-story off)
+    // campaigns never write a story, so they stay on the legacy task path and
+    // never bootstrap the tracker even though their plan still generates. This
+    // gate is on story data (not the flag) so it holds regardless of the flag.
+    const story = await this.client.campaignStory.findUnique({
+      where: { campaignId },
+    })
+    if (!story) return
+
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
       include: { user: true },

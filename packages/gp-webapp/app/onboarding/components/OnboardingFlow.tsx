@@ -25,6 +25,7 @@ import { identifyUser } from '@shared/utils/analytics'
 import { reportErrorToSentry } from '@shared/sentry'
 import { numberFormatter } from 'helpers/numberHelper'
 import type { Campaign } from 'helpers/types'
+import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
@@ -890,28 +891,31 @@ export default function OnboardingFlow({
         })
         const ok = await persistStructuredOffice(answers.structuredOffice)
         if (!ok) return
-        // Pre-warm the Campaign Plan page's strategic-landscape section now
-        // that raceId + electionDate are persisted. The endpoint polls on
-        // mount, but firing here gives it a ~15-90s head start so the section
-        // is usually ready by the time the user lands. Fire-and-forget — the
-        // helper swallows errors and gp-api dedupes via the per-pod inFlight
-        // slot, so pre-warm + page mount collapse to a single LLM run.
+        // Pre-warm the success-page LLM sections now that raceId +
+        // electionDate are persisted. Both endpoints poll on mount, but
+        // firing here gives them a ~15-90s head start so sections are usually
+        // ready by the time the user lands. Fire-and-forget — both helpers
+        // swallow errors and gp-api dedupes via the per-pod inFlight slot, so
+        // pre-warm + success-page mount collapse to a single LLM run.
         //
-        // Gated on the campaign-strategy flag: no point spending the LLM call
-        // if the user will be routed straight to /dashboard post-pledge.
+        // Gated on the strategy-only cohort (campaign-strategy on,
+        // campaign-story off): they land on the legacy success page. No point
+        // spending Gemini calls for campaign-story users (who generate on
+        // demand after their story, and whose events come from the tracker)
+        // or flag-off users (routed straight to /dashboard).
         if (campaignStrategyEnabled && !campaignStoryEnabled) {
-          // This prewarm is the real first request for the strategic
-          // landscape, so the `Requested` event fires here (not on the
-          // Campaign Plan page, which only re-polls afterward). Skipped for
-          // campaign-story users — they generate on demand after completing
-          // their story. Community events are no longer generated in
-          // onboarding; they now come from the campaign tracker (CAP) after
-          // the plan is generated.
+          // These prewarm calls are the real first request for the strategic
+          // landscape and community events, so the `Requested` events fire
+          // here (not on the success page, which only re-polls afterward).
           const planCampaignId = liveCampaign?.id ?? campaign?.id
           trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
             campaignId: planCampaignId,
           })
+          trackEvent(EVENTS.OnboardingV2.CommunityEventsRequested, {
+            campaignId: planCampaignId,
+          })
           void prewarmStrategicLandscape()
+          void prewarmCommunityEvents()
         }
         router.refresh()
       } finally {
@@ -965,9 +969,9 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Campaign-story users go write their story first (the plan is
-      // generated from it later, on the Campaign Plan tab). Otherwise:
-      // campaign-strategy on → /dashboard/campaign-plan (LLM-backed plan);
+      // Campaign-story users go write their story first (the plan + tracker
+      // are generated from it later, on the Campaign Plan tab). Otherwise:
+      // campaign-strategy on → /onboarding/success (legacy LLM plan);
       // off → /dashboard (legacy, no plan).
       router.push(
         resolvePostPledgeRoute({
