@@ -280,23 +280,35 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       })
       const generation = (latest?.week ?? 0) + 1
 
+      // Date the dateless tasks across the upcoming Mon-Sun week with a counter
+      // that skips dated events — using the raw array index would let an event
+      // in an early slot push a later dateless task past day 6 (windowEnd) and
+      // out of the digest. Clamp to day 6 so every dateless task stays in-week.
+      let datelessOffset = 0
       const rows: Prisma.CampaignTrackerTaskCreateManyInput[] = tasks.map(
-        (task, index) => ({
-          campaignId: campaign.id,
-          title: task.title,
-          description: task.description,
-          flowType: CHANNEL_TO_FLOW_TYPE[task.channel] ?? null,
-          week: generation,
-          // Events keep their real date; dynamic tasks are dated by priority
-          // order across the upcoming week so the list sorts as ranked.
-          date: task.date
-            ? startOfDay(parseIsoDateString(task.date))
-            : addDays(weekStart, index),
-          link: task.url ?? null,
-          phase: task.phase,
-          isDefaultTask: false,
-          completed: false,
-        }),
+        (task) => {
+          let date: Date
+          if (task.date) {
+            date = startOfDay(parseIsoDateString(task.date))
+          } else {
+            date = addDays(weekStart, Math.min(datelessOffset, 6))
+            datelessOffset += 1
+          }
+          return {
+            campaignId: campaign.id,
+            title: task.title,
+            description: task.description,
+            flowType: CHANNEL_TO_FLOW_TYPE[task.channel] ?? null,
+            week: generation,
+            // Events keep their real date; dynamic tasks are dated across the
+            // upcoming week so the list sorts as the model ranked it.
+            date,
+            link: task.url ?? null,
+            phase: task.phase,
+            isDefaultTask: false,
+            completed: false,
+          }
+        },
       )
 
       if (rows.length > 0) {
