@@ -17,11 +17,9 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
    - Read the stderr summary `N rows (present=…, removed=…, not_found_in_code=…)`. `N` should be ~430+. If it collapsed toward zero, stop and investigate rather than commit.
    - `git status --porcelain` shows only the two `instrumentation_data/` files. Any path outside `instrumentation_data/` means stop.
    - If `git status` is clean (no new commits since the watermark), there is nothing to refresh — delete the branch and finish without a PR.
-4. **Commit and open a PR.** Commit the two data files; push; open a PR summarizing the row delta. Commit message ends with the co-author trailer:
+4. **Commit and open a PR.** Commit the two data files; push; open a PR summarizing the row delta. Commit message (no AI-authorship trailer — see the root `CLAUDE.md`):
    ```
    chore(analytics): refresh Amplitude event provenance dataset
-
-   Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
    ```
 5. **Report** the PR URL.
 
