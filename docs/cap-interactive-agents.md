@@ -67,10 +67,13 @@ then retry; 4xx errors `bail()` immediately.
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
 
-Other non-chat generation surfaces also go through `LlmService` non-streaming
-methods: `src/campaignStory/` (rewrite candidate story), `src/campaignStrategy/`
-(strategic landscape, community events), `src/polls/` (poll bias analysis),
-`src/onboarding/localNews.service.ts`. These are "generation," not interactive chat.
+Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
+split across two providers. Some go through `LlmService` (Anthropic) non-streaming
+methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
+`src/elections/` race-location extraction. Others go through a separate
+`GeminiService` (`src/vendors/google/`) for Google-Search-grounded generation —
+`src/campaignStory/` (rewrite candidate story), `src/campaignStrategy/`
+(community events), and `src/onboarding/localNews.service.ts`.
 
 ### Streaming mechanics (the `src/chats/` path)
 
