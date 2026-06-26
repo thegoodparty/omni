@@ -50,7 +50,7 @@ function PageHeader({
 
   const backEl = backHref ? (
     backLabel ? (
-      <Button variant="ghost" size="small" iconPosition="left" asChild>
+      <Button variant="ghost" size="small" asChild>
         <a href={backHref}>
           <ArrowLeftIcon />
           {backLabel}
