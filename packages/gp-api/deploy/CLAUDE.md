@@ -49,6 +49,23 @@ PULUMI_CONFIG_PASSPHRASE=<value-from-ssm:pulumi-state-config-passphrase> pulumi 
 
 Do **not** wire `preview-shared/` into `infra-cli.ts` — it has no `environment` config and no `imageUri`. Run raw `pulumi` commands against it.
 
+### Preview connection strategy
+
+Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. The 0.5-ACU Aurora Serverless v2 instance supports roughly 100 max connections; 5 per service keeps 25 concurrent previews within ~125 connections — acceptable given Aurora auto-scales, and the alarm fires before saturation.
+
+CloudWatch alarms in `preview-shared/index.ts` watch:
+
+- `DatabaseConnections >= 80` (instance-level, `DBInstanceIdentifier`) — 3 consecutive 1-minute periods
+- `ServerlessDatabaseCapacity >= 56 ACU` (87.5% of maxCapacity=64) — 3 consecutive 1-minute periods
+
+**`alarmActions` is currently empty** — no SNS topic exists in this account yet. Ops follow-up: create an SNS topic, subscribe it to Slack or a Lambda forwarder, then add the ARN to `alarmActions` in both alarms and re-apply the `preview-shared` stack.
+
+**Scaling levers if connection pressure is real:**
+
+1. Raise `minCapacity` in `rdsCluster.serverlessv2ScalingConfiguration` (reduces cold-start connection drops).
+2. Add an RDS Proxy in front of the cluster (multiplexes connections; the proxy endpoint replaces `DB_HOST` for previews).
+3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
+
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.

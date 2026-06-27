@@ -11,7 +11,15 @@ if [ -z "$VOTER_DB_HOST" ] || [ -z "$VOTER_DB_PASSWORD" ] || [ -z "$VOTER_DB_USE
   exit 1
 fi
 
-export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?connection_limit=20"
+# Preview shares one Aurora Serverless v2 instance across all PR stacks.
+# 5 connections per service keeps the aggregate well under the ~100-connection
+# ceiling of a 0.5-ACU Postgres instance. Dev/qa/prod get the standard 20.
+if [ "$IS_PREVIEW" = "true" ]; then
+  DB_CONN_LIMIT=5
+else
+  DB_CONN_LIMIT=20
+fi
+export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?connection_limit=$DB_CONN_LIMIT"
 export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB_HOST:5432/$VOTER_DB_NAME"
 
 # Per-PR preview: create the database if it does not already exist.
