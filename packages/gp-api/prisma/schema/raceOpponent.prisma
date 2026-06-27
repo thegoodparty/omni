@@ -5,16 +5,105 @@ enum RaceOpponentSourceType {
 }
 
 model RaceOpponent {
-  id           Int                     @id @default(autoincrement())
-  createdAt    DateTime                @default(now()) @map("created_at")
-  campaign     Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId   Int                     @map("campaign_id")
-  opponentName String                  @map("opponent_name")
-  sourceType   RaceOpponentSourceType  @map("source_type")
-  sourceUrl    String?                 @map("source_url")
-  content      Json                    @db.JsonB
-  runId        String?                 @map("run_id")
+  id           Int                    @id @default(autoincrement())
+  createdAt    DateTime               @default(now()) @map("created_at")
+  campaign     Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId   Int                    @map("campaign_id")
+  opponentName String                 @map("opponent_name")
+  sourceType   RaceOpponentSourceType @map("source_type")
+  sourceUrl    String?                @map("source_url")
+  content      Json                   @db.JsonB
+  runId        String?                @map("run_id")
 
   @@index([campaignId, opponentName])
   @@map("race_opponent")
+}
+
+enum RaceOpponentResearchStatus {
+  not_started
+  queued
+  running
+  completed
+  failed
+}
+
+enum RaceOpponentContrastStatus {
+  draft
+  pending_review
+  cleared
+  blocked
+  approved
+  used
+  discarded
+}
+
+enum RaceOpponentFindingKind {
+  self
+  opponent
+}
+
+model RaceOpponentResearch {
+  id                  Int                        @id @default(autoincrement())
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  updatedAt           DateTime                   @updatedAt @map("updated_at")
+  campaign            Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId          Int                        @map("campaign_id")
+  kind                RaceOpponentFindingKind
+  opponentName        String?                    @map("opponent_name")
+  electionCandidacyId String?                    @map("election_candidacy_id")
+  status              RaceOpponentResearchStatus @default(not_started)
+  runId               String?                    @map("run_id")
+  attempts            Int                        @default(0)
+  completedAt         DateTime?                  @map("completed_at")
+  lastViewedAt        DateTime?                  @map("last_viewed_at")
+  findings            RaceOpponentFinding[]
+
+  @@unique([campaignId, kind, opponentName])
+  @@map("race_opponent_research")
+}
+
+model RaceOpponentFinding {
+  id                Int                    @id @default(autoincrement())
+  createdAt         DateTime               @default(now()) @map("created_at")
+  research          RaceOpponentResearch   @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  researchId        Int                    @map("research_id")
+  claim             String
+  // Residency findings store a stable voter-file dataset reference (not a fetchable URL) in sourceUrl.
+  sourceUrl         String                 @map("source_url")
+  sourceExtract     String                 @map("source_extract")
+  sourceTitle       String?                @map("source_title")
+  // null = not network-verified (residency/dataset findings); a timestamp = URL confirmed reachable at persist.
+  sourceReachableAt DateTime?              @map("source_reachable_at")
+  category          String
+  occurredAt        DateTime?              @map("occurred_at")
+  draftedResponse   String?                @map("drafted_response")
+  contrasts         RaceOpponentContrast[]
+
+  @@index([researchId, occurredAt])
+  @@map("race_opponent_finding")
+}
+
+model RaceOpponentContrast {
+  id               Int                        @id @default(autoincrement())
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  campaign         Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId       Int                        @map("campaign_id")
+  finding          RaceOpponentFinding?       @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  findingId        Int?                       @map("finding_id")
+  opponentFact     String                     @map("opponent_fact")
+  sourceUrl        String                     @map("source_url")
+  candidateFact    String                     @map("candidate_fact")
+  contrastSentence String                     @map("contrast_sentence")
+  issueTag         String                     @map("issue_tag")
+  routing          String
+  status           RaceOpponentContrastStatus @default(draft)
+  editCount        Int                        @default(0) @map("edit_count")
+  routedStory      CampaignStory?             @relation(fields: [routedStoryId], references: [id], onDelete: SetNull)
+  routedStoryId    Int?                       @map("routed_story_id")
+  routedOutreach   Outreach?                  @relation(fields: [routedOutreachId], references: [id], onDelete: SetNull)
+  routedOutreachId Int?                       @map("routed_outreach_id")
+
+  @@index([campaignId, status])
+  @@map("race_opponent_contrast")
 }

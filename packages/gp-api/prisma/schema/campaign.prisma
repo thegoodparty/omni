@@ -53,6 +53,8 @@ model Campaign {
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
   raceOpponents            RaceOpponent[]
+  raceOpponentResearch     RaceOpponentResearch[]
+  raceOpponentContrasts    RaceOpponentContrast[]
 
   @@index([slug])
   @@map("campaign")
