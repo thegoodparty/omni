@@ -92,8 +92,7 @@ export = async () => {
     },
     backupRetentionPeriod: 1,
     deletionProtection: true,
-    skipFinalSnapshot: false,
-    finalSnapshotIdentifier: 'gp-api-preview-shared-final-snapshot',
+    skipFinalSnapshot: true,
   })
 
   const rdsInstance = new aws.rds.ClusterInstance('previewSharedInstance', {
