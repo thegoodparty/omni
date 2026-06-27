@@ -22,6 +22,9 @@ export class VoterDatabaseService implements OnModuleDestroy {
     this.logger.setContext(VoterDatabaseService.name)
     this.pool = new Pool({
       connectionString: VOTER_DATASTORE,
+      // Preview shares the dev voter cluster across every PR stack; cap the
+      // pool so 25+ previews don't exhaust it (pg defaults to max 10).
+      max: process.env.IS_PREVIEW === 'true' ? 5 : undefined,
     })
   }
 
