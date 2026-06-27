@@ -24,33 +24,50 @@ export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB
 # installs.
 if [ "$IS_PREVIEW" = "true" ]; then
   echo "Preview environment: ensuring database '$DB_NAME' exists..."
-  node -e "
-    const { Client } = require('pg');
-    const client = new Client({
-      host: process.env.DB_HOST,
-      port: 5432,
-      database: 'postgres',
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      ssl: { rejectUnauthorized: false },
-    });
-    client.connect()
-      .then(() => client.query(
-        'SELECT 1 FROM pg_database WHERE datname = \$1',
-        [process.env.DB_NAME]
-      ))
-      .then((res) => {
-        if (res.rowCount > 0) {
-          console.log('Database already exists, skipping create.');
-          return;
-        }
-        return client.query(
-          'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
-        ).then(() => console.log('Database created.'));
-      })
-      .then(() => client.end())
-      .catch((err) => { console.error(err); process.exit(1); });
-  "
+  # This is the first connection to the cluster, so a cold-starting Aurora
+  # Serverless v2 instance can refuse it. Retry like the migration loop below.
+  DB_CREATE_RETRIES=0
+  DB_CREATE_MAX=30
+  while [ $DB_CREATE_RETRIES -lt $DB_CREATE_MAX ]; do
+    if node -e "
+      const { Client } = require('pg');
+      const client = new Client({
+        host: process.env.DB_HOST,
+        port: 5432,
+        database: 'postgres',
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        ssl: { rejectUnauthorized: false },
+      });
+      client.connect()
+        .then(() => client.query(
+          'SELECT 1 FROM pg_database WHERE datname = \$1',
+          [process.env.DB_NAME]
+        ))
+        .then((res) => {
+          if (res.rowCount > 0) {
+            console.log('Database already exists, skipping create.');
+            return;
+          }
+          return client.query(
+            'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
+          ).then(() => console.log('Database created.'));
+        })
+        .then(() => client.end())
+        .catch((err) => { console.error(err); process.exit(1); });
+    "; then
+      break
+    else
+      DB_CREATE_RETRIES=$((DB_CREATE_RETRIES + 1))
+      if [ $DB_CREATE_RETRIES -lt $DB_CREATE_MAX ]; then
+        echo "⏳ Aurora not ready yet (attempt $DB_CREATE_RETRIES/$DB_CREATE_MAX). Retrying in 10s..."
+        sleep 10
+      else
+        echo "❌ ERROR: Failed to ensure database after $DB_CREATE_MAX attempts."
+        exit 1
+      fi
+    fi
+  done
 fi
 
 # Run migrations on startup if DATABASE_URL is set and not a placeholder
