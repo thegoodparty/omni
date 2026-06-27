@@ -175,13 +175,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
   // The POLITICAL usecase is what finalizes a TCR registration, and it is only
   // submitted by approve10DLCBrand — which today fires solely from the in-app
-  // PIN flow (submit-cv-pin). When Campaign Verify completes without that step
-  // running (the CV authority approved the candidate directly, or the in-app
-  // approve threw), the usecase is never submitted and the identity strands
-  // "loading" in Peerly. This sweep submits the usecase for any verified record
-  // that's missing one, healing both existing stranded records and any future
-  // stragglers. Only `submitted` records are candidates — `pending` means the
-  // usecase was already submitted (status is advanced after approve).
+  // PIN flow (submit-cv-pin). When that flow's approve step throws after the
+  // candidate has verified their PIN, the usecase is never submitted and the
+  // identity strands "loading" in Peerly. This sweep heals those records by
+  // submitting the usecase for any record whose Campaign Verify is VERIFIED.
+  // It deliberately does NOT act on APPROVED: that status can precede the
+  // candidate's PIN entry, so advancing it would skip them past the PIN screen
+  // (submitUsecaseIfVerified). Only `submitted` records are candidates —
+  // `pending` means the usecase was already submitted (status advances after
+  // approve).
   @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
   private async sweepUnsubmittedUsecases() {
     const candidates = await this.model.findMany({
@@ -249,26 +251,23 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign,
       )
 
-    // Two Campaign Verify completion paths both warrant submitting the usecase:
-    //  - VERIFIED: the candidate proved control of their contact info via PIN.
-    //    Mint a CV token, then approve with it.
-    //  - APPROVED: the CV authority approved the candidate directly, with no
-    //    candidate PIN (e.g. postal / expedited). create_cv_token 400s in this
-    //    state, but approve accepts an empty token.
-    // Any other status (REQUESTED / IN_REVIEW / REJECTED / WITHDRAWN) is not yet
-    // verifiable or is terminal — skip, which also keeps the sweep from
-    // 400-spamming Peerly (and the 10DLC Slack channel) for those records.
-    let campaignVerifyToken = ''
-    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
-      const token = await this.peerlyIdentityService.createCampaignVerifyToken(
+    // Only VERIFIED warrants auto-submitting the usecase: the candidate
+    // proved control of their contact info via PIN, so this just finishes a
+    // flow whose approve step threw. APPROVED is NOT a candidate-completion
+    // signal — the CV authority can reach it before the candidate enters
+    // their PIN (Peerly still expects PIN delivery), so auto-submitting on
+    // APPROVED races ahead of the candidate and flips the record to `pending`
+    // (the "in review" UI) before they can enter their PIN. Leave every
+    // non-VERIFIED status in `submitted` so the in-app PIN path can still run.
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      return
+    }
+    const campaignVerifyToken =
+      await this.peerlyIdentityService.createCampaignVerifyToken(
         peerlyIdentityId,
         campaign,
       )
-      if (!token) {
-        return
-      }
-      campaignVerifyToken = token
-    } else if (cvStatus !== PeerlyCvVerificationStatus.APPROVED) {
+    if (!campaignVerifyToken) {
       return
     }
 
