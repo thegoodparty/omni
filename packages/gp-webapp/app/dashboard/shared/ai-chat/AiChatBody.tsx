@@ -26,6 +26,7 @@ import type {
   AiChatConfig,
   ChatErrorCode,
   ChatMessageDto,
+  ChatMessageSegment,
   ChatStreamEvent,
 } from './types'
 import { CHAT_MAX_W } from './constants'
@@ -104,8 +105,41 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
   if (msg.role === 'user')
     return { kind: 'user', id: msg.id, content: msg.content }
   if (msg.role === 'assistant')
-    return { kind: 'assistant', id: msg.id, content: msg.content }
+    return {
+      kind: 'assistant',
+      id: msg.id,
+      content: msg.content,
+      ...(msg.segments && msg.segments.length > 0
+        ? { segments: msg.segments }
+        : {}),
+    }
   return null
+}
+
+// Fold persisted segments into ordered render blocks: a text run, or a group of
+// consecutive tool pills (deduped by label within the group). Mirrors the Chief
+// of Staff renderer so a turn shows ordered text / tools / text instead of a
+// flat string plus one tool row.
+type RenderBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'tools'; tools: string[] }
+
+function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  for (const seg of segments) {
+    if (seg.kind === 'text') {
+      blocks.push({ kind: 'text', text: seg.text ?? '' })
+      continue
+    }
+    const tool = seg.toolName ?? ''
+    const last = blocks[blocks.length - 1]
+    if (last && last.kind === 'tools') {
+      if (!last.tools.includes(tool)) last.tools.push(tool)
+    } else {
+      blocks.push({ kind: 'tools', tools: [tool] })
+    }
+  }
+  return blocks
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +148,13 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
-  | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
+  | {
+      kind: 'assistant'
+      id: string
+      content: string
+      toolsUsed?: string[]
+      segments?: ChatMessageSegment[]
+    }
 
 type ErrorState = {
   message: string
@@ -561,22 +601,47 @@ export default function AiChatBody({
               key={item.id}
               className="self-start max-w-full text-sm text-foreground space-y-2"
             >
-              {item.toolsUsed && item.toolsUsed.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {item.toolsUsed.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                    >
-                      <SearchIcon className="size-3" aria-hidden />
-                      {toolLabel(t)}
-                    </span>
-                  ))}
-                </div>
+              {item.segments && item.segments.length > 0 ? (
+                // Ordered text / tool / text blocks from the persisted segments.
+                groupSegments(item.segments).map((block, bi) =>
+                  block.kind === 'tools' ? (
+                    <div key={`b-${bi}`} className="flex flex-wrap gap-1.5">
+                      {block.tools.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <SearchIcon className="size-3" aria-hidden />
+                          {toolLabel(t)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div key={`b-${bi}`} className={ASSISTANT_BUBBLE}>
+                      {renderMessage(block.text)}
+                    </div>
+                  ),
+                )
+              ) : (
+                <>
+                  {item.toolsUsed && item.toolsUsed.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.toolsUsed.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <SearchIcon className="size-3" aria-hidden />
+                          {toolLabel(t)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className={ASSISTANT_BUBBLE}>
+                    {renderMessage(item.content)}
+                  </div>
+                </>
               )}
-              <div className={ASSISTANT_BUBBLE}>
-                {renderMessage(item.content)}
-              </div>
               <ToggleGroup
                 type="single"
                 size="sm"
@@ -655,27 +720,31 @@ export default function AiChatBody({
         )}
       </div>
 
-      {/* Suggestion chips — only on a fresh chat */}
+      {/* Suggestion chips — only on a fresh chat. Same px-3-on-outer /
+          max-w-inner structure as the composer so the chips' left edge lines
+          up with the input pill's left edge at every width. */}
       {suggestions.length > 0 &&
         history.length === 0 &&
         streaming === null &&
         !error && (
-          <div
-            className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2 px-3 pb-3 pt-2`}
-          >
-            {suggestions.map((s) => (
-              <Button
-                key={s}
-                type="button"
-                variant="outline"
-                size="small"
-                disabled={busy}
-                onClick={() => void sendContent(s)}
-                className="rounded-full"
-              >
-                {s}
-              </Button>
-            ))}
+          <div className="px-3 pb-3 pt-2">
+            <div
+              className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2`}
+            >
+              {suggestions.map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  disabled={busy}
+                  onClick={() => void sendContent(s)}
+                  className="rounded-full"
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -768,7 +837,9 @@ export default function AiChatBody({
             aria-label="Send"
             className="shrink-0 bg-primary text-primary-foreground"
             onClick={() => void onSend()}
-            disabled={composer.trim().length === 0}
+            // Disabled while a reply streams so the button can't look active
+            // while the send handler bails mid-stream. Pattern-wide default.
+            disabled={busy || composer.trim().length === 0}
           >
             <SendIcon className="size-4" aria-hidden />
           </IconButton>

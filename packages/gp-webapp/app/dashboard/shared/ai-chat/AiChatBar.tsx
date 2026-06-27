@@ -15,10 +15,6 @@ interface Props {
   onOpen: () => void
   /** Open the chat surface into a past conversation (from the history popover). */
   onOpenConversation: (conversationId: string) => void
-  /** Optional content rendered in a bar above the chat input. */
-  extraBar?: React.ReactNode
-  /** Horizontal alignment of extraBar content. Default: center. */
-  extraBarAlign?: 'start' | 'center' | 'end'
   /** Extra classes on the fixed container — use to offset for a sidebar, e.g. `lg:left-64`. */
   className?: string
 }
@@ -29,9 +25,8 @@ interface Props {
  * surface.
  *
  * Because it is `position: fixed`, it does not reserve layout space. The host
- * page must pad its own bottom so content is not hidden behind the bar:
- * roughly `pb-[72px]` for the pill row alone, `pb-[120px]` when `extraBar` is
- * set (48px extra bar + 72px pill row).
+ * page must pad its own bottom (roughly `pb-[72px]`) so content is not hidden
+ * behind the bar.
  */
 export default function AiChatBar({
   chatApi,
@@ -39,8 +34,6 @@ export default function AiChatBar({
   firstName,
   onOpen,
   onOpenConversation,
-  extraBar,
-  extraBarAlign = 'center',
   className,
 }: Props): React.JSX.Element {
   const placeholder = firstName
@@ -51,18 +44,7 @@ export default function AiChatBar({
     <div
       className={`fixed inset-x-0 bottom-0 z-[55]${className ? ` ${className}` : ''}`}
     >
-      {extraBar && (
-        <div className="flex h-12 w-full items-center border-t border-b border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
-          <div
-            className={`mx-auto flex w-full ${CHAT_MAX_W} items-center px-4 lg:px-6 ${extraBarAlign === 'start' ? 'justify-start' : extraBarAlign === 'end' ? 'justify-end' : 'justify-center'}`}
-          >
-            {extraBar}
-          </div>
-        </div>
-      )}
-      <div
-        className={`bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 ${!extraBar ? 'border-t border-border' : ''}`}
-      >
+      <div className="bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 border-t border-border">
         <div
           className={`mx-auto flex w-full ${CHAT_MAX_W} items-center gap-2 px-4 py-3 lg:px-6`}
         >

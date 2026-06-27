@@ -59,17 +59,28 @@ export default function AiChatSurface({
         className="flex h-[90vh] flex-col p-0"
         aria-describedby={undefined}
       >
-        <DrawerHandle />
-        <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border px-4 py-2.5 pr-12">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <SparklesIcon className="size-3.5" aria-hidden />
+        {/* TODO(design): the drawer's built-in close button (styleguide
+            DrawerContent) can't be restyled or repositioned per surface. To
+            address Kylie's review (hover like the mic, slightly larger, aligned
+            inline with the title), add a `hideClose` prop to the shared Drawer,
+            then render a custom DrawerClose IconButton in the header here. */}
+        <DrawerHandle className="mb-1" />
+        <DrawerHeader className="flex flex-row items-center gap-3 border-b border-border px-4 py-3 pr-12">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-primary-foreground"
+            style={{
+              background:
+                'linear-gradient(135deg, var(--ai-gradient-from), var(--ai-gradient-to))',
+            }}
+          >
+            <SparklesIcon className="size-4" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
-            <DrawerTitle className="text-sm font-semibold">
+            <DrawerTitle className="text-base font-semibold">
               {config.title}
             </DrawerTitle>
             {config.subtitle && (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {config.subtitle}
               </span>
             )}

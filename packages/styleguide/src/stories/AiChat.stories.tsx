@@ -7,7 +7,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
 import { Stepper } from '../components/ui/stepper'
 import { RadioGroup, RadioCardItem } from '../components/ui/radio-group'
-import { DownloadIcon, ShareIcon } from '../components/ui/icons'
 import AiChatBar from 'app/dashboard/shared/ai-chat/AiChatBar'
 import AiChatBody from 'app/dashboard/shared/ai-chat/AiChatBody'
 import AiChatSurface from 'app/dashboard/shared/ai-chat/AiChatSurface'
@@ -17,6 +16,7 @@ import type {
   AiChatClient,
   AiChatConfig,
   ChatMessageDto,
+  ChatMessageSegment,
 } from 'app/dashboard/shared/ai-chat/types'
 import type { TimelineItem } from 'app/dashboard/shared/ai-chat/ChatTimeline'
 
@@ -49,8 +49,6 @@ function AiChatDemo({
   chatApi = mockChatApi,
   initialConversationId,
   firstName,
-  extraBar,
-  extraBarAlign,
   messageRenderer,
   bottomSlot,
 }: {
@@ -60,8 +58,6 @@ function AiChatDemo({
   chatApi?: AiChatClient
   initialConversationId?: string
   firstName?: string
-  extraBar?: React.ReactNode
-  extraBarAlign?: 'start' | 'center' | 'end'
   messageRenderer?: (content: string) => React.ReactNode
   bottomSlot?: React.ReactNode
 }) {
@@ -85,8 +81,6 @@ function AiChatDemo({
             setConversationId(id)
             onOpenChange(true)
           }}
-          extraBar={extraBar}
-          extraBarAlign={extraBarAlign}
         />
       )}
 
@@ -146,8 +140,6 @@ type PlaygroundArgs = {
   open: boolean
   firstName: string
   subtitle: string
-  extraBarAlign: 'start' | 'center' | 'end'
-  showExtraBar: boolean
   timelineVariant: 'none' | 'timeline'
 }
 
@@ -156,8 +148,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     open: false,
     firstName: 'Alex',
     subtitle: 'Your personal campaign strategist',
-    showExtraBar: false,
-    extraBarAlign: 'center',
     timelineVariant: 'none',
   },
   argTypes: {
@@ -170,15 +160,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       control: 'text',
       description: 'Subtitle shown under the drawer title.',
     },
-    showExtraBar: {
-      control: 'boolean',
-      description: 'Renders a Download button in the extraBar slot.',
-    },
-    extraBarAlign: {
-      control: 'inline-radio',
-      options: ['start', 'center', 'end'],
-      description: 'Horizontal alignment of the optional extra bar content.',
-    },
     timelineVariant: {
       control: 'inline-radio',
       options: ['none', 'timeline'],
@@ -186,29 +167,12 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         'Show a ChatTimeline in the assistant reply: equal-weight dots with quotes and sources.',
     },
   },
-  render: ({
-    open,
-    firstName,
-    subtitle,
-    extraBarAlign,
-    showExtraBar,
-    timelineVariant,
-  }) => {
+  render: ({ open, firstName, subtitle, timelineVariant }) => {
     const [, updateArgs] = useArgs()
     useEffect(() => {
       if (timelineVariant !== 'none') updateArgs({ open: true })
     }, [timelineVariant, updateArgs])
     const config = { ...DEFAULT_CONFIG, subtitle }
-    const extraBar = showExtraBar ? (
-      <Button
-        type="button"
-        variant="ghost"
-        size="small"
-        icon={<DownloadIcon className="size-4" />}
-      >
-        Download
-      </Button>
-    ) : undefined
 
     const chatApi = timelineVariant === 'timeline' ? HISTORY_API : mockChatApi
 
@@ -221,8 +185,6 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         onOpenChange={(v) => updateArgs({ open: v })}
         config={config}
         firstName={firstName}
-        extraBar={extraBar}
-        extraBarAlign={extraBarAlign}
         chatApi={chatApi}
         messageRenderer={renderer}
         initialConversationId={
@@ -242,66 +204,6 @@ export const Bar: StoryObj = {
   render: () => {
     const [open, setOpen] = useState(false)
     return <AiChatDemo open={open} onOpenChange={setOpen} firstName="Alex" />
-  },
-}
-
-export const ExtraBarSlot: StoryObj = {
-  parameters: { controls: { disable: true } },
-  render: () => {
-    const [open, setOpen] = useState(false)
-    const extraBar = (
-      <Button
-        type="button"
-        variant="ghost"
-        size="small"
-        icon={<DownloadIcon className="size-4" />}
-      >
-        Download
-      </Button>
-    )
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        extraBar={extraBar}
-        extraBarAlign="center"
-      />
-    )
-  },
-}
-
-export const ExtraBarActions: StoryObj = {
-  parameters: { controls: { disable: true } },
-  render: () => {
-    const [open, setOpen] = useState(false)
-    const extraBar = (
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="small"
-          icon={<ShareIcon className="size-4" />}
-        >
-          Share
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="small"
-          icon={<DownloadIcon className="size-4" />}
-        >
-          Download
-        </Button>
-      </div>
-    )
-    return (
-      <AiChatDemo
-        open={open}
-        onOpenChange={setOpen}
-        extraBar={extraBar}
-        extraBarAlign="end"
-      />
-    )
   },
 }
 
@@ -365,7 +267,11 @@ const SEEDED_ID = 'story-seeded'
 const RADIO_MARKER = '__radio_choices__'
 
 function makeSeededApi(
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  messages: Array<{
+    role: 'user' | 'assistant'
+    content: string
+    segments?: ChatMessageSegment[]
+  }>,
 ): AiChatClient {
   const dtos: ChatMessageDto[] = messages.map((m, i) => ({
     id: `s-${i}`,
@@ -375,6 +281,7 @@ function makeSeededApi(
     createdAt: new Date(
       Date.now() - (messages.length - i) * 15_000,
     ).toISOString(),
+    ...(m.segments ? { segments: m.segments } : {}),
   }))
   return {
     ...mockChatApi,
@@ -443,6 +350,53 @@ export const WithRadioCards: StoryObj = {
         chatApi={RADIO_API}
         initialConversationId={SEEDED_ID}
         messageRenderer={radioRenderer}
+      />
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// WithToolSegments — assistant turn that interleaves text and tool calls
+// ---------------------------------------------------------------------------
+
+const SEGMENTS_API = makeSeededApi([
+  { role: 'user', content: 'How are my fundraising numbers trending?' },
+  {
+    role: 'assistant',
+    content:
+      "Let me pull your finance records.\n\nYou've raised **$47,200** of your $75,000 goal — 63%, up 18% from last month. At this pace you'll clear the goal about 9 days before the filing deadline.",
+    segments: [
+      { kind: 'text', text: 'Let me pull your finance records.' },
+      { kind: 'tool', toolName: 'finance_lookup' },
+      { kind: 'tool', toolName: 'trend_analysis' },
+      {
+        kind: 'text',
+        text: "You've raised **$47,200** of your $75,000 goal — 63%, up 18% from last month. At this pace you'll clear the goal about 9 days before the filing deadline.",
+      },
+    ],
+  },
+])
+
+export const WithToolSegments: StoryObj = {
+  parameters: {
+    controls: { disable: true },
+    docs: { story: { inline: false, height: '600px' } },
+  },
+  render: () => {
+    const [open, setOpen] = useState(true)
+    return (
+      <AiChatDemo
+        open={open}
+        onOpenChange={setOpen}
+        chatApi={SEGMENTS_API}
+        initialConversationId={SEEDED_ID}
+        config={{
+          ...DEFAULT_CONFIG,
+          toolDisplayNames: {
+            finance_lookup: 'Reading finance records',
+            trend_analysis: 'Analyzing the trend',
+          },
+        }}
       />
     )
   },

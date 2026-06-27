@@ -6,12 +6,28 @@
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+export type ChatMessageSegmentKind = 'text' | 'tool'
+
+/**
+ * One ordered display block of an assistant turn (mirrors the persisted
+ * ChatMessageSegment used by Chief of Staff). Consecutive `tool` segments are
+ * grouped into one pill row by the renderer. Present only on assistant turns
+ * that used tools — lets a turn render as ordered text / tool / text blocks
+ * instead of a flat string plus a single tool row.
+ */
+export interface ChatMessageSegment {
+  kind: ChatMessageSegmentKind
+  text?: string | null
+  toolName?: string | null
+}
+
 export interface ChatMessageDto {
   id: string
   conversationId: string
   role: ChatMessageRole
   content: string
   createdAt: string
+  segments?: ChatMessageSegment[]
 }
 
 export interface ChatConversationDto {
