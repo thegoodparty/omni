@@ -21,6 +21,13 @@ if (!dbHost || !dbUser || !dbPassword) {
 
 const openPrSet = new Set(openPrs)
 
+// An empty set is ambiguous between "no open PRs" and a fetch failure, and the
+// consequence (dropping every preview database) is irreversible — refuse it.
+if (openPrSet.size === 0) {
+  console.log('OPEN_PRS is empty — skipping sweep to avoid dropping all dbs.')
+  process.exit(0)
+}
+
 const client = new Client({
   host: dbHost,
   port: 5432,

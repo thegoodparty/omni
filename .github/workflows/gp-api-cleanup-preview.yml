@@ -206,13 +206,23 @@ jobs:
               exit 0
             }
             COUNT=$(echo "$PAGE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
-            ALL_PRS=$(echo "$ALL_PRS $PAGE_JSON" | python3 -c \
-              "import sys,json; p=sys.stdin.read().split(' ', 1); print(json.dumps(json.loads(p[0]) + json.loads(p[1])))")
+            ALL_PRS=$(jq -n --argjson a "$ALL_PRS" --argjson b "$PAGE_JSON" \
+              '$a + $b') || {
+              echo "Failed to merge PR pages; skipping sweep."
+              exit 0
+            }
             [ "$COUNT" -lt 100 ] && break
             PAGE=$((PAGE + 1))
           done
           OPEN_PRS=$(echo "$ALL_PRS" | python3 -c \
             "import sys,json; prs=json.load(sys.stdin); print(' '.join(str(p['number']) for p in prs))")
+
+          # Defense-in-depth alongside the script's own guard: never launch the
+          # sweep with an empty open-PR list (would drop every preview db).
+          if [ -z "$OPEN_PRS" ]; then
+            echo "No open PRs found; skipping DB sweep to avoid dropping active databases."
+            exit 0
+          fi
 
           ECS_CLUSTER="gp-develop-fargateCluster"
           TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
@@ -242,6 +252,11 @@ jobs:
             }" \
             --query 'tasks[0].taskArn' \
             --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "run-task failed or returned no task ARN; aborting DB sweep."
+            exit 1
+          fi
 
           echo "Waiting for sweep task ${TASK_ARN} to complete..."
           aws ecs wait tasks-stopped \

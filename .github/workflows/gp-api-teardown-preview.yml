@@ -95,6 +95,11 @@ jobs:
             --query 'tasks[0].taskArn' \
             --output text)
 
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "run-task failed or returned no task ARN; skipping DB drop."
+            exit 0
+          fi
+
           echo "Waiting for drop task ${TASK_ARN} to complete..."
           aws ecs wait tasks-stopped \
             --cluster "$CLUSTER_NAME" \
