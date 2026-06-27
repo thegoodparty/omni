@@ -1870,20 +1870,20 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('submits the usecase with an empty token (no create_cv_token) when CV is APPROVED', async () => {
+  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
+    // APPROVED can be reached by the CV authority before the candidate enters
+    // their PIN, so the sweep must leave the record in `submitted`. Advancing
+    // it to `pending` would flip the candidate to the "in review" screen and
+    // strand them with a PIN they can no longer enter.
     mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
 
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    // create_cv_token 400s for authority-APPROVED CVs, so it must be skipped.
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(stuckRecord, '')
-    expect(mockModel.update).toHaveBeenCalledWith({
-      where: { id: 'tcr-stuck' },
-      data: { status: TcrComplianceStatus.pending },
-    })
+    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
   })
 
   it.each(['waiting_to_finalize', 'finalized'])(

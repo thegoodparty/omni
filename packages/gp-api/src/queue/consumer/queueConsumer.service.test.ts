@@ -11,6 +11,7 @@ import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -216,6 +217,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       analytics as unknown as AnalyticsService,
       campaignsService as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -882,6 +884,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       domainsService as unknown as DomainsService,
       {} as never,
       {} as never,
@@ -1071,6 +1074,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       pollsService as never,
       {} as never,
       {} as never,
@@ -1225,6 +1229,10 @@ describe('QueueConsumerService - message type routing', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
@@ -1516,6 +1524,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {

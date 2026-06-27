@@ -15,11 +15,15 @@ const COMMUNITY_EVENTS_QUERY_KEY = ['community-events', 'mine'] as const
 // 15-30s end-to-end on first call. Cache hits return immediately.
 const POLL_INTERVAL_MS = 3000
 
-const communityEventsQueryOptions = () =>
+const communityEventsQueryOptions = (enabled: boolean) =>
   queryOptions({
     queryKey: COMMUNITY_EVENTS_QUERY_KEY,
     queryFn: () =>
       clientRequest(COMMUNITY_EVENTS_ROUTE, {}).then((res) => res.data),
+    // Story-on campaigns get their events from the campaign tracker (CAP), not
+    // this endpoint — gate the poll off so they never trigger a legacy
+    // community-events generation no one will see.
+    enabled,
     refetchInterval: (query) =>
       query.state.data?.status === 'generating' ? POLL_INTERVAL_MS : false,
     // Within a mount, ready data stays fresh. Across mounts we ALWAYS
@@ -44,9 +48,20 @@ export type CommunityEventsQueryResult = {
   isError: boolean
 }
 
-export function useCommunityEvents(): CommunityEventsQueryResult {
-  const query = useQuery(communityEventsQueryOptions())
+export function useCommunityEvents(enabled = true): CommunityEventsQueryResult {
+  const query = useQuery(communityEventsQueryOptions(enabled))
   const response: CommunityEventsResponse | undefined = query.data
+  // When disabled the query never runs, so react-query keeps isPending true
+  // forever. Report not-pending/not-generating so it never blocks planReady or
+  // shows a perpetual events skeleton for the story-on cohort.
+  if (!enabled) {
+    return {
+      data: undefined,
+      isGenerating: false,
+      isPending: false,
+      isError: false,
+    }
+  }
   return {
     data: response?.status === 'ready' ? response.data : undefined,
     isGenerating: response?.status === 'generating',

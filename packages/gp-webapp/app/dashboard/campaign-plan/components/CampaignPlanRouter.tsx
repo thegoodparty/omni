@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
 import DashboardLayout from '../../shared/DashboardLayout'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
@@ -45,7 +46,15 @@ const CampaignPlanRouter = ({
   // trackExposure=false: this tab isn't the experiment's treatment surface
   // (the story page's FeatureFlagGuard is), so the read mustn't fire exposure
   // for every plan visitor — mirrors DashboardMenu.
-  const { ready, enabled: storyEnabled } = useCampaignStoryFlag(false)
+  const { ready: storyReady, enabled: storyEnabled } =
+    useCampaignStoryFlag(false)
+  // The strategy-only cohort (campaign-strategy on, campaign-story off) lands
+  // on the onboarding success page post-pledge, but can still open this page
+  // from the menu — they have no story to gate on and see the legacy plan
+  // content (no tracker; CampaignPlanView branches on the story flag).
+  const { ready: strategyReady, enabled: strategyEnabled } =
+    useCampaignStrategyFlag()
+  const ready = storyReady && strategyReady
   // Initialized false (not from sessionStorage) so the client's first render
   // matches the server's — then rehydrated from sessionStorage in an effect to
   // avoid a hydration mismatch.
@@ -76,7 +85,18 @@ const CampaignPlanRouter = ({
     setGenerateRequested(true)
   }
 
-  const redirectToDashboard = !planExists && ready && !storyEnabled
+  // Show the plan when it already exists, when a story-flow user has asked to
+  // generate it, or for the strategy-only cohort (whose plan generates on the
+  // page, as the retired success page did). The generate request only counts
+  // for story users — it's set by the story gate — so a stale sessionStorage
+  // flag can't let a flag-off user bypass the redirect below.
+  const showPlan =
+    planExists ||
+    (storyEnabled && generateRequested) ||
+    (strategyEnabled && !storyEnabled)
+
+  // Only bounce when no flow applies: no plan, no story flow, no strategy flow.
+  const redirectToDashboard = ready && !showPlan && !storyEnabled
   useEffect(() => {
     if (redirectToDashboard) router.replace('/dashboard')
   }, [redirectToDashboard, router])
@@ -89,7 +109,7 @@ const CampaignPlanRouter = ({
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
   // the same view as an existing plan, no blocking spinner.
-  if (planExists || generateRequested) {
+  if (showPlan) {
     return <CampaignPlanPage initialUser={initialUser} />
   }
 

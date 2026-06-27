@@ -1,28 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, nextMonday } from 'date-fns'
-import { toZonedTime } from 'date-fns-tz'
+import { addDays } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
-
-const CENTRAL_TIMEZONE = 'America/Chicago'
-
-// Task dates are stored as calendar dates (e.g. "2026-04-20 00:00:00"). To
-// filter Monday-through-Sunday of the upcoming week, we need windowStart and
-// windowEnd to be UTC midnight of the calendar date, regardless of DST.
-function nextMondayUtcMidnight(now: Date, timeZone: string): Date {
-  // Shift the current instant into the target timezone so nextMonday() picks
-  // the right calendar Monday (e.g. Sunday 11pm Central is still "Sunday" in
-  // Central, but "Monday" in UTC — we want Central's view).
-  const nowInZone = toZonedTime(now, timeZone)
-  const monday = nextMonday(nowInZone)
-  // Reconstruct as UTC midnight of that calendar date so the window aligns
-  // with how tasks are stored (naive timestamps at midnight UTC).
-  return new Date(
-    Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
-  )
-}
+import {
+  CENTRAL_TIMEZONE,
+  nextMondayUtcMidnight,
+} from 'src/shared/util/date.util'
 
 @Injectable()
 export class WeeklyTasksDigestService {

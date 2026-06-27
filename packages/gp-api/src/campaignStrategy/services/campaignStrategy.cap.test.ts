@@ -53,12 +53,14 @@ describe('CampaignStrategyService', () => {
   }
   let s3: { getFile: ReturnType<typeof vi.fn> }
   let analytics: { track: ReturnType<typeof vi.fn> }
+  let trackerTasks: { bootstrapForCampaign: ReturnType<typeof vi.fn> }
   let prisma: {
     campaignStrategy: Record<string, ReturnType<typeof vi.fn>>
     campaignStrategyOpportunity: Record<string, ReturnType<typeof vi.fn>>
     campaignStrategyChallenge: Record<string, ReturnType<typeof vi.fn>>
     campaignStrategyOpponent: Record<string, ReturnType<typeof vi.fn>>
     campaign: Record<string, ReturnType<typeof vi.fn>>
+    campaignStory: Record<string, ReturnType<typeof vi.fn>>
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -87,6 +89,9 @@ describe('CampaignStrategyService', () => {
     }
     s3 = { getFile: vi.fn() }
     analytics = { track: vi.fn().mockResolvedValue(undefined) }
+    trackerTasks = {
+      bootstrapForCampaign: vi.fn().mockResolvedValue(undefined),
+    }
     prisma = {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
@@ -107,6 +112,9 @@ describe('CampaignStrategyService', () => {
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
+      },
+      campaignStory: {
+        findUnique: vi.fn().mockResolvedValue({ id: 1, campaignId: 99 }),
       },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
@@ -129,6 +137,7 @@ describe('CampaignStrategyService', () => {
       { getRaceContext: vi.fn() } as never,
       { getZipCodesByRaceId: vi.fn() } as never,
       analytics as never,
+      trackerTasks as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
@@ -715,6 +724,45 @@ describe('CampaignStrategyService', () => {
       'artifact is missing or empty',
     )
     expect(persister.persistOpponents).not.toHaveBeenCalled()
+  })
+
+  describe('tracker bootstrap gating on campaign story', () => {
+    beforeEach(() => {
+      // Plan fully persisted so the plan-complete check passes and we reach the
+      // story gate. findFirst is hit twice: to locate the plan by runId, then
+      // again inside the bootstrap to re-read its persisted stamps.
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      s3.getFile.mockResolvedValue(JSON.stringify({ opponents: [] }))
+    })
+
+    it('does not bootstrap the tracker when the campaign has no story', async () => {
+      prisma.campaignStory.findUnique.mockResolvedValue(null)
+
+      await service.onExperimentRunCompleted(
+        run({ runId: 'opp-run', experimentType: 'opposition_research' }),
+      )
+
+      expect(trackerTasks.bootstrapForCampaign).not.toHaveBeenCalled()
+    })
+
+    it('bootstraps the tracker once the campaign has a story', async () => {
+      prisma.campaignStory.findUnique.mockResolvedValue({
+        id: 1,
+        campaignId: 99,
+      })
+
+      await service.onExperimentRunCompleted(
+        run({ runId: 'opp-run', experimentType: 'opposition_research' }),
+      )
+
+      expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('race change alignment', () => {
