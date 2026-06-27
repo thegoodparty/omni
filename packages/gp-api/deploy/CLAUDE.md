@@ -56,7 +56,7 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 CloudWatch alarms in `preview-shared/index.ts` watch:
 
 - `DatabaseConnections >= 80` (instance-level, `DBInstanceIdentifier`) — 3 consecutive 1-minute periods
-- `ServerlessDatabaseCapacity >= 56 ACU` (87.5% of maxCapacity=64) — 3 consecutive 1-minute periods
+- `ServerlessDatabaseCapacity >= 56 ACU` (cluster-level, `DBClusterIdentifier`; 87.5% of maxCapacity=64) — 3 consecutive 1-minute periods
 
 **`alarmActions` is currently empty** — no SNS topic exists in this account yet. Ops follow-up: create an SNS topic, subscribe it to Slack or a Lambda forwarder, then add the ARN to `alarmActions` in both alarms and re-apply the `preview-shared` stack.
 

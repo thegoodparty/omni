@@ -20,6 +20,9 @@ else
   DB_CONN_LIMIT=20
 fi
 export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?connection_limit=$DB_CONN_LIMIT"
+# VOTER_DATASTORE is read by a raw pg.Pool, which ignores the Prisma
+# connection_limit param, so its preview cap lives on the pool's max in
+# voterDatabase.service.ts rather than on this URL.
 export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB_HOST:5432/$VOTER_DB_NAME"
 
 # Per-PR preview: create the database if it does not already exist.

@@ -115,8 +115,9 @@ export = async () => {
     engineVersion: rdsCluster.engineVersion,
   })
 
-  // DatabaseConnections and ServerlessDatabaseCapacity are instance-level
-  // metrics (DBInstanceIdentifier), not cluster-level, in AWS/RDS.
+  // DatabaseConnections is instance-level (DBInstanceIdentifier).
+  // ServerlessDatabaseCapacity is reported at the cluster level too, so it
+  // alarms on DBClusterIdentifier.
   //
   // Thresholds: 0.5-ACU Aurora Serverless v2 supports ~100 max connections;
   // alarm at 80 catches sustained pressure while Aurora auto-scales. ACU
@@ -145,11 +146,11 @@ export = async () => {
   new aws.cloudwatch.MetricAlarm('previewSharedCapacityAlarm', {
     name: 'gp-api-preview-shared-high-capacity',
     alarmDescription:
-      'Shared preview Aurora instance: ACU approaching maxCapacity of 64. ' +
+      'Shared preview Aurora cluster: ACU approaching maxCapacity of 64. ' +
       'Consider raising maxCapacity or reducing load.',
     namespace: 'AWS/RDS',
     metricName: 'ServerlessDatabaseCapacity',
-    dimensions: { DBInstanceIdentifier: rdsInstance.id },
+    dimensions: { DBClusterIdentifier: rdsCluster.clusterIdentifier },
     statistic: 'Maximum',
     period: 60,
     evaluationPeriods: 3,
