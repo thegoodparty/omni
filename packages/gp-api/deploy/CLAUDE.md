@@ -51,7 +51,7 @@ Do **not** wire `preview-shared/` into `infra-cli.ts` — it has no `environment
 
 ### Preview connection strategy
 
-Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. The 0.5-ACU Aurora Serverless v2 instance supports roughly 100 max connections; 5 per service keeps 25 concurrent previews within ~125 connections — acceptable given Aurora auto-scales, and the alarm fires before saturation.
+Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows and the connections alarm fires at 80, but rely on more than ~10 simultaneous open previews only once the alarm has a live SNS action. (`VoterDatabaseService`'s pool hits a separate voter cluster and is not part of this budget.)
 
 CloudWatch alarms in `preview-shared/index.ts` watch:
 

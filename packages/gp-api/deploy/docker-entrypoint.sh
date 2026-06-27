@@ -11,9 +11,12 @@ if [ -z "$VOTER_DB_HOST" ] || [ -z "$VOTER_DB_PASSWORD" ] || [ -z "$VOTER_DB_USE
   exit 1
 fi
 
-# Preview shares one Aurora Serverless v2 instance across all PR stacks.
-# 5 connections per service keeps the aggregate well under the ~100-connection
-# ceiling of a 0.5-ACU Postgres instance. Dev/qa/prod get the standard 20.
+# Preview shares one Aurora Serverless v2 instance across all PR stacks. Each
+# preview container opens two pools against it: Prisma (connection_limit below)
+# and PollResponsesDownloadService's pg.Pool (max 5). At 5 each that is ~10
+# connections per preview, so ~10 concurrent previews fit under the
+# ~100-connection ceiling of a 0.5-ACU instance; Aurora auto-scales above that
+# and the connections alarm fires at 80. Dev/qa/prod get the standard 20.
 if [ "$IS_PREVIEW" = "true" ]; then
   DB_CONN_LIMIT=5
 else
