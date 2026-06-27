@@ -18,7 +18,12 @@ export class PollResponsesDownloadService implements OnModuleDestroy {
     // harnesses that swap `process.env.DATABASE_URL` after the file is loaded
     // — e.g. `useTestService()` pointing at a testcontainers Postgres — see
     // the correct value.
-    this.pool = new Pool({ connectionString: requireEnv('DATABASE_URL') })
+    this.pool = new Pool({
+      connectionString: requireEnv('DATABASE_URL'),
+      // Preview shares one 0.5-ACU Aurora instance across every PR stack; cap
+      // the pool so 25+ previews don't exhaust it (pg defaults to max 10).
+      max: process.env.IS_PREVIEW === 'true' ? 5 : undefined,
+    })
   }
 
   onModuleDestroy() {
