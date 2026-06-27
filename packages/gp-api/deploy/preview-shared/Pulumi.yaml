@@ -3,4 +3,4 @@ runtime: nodejs
 description: Persistent shared Aurora cluster for all gp-api PR previews
 config:
   aws:region:
-    default: us-west-2
+    value: us-west-2

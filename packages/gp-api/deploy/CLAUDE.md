@@ -38,8 +38,12 @@ Apply it once, out-of-band:
 
 ```bash
 cd packages/gp-api/deploy/preview-shared
+# The S3 state backend uses an AWS SDK that does not read the aws-login
+# credential_process, so export resolved creds into the environment first.
+eval "$(aws configure export-credentials --format env)"
+export AWS_REGION=us-west-2
 pulumi login s3://goodparty-iac-state
-pulumi stack select organization/gp-api-preview-shared/gp-api-preview-shared --create
+pulumi stack select gp-api-preview-shared --create
 PULUMI_CONFIG_PASSPHRASE=<value-from-ssm:pulumi-state-config-passphrase> pulumi up
 ```
 
