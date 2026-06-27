@@ -44,24 +44,37 @@ const main = async () => {
     "SELECT datname FROM pg_database WHERE datname LIKE 'gpdb_pr_%'",
   )
 
+  let failed = 0
   for (const { datname } of result.rows) {
     const prNumber = datname.replace('gpdb_pr_', '')
     if (openPrSet.has(prNumber)) {
       console.log(`${datname}: PR #${prNumber} still open, keeping.`)
       continue
     }
-    console.log(`Dropping orphaned ${datname} (PR #${prNumber} closed)...`)
-    await client.query(
-      `SELECT pg_terminate_backend(pid)
-       FROM pg_stat_activity
-       WHERE datname = $1 AND pid <> pg_backend_pid()`,
-      [datname],
-    )
-    await client.query(`DROP DATABASE IF EXISTS "${datname}"`)
-    console.log(`Dropped ${datname}.`)
+    // One stuck database (e.g. a session that can't be terminated) must not
+    // abort the rest of the sweep — log it and keep going.
+    try {
+      console.log(`Dropping orphaned ${datname} (PR #${prNumber} closed)...`)
+      await client.query(
+        `SELECT pg_terminate_backend(pid)
+         FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [datname],
+      )
+      await client.query(`DROP DATABASE IF EXISTS "${datname}"`)
+      console.log(`Dropped ${datname}.`)
+    } catch (err) {
+      failed += 1
+      console.error(`Failed to drop ${datname}:`, err)
+    }
   }
 
   await client.end()
+
+  if (failed > 0) {
+    console.error(`${failed} database(s) failed to drop; see logs above.`)
+    process.exit(1)
+  }
 }
 
 main().catch((err) => {

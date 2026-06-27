@@ -96,8 +96,8 @@ jobs:
             --output text)
 
           if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
-            echo "run-task failed or returned no task ARN; skipping DB drop."
-            exit 0
+            echo "run-task failed or returned no task ARN; aborting DB drop."
+            exit 1
           fi
 
           echo "Waiting for drop task ${TASK_ARN} to complete..."
@@ -113,11 +113,17 @@ jobs:
             --output text)
 
           if [ "$EXIT_CODE" != "0" ]; then
-            echo "drop-preview-db task exited ${EXIT_CODE}; check ECS logs."
-            # Non-fatal: let pulumi destroy proceed so the ALB is reclaimed.
+            # Fail loudly so the failure() Slack alert fires and orphaned
+            # databases don't pile up unnoticed. Destroy still runs (always())
+            # so the ALB is reclaimed regardless.
+            echo "drop-preview-db task exited '${EXIT_CODE}'; check ECS logs."
+            exit 1
           fi
 
       - name: Destroy preview stack
+        # always(): the DB-drop step above is allowed to fail, but the stack
+        # must still be destroyed so the ALB is reclaimed (ELB quota).
+        if: always()
         uses: ./.github/actions/destroy-preview-stack
         with:
           stack-name: gp-api-pr-${{ github.event.number }}
