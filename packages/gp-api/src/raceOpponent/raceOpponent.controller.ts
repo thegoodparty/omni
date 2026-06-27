@@ -41,12 +41,17 @@ export class RaceOpponentController {
     private readonly selfResearchGate: SelfResearchGateService,
   ) {}
 
+  // collect is the functional opponent trigger (it dispatches opponent
+  // discovery/collection runs), so PRD Requirement B's gate must hold here too,
+  // not only on the identify stub: opponent research stays blocked until the
+  // self-research pass has completed.
   @Post('collect')
   @ResponseSchema(RaceOpponentCollectResponseSchema)
   @UseCampaign({ include: { user: true } })
   async collect(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentCollectResponse> {
+    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
     return this.raceOpponent.collect(campaign)
   }
 

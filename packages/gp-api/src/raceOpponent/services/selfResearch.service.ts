@@ -103,46 +103,38 @@ export class SelfResearchService extends createPrismaBase(
 
     const existing = await this.selfRow(campaign.id)
 
-    // An in-flight pass: reuse it rather than dispatching a duplicate paid run.
+    // Reuse an already-settled or in-flight pass rather than dispatching a
+    // duplicate paid run. completed is included: re-running a finished pass is a
+    // separate explicit path (out of scope here), and overwriting it would
+    // destroy the result. A second POST simply returns what's there.
     if (
       existing &&
       (existing.status === RaceOpponentResearchStatus.queued ||
-        existing.status === RaceOpponentResearchStatus.running)
+        existing.status === RaceOpponentResearchStatus.running ||
+        existing.status === RaceOpponentResearchStatus.completed)
     ) {
       return { research: this.toResearch(existing) }
     }
 
-    if (
-      existing &&
-      existing.attempts >= MAX_SELF_RESEARCH_ATTEMPTS &&
-      existing.status !== RaceOpponentResearchStatus.completed
-    ) {
+    if (existing && existing.attempts >= MAX_SELF_RESEARCH_ATTEMPTS) {
       throw new BadRequestException(
         'Self-research has failed repeatedly. Please try again later.',
       )
     }
 
     const params = await this.buildParams(campaign)
-    const run = await this.experimentRuns.dispatchRun({
-      type: SELF_RESEARCH,
-      organizationSlug: campaign.organizationSlug,
-      clerkUserId,
-      params,
-    })
-    if (!run) {
-      throw new BadRequestException(
-        'Self-research is not available in this environment.',
-      )
-    }
 
-    // Claim the row to the new run: queued, runId set, attempts incremented.
-    // First pass creates it; a retry advances the same row by id.
+    // Claim the row BEFORE the external dispatch (DB-claim-before-external-call):
+    // queued with runId still null and attempts incremented. If dispatch then
+    // fails, the claim is rolled back to failed (scoped to this exact row) so the
+    // user can retry — no ExperimentRun/SQS orphan with no research row to
+    // receive its result.
     const claimed = existing
       ? await this.model.update({
           where: { id: existing.id },
           data: {
             status: RaceOpponentResearchStatus.queued,
-            runId: run.runId,
+            runId: null,
             attempts: { increment: 1 },
             completedAt: null,
           },
@@ -152,12 +144,48 @@ export class SelfResearchService extends createPrismaBase(
             campaignId: campaign.id,
             kind: RaceOpponentFindingKind.self,
             status: RaceOpponentResearchStatus.queued,
-            runId: run.runId,
             attempts: 1,
           },
         })
 
-    return { research: this.toResearch(claimed) }
+    let run: Awaited<ReturnType<typeof this.experimentRuns.dispatchRun>>
+    try {
+      run = await this.experimentRuns.dispatchRun({
+        type: SELF_RESEARCH,
+        organizationSlug: campaign.organizationSlug,
+        clerkUserId,
+        params,
+      })
+    } catch (error) {
+      await this.rollbackClaim(claimed.id)
+      throw error
+    }
+
+    if (!run) {
+      await this.rollbackClaim(claimed.id)
+      throw new BadRequestException(
+        'Self-research is not available in this environment.',
+      )
+    }
+
+    // Bind the dispatched run to the claimed row so onExperimentRunCompleted's
+    // by-runId lookup resolves. This runs before any callback can arrive (the
+    // run is QUEUED on SQS and can't complete before we return).
+    const bound = await this.model.update({
+      where: { id: claimed.id },
+      data: { runId: run.runId },
+    })
+
+    return { research: this.toResearch(bound) }
+  }
+
+  // Scope the rollback to the exact claimed row id so a concurrent retry's
+  // active claim can't be cleared by this caller's late failure.
+  private async rollbackClaim(id: number): Promise<void> {
+    await this.model.update({
+      where: { id },
+      data: { status: RaceOpponentResearchStatus.failed },
+    })
   }
 
   async status(

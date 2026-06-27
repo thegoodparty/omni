@@ -4,7 +4,11 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { ExperimentRunStatus } from '@/generated/prisma'
+import {
+  ExperimentRunStatus,
+  RaceOpponentFindingKind,
+  RaceOpponentResearchStatus,
+} from '@/generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -38,6 +42,19 @@ const seedCampaign = async (opts: {
     },
   })
 }
+
+// collect is now gated server-side on a completed self-research pass, so the
+// happy-path collect tests must seed one. The gate is exercised on its own in
+// the "403s collect when no self pass is completed" test below.
+const seedCompletedSelfPass = (campaignId: number) =>
+  service.prisma.raceOpponentResearch.create({
+    data: {
+      campaignId,
+      kind: RaceOpponentFindingKind.self,
+      status: RaceOpponentResearchStatus.completed,
+      runId: 'self-done',
+    },
+  })
 
 const seedOpponents = async (campaignId: number, names: string[]) => {
   const plan = await service.prisma.campaignStrategy.upsert({
@@ -78,6 +95,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE, 'John Foe'])
+    await seedCompletedSelfPass(campaign.id)
     flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -114,6 +132,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
+    await seedCompletedSelfPass(campaign.id)
     await service.prisma.experimentRun.create({
       data: {
         runId: 'run-inflight',
@@ -140,12 +159,13 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   })
 
   it('dispatches opposition_research (not a 400) when there are no plan opponents but a resolvable race', async () => {
-    await seedCampaign({
+    const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
       raceId: RACE_HASH,
     })
+    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi
@@ -193,6 +213,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionRunId: 'opp-inflight',
       },
     })
+    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
@@ -215,11 +236,12 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   })
 
   it('settles to idle (no 500, no dispatch) when there is no resolvable race', async () => {
-    await seedCampaign({
+    const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
     })
+    await seedCompletedSelfPass(campaign.id)
     flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
@@ -252,6 +274,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionPersistedAt: new Date(),
       },
     })
+    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
@@ -270,6 +293,31 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
+  it('403s collect when no self-research pass is completed (the gate)', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    await seedOpponents(campaign.id, [JANE])
+    // No completed self pass seeded — the gate must block the real opponent
+    // trigger, not just the identify stub.
+    flagOn()
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(403)
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
   it('403s when know-your-opponent is off', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
@@ -277,6 +325,7 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
+    await seedCompletedSelfPass(campaign.id)
     vi.spyOn(
       service.app.get(FeaturesService),
       'isFeatureEnabled',
@@ -303,6 +352,9 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: false,
     })
     await seedOpponents(campaign.id, [JANE])
+    // A completed self pass clears the self-research gate so this test exercises
+    // the Pro gate specifically, not the gate added in this change.
+    await seedCompletedSelfPass(campaign.id)
     const isFeatureEnabled = flagOn()
 
     const result = await service.client.post(

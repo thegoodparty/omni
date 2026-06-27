@@ -83,6 +83,9 @@ const stubArtifact = (
 type ReachabilitySeam = {
   checkReachable(url: string): Promise<Date | null>
 }
+type MarkFailedSeam = {
+  markResearchFailed(runId: string): Promise<void>
+}
 const stubReachability = () =>
   vi
     .spyOn(
@@ -208,6 +211,59 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       expect(result.status).toBe(201)
       expect(result.data.research.runId).toBe('run-inflight')
       expect(dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('returns the existing pass without re-dispatching after completion', async () => {
+      const campaign = await seedCampaign({ isPro: true })
+      const completed = await seedSelfResearch(
+        campaign.id,
+        RaceOpponentResearchStatus.completed,
+        'run-complete',
+      )
+      flagOn()
+      const dispatchRun = vi.spyOn(
+        service.app.get(ExperimentRunsService),
+        'dispatchRun',
+      )
+
+      const result = await service.client.post(
+        START_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data.research.status).toBe('completed')
+      expect(result.data.research.runId).toBe('run-complete')
+      expect(dispatchRun).not.toHaveBeenCalled()
+      // The completed row is untouched (not overwritten to queued/null).
+      const row = await service.prisma.raceOpponentResearch.findFirstOrThrow({
+        where: { id: completed.id },
+      })
+      expect(row.status).toBe(RaceOpponentResearchStatus.completed)
+      expect(row.runId).toBe('run-complete')
+    })
+
+    it('rolls the claim back to failed when dispatch throws (no orphan run)', async () => {
+      await seedCampaign({ isPro: true })
+      flagOn()
+      vi.spyOn(
+        service.app.get(ExperimentRunsService),
+        'dispatchRun',
+      ).mockRejectedValue(new Error('SQS down'))
+
+      const result = await service.client.post(
+        START_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(500)
+      const row = await service.prisma.raceOpponentResearch.findFirstOrThrow({
+        where: { kind: RaceOpponentFindingKind.self },
+      })
+      expect(row.status).toBe(RaceOpponentResearchStatus.failed)
+      expect(row.runId).toBeNull()
     })
 
     it('403s when the campaign is not Pro', async () => {
@@ -362,6 +418,27 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       expect(research.status).toBe(RaceOpponentResearchStatus.failed)
       expect(research.findings).toHaveLength(0)
       expect(getFile).not.toHaveBeenCalled()
+    })
+
+    it('swallows a markResearchFailed fault on the FAILED branch (no rethrow)', async () => {
+      await seedSelfResearch(
+        campaignId,
+        RaceOpponentResearchStatus.running,
+        'run-fail-throws',
+      )
+      const run = await seedRun('run-fail-throws', ExperimentRunStatus.FAILED)
+      const persist = service.app.get(RaceOpponentResearchPersistService)
+      // A DB fault marking the row failed must not propagate: rethrowing would
+      // requeue, but the consumer's terminal-status guard drops the redelivery,
+      // leaving the row stuck running forever.
+      vi.spyOn(
+        persist as unknown as MarkFailedSeam,
+        'markResearchFailed',
+      ).mockRejectedValue(new Error('db down'))
+
+      await expect(
+        persist.onExperimentRunCompleted(run),
+      ).resolves.toBeUndefined()
     })
 
     it('is a no-op for a non-self_research run', async () => {

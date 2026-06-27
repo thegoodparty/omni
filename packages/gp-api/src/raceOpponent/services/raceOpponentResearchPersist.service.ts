@@ -63,7 +63,17 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     if (run.experimentType !== SELF_RESEARCH) return
 
     if (run.status === ExperimentRunStatus.FAILED) {
-      await this.markResearchFailed(run.runId)
+      // Swallow a markResearchFailed fault: rethrowing here requeues the
+      // message, but the consumer's terminal-status guard (on
+      // experimentRun.status) drops the redelivery, so the research row would
+      // sit running forever and start() could never re-trigger. Log and move on
+      // — the isStuck grace-window backstop is the eventual safety net.
+      await this.markResearchFailed(run.runId).catch((err: unknown) => {
+        this.logger.error(
+          { err, runId: run.runId },
+          'markResearchFailed threw; research row may remain running',
+        )
+      })
       return
     }
     if (run.status !== ExperimentRunStatus.COMPLETED) return
