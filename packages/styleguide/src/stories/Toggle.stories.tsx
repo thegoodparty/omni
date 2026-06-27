@@ -8,6 +8,29 @@ const meta: Meta<typeof Toggle> = {
   component: Toggle,
   tags: ['autodocs'],
   argTypes: {
+    asChild: { table: { disable: true } },
+    defaultPressed: { table: { disable: true } },
+    onPressedChange: { table: { disable: true } },
+  },
+}
+
+export default meta
+type Story = StoryObj<typeof Toggle>
+
+const SectionLabel = ({ children }: { children: string }) => (
+  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+    {children}
+  </p>
+)
+
+export const Playground: Story = {
+  args: {
+    variant: 'default',
+    size: 'default',
+    pressed: false,
+    disabled: false,
+  },
+  argTypes: {
     variant: {
       control: 'inline-radio',
       options: ['default', 'outline'],
@@ -27,18 +50,6 @@ const meta: Meta<typeof Toggle> = {
       description: 'Disable the toggle.',
     },
   },
-}
-
-export default meta
-type Story = StoryObj<typeof Toggle>
-
-export const Playground: Story = {
-  args: {
-    variant: 'default',
-    size: 'default',
-    pressed: false,
-    disabled: false,
-  },
   render: ({ pressed, disabled, variant, size }) => {
     const [, updateArgs] = useArgs()
     return (
@@ -56,27 +67,43 @@ export const Playground: Story = {
   },
 }
 
-export const Default: Story = {
+export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Toggle aria-label="Toggle bold">
-      <BoldIcon />
-    </Toggle>
-  ),
-}
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-3">
+        <SectionLabel>Default</SectionLabel>
+        <div className="flex items-center gap-2">
+          <Toggle aria-label="Toggle bold">
+            <BoldIcon />
+          </Toggle>
+          <Toggle pressed aria-label="Toggle bold pressed">
+            <BoldIcon />
+          </Toggle>
+          <Toggle aria-label="Toggle bold with text">Bold</Toggle>
+        </div>
+      </div>
 
-export const WithText: Story = {
-  render: () => <Toggle aria-label="Toggle bold">Bold</Toggle>,
-}
-
-export const Outline: Story = {
-  render: () => (
-    <Toggle variant="outline" aria-label="Toggle bold">
-      <BoldIcon />
-    </Toggle>
+      <div className="flex flex-col gap-3">
+        <SectionLabel>Outline</SectionLabel>
+        <div className="flex items-center gap-2">
+          <Toggle variant="outline" aria-label="Toggle bold">
+            <BoldIcon />
+          </Toggle>
+          <Toggle variant="outline" pressed aria-label="Toggle bold pressed">
+            <BoldIcon />
+          </Toggle>
+          <Toggle variant="outline" aria-label="Toggle bold with text">
+            Bold
+          </Toggle>
+        </div>
+      </div>
+    </div>
   ),
 }
 
 export const Sizes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex items-center gap-2">
       <Toggle size="sm" aria-label="Toggle bold small">
@@ -92,10 +119,52 @@ export const Sizes: Story = {
   ),
 }
 
-export const Disabled: Story = {
+export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
-    <Toggle disabled aria-label="Toggle bold disabled">
-      <BoldIcon />
-    </Toggle>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-3">
+        <SectionLabel>Off / On</SectionLabel>
+        <div className="flex items-center gap-2">
+          <Toggle aria-label="Toggle bold off">
+            <BoldIcon />
+          </Toggle>
+          <Toggle pressed aria-label="Toggle bold on">
+            <BoldIcon />
+          </Toggle>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <SectionLabel>Disabled (off and on)</SectionLabel>
+        <div className="flex items-center gap-2">
+          <Toggle disabled aria-label="Toggle bold disabled off">
+            <BoldIcon />
+          </Toggle>
+          <Toggle disabled pressed aria-label="Toggle bold disabled on">
+            <BoldIcon />
+          </Toggle>
+        </div>
+      </div>
+    </div>
+  ),
+}
+
+export const Anatomy: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-3">
+      <SectionLabel>Icon, text, or both</SectionLabel>
+      <div className="flex items-center gap-2">
+        <Toggle aria-label="Toggle bold">
+          <BoldIcon />
+        </Toggle>
+        <Toggle aria-label="Toggle bold with text">
+          <BoldIcon />
+          Bold
+        </Toggle>
+        <Toggle aria-label="Toggle bold text only">Bold</Toggle>
+      </div>
+    </div>
   ),
 }
