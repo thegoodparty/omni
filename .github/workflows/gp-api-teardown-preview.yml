@@ -40,6 +40,78 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
+      - name: Drop preview database
+        # Must run before pulumi destroy: the ECS cluster and task definition
+        # are Pulumi-managed and will be gone after destroy. The database lives
+        # on the shared Aurora cluster (not Pulumi-managed) and must be dropped
+        # via a SQL op from inside the VPC.
+        #
+        # Networking: private subnets + app SG match what the preview ECS
+        # service uses. The shared cluster SG admits 5432 from
+        # sg-01de8d67b0f0ec787.
+        #
+        # Credentials: the per-PR task def already supplies DB_HOST + DB_USER
+        # (plaintext env) and DB_PASSWORD (Secrets Manager via the GP_API_DEV
+        # secret, which is the shared cluster's master password). So the
+        # override sets only the command and PR_NUMBER — drop-preview-db.ts
+        # reads the rest from the process.env the task def provides.
+        run: |
+          PR="${{ github.event.number }}"
+          STAGE="pr-${PR}"
+
+          TASK_DEF_FAMILY="gp-${STAGE}-fargateCluster-gp-api-${STAGE}"
+          TASK_DEF_ARN=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_FAMILY" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text 2>/dev/null || true)
+
+          if [ -z "$TASK_DEF_ARN" ] || [ "$TASK_DEF_ARN" = "None" ]; then
+            echo "Task definition $TASK_DEF_FAMILY not found; skipping DB drop."
+            exit 0
+          fi
+
+          CLUSTER_NAME="gp-${STAGE}-fargateCluster"
+
+          echo "Running drop-preview-db for PR #${PR}..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$CLUSTER_NAME" \
+            --task-definition "$TASK_DEF_ARN" \
+            --launch-type FARGATE \
+            --network-configuration \
+              "awsvpcConfiguration={
+                subnets=[subnet-053357b931f0524d4,subnet-0bb591861f72dcb7f],
+                securityGroups=[sg-01de8d67b0f0ec787],
+                assignPublicIp=DISABLED
+              }" \
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"gp-api-${STAGE}\",
+                \"command\": [\"npx\",\"tsx\",\"scripts/drop-preview-db.ts\"],
+                \"environment\": [
+                  {\"name\":\"PR_NUMBER\",\"value\":\"${PR}\"}
+                ]
+              }]
+            }" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Waiting for drop task ${TASK_ARN} to complete..."
+          aws ecs wait tasks-stopped \
+            --cluster "$CLUSTER_NAME" \
+            --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$CLUSTER_NAME" \
+            --tasks "$TASK_ARN" \
+            --query \
+              "tasks[0].containers[?name=='gp-api-${STAGE}'].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "drop-preview-db task exited ${EXIT_CODE}; check ECS logs."
+            # Non-fatal: let pulumi destroy proceed so the ALB is reclaimed.
+          fi
+
       - name: Destroy preview stack
         uses: ./.github/actions/destroy-preview-stack
         with:

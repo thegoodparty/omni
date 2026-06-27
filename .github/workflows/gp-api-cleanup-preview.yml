@@ -151,3 +151,100 @@ jobs:
             {
               "text": ":warning: AWS ELB usage in us-west-2 is ${{ steps.check.outputs.count }}/${{ steps.check.outputs.quota }} (>= ${{ steps.check.outputs.threshold }}). New PR-preview deploys may fail with TooManyLoadBalancers — clear stale preview stacks or request a quota increase."
             }
+
+  drop-orphaned-dbs:
+    # Backstop for databases whose PR-close teardown dropped the ECS stack
+    # before the DB drop step could run (e.g. because the teardown workflow
+    # predates this change, or because the run-task step was non-fatal).
+    # Runs after check-elb-quota (always()) so it still fires on an empty
+    # stale-stack run — orphaned DBs outlive their stacks.
+    #
+    # The drop is a SQL op against the shared Aurora cluster, whose SG admits
+    # 5432 only from the app SG + the VPC CIDR — the GitHub runner is NOT in
+    # the VPC, so the sweep runs in-VPC via `aws ecs run-task`. There is no
+    # per-PR stack to borrow a task def from here, so it uses the stable dev
+    # task def (gp-develop-fargateCluster-gp-api-develop), which carries the
+    # same DB_USER (gpuser) and DB_PASSWORD secret (GP_API_DEV — the shared
+    # cluster's master password). The runner only resolves the cluster
+    # endpoint and the open-PR list and passes them as env overrides.
+    needs: [check-elb-quota]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Sweep orphaned gpdb_pr_* databases in-VPC
+        run: |
+          CLUSTER_ENDPOINT=$(aws rds describe-db-clusters \
+            --db-cluster-identifier gp-api-preview-shared \
+            --query 'DBClusters[0].Endpoint' \
+            --output text 2>/dev/null || true)
+
+          if [ -z "$CLUSTER_ENDPOINT" ] || [ "$CLUSTER_ENDPOINT" = "None" ]; then
+            echo "Shared preview cluster not found; skipping DB sweep."
+            exit 0
+          fi
+
+          # Fetch open PRs. If this fails we must NOT proceed: an empty list
+          # would make the sweep treat every gpdb_pr_* as orphaned and drop
+          # active previews' databases. Skip the run instead.
+          PR_JSON=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls?state=open&per_page=100") || {
+            echo "Failed to fetch open PRs; skipping sweep to avoid dropping active databases."
+            exit 0
+          }
+          OPEN_PRS=$(echo "$PR_JSON" | python3 -c \
+            "import sys,json; prs=json.load(sys.stdin); print(' '.join(str(p['number']) for p in prs))")
+
+          ECS_CLUSTER="gp-develop-fargateCluster"
+          TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
+
+          echo "Running drop-orphaned-preview-dbs against ${CLUSTER_ENDPOINT}..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_DEF_FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration \
+              "awsvpcConfiguration={
+                subnets=[subnet-053357b931f0524d4,subnet-0bb591861f72dcb7f],
+                securityGroups=[sg-01de8d67b0f0ec787],
+                assignPublicIp=DISABLED
+              }" \
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"gp-api-develop\",
+                \"command\": [
+                  \"npx\",\"tsx\",\"scripts/drop-orphaned-preview-dbs.ts\"
+                ],
+                \"environment\": [
+                  {\"name\":\"DB_HOST\",\"value\":\"${CLUSTER_ENDPOINT}\"},
+                  {\"name\":\"OPEN_PRS\",\"value\":\"${OPEN_PRS}\"}
+                ]
+              }]
+            }" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Waiting for sweep task ${TASK_ARN} to complete..."
+          aws ecs wait tasks-stopped \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --query \
+              "tasks[0].containers[?name=='gp-api-develop'].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "drop-orphaned-preview-dbs exited ${EXIT_CODE}; check ECS logs."
+            exit 1
+          fi
