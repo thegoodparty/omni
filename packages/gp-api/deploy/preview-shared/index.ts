@@ -115,9 +115,12 @@ export = async () => {
     engineVersion: rdsCluster.engineVersion,
   })
 
+  // pulumi.output coerces these to the top-level @pulumi/pulumi Output type;
+  // aws.rds.Cluster's own Output type is bundled under @pulumi/aws and is not
+  // nameable in the exported program type (tsc TS2742).
   return {
-    clusterEndpoint: rdsCluster.endpoint,
-    clusterIdentifier: rdsCluster.clusterIdentifier,
-    instanceId: rdsInstance.id,
+    clusterEndpoint: pulumi.output(rdsCluster.endpoint),
+    clusterIdentifier: pulumi.output(rdsCluster.clusterIdentifier),
+    instanceId: pulumi.output(rdsInstance.id),
   }
 }
