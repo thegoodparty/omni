@@ -23,6 +23,8 @@ export = async () => {
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
 
+  const useSharedPreviewDb = config.getBoolean('useSharedPreviewDb') ?? false
+
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const vpcCidr = '10.0.0.0/16'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -233,43 +235,60 @@ export = async () => {
     },
   })
 
-  const rdsCluster = new aws.rds.Cluster('rdsCluster', {
-    clusterIdentifier: select({
-      preview: `gp-api-${stage}`,
-      dev: 'gp-api-db',
-      qa: 'gp-api-db-qa',
-      prod: 'gp-api-db-prod',
-    }),
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineMode: aws.rds.EngineMode.Provisioned,
-    engineVersion: '16.8',
-    databaseName: 'gpdb',
-    masterUsername: 'gpuser',
-    masterPassword: pulumi.secret(secret.DB_PASSWORD),
-    dbSubnetGroupName: subnetGroup.name,
-    vpcSecurityGroupIds: [rdsSecurityGroup.id],
-    storageEncrypted: true,
-    serverlessv2ScalingConfiguration: {
-      minCapacity: environment === 'prod' ? 1 : 0.5,
-      maxCapacity: 64,
-    },
-    backupRetentionPeriod: select({ preview: 1, dev: 7, qa: 7, prod: 14 }),
-    // Disable these protections for preview environments -- these
-    // configs help them tear down more quickly.
-    deletionProtection: environment !== 'preview',
-    skipFinalSnapshot: environment === 'preview',
-    finalSnapshotIdentifier:
-      environment === 'preview'
-        ? undefined
-        : `gp-api-db-${stage}-final-snapshot`,
-  })
+  const skipPerPrRds = environment === 'preview' && useSharedPreviewDb
 
-  const rdsInstance = new aws.rds.ClusterInstance('rdsInstance', {
-    clusterIdentifier: rdsCluster.id,
-    instanceClass: 'db.serverless',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineVersion: rdsCluster.engineVersion,
-  })
+  const rdsCluster = skipPerPrRds
+    ? undefined
+    : new aws.rds.Cluster('rdsCluster', {
+        clusterIdentifier: select({
+          preview: `gp-api-${stage}`,
+          dev: 'gp-api-db',
+          qa: 'gp-api-db-qa',
+          prod: 'gp-api-db-prod',
+        }),
+        engine: aws.rds.EngineType.AuroraPostgresql,
+        engineMode: aws.rds.EngineMode.Provisioned,
+        engineVersion: '16.8',
+        databaseName: 'gpdb',
+        masterUsername: 'gpuser',
+        masterPassword: pulumi.secret(secret.DB_PASSWORD),
+        dbSubnetGroupName: subnetGroup.name,
+        vpcSecurityGroupIds: [rdsSecurityGroup.id],
+        storageEncrypted: true,
+        serverlessv2ScalingConfiguration: {
+          minCapacity: environment === 'prod' ? 1 : 0.5,
+          maxCapacity: 64,
+        },
+        backupRetentionPeriod: select({
+          preview: 1,
+          dev: 7,
+          qa: 7,
+          prod: 14,
+        }),
+        // Disable these protections for preview environments -- these
+        // configs help them tear down more quickly.
+        deletionProtection: environment !== 'preview',
+        skipFinalSnapshot: environment === 'preview',
+        finalSnapshotIdentifier:
+          environment === 'preview'
+            ? undefined
+            : `gp-api-db-${stage}-final-snapshot`,
+      })
+
+  const rdsInstance = skipPerPrRds
+    ? undefined
+    : new aws.rds.ClusterInstance('rdsInstance', {
+        clusterIdentifier: rdsCluster!.id,
+        instanceClass: 'db.serverless',
+        engine: aws.rds.EngineType.AuroraPostgresql,
+        engineVersion: rdsCluster!.engineVersion,
+      })
+
+  const sharedPreviewCluster = skipPerPrRds
+    ? await aws.rds.getCluster({
+        clusterIdentifier: 'gp-api-preview-shared',
+      })
+    : undefined
 
   let voterCluster: aws.rds.Cluster | aws.rds.GetClusterResult
 
@@ -356,7 +375,7 @@ export = async () => {
   })
 
   const service = createService({
-    dependsOn: [rdsInstance],
+    dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
     stage,
     imageUri,
@@ -433,9 +452,15 @@ export = async () => {
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
-      DB_HOST: rdsCluster.endpoint,
-      DB_USER: rdsCluster.masterUsername,
-      DB_NAME: rdsCluster.databaseName,
+      DB_HOST: sharedPreviewCluster
+        ? sharedPreviewCluster.endpoint
+        : rdsCluster!.endpoint,
+      DB_USER: sharedPreviewCluster
+        ? sharedPreviewCluster.masterUsername
+        : rdsCluster!.masterUsername,
+      DB_NAME: sharedPreviewCluster
+        ? `gpdb_pr_${prNumber}`
+        : rdsCluster!.databaseName,
       VOTER_DB_HOST: voterCluster.endpoint,
       VOTER_DB_USER: voterCluster.masterUsername,
       VOTER_DB_NAME: voterCluster.databaseName,
