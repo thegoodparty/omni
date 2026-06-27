@@ -11,6 +11,7 @@ import {
   StartSelfResearchResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import {
   Prisma,
   RaceOpponentFindingKind,
@@ -129,17 +130,20 @@ export class SelfResearchService extends createPrismaBase(
     // fails, the claim is rolled back to failed (scoped to this exact row) so the
     // user can retry — no ExperimentRun/SQS orphan with no research row to
     // receive its result.
-    const claimed = existing
-      ? await this.model.update({
-          where: { id: existing.id },
-          data: {
-            status: RaceOpponentResearchStatus.queued,
-            runId: null,
-            attempts: { increment: 1 },
-            completedAt: null,
-          },
-        })
-      : await this.model.create({
+    let claimed: RaceOpponentResearchRow
+    if (existing) {
+      claimed = await this.model.update({
+        where: { id: existing.id },
+        data: {
+          status: RaceOpponentResearchStatus.queued,
+          runId: null,
+          attempts: { increment: 1 },
+          completedAt: null,
+        },
+      })
+    } else {
+      try {
+        claimed = await this.model.create({
           data: {
             campaignId: campaign.id,
             kind: RaceOpponentFindingKind.self,
@@ -147,6 +151,19 @@ export class SelfResearchService extends createPrismaBase(
             attempts: 1,
           },
         })
+      } catch (error) {
+        // Concurrent POST won the (campaignId, self, NULL) claim. The unique
+        // index is NULLS NOT DISTINCT, so the loser trips P2002 here — return
+        // the winner's in-flight row instead of dispatching a duplicate run.
+        if (isUniqueConstraintError(error)) {
+          const winner = await this.selfRow(campaign.id)
+          if (winner) {
+            return { research: this.toResearch(winner) }
+          }
+        }
+        throw error
+      }
+    }
 
     let run: Awaited<ReturnType<typeof this.experimentRuns.dispatchRun>>
     try {
