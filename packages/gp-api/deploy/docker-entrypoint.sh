@@ -14,6 +14,45 @@ fi
 export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?connection_limit=20"
 export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB_HOST:5432/$VOTER_DB_NAME"
 
+# Per-PR preview: create the database if it does not already exist.
+# Must run before prisma migrate deploy because $DB_NAME may not exist yet on the
+# shared Aurora cluster. Connects to the maintenance "postgres" db (which always
+# exists) and issues CREATE DATABASE only when pg_database has no matching row.
+# CREATE DATABASE cannot run inside a transaction, so this uses a plain client
+# connection rather than a transaction block.
+# The pg package is a direct (non-dev) dependency, so it is present in --omit=dev
+# installs.
+if [ "$IS_PREVIEW" = "true" ]; then
+  echo "Preview environment: ensuring database '$DB_NAME' exists..."
+  node -e "
+    const { Client } = require('pg');
+    const client = new Client({
+      host: process.env.DB_HOST,
+      port: 5432,
+      database: 'postgres',
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      ssl: { rejectUnauthorized: false },
+    });
+    client.connect()
+      .then(() => client.query(
+        'SELECT 1 FROM pg_database WHERE datname = \$1',
+        [process.env.DB_NAME]
+      ))
+      .then((res) => {
+        if (res.rowCount > 0) {
+          console.log('Database already exists, skipping create.');
+          return;
+        }
+        return client.query(
+          'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
+        ).then(() => console.log('Database created.'));
+      })
+      .then(() => client.end())
+      .catch((err) => { console.error(err); process.exit(1); });
+  "
+fi
+
 # Run migrations on startup if DATABASE_URL is set and not a placeholder
 if [ -z "$DATABASE_URL" ]; then
   echo "DATABASE_URL is not set, can't run migrations"
