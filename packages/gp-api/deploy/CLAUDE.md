@@ -40,7 +40,6 @@ Apply it once, out-of-band:
 cd packages/gp-api/deploy/preview-shared
 pulumi login s3://goodparty-iac-state
 pulumi stack select organization/gp-api-preview-shared/gp-api-preview-shared --create
-pulumi config set aws:region us-west-2
 PULUMI_CONFIG_PASSPHRASE=<value-from-ssm:pulumi-state-config-passphrase> pulumi up
 ```
 
