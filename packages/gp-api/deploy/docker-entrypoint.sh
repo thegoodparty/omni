@@ -45,7 +45,7 @@ if [ "$IS_PREVIEW" = "true" ]; then
           [process.env.DB_NAME]
         ))
         .then((res) => {
-          if (res.rowCount > 0) {
+          if (res.rows.length > 0) {
             console.log('Database already exists, skipping create.');
             return;
           }
@@ -53,7 +53,7 @@ if [ "$IS_PREVIEW" = "true" ]; then
             'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
           ).then(() => console.log('Database created.'));
         })
-        .then(() => client.end())
+        .then(() => client.end().catch(() => {}))
         .catch((err) => { console.error(err); process.exit(1); });
     "; then
       break
