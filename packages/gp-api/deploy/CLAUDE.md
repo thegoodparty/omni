@@ -49,6 +49,23 @@ PULUMI_CONFIG_PASSPHRASE=<value-from-ssm:pulumi-state-config-passphrase> pulumi 
 
 Do **not** wire `preview-shared/` into `infra-cli.ts` — it has no `environment` config and no `imageUri`. Run raw `pulumi` commands against it.
 
+### Preview connection strategy
+
+Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows and the connections alarm fires at 80, but rely on more than ~10 simultaneous open previews only once the alarm has a live SNS action. (`VoterDatabaseService`'s pool hits a separate voter cluster and is not part of this budget.)
+
+CloudWatch alarms in `preview-shared/index.ts` watch:
+
+- `DatabaseConnections >= 80` (instance-level, `DBInstanceIdentifier`) — 3 consecutive 1-minute periods
+- `ServerlessDatabaseCapacity >= 56 ACU` (cluster-level, `DBClusterIdentifier`; 87.5% of maxCapacity=64) — 3 consecutive 1-minute periods
+
+**`alarmActions` is currently empty** — no SNS topic exists in this account yet. Ops follow-up: create an SNS topic, subscribe it to Slack or a Lambda forwarder, then add the ARN to `alarmActions` in both alarms and re-apply the `preview-shared` stack.
+
+**Scaling levers if connection pressure is real:**
+
+1. Raise `minCapacity` in `rdsCluster.serverlessv2ScalingConfiguration` (reduces cold-start connection drops).
+2. Add an RDS Proxy in front of the cluster (multiplexes connections; the proxy endpoint replaces `DB_HOST` for previews).
+3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
+
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.

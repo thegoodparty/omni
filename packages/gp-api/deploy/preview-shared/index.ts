@@ -115,6 +115,52 @@ export = async () => {
     engineVersion: rdsCluster.engineVersion,
   })
 
+  // DatabaseConnections is instance-level (DBInstanceIdentifier).
+  // ServerlessDatabaseCapacity is reported at the cluster level too, so it
+  // alarms on DBClusterIdentifier.
+  //
+  // Thresholds: 0.5-ACU Aurora Serverless v2 supports ~100 max connections;
+  // alarm at 80 catches sustained pressure while Aurora auto-scales. ACU
+  // alarm at 56 = 87.5% of maxCapacity (64).
+  //
+  // alarmActions is empty — no SNS topic exists yet. Ops follow-up: create
+  // one, subscribe it to Slack/Lambda, add the ARN here, re-apply the stack.
+  new aws.cloudwatch.MetricAlarm('previewSharedConnectionsAlarm', {
+    name: 'gp-api-preview-shared-high-connections',
+    alarmDescription:
+      'Shared preview Aurora instance: connections nearing 0.5-ACU ceiling ' +
+      '(~100 max). Raise minCapacity or reduce connection_limit per service.',
+    namespace: 'AWS/RDS',
+    metricName: 'DatabaseConnections',
+    dimensions: { DBInstanceIdentifier: rdsInstance.id },
+    statistic: 'Maximum',
+    period: 60,
+    evaluationPeriods: 3,
+    datapointsToAlarm: 3,
+    threshold: 80,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    treatMissingData: 'notBreaching',
+    alarmActions: [],
+  })
+
+  new aws.cloudwatch.MetricAlarm('previewSharedCapacityAlarm', {
+    name: 'gp-api-preview-shared-high-capacity',
+    alarmDescription:
+      'Shared preview Aurora cluster: ACU approaching maxCapacity of 64. ' +
+      'Consider raising maxCapacity or reducing load.',
+    namespace: 'AWS/RDS',
+    metricName: 'ServerlessDatabaseCapacity',
+    dimensions: { DBClusterIdentifier: rdsCluster.clusterIdentifier },
+    statistic: 'Maximum',
+    period: 60,
+    evaluationPeriods: 3,
+    datapointsToAlarm: 3,
+    threshold: 56,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    treatMissingData: 'notBreaching',
+    alarmActions: [],
+  })
+
   // pulumi.output coerces these to the top-level @pulumi/pulumi Output type;
   // aws.rds.Cluster's own Output type is bundled under @pulumi/aws and is not
   // nameable in the exported program type (tsc TS2742).
