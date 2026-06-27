@@ -171,71 +171,77 @@ export = async () => {
     })
   }
 
-  const rdsSecurityGroup = new aws.ec2.SecurityGroup('rdsSecurityGroup', {
-    name:
-      environment === 'dev'
-        ? 'api-rds-security-group'
-        : `api-${stage}-rds-security-group`,
-    description: 'Allow traffic to RDS',
-    vpcId,
-    ingress: [
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        securityGroups: vpcSecurityGroupIds,
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        cidrBlocks: [vpcCidr],
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        description: 'databricks via vpc peering',
-        cidrBlocks: ['172.16.0.0/16'],
-      },
-      ...select({
-        preview: [],
-        // TODOSWAIN: investigate whether these are truly needed in dev
-        dev: [
+  const skipPerPrRds = environment === 'preview' && useSharedPreviewDb
+
+  // With the shared preview DB the per-PR cluster is skipped, so its security
+  // group and subnet group would be orphaned — skip them too.
+  const rdsSecurityGroup = skipPerPrRds
+    ? undefined
+    : new aws.ec2.SecurityGroup('rdsSecurityGroup', {
+        name:
+          environment === 'dev'
+            ? 'api-rds-security-group'
+            : `api-${stage}-rds-security-group`,
+        description: 'Allow traffic to RDS',
+        vpcId,
+        ingress: [
           {
             protocol: 'tcp',
             fromPort: 5432,
             toPort: 5432,
-            description: 'internal gp-bastion',
-            securityGroups: ['sg-05a21af11aacbe60b'],
+            securityGroups: vpcSecurityGroupIds,
+          },
+          {
+            protocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            cidrBlocks: [vpcCidr],
+          },
+          {
+            protocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            description: 'databricks via vpc peering',
+            cidrBlocks: ['172.16.0.0/16'],
+          },
+          ...select({
+            preview: [],
+            // TODOSWAIN: investigate whether these are truly needed in dev
+            dev: [
+              {
+                protocol: 'tcp',
+                fromPort: 5432,
+                toPort: 5432,
+                description: 'internal gp-bastion',
+                securityGroups: ['sg-05a21af11aacbe60b'],
+              },
+            ],
+            qa: [],
+            prod: [],
+          }),
+        ],
+        egress: [
+          {
+            protocol: '-1',
+            fromPort: 0,
+            toPort: 0,
+            cidrBlocks: ['0.0.0.0/0'],
           },
         ],
-        qa: [],
-        prod: [],
-      }),
-    ],
-    egress: [
-      {
-        protocol: '-1',
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ['0.0.0.0/0'],
-      },
-    ],
-  })
+      })
 
-  const subnetGroup = new aws.rds.SubnetGroup('subnetGroup', {
-    name:
-      environment === 'dev'
-        ? 'api-rds-subnet-group'
-        : `api-${stage}-rds-subnet-group`,
-    subnetIds: vpcSubnetIds.private,
-    tags: {
-      Name: `api-${stage}-rds-subnet-group`,
-    },
-  })
-
-  const skipPerPrRds = environment === 'preview' && useSharedPreviewDb
+  const subnetGroup = skipPerPrRds
+    ? undefined
+    : new aws.rds.SubnetGroup('subnetGroup', {
+        name:
+          environment === 'dev'
+            ? 'api-rds-subnet-group'
+            : `api-${stage}-rds-subnet-group`,
+        subnetIds: vpcSubnetIds.private,
+        tags: {
+          Name: `api-${stage}-rds-subnet-group`,
+        },
+      })
 
   const rdsCluster = skipPerPrRds
     ? undefined
@@ -252,8 +258,8 @@ export = async () => {
         databaseName: 'gpdb',
         masterUsername: 'gpuser',
         masterPassword: pulumi.secret(secret.DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup.id],
+        dbSubnetGroupName: subnetGroup!.name,
+        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
         storageEncrypted: true,
         serverlessv2ScalingConfiguration: {
           minCapacity: environment === 'prod' ? 1 : 0.5,
@@ -302,8 +308,8 @@ export = async () => {
         databaseName: 'voters',
         masterUsername: 'postgres',
         masterPassword: pulumi.secret(secret.VOTER_DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup.id],
+        dbSubnetGroupName: subnetGroup!.name,
+        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
         storageEncrypted: true,
         deletionProtection: true,
         finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
