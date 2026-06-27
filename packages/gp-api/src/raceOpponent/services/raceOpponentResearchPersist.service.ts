@@ -68,12 +68,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
       // experimentRun.status) drops the redelivery, so the research row would
       // sit running forever and start() could never re-trigger. Log and move on
       // — the isStuck grace-window backstop is the eventual safety net.
-      await this.markResearchFailed(run.runId).catch((err: unknown) => {
-        this.logger.error(
-          { err, runId: run.runId },
-          'markResearchFailed threw; research row may remain running',
-        )
-      })
+      await this.safeMarkResearchFailed(run.runId)
       return
     }
     if (run.status !== ExperimentRunStatus.COMPLETED) return
@@ -85,7 +80,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     if (!research) return
 
     if (!run.artifactBucket || !run.artifactKey) {
-      await this.markResearchFailed(run.runId)
+      await this.safeMarkResearchFailed(run.runId)
       await this.experimentRuns.markFailed(
         run.runId,
         'completed run has no artifact location',
@@ -103,13 +98,25 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
 
       await this.replaceFindings(research.id, reachable)
     } catch (error) {
-      await this.markResearchFailed(run.runId)
+      await this.safeMarkResearchFailed(run.runId)
       await this.experimentRuns.markFailed(
         run.runId,
         error instanceof Error ? error.message : String(error),
       )
       throw error
     }
+  }
+
+  // markResearchFailed wrapped so a DB fault here can't mask the real error
+  // (which we still rethrow) — experimentRuns.markFailed is what flips the run
+  // terminal, so the consumer's terminal-status guard bounds redelivery.
+  private async safeMarkResearchFailed(runId: string): Promise<void> {
+    await this.markResearchFailed(runId).catch((err: unknown) => {
+      this.logger.error(
+        { err, runId },
+        'markResearchFailed threw; research row may remain running',
+      )
+    })
   }
 
   private parseFindings(

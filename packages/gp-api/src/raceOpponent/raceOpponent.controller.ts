@@ -102,6 +102,9 @@ export class RaceOpponentController {
   async identifyOpponents(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<IdentifyOpponentsResponse> {
+    // Same Pro+flag gate collect() enforces, then the self-research gate. A
+    // non-Pro / flag-off campaign can't reach this even with a completed pass.
+    await this.raceOpponent.assertAccess(campaign)
     await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
     return { opponentNames: [] }
   }

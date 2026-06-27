@@ -3,6 +3,8 @@ import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
+import { SelfResearchService } from '@/raceOpponent/services/selfResearch.service'
+import { RaceOpponentResearch } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   ExperimentRunStatus,
@@ -86,6 +88,10 @@ type ReachabilitySeam = {
 type MarkFailedSeam = {
   markResearchFailed(runId: string): Promise<void>
 }
+type ModelArgs = { where: { id: number }; data: { runId: string } }
+type ModelSeam = {
+  model: { update(args: ModelArgs): Promise<RaceOpponentResearch> }
+}
 const stubReachability = () =>
   vi
     .spyOn(
@@ -159,6 +165,45 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
       expect(result.status).toBe(201)
       expect(result.data).toEqual({ opponentNames: [] })
+    })
+
+    it('403s opponent identify for a non-Pro campaign even with a completed self pass', async () => {
+      const campaign = await seedCampaign({ isPro: false })
+      await seedSelfResearch(
+        campaign.id,
+        RaceOpponentResearchStatus.completed,
+        'run-done',
+      )
+      flagOn()
+
+      const result = await service.client.post(
+        IDENTIFY_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(403)
+    })
+
+    it('403s opponent identify when the flag is off even with a completed self pass', async () => {
+      const campaign = await seedCampaign({ isPro: true })
+      await seedSelfResearch(
+        campaign.id,
+        RaceOpponentResearchStatus.completed,
+        'run-done',
+      )
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+
+      const result = await service.client.post(
+        IDENTIFY_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(403)
     })
   })
 
@@ -251,6 +296,40 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         service.app.get(ExperimentRunsService),
         'dispatchRun',
       ).mockRejectedValue(new Error('SQS down'))
+
+      const result = await service.client.post(
+        START_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(500)
+      const row = await service.prisma.raceOpponentResearch.findFirstOrThrow({
+        where: { kind: RaceOpponentFindingKind.self },
+      })
+      expect(row.status).toBe(RaceOpponentResearchStatus.failed)
+      expect(row.runId).toBeNull()
+    })
+
+    it('rolls the row to failed when the runId-bind update throws', async () => {
+      await seedCampaign({ isPro: true })
+      flagOn()
+      vi.spyOn(
+        service.app.get(ExperimentRunsService),
+        'dispatchRun',
+      ).mockResolvedValue({ runId: 'run-bind' } as never)
+      // No existing row, so the claim uses model.create and the only model.update
+      // call is the runId bind; rollbackClaim then updates the row to failed.
+      // Make the bind (first update) throw while the rollback (second) succeeds.
+      const seam = service.app.get(SelfResearchService) as unknown as ModelSeam
+      const realUpdate = seam.model.update.bind(seam.model)
+      let updateCalls = 0
+      vi.spyOn(seam.model, 'update').mockImplementation((args: ModelArgs) => {
+        updateCalls += 1
+        return updateCalls === 1
+          ? Promise.reject(new Error('bind failed'))
+          : realUpdate(args)
+      })
 
       const result = await service.client.post(
         START_PATH,

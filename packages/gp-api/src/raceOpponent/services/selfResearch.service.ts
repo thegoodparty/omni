@@ -170,22 +170,41 @@ export class SelfResearchService extends createPrismaBase(
 
     // Bind the dispatched run to the claimed row so onExperimentRunCompleted's
     // by-runId lookup resolves. This runs before any callback can arrive (the
-    // run is QUEUED on SQS and can't complete before we return).
-    const bound = await this.model.update({
-      where: { id: claimed.id },
-      data: { runId: run.runId },
-    })
+    // run is QUEUED on SQS and can't complete before we return). If the bind
+    // throws, the job is already running but the row would be stuck
+    // queued-with-null-runId — its result could never be matched back. Roll the
+    // row to failed so the user can re-trigger. Invariant after start(): the row
+    // is either queued-with-runId-bound or failed, never queued-with-null-runId.
+    let bound: RaceOpponentResearchRow
+    try {
+      bound = await this.model.update({
+        where: { id: claimed.id },
+        data: { runId: run.runId },
+      })
+    } catch (error) {
+      await this.rollbackClaim(claimed.id)
+      throw error
+    }
 
     return { research: this.toResearch(bound) }
   }
 
   // Scope the rollback to the exact claimed row id so a concurrent retry's
-  // active claim can't be cleared by this caller's late failure.
+  // active claim can't be cleared by this caller's late failure. Swallow a
+  // rollback fault: rethrowing it would leave the row stuck queued-with-null
+  // (no sweep reclaims that state) and re-mask the original dispatch error.
   private async rollbackClaim(id: number): Promise<void> {
-    await this.model.update({
-      where: { id },
-      data: { status: RaceOpponentResearchStatus.failed },
-    })
+    await this.model
+      .update({
+        where: { id },
+        data: { status: RaceOpponentResearchStatus.failed },
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          { err, id },
+          'rollbackClaim failed; research row may remain queued',
+        )
+      })
   }
 
   async status(
