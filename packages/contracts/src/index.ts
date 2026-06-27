@@ -212,6 +212,31 @@ export {
 } from "./campaigns/CampaignStoryRewrite.schema";
 
 export {
+  CampaignStrategyPhaseKeySchema,
+  TaskTypeSchema,
+  TaskChannelSchema,
+  DayOfWeekSchema,
+  TaskStatusSchema,
+  TaskPersonalizationSchema,
+  PriorityTierSchema,
+  GeneratorSourceSchema,
+  TaskTimingSchema,
+  CampaignTaskDefinitionSchema,
+  type CampaignStrategyPhaseKey,
+  type TaskType,
+  type TaskChannel,
+  type DayOfWeek,
+  type TaskStatus,
+  type TaskPersonalization,
+  type PriorityTier,
+  type GeneratorSource,
+  type TaskTiming,
+  type CampaignTaskDefinition,
+} from './campaigns/CampaignTaskCatalog.schema'
+
+export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+
+export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
 } from "./campaigns/CampaignWithPositionName.schema";

@@ -120,16 +120,16 @@ export function ComplianceModal({
           </Button>
           {ctaHref ? (
             ctaHref.startsWith('mailto:') ? (
-              <Button asChild size="large" variant="neutral">
+              <Button asChild size="large">
                 <a href={ctaHref}>{cta}</a>
               </Button>
             ) : (
-              <Button asChild size="large" variant="neutral">
+              <Button asChild size="large">
                 <Link href={ctaHref}>{cta}</Link>
               </Button>
             )
           ) : (
-            <Button size="large" variant="neutral" onClick={onClose}>
+            <Button size="large" onClick={onClose}>
               {cta}
             </Button>
           )}

@@ -24,6 +24,7 @@ import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { PersonOutput } from 'src/contacts/schemas/person.schema'
 import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
@@ -121,6 +122,7 @@ export class QueueConsumerService {
     private readonly campaignsService: CampaignsService,
     private readonly aiGenerationService: AiGenerationService,
     private readonly campaignTasksService: CampaignTasksService,
+    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly domainsService: DomainsService,
     private readonly pollsService: PollsService,
@@ -1056,6 +1058,7 @@ export class QueueConsumerService {
     // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
     // non-campaign-strategy runs, so this only throws on a real persist failure.
     await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
+    await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
 
     // Same contract as campaignStrategy above: markFailed-then-throw on a
     // persist fault, no-op for other experiment types, and the persist is an

@@ -12,7 +12,10 @@ const OUTREACH_FLOW_TYPES: CampaignTaskType[] = [
   CampaignTaskType.doorKnocking,
   CampaignTaskType.phoneBanking,
 ]
-const MAX_TASKS = 5
+// Surface the top 3 uncompleted tasks for the week (TDD: "Change top-5 to
+// top-3"). The Segment event still carries all 5 slots — slots 4-5 go blank so
+// HubSpot clears stale data — so there is no change needed on the email side.
+const MAX_TASKS = 3
 const MIN_TASKS = 3
 
 interface DigestRow {
@@ -161,7 +164,7 @@ function groupByCampaign(rows: DigestRow[]): Map<number, CampaignDigestGroup> {
 
 @Injectable()
 export class WeeklyTasksDigestHandlerService extends createPrismaBase(
-  MODELS.CampaignTask,
+  MODELS.CampaignTrackerTask,
 ) {
   constructor(private readonly analytics: AnalyticsService) {
     super()
@@ -176,65 +179,18 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
       'Processing weekly tasks digest',
     )
 
-    // Single query: for every campaign with a future election date and at
-    // least MIN_TASKS incomplete tasks in the window, return the top
-    // MAX_TASKS incomplete tasks (outreach types prioritized, then by date).
-    // Each row denormalizes the campaign's counts so we can group in JS.
-    const rows = await this.client.$queryRaw<DigestRow[]>`
-      WITH eligible AS (
-        SELECT
-          c.id,
-          c.user_id,
-          COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
-          COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
-        FROM campaign c
-        JOIN campaign_task t ON t.campaign_id = c.id
-        WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
-          AND (c.details->>'electionDate')::date > NOW()::date
-          AND t.date >= ${windowStart}
-          AND t.date < ${windowEnd}
-        GROUP BY c.id, c.user_id
-        HAVING COUNT(*) FILTER (WHERE t.completed = false) >= ${MIN_TASKS}
-      ),
-      ranked_tasks AS (
-        SELECT
-          t.campaign_id,
-          t.title,
-          t.description,
-          t.flow_type,
-          t.date,
-          t.week,
-          ROW_NUMBER() OVER (
-            PARTITION BY t.campaign_id
-            ORDER BY
-              CASE WHEN t.flow_type::text IN (${Prisma.join(OUTREACH_FLOW_TYPES)})
-                THEN 0 ELSE 1 END,
-              t.date ASC
-          ) AS slot
-        FROM campaign_task t
-        JOIN eligible e ON e.id = t.campaign_id
-        WHERE t.completed = false
-          AND t.date >= ${windowStart}
-          AND t.date < ${windowEnd}
-      )
-      SELECT
-        e.id           AS campaign_id,
-        e.user_id,
-        e.completed_count,
-        e.incomplete_count,
-        rt.slot::int   AS slot,
-        rt.title,
-        rt.description,
-        rt.flow_type,
-        rt.date,
-        rt.week
-      FROM eligible e
-      JOIN ranked_tasks rt ON rt.campaign_id = e.id
-      WHERE rt.slot <= ${MAX_TASKS}
-      ORDER BY e.id, rt.slot
-    `
+    // Two mutually exclusive cohorts, one digest per campaign:
+    //  - tracker cohort: campaigns with campaign_tracker_tasks rows get the
+    //    Campaign Tracker v3 digest (latest generation only, GOTV window).
+    //  - legacy cohort: campaigns with NO tracker rows get the pre-v3
+    //    campaign_task digest, unchanged. Story-off campaigns never bootstrap
+    //    the tracker, so they stay here and behave exactly as before v3.
+    const [trackerRows, legacyRows] = await Promise.all([
+      this.fetchTrackerDigestRows(windowStart, windowEnd),
+      this.fetchLegacyDigestRows(windowStart, windowEnd),
+    ])
 
-    const campaigns = groupByCampaign(rows)
+    const campaigns = groupByCampaign([...trackerRows, ...legacyRows])
 
     let sent = 0
     let failed = 0
@@ -282,5 +238,182 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
       { sent, failed, eligible: campaigns.size },
       'Weekly tasks digest complete',
     )
+  }
+
+  // Campaign Tracker v3 cohort: campaigns with campaign_tracker_tasks rows.
+  // For every such campaign with a future election date and at least MIN_TASKS
+  // incomplete tasks in the window, return the top MAX_TASKS incomplete tasks
+  // (outreach types prioritized, then by date). Each row denormalizes the
+  // campaign's counts so we can group in JS.
+  private fetchTrackerDigestRows(
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<DigestRow[]> {
+    return this.client.$queryRaw<DigestRow[]>`
+      WITH latest_gen AS (
+        SELECT campaign_id, MAX(week) AS gen
+        FROM campaign_tracker_tasks
+        WHERE is_default_task = false
+        GROUP BY campaign_id
+      ),
+      visible AS (
+        -- Weekly regen appends each run as a new generation (week) and never
+        -- deletes prior rows. Count only the latest dynamic generation (plus
+        -- the non-generational static rows), mirroring the frontend — older
+        -- generations are kept for history but must not double-count here.
+        SELECT t.*
+        FROM campaign_tracker_tasks t
+        LEFT JOIN latest_gen g ON g.campaign_id = t.campaign_id
+        JOIN campaign c ON c.id = t.campaign_id
+        WHERE (t.is_default_task = true OR t.week = g.gen)
+          -- Mirror the UI's 30-day GOTV window: don't email GOTV tasks until
+          -- the election is within 30 days (the UI hides them until then).
+          -- Primary-only campaigns fall back to primaryElectionDate, matching
+          -- resolveElectionDate / the dispatch eligibility check.
+          AND (
+            t.phase IS DISTINCT FROM 'gotv'
+            OR (
+              COALESCE(
+                c.details->>'electionDate',
+                c.details->>'primaryElectionDate'
+              ) ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND (
+                COALESCE(
+                  c.details->>'electionDate',
+                  c.details->>'primaryElectionDate'
+                )
+              )::date - NOW()::date <= 30
+            )
+          )
+      ),
+      eligible AS (
+        SELECT
+          c.id,
+          c.user_id,
+          COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
+          COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
+        FROM campaign c
+        JOIN visible t ON t.campaign_id = c.id
+        WHERE c.is_active = true
+          AND c.is_demo = false
+          AND COALESCE(
+            c.details->>'electionDate',
+            c.details->>'primaryElectionDate'
+          ) ~ '^\\d{4}-\\d{2}-\\d{2}'
+          AND (
+            COALESCE(
+              c.details->>'electionDate',
+              c.details->>'primaryElectionDate'
+            )
+          )::date > NOW()::date
+          AND t.date >= ${windowStart}
+          AND t.date < ${windowEnd}
+        GROUP BY c.id, c.user_id
+        HAVING COUNT(*) FILTER (WHERE t.completed = false) >= ${MIN_TASKS}
+      ),
+      ranked_tasks AS (
+        SELECT
+          t.campaign_id,
+          t.title,
+          t.description,
+          t.flow_type,
+          t.date,
+          t.week,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.campaign_id
+            ORDER BY
+              CASE WHEN t.flow_type::text IN (${Prisma.join(OUTREACH_FLOW_TYPES)})
+                THEN 0 ELSE 1 END,
+              t.date ASC
+          ) AS slot
+        FROM visible t
+        JOIN eligible e ON e.id = t.campaign_id
+        WHERE t.completed = false
+          AND t.date >= ${windowStart}
+          AND t.date < ${windowEnd}
+      )
+      SELECT
+        e.id           AS campaign_id,
+        e.user_id,
+        e.completed_count,
+        e.incomplete_count,
+        rt.slot::int   AS slot,
+        rt.title,
+        rt.description,
+        rt.flow_type,
+        rt.date,
+        rt.week
+      FROM eligible e
+      JOIN ranked_tasks rt ON rt.campaign_id = e.id
+      WHERE rt.slot <= ${MAX_TASKS}
+      ORDER BY e.id, rt.slot
+    `
+  }
+
+  // Legacy (pre-v3) cohort: campaigns with NO campaign_tracker_tasks rows. The
+  // NOT EXISTS guard keeps the two cohorts mutually exclusive so a migrated
+  // campaign (which has tracker rows) is never double-counted here. Otherwise
+  // this is the unchanged pre-v3 digest over campaign_task.
+  private fetchLegacyDigestRows(
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<DigestRow[]> {
+    return this.client.$queryRaw<DigestRow[]>`
+      WITH eligible AS (
+        SELECT
+          c.id,
+          c.user_id,
+          COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
+          COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
+        FROM campaign c
+        JOIN campaign_task t ON t.campaign_id = c.id
+        WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+          AND (c.details->>'electionDate')::date > NOW()::date
+          AND t.date >= ${windowStart}
+          AND t.date < ${windowEnd}
+          AND NOT EXISTS (
+            SELECT 1 FROM campaign_tracker_tasks ctt
+            WHERE ctt.campaign_id = c.id
+          )
+        GROUP BY c.id, c.user_id
+        HAVING COUNT(*) FILTER (WHERE t.completed = false) >= ${MIN_TASKS}
+      ),
+      ranked_tasks AS (
+        SELECT
+          t.campaign_id,
+          t.title,
+          t.description,
+          t.flow_type,
+          t.date,
+          t.week,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.campaign_id
+            ORDER BY
+              CASE WHEN t.flow_type::text IN (${Prisma.join(OUTREACH_FLOW_TYPES)})
+                THEN 0 ELSE 1 END,
+              t.date ASC
+          ) AS slot
+        FROM campaign_task t
+        JOIN eligible e ON e.id = t.campaign_id
+        WHERE t.completed = false
+          AND t.date >= ${windowStart}
+          AND t.date < ${windowEnd}
+      )
+      SELECT
+        e.id           AS campaign_id,
+        e.user_id,
+        e.completed_count,
+        e.incomplete_count,
+        rt.slot::int   AS slot,
+        rt.title,
+        rt.description,
+        rt.flow_type,
+        rt.date,
+        rt.week
+      FROM eligible e
+      JOIN ranked_tasks rt ON rt.campaign_id = e.id
+      WHERE rt.slot <= ${MAX_TASKS}
+      ORDER BY e.id, rt.slot
+    `
   }
 }

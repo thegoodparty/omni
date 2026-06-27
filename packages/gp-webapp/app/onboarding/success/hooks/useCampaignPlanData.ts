@@ -52,6 +52,11 @@ export interface CampaignPlanData {
 // both entry points.
 export const useCampaignPlanData = (
   initialUser: User | null,
+  // Community events are a story-off (legacy) plan section only. The dashboard
+  // gates this on the campaign-story flag so the story-on cohort, whose events
+  // come from the campaign tracker, never polls the legacy endpoint. The
+  // success page is story-off-only and leaves it on.
+  communityEventsEnabled = true,
 ): CampaignPlanData => {
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
@@ -121,7 +126,7 @@ export const useCampaignPlanData = (
   // Section 7 community events — same polling shape as strategy. Pre-warm
   // fires after office submit in onboarding, so the cache is usually warm
   // by the time the user lands here.
-  const events = useCommunityEvents()
+  const events = useCommunityEvents(communityEventsEnabled)
   // The BR position ID is in-memory on `answers.structuredOffice.positionId`
   // during onboarding. After pledge submit, `OnboardingFlow` persists the
   // whole `answers` object under `campaign.data.onboarding`, so it survives
