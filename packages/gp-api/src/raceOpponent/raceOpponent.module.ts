@@ -8,6 +8,9 @@ import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.modu
 import { RaceOpponentController } from './raceOpponent.controller'
 import { RaceOpponentService } from './services/raceOpponent.service'
 import { RaceOpponentPersistService } from './services/raceOpponentPersist.service'
+import { SelfResearchService } from './services/selfResearch.service'
+import { SelfResearchGateService } from './services/selfResearchGate.service'
+import { RaceOpponentResearchPersistService } from './services/raceOpponentResearchPersist.service'
 
 @Module({
   imports: [
@@ -21,8 +24,15 @@ import { RaceOpponentPersistService } from './services/raceOpponentPersist.servi
   providers: [
     RaceOpponentService,
     RaceOpponentPersistService,
+    SelfResearchService,
+    SelfResearchGateService,
+    RaceOpponentResearchPersistService,
     ElectionApiService,
   ],
-  exports: [RaceOpponentPersistService],
+  exports: [
+    RaceOpponentPersistService,
+    RaceOpponentResearchPersistService,
+    SelfResearchGateService,
+  ],
 })
 export class RaceOpponentModule {}

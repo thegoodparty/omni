@@ -5,6 +5,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
@@ -228,6 +229,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -901,6 +903,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1090,6 +1093,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1237,6 +1241,10 @@ describe('QueueConsumerService - message type routing', () => {
         },
         {
           provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
@@ -1532,6 +1540,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         {
           provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
