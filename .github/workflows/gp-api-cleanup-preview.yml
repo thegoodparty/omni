@@ -205,7 +205,10 @@ jobs:
               echo "Failed to fetch open PRs (page ${PAGE}); skipping sweep to avoid dropping active databases."
               exit 0
             }
-            COUNT=$(echo "$PAGE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+            COUNT=$(echo "$PAGE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))") || {
+              echo "Failed to parse PR page (page ${PAGE}); skipping sweep to avoid dropping active databases."
+              exit 0
+            }
             ALL_PRS=$(jq -n --argjson a "$ALL_PRS" --argjson b "$PAGE_JSON" \
               '$a + $b') || {
               echo "Failed to merge PR pages; skipping sweep."
