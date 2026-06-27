@@ -58,7 +58,7 @@ CloudWatch alarms in `preview-shared/index.ts` watch:
 - `DatabaseConnections >= 80` (instance-level, `DBInstanceIdentifier`) — 3 consecutive 1-minute periods
 - `ServerlessDatabaseCapacity >= 56 ACU` (cluster-level, `DBClusterIdentifier`; 87.5% of maxCapacity=64) — 3 consecutive 1-minute periods
 
-**`alarmActions` is currently empty** — no SNS topic exists in this account yet. Ops follow-up: create an SNS topic, subscribe it to Slack or a Lambda forwarder, then add the ARN to `alarmActions` in both alarms and re-apply the `preview-shared` stack.
+Both alarms notify Slack via the `gp-api-preview-shared-alarms` SNS topic, subscribed to the `shared-slack-notifier` Lambda (the same path the `*-failures-*` topics use). That Lambda already grants invoke to every topic in the account (`sns:...:*`), so no extra `lambda.Permission` is needed.
 
 **Scaling levers if connection pressure is real:**
 

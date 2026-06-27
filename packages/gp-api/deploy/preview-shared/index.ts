@@ -115,6 +115,20 @@ export = async () => {
     engineVersion: rdsCluster.engineVersion,
   })
 
+  // Alarms notify Slack via the shared-slack-notifier Lambda, the same path
+  // the *-failures-* SNS topics use. The Lambda already grants invoke to every
+  // topic in this account (sns:...:*), so no extra lambda.Permission is needed.
+  const alarmTopic = new aws.sns.Topic('previewSharedAlarmTopic', {
+    name: 'gp-api-preview-shared-alarms',
+  })
+
+  new aws.sns.TopicSubscription('previewSharedAlarmSlack', {
+    topic: alarmTopic.arn,
+    protocol: 'lambda',
+    endpoint:
+      'arn:aws:lambda:us-west-2:333022194791:function:shared-slack-notifier',
+  })
+
   // DatabaseConnections is instance-level (DBInstanceIdentifier).
   // ServerlessDatabaseCapacity is reported at the cluster level too, so it
   // alarms on DBClusterIdentifier.
@@ -122,9 +136,6 @@ export = async () => {
   // Thresholds: 0.5-ACU Aurora Serverless v2 supports ~100 max connections;
   // alarm at 80 catches sustained pressure while Aurora auto-scales. ACU
   // alarm at 56 = 87.5% of maxCapacity (64).
-  //
-  // alarmActions is empty — no SNS topic exists yet. Ops follow-up: create
-  // one, subscribe it to Slack/Lambda, add the ARN here, re-apply the stack.
   new aws.cloudwatch.MetricAlarm('previewSharedConnectionsAlarm', {
     name: 'gp-api-preview-shared-high-connections',
     alarmDescription:
@@ -140,7 +151,7 @@ export = async () => {
     threshold: 80,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     treatMissingData: 'notBreaching',
-    alarmActions: [],
+    alarmActions: [alarmTopic.arn],
   })
 
   new aws.cloudwatch.MetricAlarm('previewSharedCapacityAlarm', {
@@ -158,7 +169,7 @@ export = async () => {
     threshold: 56,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     treatMissingData: 'notBreaching',
-    alarmActions: [],
+    alarmActions: [alarmTopic.arn],
   })
 
   // pulumi.output coerces these to the top-level @pulumi/pulumi Output type;
