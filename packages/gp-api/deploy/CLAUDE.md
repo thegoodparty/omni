@@ -19,6 +19,8 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/grafana.ts`                     | Grafana data sources, dashboards, contact points                           |
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                            |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)             |
+| `preview-shared/Pulumi.yaml`                | Stack metadata for the persistent shared preview Aurora cluster            |
+| `preview-shared/index.ts`                   | Pulumi program — provisions `gp-api-preview-shared` cluster + instance     |
 
 ## Patterns
 
@@ -27,6 +29,22 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Pulumi config secrets** come from SSM via `infra-cli.ts` (`PULUMI_CONFIG_PASSPHRASE`, `GRAFANA_AUTH`, `GRAFANA_SM_ACCESS_TOKEN`). The CLI fetches them per-run; nothing is committed.
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
+
+## Shared preview cluster (`preview-shared/`)
+
+`preview-shared/` is a **standalone Pulumi stack** (`gp-api-preview-shared`) with its own lifecycle — it is never touched by per-PR or develop deploys. It provisions one persistent Aurora PostgreSQL Serverless v2 cluster that all PR previews share. Per-PR databases (`gpdb_pr_<n>`) are created at preview-stack deploy time (ticket 1.2) against this cluster.
+
+Apply it once, out-of-band:
+
+```bash
+cd packages/gp-api/deploy/preview-shared
+pulumi login s3://goodparty-iac-state
+pulumi stack select organization/gp-api-preview-shared/gp-api-preview-shared --create
+pulumi config set aws:region us-west-2
+PULUMI_CONFIG_PASSPHRASE=<value-from-ssm:pulumi-state-config-passphrase> pulumi up
+```
+
+Do **not** wire `preview-shared/` into `infra-cli.ts` — it has no `environment` config and no `imageUri`. Run raw `pulumi` commands against it.
 
 ## Gotchas
 
