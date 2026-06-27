@@ -137,6 +137,10 @@ export interface AgentJobContracts {
     Input: MeetingScheduleInput
     Output: MeetingSchedule
   }
+  opponent_research: {
+    Input: OpponentResearchInputParams
+    Output: OpponentResearchArtifact
+  }
   opportunities_and_challenges: {
     Input: OpportunitiesAndChallengesInputParams
     Output: OpportunitiesAndChallengesArtifact
@@ -148,6 +152,10 @@ export interface AgentJobContracts {
   race_opponent_collection: {
     Input: OpponentDataCollectionInputParams
     Output: OpponentDataCollectionArtifact
+  }
+  self_research: {
+    Input: SelfResearchInputParams
+    Output: SelfResearchArtifact
   }
   top_community_issues: {
     Input: {
@@ -5629,6 +5637,110 @@ export interface MeetingScheduleNotFound {
   time: string
   timezone: string
 }
+export interface OpponentResearchInputParams {
+  /**
+   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's background.
+     */
+    background?: string | null
+    /**
+     * The issues the candidate is running on.
+     */
+    issues?: string | null
+    /**
+     * Why the candidate is running.
+     */
+    why?: string | null
+  } | null
+  /**
+   * The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.
+   */
+  opponent: {
+    /**
+     * The opponent's full name. Used for source discovery via WebSearch, to confirm a fetched page is about this person, and as the registration name to match in the L2 residency query.
+     */
+    full_name: string
+    /**
+     * true if known to be the incumbent, false if known not to be, null if unknown.
+     */
+    is_incumbent?: boolean | null
+    /**
+     * Optional hints: the opponent's public social-media profile URLs.
+     */
+    social_urls?: string[]
+    /**
+     * Optional hint: the opponent's campaign website. When present, fetch directly; when null/absent, discover via WebSearch.
+     */
+    website_url?: string | null
+  }
+  /**
+   * The race the opponent is running in, hydrated by gp-api before dispatch. Disambiguates the right person/page during discovery (same office, jurisdiction, cycle).
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null. The broker injects this as a WHERE clause on the L2 residency query when present.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null. Confirms the right cycle during discovery.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name: string
+    /**
+     * 2-letter state code (e.g. NC). The broker injects this as the WHERE on the L2 residency query.
+     */
+    state: string
+    [k: string]: unknown
+  }
+}
+export interface OpponentResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the opponent's public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url (or, for a residency finding, when an L2 registration row matched). Findings that fail verification are dropped, never invented. The array may be empty.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what the candidate could draw a contrast on, grounded in the opponent's own public conduct.
+     */
+    claim: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * For web findings: a verbatim passage from the fetched page that substantiates the claim (verified via verify_quote). For a residency finding: the matched registration fields rendered as text (e.g. registration state/date).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * For web findings: the page actually fetched (the broker's returned X-Source-URL after any redirect), matching ^https?://. For a residency finding sourced from L2 (not a fetchable URL), a stable dataset reference (e.g. 'l2:int__l2_nationwide_uniform_w_haystaq').
+     */
+    source_url: string
+  }[]
+  generated_at: string
+  /**
+   * Whether the L2 residency query returned a matching registration for the named opponent. 'available' when a row matched and a residency finding was produced; 'unavailable' when no row matched (no residency finding emitted, never fabricated). The broker's data-required gate is carved out for 'unavailable' so a web-only result can still publish.
+   */
+  residency_data: 'available' | 'unavailable'
+}
 export interface OpportunitiesAndChallengesInputParams {
   /**
    * The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.
@@ -5948,6 +6060,82 @@ export interface OpponentDataCollectionArtifact {
      */
     source_url: string
   }[]
+}
+export interface SelfResearchInputParams {
+  /**
+   * City / jurisdiction name, or null. Used to disambiguate the right person during discovery.
+   */
+  city?: string | null
+  /**
+   * Optional hints: known news-coverage URLs about the candidate. Used as starting points; the agent still discovers more via WebSearch.
+   */
+  coverage_urls?: string[]
+  /**
+   * The candidate's full name. The person this research is FOR. Used for source discovery via WebSearch and to confirm a fetched page is about this candidate, not a same-named person.
+   */
+  full_name: string
+  /**
+   * Readable office the candidate is running for (e.g. 'Fayetteville City Council'). Disambiguates the right race during discovery.
+   */
+  office_name: string
+  /**
+   * Prior public roles / offices the candidate has held (e.g. 'School Board Member 2018-2022'), to seed record and statements research. Optional; may be empty.
+   */
+  prior_roles?: string[]
+  /**
+   * Optional hints: the candidate's public social-media profile URLs. Used as starting points for the public footprint.
+   */
+  social_urls?: string[]
+  /**
+   * 2-letter state code (e.g. NC). Used to disambiguate the right person/jurisdiction during discovery.
+   */
+  state: string
+  /**
+   * Optional hint: the candidate's campaign website. When present, fetch it directly; when null/absent, discover via WebSearch.
+   */
+  website_url?: string | null
+}
+export interface SelfResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the candidate's own public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url. Findings that fail verification are dropped, never invented. The array may be empty when nothing surfaced.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what an opponent could attack the candidate on, grounded in the candidate's own public conduct.
+     */
+    claim: string
+    /**
+     * A short, ready-to-use response the candidate could give if attacked on this. First person or neutral; honest, not spin.
+     */
+    drafted_response: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * A verbatim passage from the fetched page that substantiates the claim. MUST appear literally on source_url (verified via verify_quote).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * The page actually fetched (the broker's returned X-Source-URL after any redirect). Every finding is grounded in a real fetched URL.
+     */
+    source_url: string
+  }[]
+  generated_at: string
 }
 export interface TopCommunityIssuesOutput {
   data_quality: 'ok' | 'partial' | 'insufficient_signal'
