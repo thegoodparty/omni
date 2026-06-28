@@ -1,16 +1,6 @@
 import { z } from 'zod'
-
-export const RACE_OPPONENT_SOURCE_TYPE_VALUES = [
-  'ballotpedia',
-  'opponent_website',
-  'campaign_plan_db',
-] as const
-export const RaceOpponentSourceTypeSchema = z.enum(
-  RACE_OPPONENT_SOURCE_TYPE_VALUES,
-)
-export type RaceOpponentSourceType = z.infer<
-  typeof RaceOpponentSourceTypeSchema
->
+import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
+import { RaceOpponentSummarySchema } from './RaceOpponentSummary.schema'
 
 export const RaceOpponentSchema = z.object({
   id: z.number(),
@@ -51,6 +41,10 @@ export const RaceOpponentResponseSchema = z.object({
       party: z.string().nullable(),
       isIncumbent: z.boolean().nullable(),
       items: z.array(RaceOpponentSchema),
+      // Optional + nullable: ENG-10588 wires the producer to populate this from
+      // the race_opponent_summary step. Until then gp-api's get() omits the
+      // field, so it must be optional (not just nullable) to validate.
+      summary: RaceOpponentSummarySchema.nullish(),
     }),
   ),
   lastCollectedAt: z.coerce.date().nullable(),
