@@ -11,19 +11,74 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
 }))
 
-const populated: RaceOpponentResponse = {
+const withSummary: RaceOpponentResponse = {
   collectionStatus: 'completed',
   lastCollectedAt: '2026-06-20T12:00:00.000Z',
   opponents: [
     {
       opponentName: 'Jane Rival',
+      summary: {
+        opponentName: 'Jane Rival',
+        overview: {
+          text: 'Two-term incumbent with strong party backing.',
+          sources: [
+            {
+              sourceType: 'ballotpedia',
+              sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+            },
+          ],
+        },
+        background: {
+          text: 'Served on the city council before the legislature.',
+          sources: [
+            {
+              sourceType: 'opponent_website',
+              sourceUrl: 'https://janerival.example.com/about',
+            },
+          ],
+        },
+        keyPositions: [
+          {
+            label: 'Housing',
+            detail: 'Backed the developer tax-credit version of the bill.',
+            sources: [
+              {
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/Jane_Rival#housing',
+              },
+            ],
+          },
+        ],
+        generatedAt: '2026-06-20T12:00:00.000Z',
+      },
       items: [
         {
           id: 1,
           opponentName: 'Jane Rival',
           sourceType: 'ballotpedia',
           sourceUrl: 'https://ballotpedia.org/Jane_Rival',
-          content: { bio: 'A bio' },
+          content: 'Raw scraped Ballotpedia text about Jane Rival.',
+          collectedAt: '2026-06-20T12:00:00.000Z',
+        },
+      ],
+    },
+  ],
+}
+
+const nullSummary: RaceOpponentResponse = {
+  collectionStatus: 'completed',
+  lastCollectedAt: '2026-06-20T12:00:00.000Z',
+  opponents: [
+    {
+      opponentName: 'Jane Rival',
+      summary: null,
+      items: [
+        {
+          id: 1,
+          opponentName: 'Jane Rival',
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+          content: { bio: 'A short biography' },
           collectedAt: '2026-06-20T12:00:00.000Z',
         },
         {
@@ -55,28 +110,97 @@ beforeEach(() => {
 })
 
 describe('<RaceOpponentList>', () => {
-  it('groups items by opponent and source with working source links', () => {
-    render(<RaceOpponentList initialData={populated} />)
+  it('renders the structured summary sections with citations and never a <pre> dump', () => {
+    const { container } = render(<RaceOpponentList initialData={withSummary} />)
 
     expect(
       screen.getByRole('heading', { name: 'Jane Rival' }),
     ).toBeInTheDocument()
+
+    // Overview + background prose render as the primary content.
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Background')).toBeInTheDocument()
+    expect(
+      screen.getByText('Served on the city council before the legislature.'),
+    ).toBeInTheDocument()
+
+    // Each section carries a citation from summary.sources.
+    expect(
+      screen.getByRole('link', { name: /ballotpedia\.org\/Jane_Rival$/i }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival')
+    expect(
+      screen.getByRole('link', {
+        name: /janerival\.example\.com\/about/i,
+      }),
+    ).toHaveAttribute('href', 'https://janerival.example.com/about')
+
+    // No raw JSON dump on the page.
+    expect(container.querySelector('pre')).toBeNull()
+  })
+
+  it('renders a key position with its label, detail, and source link', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    expect(screen.getByText('Key positions')).toBeInTheDocument()
+    expect(screen.getByText('Housing')).toBeInTheDocument()
+    expect(
+      screen.getByText('Backed the developer tax-credit version of the bill.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', {
+        name: /ballotpedia\.org\/Jane_Rival#housing/i,
+      }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#housing')
+  })
+
+  it('keeps the raw source research collapsed by default when a summary is present', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    const trigger = screen.getByRole('button', {
+      name: /view source research/i,
+    })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      screen.queryByText('Raw scraped Ballotpedia text about Jane Rival.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reveals the raw source research when the section is expanded', async () => {
+    const user = userEvent.setup()
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /view source research/i }),
+    )
+
+    expect(
+      screen.getByText('Raw scraped Ballotpedia text about Jane Rival.'),
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to readable, source-linked raw text when summary is null', () => {
+    const { container } = render(<RaceOpponentList initialData={nullSummary} />)
+
     expect(screen.getByText('Ballotpedia')).toBeInTheDocument()
     expect(screen.getByText('Opponent website')).toBeInTheDocument()
 
-    const ballotpediaLink = screen.getByRole('link', {
-      name: /ballotpedia\.org\/Jane_Rival/i,
-    })
-    expect(ballotpediaLink).toHaveAttribute(
-      'href',
-      'https://ballotpedia.org/Jane_Rival',
-    )
-
-    const websiteLink = screen.getByRole('link', {
-      name: /janerival\.example\.com/i,
-    })
-    expect(websiteLink).toHaveAttribute('href', 'https://janerival.example.com')
+    // Object content renders as readable key/value lines, not JSON.
+    expect(screen.getByText('bio')).toBeInTheDocument()
+    expect(screen.getByText('A short biography')).toBeInTheDocument()
     expect(screen.getByText('Plain text content')).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('link', { name: /janerival\.example\.com/i }),
+    ).toHaveAttribute('href', 'https://janerival.example.com')
+
+    // No collapsed "view source research" wrapper in the fallback, and no <pre>.
+    expect(
+      screen.queryByRole('button', { name: /view source research/i }),
+    ).not.toBeInTheDocument()
+    expect(container.querySelector('pre')).toBeNull()
   })
 
   it('renders the empty state without crashing when there is no data', () => {

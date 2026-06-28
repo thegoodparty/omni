@@ -8,8 +8,14 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import type {
   RaceOpponentItem,
   RaceOpponentResponse,
+  RaceOpponentSummary,
+  RaceOpponentSummaryKeyPosition,
+  RaceOpponentSummarySection,
+  RaceOpponentSummarySourceRef,
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
+import OpponentSection from './OpponentSection'
+import SourceAttribution from './SourceAttribution'
 
 const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
@@ -34,45 +40,84 @@ const formatTimestamp = (iso: string | null): string => {
   return Number.isNaN(date.getTime()) ? 'never' : date.toLocaleString()
 }
 
-const ContentBlock = ({ content }: { content: unknown }): React.JSX.Element => (
-  <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs text-foreground">
-    {typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
-  </pre>
+// Renders the source citations attached to a summary section/item. The contract
+// guarantees sources.min(1), so this always has at least one to show.
+const SummarySources = ({
+  sources,
+}: {
+  sources: RaceOpponentSummarySourceRef[]
+}): React.JSX.Element => (
+  <div className="flex flex-col gap-1">
+    {sources.map((source) => (
+      <SourceAttribution
+        key={`${source.sourceType}-${source.sourceUrl}`}
+        sourceUrl={source.sourceUrl}
+        sourceType={SOURCE_TYPE_LABELS[source.sourceType]}
+        label={source.sourceUrl}
+      />
+    ))}
+  </div>
 )
 
-const SourceGroup = ({
-  sourceType,
-  items,
+const SummaryProseSection = ({
+  heading,
+  section,
 }: {
-  sourceType: RaceOpponentSourceType
-  items: RaceOpponentItem[]
+  heading: string
+  section: RaceOpponentSummarySection
 }): React.JSX.Element => (
-  <section className="flex flex-col gap-2">
-    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {SOURCE_TYPE_LABELS[sourceType]}
-    </h4>
-    {items.map((item) => (
-      <div
-        key={item.id}
-        className="flex flex-col gap-2 rounded-md border border-border bg-card p-3"
-      >
-        {item.sourceUrl ? (
-          <a
-            href={item.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-info-600 hover:underline"
-          >
-            <span className="break-all">{item.sourceUrl}</span>
-            <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
-          </a>
-        ) : (
-          <span className="text-sm text-muted-foreground">No source URL</span>
-        )}
-        <ContentBlock content={item.content} />
-      </div>
-    ))}
+  <section className="flex w-full min-w-0 flex-col gap-2">
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {heading}
+    </h3>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+      {section.text}
+    </p>
+    <SummarySources sources={section.sources} />
   </section>
+)
+
+const KeyPositionItem = ({
+  position,
+}: {
+  position: RaceOpponentSummaryKeyPosition
+}): React.JSX.Element => (
+  <li className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3">
+    <span className="text-sm font-semibold text-foreground">
+      {position.label}
+    </span>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+      {position.detail}
+    </p>
+    <SummarySources sources={position.sources} />
+  </li>
+)
+
+const OpponentSummaryView = ({
+  summary,
+}: {
+  summary: RaceOpponentSummary
+}): React.JSX.Element => (
+  <div className="flex w-full min-w-0 flex-col gap-5">
+    {summary.overview && (
+      <SummaryProseSection heading="Overview" section={summary.overview} />
+    )}
+    {summary.background && (
+      <SummaryProseSection heading="Background" section={summary.background} />
+    )}
+    {summary.keyPositions.length > 0 && (
+      <section className="flex w-full min-w-0 flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Key positions
+        </h3>
+        <ul className="flex w-full min-w-0 flex-col gap-2">
+          {summary.keyPositions.map((position) => (
+            <KeyPositionItem key={position.label} position={position} />
+          ))}
+        </ul>
+      </section>
+    )}
+  </div>
 )
 
 const groupBySourceType = (
@@ -90,6 +135,87 @@ const groupBySourceType = (
     }))
     .filter((group) => group.items.length > 0)
 }
+
+// The as-collected payload is unstructured: a plain string for scraped text, or
+// an object for structured sources. Render strings as prose and objects as
+// readable key/value lines rather than a raw JSON blob.
+const RawContent = ({ content }: { content: unknown }): React.JSX.Element => {
+  if (typeof content === 'string') {
+    return (
+      <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+        {content}
+      </p>
+    )
+  }
+  if (content && typeof content === 'object') {
+    return (
+      <dl className="flex w-full min-w-0 flex-col gap-1.5">
+        {Object.entries(content).map(([key, value]) => (
+          <div key={key} className="flex w-full min-w-0 flex-col gap-0.5">
+            <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {key}
+            </dt>
+            <dd className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+              {typeof value === 'string' ? value : JSON.stringify(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    )
+  }
+  return <p className="text-sm text-muted-foreground">No content collected.</p>
+}
+
+const RawSourceGroup = ({
+  sourceType,
+  items,
+}: {
+  sourceType: RaceOpponentSourceType
+  items: RaceOpponentItem[]
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-2">
+    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {SOURCE_TYPE_LABELS[sourceType]}
+    </h4>
+    {items.map((item) => (
+      <div
+        key={item.id}
+        className="flex w-full min-w-0 flex-col gap-2 rounded-md border border-border bg-card p-3"
+      >
+        {item.sourceUrl ? (
+          <a
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-info-600 hover:underline"
+          >
+            <span className="break-all">{item.sourceUrl}</span>
+            <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
+          </a>
+        ) : (
+          <span className="text-sm text-muted-foreground">No source URL</span>
+        )}
+        <RawContent content={item.content} />
+      </div>
+    ))}
+  </section>
+)
+
+const RawResearch = ({
+  items,
+}: {
+  items: RaceOpponentItem[]
+}): React.JSX.Element => (
+  <div className="flex w-full min-w-0 flex-col gap-4">
+    {groupBySourceType(items).map((group) => (
+      <RawSourceGroup
+        key={group.sourceType}
+        sourceType={group.sourceType}
+        items={group.items}
+      />
+    ))}
+  </div>
+)
 
 // How often to poll status while discovery/collection is in flight.
 const POLL_INTERVAL_MS = 5000
@@ -203,7 +329,8 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
             Know your opponent
           </h1>
           <p className="text-sm text-muted-foreground">
-            Raw collected research on your opponents, grouped by source.
+            A sourced summary of each opponent, with the original research one
+            click away.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -242,24 +369,30 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
           start.
         </p>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-8">
           {data.opponents.map((opponent) => (
             <section
               key={opponent.opponentName}
-              className="flex flex-col gap-3"
+              className="flex w-full min-w-0 flex-col gap-4"
             >
               <h2 className="text-base font-semibold text-foreground">
                 {opponent.opponentName}
               </h2>
-              <div className="flex flex-col gap-4">
-                {groupBySourceType(opponent.items).map((group) => (
-                  <SourceGroup
-                    key={group.sourceType}
-                    sourceType={group.sourceType}
-                    items={group.items}
-                  />
-                ))}
-              </div>
+
+              {opponent.summary ? (
+                <OpponentSummaryView summary={opponent.summary} />
+              ) : (
+                <RawResearch items={opponent.items} />
+              )}
+
+              {opponent.summary && opponent.items.length > 0 && (
+                <OpponentSection
+                  title="View source research"
+                  defaultOpen={false}
+                >
+                  <RawResearch items={opponent.items} />
+                </OpponentSection>
+              )}
             </section>
           ))}
         </div>
