@@ -67,6 +67,10 @@ export class OpponentResearchScheduleService extends createPrismaBase(
             RaceOpponentResearchStatus.failed,
           ],
         },
+        // The schedule bypasses assertAccess (no request context), so the Pro
+        // gate the user path enforces must live in the query: a campaign whose
+        // Pro lapsed after its rows were created must not get a paid re-dispatch.
+        campaign: { isPro: true },
       },
       orderBy: { updatedAt: Prisma.SortOrder.asc },
       take: REDISPATCH_CAP_PER_TICK,

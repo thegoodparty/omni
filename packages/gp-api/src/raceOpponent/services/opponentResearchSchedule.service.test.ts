@@ -16,7 +16,7 @@ const SLUG = 'campaign-sched'
 const OPPONENT = 'Jane Rival'
 const REACHABLE = 'https://ballotpedia.org/Jane_Rival'
 
-const seedCampaign = async () => {
+const seedCampaign = async ({ isPro = true }: { isPro?: boolean } = {}) => {
   await service.prisma.organization.create({
     data: { slug: SLUG, ownerId: service.user.id },
   })
@@ -25,7 +25,7 @@ const seedCampaign = async () => {
       userId: service.user.id,
       slug: `${SLUG}-campaign`,
       organizationSlug: SLUG,
-      isPro: true,
+      isPro,
     },
   })
 }
@@ -135,6 +135,25 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       'r1',
     )
     await seedRun('inflight', ExperimentRunStatus.RUNNING)
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('skips a settled row whose campaign is not Pro', async () => {
+    const campaign = await seedCampaign({ isPro: false })
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',

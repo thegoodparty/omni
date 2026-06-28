@@ -78,7 +78,15 @@ export class RaceOpponentActivityService extends createPrismaBase(
 
     const refresh = await this.refreshEnvelope(campaign.organizationSlug)
 
-    await this.advanceLastViewedAt(campaign.id)
+    // Advancing the view marker is a side effect, not part of the payload. A
+    // failure here must not 500 a fully-assembled response; the worst case is
+    // the next read re-flags the same items as new. Fire-and-forget with a log.
+    void this.advanceLastViewedAt(campaign.id).catch((err: unknown) => {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        'failed to advance lastViewedAt for opponent activity stream',
+      )
+    })
 
     return { findings, refresh }
   }
