@@ -21,6 +21,7 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 | `requeue-stranded-compliance-runs.ts`                             | Flips compliance_setup runs stuck FAILED at `pending_website_live` back to AWAITING_RESUME (dry-run default, `--execute` to apply) |
 | `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                              |
 | `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks with no matching open PR                                                                          |
+| `refresh-preview-template.ts`                                     | Drops + recreates `gpdb_preview_template` empty, then migrate-deploys + seeds it (in-VPC via `aws ecs run-task`); see `deploy/CLAUDE.md` |
 | `dispatch-experiment.ts` / `trigger-poll.ts` / `complete-poll.ts` | Manual queue producers for testing async flows                                                                                |
 | `test-weekly-tasks-digest-event.ts`                               | Locally fires the weekly tasks digest handler                                                                                 |
 | `output/`                                                         | Generated artefacts (e.g. agent metadata sync); gitignored content                                                            |
