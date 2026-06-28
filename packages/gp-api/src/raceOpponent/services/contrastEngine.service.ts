@@ -173,18 +173,20 @@ export class ContrastEngineService extends createPrismaBase(
   }
 
   // Deterministic match: among the candidate positions whose issue name appears
-  // (case-insensitive) in the finding's claim or category, pick the most
-  // specific — the longest issue name — so a finding mentioning two overlapping
-  // issues pairs with the more precise one. Ties (equal length) break by
-  // campaignPosition id asc, which `positions` is already ordered by, so the
-  // outcome is stable regardless of DB row order. No match => no contrast.
+  // as a WHOLE WORD (case-insensitive) in the finding's claim or category, pick
+  // the most specific — the longest issue name — so a finding mentioning two
+  // overlapping issues pairs with the more precise one. Ties (equal length)
+  // break by campaignPosition id asc, which `positions` is already ordered by,
+  // so the outcome is stable regardless of DB row order. No match => no contrast.
+  // Word boundaries (not a bare substring) stop a short issue name like "AI"
+  // from spuriously matching inside "campaign_finance".
   private matchPosition(
     finding: RaceOpponentFinding,
     positions: CandidatePosition[],
   ): CandidatePosition | null {
-    const haystack = `${finding.claim} ${finding.category}`.toLowerCase()
+    const haystack = `${finding.claim} ${finding.category}`
     const matches = positions.filter((p) =>
-      haystack.includes(p.issue.toLowerCase()),
+      new RegExp(`\\b${escapeRegExp(p.issue)}\\b`, 'i').test(haystack),
     )
     if (matches.length === 0) return null
     return matches.reduce((best, p) =>
@@ -192,13 +194,25 @@ export class ContrastEngineService extends createPrismaBase(
     )
   }
 
+  // claim and fact are free text (LLM-generated / candidate-entered) and often
+  // already end with a period. Strip a single trailing sentence-ending period
+  // before composing so the template doesn't produce a "claim. — I ..." artifact
+  // mid-sentence or "fact.." at the end.
   private draftSentence(
     finding: RaceOpponentFinding,
     position: CandidatePosition,
   ): string {
-    return `On ${position.issue}, my opponent ${finding.claim} — I ${position.fact}.`
+    const claim = trimTrailingPeriod(finding.claim)
+    const fact = trimTrailingPeriod(position.fact)
+    return `On ${position.issue}, my opponent ${claim} — I ${fact}.`
   }
 }
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const trimTrailingPeriod = (value: string): string =>
+  value.replace(/\s*\.\s*$/, '')
 
 // routing is a free String column, not a DB enum, so a row could carry an
 // off-enum value (legacy data, a sibling writer, manual edit). On read we

@@ -148,6 +148,53 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
     expect(listed.data.contrasts[0].id).toBe(contrast.id)
   })
 
+  it('does not spuriously pair a short issue name ("AI") with an unrelated finding', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    // The finding is about campaign finance; "ai" is a substring of
+    // "campaign_finance" but not a whole word, so it must not pair.
+    await seedOpponentFindings(campaign.id, [
+      {
+        category: 'campaign_finance',
+        claim: 'took maximum donations from a single PAC',
+      },
+    ])
+    await seedCandidatePosition(campaign.id, 'AI', 'support AI safeguards')
+    flagOn()
+
+    const result = await generate()
+
+    expect(result.status).toBe(201)
+    expect(result.data.contrasts).toHaveLength(0)
+    const rows = await service.prisma.raceOpponentContrast.findMany({
+      where: { campaignId: campaign.id },
+    })
+    expect(rows).toHaveLength(0)
+  })
+
+  it('composes a clean contrastSentence when the claim ends in a period', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    await seedOpponentFindings(campaign.id, [
+      { category: 'voting_record', claim: `voted against the ${ISSUE} bill.` },
+    ])
+    await seedCandidatePosition(campaign.id, ISSUE, `${CANDIDATE_STANCE}.`)
+    flagOn()
+
+    const result = await generate()
+
+    expect(result.status).toBe(201)
+    expect(result.data.contrasts).toHaveLength(1)
+    const { contrastSentence } = result.data.contrasts[0]
+    // No "claim. — " artifact and no doubled end period.
+    expect(contrastSentence).not.toContain('. — ')
+    expect(contrastSentence).not.toContain('..')
+    expect(contrastSentence).toBe(
+      `On ${ISSUE}, my opponent voted against the ${ISSUE} bill — ` +
+        `I ${CANDIDATE_STANCE}.`,
+    )
+  })
+
   it('is idempotent: a second generate does not duplicate contrasts', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedCompletedSelfPass(campaign.id)
