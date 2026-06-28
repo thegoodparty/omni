@@ -147,6 +147,32 @@ describe('GET /opponents/activity', () => {
     ).toBe(true)
   })
 
+  it('does not flag a future occurredAt as new (falls back to createdAt)', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    const lastViewedAt = new Date('2024-01-01T00:00:00Z')
+    const research = await seedOpponentResearch(campaign.id, lastViewedAt)
+    // An upcoming scheduled vote: occurredAt is in the future but the finding
+    // was persisted before the last view, so it must NOT read as new (its
+    // future occurredAt would otherwise mark it new on every poll forever).
+    await seedFinding(research.id, {
+      claim: 'upcoming',
+      occurredAt: new Date('2099-01-01'),
+      createdAt: new Date('2023-06-01T00:00:00Z'),
+    })
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    const upcoming = result.data.findings.find(
+      (f: { claim: string }) => f.claim === 'upcoming',
+    )
+    expect(upcoming.newSinceLastVisit).toBe(false)
+  })
+
   it('mirrors the community-issues refresh envelope shape', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedSelfComplete(campaign.id)
@@ -171,6 +197,73 @@ describe('GET /opponents/activity', () => {
     expect(result.data.refresh).toEqual({
       status: 'completed',
       lastCompletedAt: expect.any(String),
+    })
+  })
+
+  it('reports refresh status running when no run exists yet', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    await seedOpponentResearch(campaign.id)
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.refresh).toEqual({
+      status: 'running',
+      lastCompletedAt: null,
+    })
+  })
+
+  it('reports refresh status running for an in-flight run', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    await seedOpponentResearch(campaign.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-run-running',
+        organizationSlug: SLUG,
+        experimentType: 'opponent_research',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.refresh).toEqual({
+      status: 'running',
+      lastCompletedAt: null,
+    })
+  })
+
+  it('reports refresh status failed for a failed latest run', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    await seedOpponentResearch(campaign.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-run-failed',
+        organizationSlug: SLUG,
+        experimentType: 'opponent_research',
+        status: ExperimentRunStatus.FAILED,
+      },
+    })
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.refresh).toEqual({
+      status: 'failed',
+      lastCompletedAt: null,
     })
   })
 

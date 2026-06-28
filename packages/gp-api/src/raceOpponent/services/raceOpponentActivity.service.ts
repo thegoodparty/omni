@@ -71,10 +71,11 @@ export class RaceOpponentActivityService extends createPrismaBase(
       return isAfter(row.lastViewedAt, latest) ? row.lastViewedAt : latest
     }, null)
 
+    const now = new Date()
     const findings = rows
       .flatMap((row) => row.findings)
       .sort((a, b) => this.compareFindings(a, b))
-      .map((finding) => this.toActivityItem(finding, lastVisit))
+      .map((finding) => this.toActivityItem(finding, lastVisit, now))
 
     const refresh = await this.refreshEnvelope(campaign.organizationSlug)
 
@@ -111,6 +112,7 @@ export class RaceOpponentActivityService extends createPrismaBase(
   private toActivityItem(
     finding: RaceOpponentFindingRow,
     lastVisit: Date | null,
+    now: Date,
   ): RaceOpponentActivityItem {
     return {
       id: finding.id,
@@ -124,18 +126,26 @@ export class RaceOpponentActivityService extends createPrismaBase(
       occurredAt: finding.occurredAt,
       draftedResponse: finding.draftedResponse,
       createdAt: finding.createdAt,
-      newSinceLastVisit: this.isNew(finding, lastVisit),
+      newSinceLastVisit: this.isNew(finding, lastVisit, now),
     }
   }
 
   // A first-ever visit (no prior lastViewedAt) treats everything as new. After
   // that, a finding is new if it occurred or was persisted after the last view.
+  // A FUTURE occurredAt (e.g. an upcoming scheduled vote) is not a new-since
+  // signal — it would otherwise read as new on every poll forever — so only an
+  // already-occurred event counts; otherwise fall back to when we persisted it.
   private isNew(
     finding: RaceOpponentFindingRow,
     lastVisit: Date | null,
+    now: Date,
   ): boolean {
     if (!lastVisit) return true
-    if (finding.occurredAt && isAfter(finding.occurredAt, lastVisit)) {
+    if (
+      finding.occurredAt &&
+      !isAfter(finding.occurredAt, now) &&
+      isAfter(finding.occurredAt, lastVisit)
+    ) {
       return true
     }
     return isAfter(finding.createdAt, lastVisit)
@@ -162,7 +172,9 @@ export class RaceOpponentActivityService extends createPrismaBase(
     ])
 
     return {
-      status: latestRun ? REFRESH_STATUS_MAP[latestRun.status] : 'completed',
+      // No run yet defaults to 'running', matching the community-issues feed
+      // envelope exactly (the gp-webapp feed component renders both).
+      status: latestRun ? REFRESH_STATUS_MAP[latestRun.status] : 'running',
       lastCompletedAt: latestCompletedRun
         ? latestCompletedRun.updatedAt.toISOString()
         : null,
