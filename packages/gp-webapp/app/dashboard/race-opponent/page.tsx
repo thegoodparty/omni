@@ -8,6 +8,7 @@ import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import RaceOpponentList from './components/RaceOpponentList'
 import ContrastList from './components/ContrastList'
+import { isRenderableContrast } from './components/ContrastCard'
 import RegenerateContrasts from './components/RegenerateContrasts'
 import type { ContrastRecord, RaceOpponentResponse } from 'gpApi/api-endpoints'
 
@@ -84,8 +85,12 @@ export default async function Page(): Promise<React.JSX.Element> {
     {},
     { ignoreResponseError: true },
   )
+  // Filter to renderable contrasts here so the section gate below matches what
+  // ContrastList will actually show. Otherwise non-renderable contrasts (e.g.
+  // missing sourceUrl) would mount the "Review your contrasts" shell while
+  // ContrastList renders null inside it.
   const contrasts: ContrastRecord[] = contrastResult.ok
-    ? contrastResult.data.contrasts
+    ? contrastResult.data.contrasts.filter(isRenderableContrast)
     : []
 
   const raceContext = raceContextFor(
@@ -102,22 +107,28 @@ export default async function Page(): Promise<React.JSX.Element> {
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
         <RaceOpponentList initialData={initialData} raceContext={raceContext} />
-        <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-xl font-semibold text-foreground">
-                Review your contrasts
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Each contrast pairs a sourced opponent fact with your position.
-                Edit the wording, then route it to your Campaign Story or
-                Texting as a draft. Nothing sends automatically.
-              </p>
+        {/* Contrasts are a Phase-1 surface: hidden, not placeholdered. The whole
+            section (heading, blurb, Refresh control) stays out of the DOM until
+            real contrasts exist, so no empty "Review your contrasts" shell shows
+            for the pre-Phase-1 user whose contrasts endpoint 403s. */}
+        {contrasts.length > 0 && (
+          <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-xl font-semibold text-foreground">
+                  Review your contrasts
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Each contrast pairs a sourced opponent fact with your
+                  position. Edit the wording, then route it to your Campaign
+                  Story or Texting as a draft. Nothing sends automatically.
+                </p>
+              </div>
+              <RegenerateContrasts />
             </div>
-            <RegenerateContrasts />
-          </div>
-          <ContrastList initialContrasts={contrasts} />
-        </section>
+            <ContrastList initialContrasts={contrasts} />
+          </section>
+        )}
       </FeatureFlagGuard>
     </DashboardLayout>
   )

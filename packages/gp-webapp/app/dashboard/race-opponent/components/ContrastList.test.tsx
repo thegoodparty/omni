@@ -51,12 +51,18 @@ describe('<ContrastList>', () => {
   it('never renders a contrast missing its sourceUrl', () => {
     const noSource = baseContrast({ id: 2, sourceUrl: '' })
 
-    render(<ContrastList initialContrasts={[noSource]} />)
+    const { container } = render(
+      <ContrastList initialContrasts={[noSource]} />,
+    )
 
     expect(
       screen.queryByText(noSource.contrastSentence),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(/No contrasts to review yet/i)).toBeInTheDocument()
+    // Hidden, not placeholdered: no "coming soon" copy, nothing in the DOM.
+    expect(
+      screen.queryByText(/No contrasts to review yet/i),
+    ).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('never renders a contrast missing any of the six content fields', () => {
@@ -68,9 +74,23 @@ describe('<ContrastList>', () => {
       baseContrast({ id: 7, sourceUrl: '   ' }),
     ]
 
-    render(<ContrastList initialContrasts={missingFields} />)
+    const { container } = render(
+      <ContrastList initialContrasts={missingFields} />,
+    )
 
-    expect(screen.getByText(/No contrasts to review yet/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/No contrasts to review yet/i),
+    ).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('renders nothing (no placeholder shell) when the list is empty', () => {
+    const { container } = render(<ContrastList initialContrasts={[]} />)
+
+    expect(
+      screen.queryByText(/No contrasts to review yet/i),
+    ).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('shows only the renderable contrast among a mixed list', () => {
