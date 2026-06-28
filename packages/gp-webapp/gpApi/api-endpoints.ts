@@ -4,6 +4,8 @@ import type {
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
+  RaceOpponentResearchStatus,
+  RaceOpponentFindingKind,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -759,6 +761,70 @@ export type APIEndpoints = {
     Request: {}
     Response: { runId: string | null; status: RaceOpponentCollectionStatus }
   }
+
+  // Self-research: the candidate's own footprint pass. start/status/report all
+  // derive their inputs from the campaign server-side, so none take a body.
+  'POST /v1/campaigns/mine/race-opponent/self-research': {
+    Request: {}
+    Response: StartSelfResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/status': {
+    Request: {}
+    Response: SelfResearchStatusResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/report': {
+    Request: {}
+    Response: SelfResearchReportResponse
+  }
+}
+
+// Wire shapes for the self-research routes. Mirror the contract schemas in
+// @goodparty_org/contracts (RaceOpponentResearchSchema / RaceOpponentFinding-
+// Schema), but dates arrive over JSON as ISO strings (the contract coerces them
+// to Date), so the date leaves are typed as string here.
+export type SelfResearchRecord = {
+  id: number
+  kind: RaceOpponentFindingKind
+  opponentName: string | null
+  electionCandidacyId: string | null
+  status: RaceOpponentResearchStatus
+  runId: string | null
+  attempts: number
+  completedAt: string | null
+  lastViewedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// Every finding is sourced-or-silent at the type level: sourceUrl and
+// sourceExtract are always non-empty. draftedResponse is self-research only.
+export type SelfResearchFinding = {
+  id: number
+  researchId: number
+  claim: string
+  sourceUrl: string
+  sourceExtract: string
+  sourceTitle: string | null
+  sourceReachableAt: string | null
+  category: string
+  occurredAt: string | null
+  draftedResponse: string | null
+  createdAt: string
+}
+
+export type StartSelfResearchResponse = {
+  research: SelfResearchRecord
+}
+
+export type SelfResearchStatusResponse = {
+  status: RaceOpponentResearchStatus
+  research: SelfResearchRecord | null
+}
+
+export type SelfResearchReportResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
 }
 
 // Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
