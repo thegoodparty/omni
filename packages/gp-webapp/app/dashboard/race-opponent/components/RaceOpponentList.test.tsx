@@ -17,6 +17,8 @@ const withSummary: RaceOpponentResponse = {
   opponents: [
     {
       opponentName: 'Jane Rival',
+      party: 'Democrat',
+      isIncumbent: true,
       summary: {
         opponentName: 'Jane Rival',
         overview: {
@@ -71,6 +73,8 @@ const nullSummary: RaceOpponentResponse = {
   opponents: [
     {
       opponentName: 'Jane Rival',
+      party: null,
+      isIncumbent: null,
       summary: null,
       items: [
         {
@@ -201,6 +205,40 @@ describe('<RaceOpponentList>', () => {
       screen.queryByRole('button', { name: /view source research/i }),
     ).not.toBeInTheDocument()
     expect(container.querySelector('pre')).toBeNull()
+  })
+
+  it.each([
+    ['idle', 'Idle'],
+    ['discovering', 'Discovering opponents'],
+    ['running', 'Running'],
+    ['completed', 'Completed'],
+    ['failed', 'Failed'],
+  ] as const)(
+    'renders the %s status indicator with its label',
+    (status, label) => {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: status }}
+        />,
+      )
+      expect(screen.getByText(label)).toBeInTheDocument()
+    },
+  )
+
+  it('omits the "last collected" line when lastCollectedAt is null', () => {
+    render(
+      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
+    )
+    expect(screen.queryByText(/last collected/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a "last collected" line when lastCollectedAt is set', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, lastCollectedAt: '2026-06-20T12:00:00.000Z' }}
+      />,
+    )
+    expect(screen.getByText(/last collected/i)).toBeInTheDocument()
   })
 
   it('renders the empty state without crashing when there is no data', () => {

@@ -1,8 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@styleguide'
-import { ExternalLinkIcon, RefreshIcon } from '@styleguide/components/ui/icons'
+import { Button, cn } from '@styleguide'
+import {
+  CheckCircleIcon,
+  CircleIcon,
+  ExternalLinkIcon,
+  Loader2Icon,
+  RefreshIcon,
+  SearchIcon,
+  XCircleIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type {
@@ -23,14 +31,67 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   campaign_plan_db: 'Campaign plan',
 }
 
-const STATUS_LABELS: Record<RaceOpponentResponse['collectionStatus'], string> =
-  {
-    idle: 'Idle',
-    discovering: 'Discovering opponents',
-    running: 'Running',
-    completed: 'Completed',
-    failed: 'Failed',
-  }
+type CollectionStatus = RaceOpponentResponse['collectionStatus']
+
+type StatusDescriptor = {
+  label: string
+  Icon: typeof CircleIcon
+  // Container tone classes for the styled indicator pill.
+  className: string
+  spin?: boolean
+}
+
+const STATUS_DESCRIPTORS: Record<CollectionStatus, StatusDescriptor> = {
+  idle: {
+    label: 'Idle',
+    Icon: CircleIcon,
+    className: 'bg-muted text-muted-foreground border-border',
+  },
+  discovering: {
+    label: 'Discovering opponents',
+    Icon: SearchIcon,
+    className: 'bg-info-50 text-info-600 border-info-600/20',
+    spin: false,
+  },
+  running: {
+    label: 'Running',
+    Icon: Loader2Icon,
+    className: 'bg-info-50 text-info-600 border-info-600/20',
+    spin: true,
+  },
+  completed: {
+    label: 'Completed',
+    Icon: CheckCircleIcon,
+    className: 'bg-success-light text-success-dark border-success/20',
+  },
+  failed: {
+    label: 'Failed',
+    Icon: XCircleIcon,
+    className: 'bg-destructive/10 text-destructive border-destructive/20',
+  },
+}
+
+const CollectionStatusIndicator = ({
+  status,
+}: {
+  status: CollectionStatus
+}): React.JSX.Element => {
+  const { label, Icon, className, spin } = STATUS_DESCRIPTORS[status]
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
+        className,
+      )}
+    >
+      <Icon
+        className={cn('size-3.5 shrink-0', spin && 'animate-spin')}
+        aria-hidden
+      />
+      {label}
+    </span>
+  )
+}
 
 const formatTimestamp = (iso: string | null): string => {
   if (!iso) {
@@ -322,25 +383,13 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   const isBusy = status === 'running' || status === 'discovering'
 
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold text-foreground">
-            Know your opponent
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            A sourced summary of each opponent, with the original research one
-            click away.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span>
-            Status:{' '}
-            <span className="font-semibold text-foreground">
-              {STATUS_LABELS[data.collectionStatus]}
-            </span>
-          </span>
-          <span>Last collected: {formatTimestamp(data.lastCollectedAt)}</span>
+    <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
+          <CollectionStatusIndicator status={data.collectionStatus} />
+          {data.lastCollectedAt && (
+            <span>Last collected {formatTimestamp(data.lastCollectedAt)}</span>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
