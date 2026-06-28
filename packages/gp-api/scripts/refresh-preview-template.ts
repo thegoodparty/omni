@@ -54,7 +54,16 @@ const main = async () => {
   console.log(`Recreated empty ${TEMPLATE_DB}.`)
 
   const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:5432/${TEMPLATE_DB}`
-  const childEnv = { ...process.env, DATABASE_URL: databaseUrl }
+  // IS_PREVIEW=true makes seed/seed.ts take the factory-seed path (users,
+  // campaigns, websites, offices, contentful) that PR previews get. Without it
+  // the dev task def's NODE_ENV=production sends seed down the LIMIT_SEEDS csv
+  // path (seedMtfcc → Google Sheets), which both fails here and is the wrong
+  // data — the template must mirror a preview's seed, since per-PR DBs clone it.
+  const childEnv = {
+    ...process.env,
+    DATABASE_URL: databaseUrl,
+    IS_PREVIEW: 'true',
+  }
 
   console.log('Running prisma migrate deploy against template...')
   execFileSync(
