@@ -194,8 +194,14 @@ export class RaceOpponentActivityService extends createPrismaBase(
     campaignId: number,
     viewedAt: Date,
   ): Promise<void> {
+    // Monotonic advance: a slower concurrent GET with an earlier snapshot must
+    // not regress the high-water mark, or findings in the gap re-read as new.
     await this.model.updateMany({
-      where: { campaignId, kind: RaceOpponentFindingKind.opponent },
+      where: {
+        campaignId,
+        kind: RaceOpponentFindingKind.opponent,
+        OR: [{ lastViewedAt: null }, { lastViewedAt: { lt: viewedAt } }],
+      },
       data: { lastViewedAt: viewedAt },
     })
   }
