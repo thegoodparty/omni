@@ -43,13 +43,14 @@ const seedOpponentResearch = (
   lastViewedAt: Date | null = null,
   opponentName: string = OPPONENT,
   runId: string = 'opp-done',
+  status: RaceOpponentResearchStatus = RaceOpponentResearchStatus.completed,
 ) =>
   service.prisma.raceOpponentResearch.create({
     data: {
       campaignId,
       kind: RaceOpponentFindingKind.opponent,
       opponentName,
-      status: RaceOpponentResearchStatus.completed,
+      status,
       runId,
       lastViewedAt,
     },
@@ -400,6 +401,93 @@ describe('GET /opponents/activity', () => {
     expect(result.status).toBe(200)
     expect(result.data.refresh.status).toBe('failed')
     expect(result.data.refresh.lastCompletedAt).toBe(completedAt.toISOString())
+  })
+
+  it('reports researchStatus not_started when no opponent row exists', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.researchStatus).toBe(
+      RaceOpponentResearchStatus.not_started,
+    )
+  })
+
+  it('reports researchStatus from the persisted row, not refresh.status', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    // An in-flight (running) opponent row with NO ExperimentRun, so refresh.status
+    // defaults to 'running' too — but researchStatus must come from the row.
+    await seedOpponentResearch(
+      campaign.id,
+      null,
+      OPPONENT,
+      'opp-running',
+      RaceOpponentResearchStatus.running,
+    )
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.researchStatus).toBe(RaceOpponentResearchStatus.running)
+  })
+
+  it('reports researchStatus failed for a failed opponent row', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    await seedOpponentResearch(
+      campaign.id,
+      null,
+      OPPONENT,
+      'opp-failed',
+      RaceOpponentResearchStatus.failed,
+    )
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.researchStatus).toBe(RaceOpponentResearchStatus.failed)
+  })
+
+  it('reports researchStatus from the most recently updated opponent row', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    // An older completed row, then a newer failed row. updatedAt is @updatedAt
+    // (set on create), so the row created last is the most-recently-updated — the
+    // active pass the UI drives off.
+    await seedOpponentResearch(
+      campaign.id,
+      null,
+      'Old Opponent',
+      'opp-old-complete',
+      RaceOpponentResearchStatus.completed,
+    )
+    await seedOpponentResearch(
+      campaign.id,
+      null,
+      'New Opponent',
+      'opp-new-failed',
+      RaceOpponentResearchStatus.failed,
+    )
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.researchStatus).toBe(RaceOpponentResearchStatus.failed)
   })
 
   it('403s without a completed self-research pass', async () => {

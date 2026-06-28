@@ -103,8 +103,16 @@ export type RaceOpponentActivityItem = z.infer<
 // IssueFeedList (ENG-10574) can render both feeds from one component: a
 // findings array plus a `refresh` block carrying the latest scheduled-research
 // run status and the last successful completion time.
+//
+// `researchStatus` is the authoritative lifecycle of the campaign's opponent
+// research, read from the persisted RaceOpponentResearch(kind=opponent) row
+// (not_started when no row exists). The UI drives its initial view off this:
+// `refresh.status` is ExperimentRun-derived and reports 'running' both for an
+// in-flight run AND when no run exists, so it cannot tell "research exists" from
+// "no research yet" — researchStatus can.
 export const RaceOpponentActivityResponseSchema = z.object({
   findings: z.array(RaceOpponentActivityItemSchema),
+  researchStatus: RaceOpponentResearchStatusSchema,
   refresh: z.object({
     status: z.enum(['running', 'completed', 'failed']),
     lastCompletedAt: z.string().nullable(),
