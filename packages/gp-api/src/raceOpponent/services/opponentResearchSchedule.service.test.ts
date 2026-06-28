@@ -323,6 +323,43 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
+  it('leaves a failed-dispatch row as failed (not stuck queued) and continues the tick', async () => {
+    const campA = await seedCampaign({ slug: 'sched-fail-a' })
+    const campB = await seedCampaign({ slug: 'sched-fail-b' })
+    const rowA = await seedOpponentRow(
+      campA.id,
+      RaceOpponentResearchStatus.completed,
+      'a1',
+    )
+    await seedOpponentRow(campB.id, RaceOpponentResearchStatus.completed, 'b1')
+    // First org's dispatch throws; the second must still be attempted, and the
+    // first row must self-heal to failed rather than sit queued forever.
+    let call = 0
+    vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    ).mockImplementation(() => {
+      call += 1
+      return call === 1
+        ? Promise.reject(new Error('SQS down'))
+        : (Promise.resolve({ runId: 'ok' }) as never)
+    })
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    const failedRow =
+      await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+        where: { id: rowA.id },
+      })
+    expect(failedRow.status).toBe(RaceOpponentResearchStatus.failed)
+    expect(failedRow.runId).toBeNull()
+    expect(failedRow.attempts).toBe(0)
+    // The tick continued to the second org despite the first's failure.
+    expect(call).toBe(2)
+  })
+
   it('does not duplicate findings when the re-dispatched run persists an overlapping set', async () => {
     const campaign = await seedCampaign()
     const row = await seedOpponentRow(

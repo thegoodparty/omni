@@ -360,6 +360,48 @@ describe('GET /opponents/activity', () => {
     })
   })
 
+  it('a failed run after a completed one still surfaces the last completion time', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    await seedOpponentResearch(campaign.id)
+    const completedAt = new Date('2026-01-01T00:00:00Z')
+    // An earlier COMPLETED run, then a later FAILED run for the same org. The
+    // two-query design must report status from the latest (failed) AND
+    // lastCompletedAt from the latest COMPLETED — the case the single null seed
+    // never exercised.
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-completed-then-failed-c',
+        organizationSlug: SLUG,
+        experimentType: 'opponent_research',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'c.json',
+        createdAt: completedAt,
+        updatedAt: completedAt,
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'opp-completed-then-failed-f',
+        organizationSlug: SLUG,
+        experimentType: 'opponent_research',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-02-01T00:00:00Z'),
+        updatedAt: new Date('2026-02-01T00:00:00Z'),
+      },
+    })
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.refresh.status).toBe('failed')
+    expect(result.data.refresh.lastCompletedAt).toBe(completedAt.toISOString())
+  })
+
   it('403s without a completed self-research pass', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedOpponentResearch(campaign.id)

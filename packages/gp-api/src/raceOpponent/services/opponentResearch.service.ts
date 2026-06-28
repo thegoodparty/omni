@@ -191,6 +191,26 @@ export class OpponentResearchService extends createPrismaBase(
         { err: error, campaignId: campaign.id, opponentRowId: row.id },
         'scheduled opponent_research re-dispatch failed for row; continuing',
       )
+      // dispatchAndBind already attempts rollbackClaim, but that rollback is
+      // swallowed on failure — leaving the row queued/runId:null, which the cron
+      // never re-selects (it queries only completed/failed) and hasInFlightRun
+      // can't recover (no ExperimentRun). Secondary rollback scoped to a
+      // still-queued row so it self-heals next tick; the user path is unaffected
+      // (it surfaces dispatch errors to the caller instead).
+      await this.model
+        .updateMany({
+          where: { id: row.id, status: RaceOpponentResearchStatus.queued },
+          data: {
+            status: RaceOpponentResearchStatus.failed,
+            attempts: { decrement: 1 },
+          },
+        })
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, opponentRowId: row.id },
+            'secondary rollback also failed; row may remain stuck in queued',
+          ),
+        )
       return false
     }
   }
