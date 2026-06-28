@@ -12,6 +12,9 @@ import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
 import { RaceOpponentResearchPersistService } from './services/raceOpponentResearchPersist.service'
 import { OpponentResearchService } from './services/opponentResearch.service'
+import { ContrastToneService } from './services/contrastTone.service'
+import { ContrastEngineService } from './services/contrastEngine.service'
+import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
 
 @Module({
   imports: [
@@ -30,6 +33,9 @@ import { OpponentResearchService } from './services/opponentResearch.service'
     RaceOpponentResearchPersistService,
     OpponentResearchService,
     ElectionApiService,
+    ContrastToneService,
+    ContrastEngineService,
+    ContrastReviewVerdictService,
   ],
   exports: [
     RaceOpponentPersistService,
