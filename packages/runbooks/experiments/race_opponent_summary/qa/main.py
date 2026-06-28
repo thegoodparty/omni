@@ -71,6 +71,8 @@ def load_artifact(artifact_path: Path) -> dict:
 
 
 def has_valid_sources(section: dict) -> bool:
+    if not isinstance(section, dict):
+        return False
     sources = section.get("sources") or []
     return bool(sources) and all(
         isinstance(u, str) and bool(HTTP_URL.match(u)) for u in sources
@@ -81,6 +83,8 @@ def collect_sections(artifact: dict) -> list[dict]:
     """Every emitted (non-null) section that must carry attribution."""
     sections: list[dict] = []
     for opp in artifact.get("opponents") or []:
+        if not isinstance(opp, dict):
+            continue
         for key in ("overview", "background"):
             section = opp.get(key)
             if section is not None:
