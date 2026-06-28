@@ -41,9 +41,10 @@ export const RaceOpponentResponseSchema = z.object({
       party: z.string().nullable(),
       isIncumbent: z.boolean().nullable(),
       items: z.array(RaceOpponentSchema),
-      // null until the race_opponent_summary step has produced display-ready
-      // structured sections for this opponent.
-      summary: RaceOpponentSummarySchema.nullable(),
+      // Optional + nullable: ENG-10588 wires the producer to populate this from
+      // the race_opponent_summary step. Until then gp-api's get() omits the
+      // field, so it must be optional (not just nullable) to validate.
+      summary: RaceOpponentSummarySchema.nullish(),
     }),
   ),
   lastCollectedAt: z.coerce.date().nullable(),

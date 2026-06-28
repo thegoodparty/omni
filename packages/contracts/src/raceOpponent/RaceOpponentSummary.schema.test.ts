@@ -122,6 +122,15 @@ describe('RaceOpponentResponseSchema summary field', () => {
     expect(result.opponents[0].summary).toBeNull()
   })
 
+  it('accepts an opponent with the summary field omitted', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      opponents: [baseOpponent],
+      lastCollectedAt: null,
+      collectionStatus: 'completed',
+    })
+    expect(result.opponents[0].summary).toBeUndefined()
+  })
+
   it('accepts a populated summary per opponent', () => {
     const result = RaceOpponentResponseSchema.parse({
       opponents: [{ ...baseOpponent, summary: validSummary }],
