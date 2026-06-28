@@ -52,9 +52,11 @@ export class OpponentResearchScheduleService extends createPrismaBase(
     const claimed = await this.cronLock.tryClaimDailyRun(CRON_JOB, now)
     if (!claimed) return
 
-    await this.redispatchSettledRows()
-
-    await this.cronLock.markCompleted(CRON_JOB, now)
+    try {
+      await this.redispatchSettledRows()
+    } finally {
+      await this.cronLock.markCompleted(CRON_JOB, now)
+    }
   }
 
   private async redispatchSettledRows(): Promise<void> {
