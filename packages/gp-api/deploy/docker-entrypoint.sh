@@ -42,6 +42,11 @@ export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB
 # Must run before prisma migrate deploy because $DB_NAME may not exist yet on the
 # shared Aurora cluster. Connects to the maintenance "postgres" db (which always
 # exists) and issues CREATE DATABASE only when pg_database has no matching row.
+# Clones gpdb_preview_template (a persistent migrated + seeded database kept current
+# by gp-api-refresh-preview-template.yml), so the per-PR DB is ready in seconds and
+# skips migrate-from-scratch + seed. The retry loop also covers the brief window
+# where a concurrent template refresh has transiently dropped the template or holds
+# a connection to it (see deploy/CLAUDE.md "Template database").
 # CREATE DATABASE cannot run inside a transaction, so this uses a plain client
 # connection rather than a transaction block.
 # The pg package is a direct (non-dev) dependency, so it is present in --omit=dev
@@ -74,7 +79,8 @@ if [ "$IS_PREVIEW" = "true" ]; then
             return;
           }
           return client.query(
-            'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
+            'CREATE DATABASE \"' + process.env.DB_NAME +
+              '\" TEMPLATE gpdb_preview_template'
           ).then(() => console.log('Database created.'));
         })
         .then(() => client.end().catch(() => {}))
@@ -148,14 +154,9 @@ case "$CLERK_SECRET_KEY" in
     ;;
 esac
 
-if [ "$IS_PREVIEW" = "true" ]; then
-  echo "Preview environment detected. Running seed..."
-  if npx tsx seed/seed.ts; then
-    echo "Seed completed successfully."
-  else
-    echo "WARNING: Seed failed with exit code $?. Continuing with app startup..."
-  fi
-fi
+# Preview seed data is inherited from the gpdb_preview_template clone above, so
+# the per-PR DB is not re-seeded here (re-running seed/seed.ts against the clone
+# would conflict on already-seeded unique rows — see deploy/CLAUDE.md).
 
 # For preview environments, start app in background, sync content, then wait
 if [ "$IS_PREVIEW" = "true" ]; then
