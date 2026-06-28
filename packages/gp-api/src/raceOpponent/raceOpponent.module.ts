@@ -11,6 +11,7 @@ import { RaceOpponentPersistService } from './services/raceOpponentPersist.servi
 import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
 import { RaceOpponentResearchPersistService } from './services/raceOpponentResearchPersist.service'
+import { OpponentResearchService } from './services/opponentResearch.service'
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { RaceOpponentResearchPersistService } from './services/raceOpponentResea
     SelfResearchService,
     SelfResearchGateService,
     RaceOpponentResearchPersistService,
+    OpponentResearchService,
     ElectionApiService,
   ],
   exports: [

@@ -17,16 +17,32 @@ import {
   assertPublicHostname,
   ssrfSafeLookup,
 } from '@/websites/services/websites.service'
-import { SELF_RESEARCH } from '../raceOpponent.constants'
+import {
+  DATASET_SOURCE_SCHEMES,
+  OPPONENT_RESEARCH,
+  SELF_RESEARCH,
+} from '../raceOpponent.constants'
 
 const REACHABILITY_TIMEOUT_MS = 10_000
 
-// Self-research findings are sourced-or-silent: each must carry a non-empty
-// source_url and source_extract. occurred_at is optional/undated.
-const ArtifactFindingSchema = z.object({
+// Self-research findings are sourced-or-silent and carry a drafted response.
+const SelfFindingSchema = z.object({
   category: z.string().min(1),
   claim: z.string().min(1),
   drafted_response: z.string().min(1),
+  source_extract: z.string().min(1),
+  source_url: z.string().min(1),
+  source_title: z.string().optional(),
+  occurred_at: z.string().nullable().optional(),
+})
+
+// Opponent-research findings are sourced-or-silent too, but carry NO drafted
+// response (the candidate drafts contrasts separately). source_url is either a
+// fetchable http(s) URL (web finding) or a dataset reference like 'l2:...'
+// (residency finding) — both are non-empty.
+const OpponentFindingSchema = z.object({
+  category: z.string().min(1),
+  claim: z.string().min(1),
   source_extract: z.string().min(1),
   source_url: z.string().min(1),
   source_title: z.string().optional(),
@@ -40,9 +56,11 @@ const ArtifactEnvelopeSchema = z.object({
   findings: z.array(z.record(z.string(), z.unknown())),
 })
 
-type ArtifactFinding = z.infer<typeof ArtifactFindingSchema>
+type SelfFinding = z.infer<typeof SelfFindingSchema>
+type OpponentFinding = z.infer<typeof OpponentFindingSchema>
+type ParsedFinding = SelfFinding | OpponentFinding
 
-type ReachableFinding = ArtifactFinding & { sourceReachableAt: Date | null }
+type ReachableFinding = ParsedFinding & { sourceReachableAt: Date | null }
 
 @Injectable()
 export class RaceOpponentResearchPersistService extends createPrismaBase(
@@ -55,12 +73,13 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     super()
   }
 
-  // Queue-consumer hook: a self_research run reached a terminal state. On
-  // COMPLETED, load its artifact and replace the campaign's findings; on FAILED,
-  // flip the research row to failed with no partial findings. No-op for any
-  // other experiment type or a non-terminal status.
+  // Queue-consumer hook: a self_research / opponent_research run reached a
+  // terminal state. On COMPLETED, load its artifact and replace the matching
+  // research row's findings; on FAILED, flip the row to failed with no partial
+  // findings. No-op for any other experiment type or a non-terminal status.
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
-    if (run.experimentType !== SELF_RESEARCH) return
+    const kind = this.kindForExperiment(run.experimentType)
+    if (!kind) return
 
     if (run.status === ExperimentRunStatus.FAILED) {
       // Swallow a markResearchFailed fault: rethrowing here requeues the
@@ -68,19 +87,19 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
       // experimentRun.status) drops the redelivery, so the research row would
       // sit running forever and start() could never re-trigger. Log and move on
       // — the isStuck grace-window backstop is the eventual safety net.
-      await this.safeMarkResearchFailed(run.runId)
+      await this.safeMarkResearchFailed(run.runId, kind)
       return
     }
     if (run.status !== ExperimentRunStatus.COMPLETED) return
 
     const research = await this.model.findFirst({
-      where: { runId: run.runId, kind: RaceOpponentFindingKind.self },
+      where: { runId: run.runId, kind },
       select: { id: true },
     })
     if (!research) return
 
     if (!run.artifactBucket || !run.artifactKey) {
-      await this.safeMarkResearchFailed(run.runId)
+      await this.safeMarkResearchFailed(run.runId, kind)
       await this.experimentRuns.markFailed(
         run.runId,
         'completed run has no artifact location',
@@ -93,12 +112,12 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
       if (!raw) throw new Error('artifact is missing or empty')
       const envelope = ArtifactEnvelopeSchema.parse(JSON.parse(raw))
 
-      const findings = this.parseFindings(run.runId, envelope.findings)
+      const findings = this.parseFindings(run.runId, kind, envelope.findings)
       const reachable = await this.dropUnreachable(findings)
 
       await this.replaceFindings(research.id, reachable)
     } catch (error) {
-      await this.safeMarkResearchFailed(run.runId)
+      await this.safeMarkResearchFailed(run.runId, kind)
       await this.experimentRuns.markFailed(
         run.runId,
         error instanceof Error ? error.message : String(error),
@@ -107,11 +126,26 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     }
   }
 
+  private kindForExperiment(
+    experimentType: string,
+  ): RaceOpponentFindingKind | null {
+    if (experimentType === SELF_RESEARCH) {
+      return RaceOpponentFindingKind.self
+    }
+    if (experimentType === OPPONENT_RESEARCH) {
+      return RaceOpponentFindingKind.opponent
+    }
+    return null
+  }
+
   // markResearchFailed wrapped so a DB fault here can't mask the real error
   // (which we still rethrow) — experimentRuns.markFailed is what flips the run
   // terminal, so the consumer's terminal-status guard bounds redelivery.
-  private async safeMarkResearchFailed(runId: string): Promise<void> {
-    await this.markResearchFailed(runId).catch((err: unknown) => {
+  private async safeMarkResearchFailed(
+    runId: string,
+    kind: RaceOpponentFindingKind,
+  ): Promise<void> {
+    await this.markResearchFailed(runId, kind).catch((err: unknown) => {
       this.logger.error(
         { err, runId },
         'markResearchFailed threw; research row may remain running',
@@ -121,12 +155,17 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
 
   private parseFindings(
     runId: string,
+    kind: RaceOpponentFindingKind,
     rawFindings: Record<string, unknown>[],
-  ): ArtifactFinding[] {
-    const findings: ArtifactFinding[] = []
+  ): ParsedFinding[] {
+    const schema =
+      kind === RaceOpponentFindingKind.self
+        ? SelfFindingSchema
+        : OpponentFindingSchema
+    const findings: ParsedFinding[] = []
     let dropped = 0
     for (const rawFinding of rawFindings) {
-      const result = ArtifactFindingSchema.safeParse(rawFinding)
+      const result = schema.safeParse(rawFinding)
       if (result.success) {
         findings.push(result.data)
       } else {
@@ -135,8 +174,8 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     }
     if (dropped > 0) {
       this.logger.warn(
-        { runId, dropped, kept: findings.length },
-        'dropped self-research findings failing per-item validation',
+        { runId, kind, dropped, kept: findings.length },
+        'dropped research findings failing per-item validation',
       )
     }
     return findings
@@ -145,13 +184,20 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
   // Reachability gate: every kept finding's source_url must resolve to a public
   // host and return < 400. Unreachable findings are dropped (sourced-or-silent
   // extends to "the source must actually exist"). De-duped per URL within a run.
+  // Dataset references (e.g. 'l2:...') are NOT http(s) and skip the network
+  // check — grounding is the broker's anti-fabrication gate, so they persist
+  // with sourceReachableAt set at persist without a fetch.
   private async dropUnreachable(
-    findings: ArtifactFinding[],
+    findings: ParsedFinding[],
   ): Promise<ReachableFinding[]> {
-    const uniqueUrls = [...new Set(findings.map((f) => f.source_url))]
+    const networkUrls = [
+      ...new Set(
+        findings.map((f) => f.source_url).filter((u) => !this.isDatasetRef(u)),
+      ),
+    ]
     const reachableAt = new Map<string, Date | null>()
     await Promise.all(
-      uniqueUrls.map(async (url) => {
+      networkUrls.map(async (url) => {
         reachableAt.set(url, await this.checkReachable(url))
       }),
     )
@@ -159,6 +205,10 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     const kept: ReachableFinding[] = []
     let dropped = 0
     for (const finding of findings) {
+      if (this.isDatasetRef(finding.source_url)) {
+        kept.push({ ...finding, sourceReachableAt: new Date() })
+        continue
+      }
       const at = reachableAt.get(finding.source_url) ?? null
       if (at) {
         kept.push({ ...finding, sourceReachableAt: at })
@@ -169,10 +219,19 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     if (dropped > 0) {
       this.logger.warn(
         { dropped, kept: kept.length },
-        'dropped self-research findings with unreachable source_url',
+        'dropped research findings with unreachable source_url',
       )
     }
     return kept
+  }
+
+  // A dataset reference uses a non-http(s) scheme (e.g. 'l2:...'). Web findings
+  // always match ^https?:// per the artifact contract, so scheme is the
+  // discriminator — never a network check on an opaque dataset URI.
+  private isDatasetRef(sourceUrl: string): boolean {
+    return DATASET_SOURCE_SCHEMES.some((scheme) =>
+      sourceUrl.toLowerCase().startsWith(scheme),
+    )
   }
 
   // Returns the verification timestamp when the URL is reachable, else null.
@@ -204,7 +263,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     } catch (error) {
       const code =
         error instanceof AxiosError ? (error.code ?? error.message) : 'unknown'
-      this.logger.debug({ url, code }, 'self-research source unreachable')
+      this.logger.debug({ url, code }, 'research source unreachable')
       return null
     }
   }
@@ -212,6 +271,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
   // Idempotent replace-on-persist keyed by the research row: delete its existing
   // findings and re-insert in one transaction, then stamp the row completed.
   // A replayed callback (same runId) re-runs cleanly without duplicating.
+  // draftedResponse is self-research only; opponent findings carry none.
   private async replaceFindings(
     researchId: number,
     findings: ReachableFinding[],
@@ -229,7 +289,8 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
             sourceReachableAt: f.sourceReachableAt,
             category: f.category,
             occurredAt: this.parseOccurredAt(f.occurred_at),
-            draftedResponse: f.drafted_response,
+            draftedResponse:
+              'drafted_response' in f ? f.drafted_response : null,
           })),
         })
       }
@@ -249,9 +310,12 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     return isValid(parsed) ? parsed : null
   }
 
-  private async markResearchFailed(runId: string): Promise<void> {
+  private async markResearchFailed(
+    runId: string,
+    kind: RaceOpponentFindingKind,
+  ): Promise<void> {
     await this.model.updateMany({
-      where: { runId, kind: RaceOpponentFindingKind.self },
+      where: { runId, kind },
       data: { status: RaceOpponentResearchStatus.failed },
     })
   }
