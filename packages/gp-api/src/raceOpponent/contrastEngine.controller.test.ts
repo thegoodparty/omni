@@ -19,8 +19,7 @@ const LIST_PATH = '/v1/campaigns/mine/race-opponent/contrasts'
 
 const ISSUE = 'Housing'
 const CLEAN_CLAIM = 'voted against the Housing affordability bill in 2023'
-const INFLATED_CLAIM =
-  'has a corrupt Housing record and is bought by developers'
+const INFLATED_CLAIM = 'has a corrupt, reckless Housing record'
 const CANDIDATE_STANCE = 'support more affordable Housing'
 
 const flagOn = () =>
@@ -359,6 +358,60 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
     flagOn()
 
     const result = await generate()
+
+    expect(result.status).toBe(403)
+  })
+
+  it('403s generate when the campaign is not Pro', async () => {
+    const campaign = await seedCampaign({ isPro: false })
+    await seedCompletedSelfPass(campaign.id)
+    await seedOpponentFindings(campaign.id, [
+      { category: 'voting_record', claim: CLEAN_CLAIM },
+    ])
+    await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
+    flagOn()
+
+    const result = await generate()
+
+    expect(result.status).toBe(403)
+  })
+
+  it('403s generate when know-your-opponent is off', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    await seedOpponentFindings(campaign.id, [
+      { category: 'voting_record', claim: CLEAN_CLAIM },
+    ])
+    await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+
+    const result = await generate()
+
+    expect(result.status).toBe(403)
+  })
+})
+
+describe('GET /v1/campaigns/mine/race-opponent/contrasts', () => {
+  it('403s list when the campaign is not Pro', async () => {
+    await seedCampaign({ isPro: false })
+    flagOn()
+
+    const result = await list()
+
+    expect(result.status).toBe(403)
+  })
+
+  it('403s list when know-your-opponent is off', async () => {
+    await seedCampaign({ isPro: true })
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+
+    const result = await list()
 
     expect(result.status).toBe(403)
   })

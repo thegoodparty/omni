@@ -36,9 +36,14 @@ export const CONTRAST_ALLOWED_CATEGORIES = [
 ] as const
 
 // Words that inflate a factual contrast into an attack: imputed motive and
-// loaded adjectives. The tone pass strips them deterministically. A draft that
-// still reads as near-the-line after stripping (i.e. a strip actually fired)
-// is routed to the human fair-line review gate rather than returned directly.
+// character-attack adjectives. The tone pass strips them deterministically. A
+// draft that still reads as near-the-line after stripping (i.e. a strip
+// actually fired) is routed to the human fair-line review gate rather than
+// returned directly. Deliberately narrow: only terms that are essentially
+// always pejorative in a contrast. Words that are routine FACTUAL political
+// vocabulary ('failed to vote on HB-412', 'the budget agenda', 'bought a
+// building', 'secretly recorded') are NOT here — stripping them would mangle
+// legitimate sourced contrasts.
 export const CONTRAST_INFLATION_TERMS = [
   'corrupt',
   'crooked',
@@ -53,9 +58,5 @@ export const CONTRAST_INFLATION_TERMS = [
   'greedy',
   'selfish',
   'incompetent',
-  'failed',
   'puppet',
-  'bought',
-  'secretly',
-  'agenda',
 ] as const

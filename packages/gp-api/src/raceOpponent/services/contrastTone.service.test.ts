@@ -29,18 +29,28 @@ describe('ContrastToneService.check', () => {
 
   it('strips inflation terms and flags near-the-line', () => {
     const result = tone.check(
-      'My corrupt opponent is bought by developers and reckless.',
+      'My corrupt opponent is a dangerous extremist and reckless.',
     )
     expect(result.nearTheLine).toBe(true)
-    expect(result.sentence).not.toMatch(/corrupt|bought|reckless/i)
+    expect(result.sentence).not.toMatch(/corrupt|dangerous|extremist|reckless/i)
     // No double spaces left behind by the strip.
     expect(result.sentence).not.toMatch(/ {2}/)
   })
 
+  it('leaves factual political vocabulary untouched', () => {
+    // 'failed' and 'agenda' are routine factual terms, not inflation: a
+    // legitimate sourced contrast must survive the tone pass unchanged.
+    const input =
+      'On the budget, my opponent failed to vote on HB-412 — I co-sponsored it.'
+    const result = tone.check(input)
+    expect(result.nearTheLine).toBe(false)
+    expect(result.sentence).toBe(input)
+  })
+
   it('leaves no stranded punctuation for comma-separated inflation terms', () => {
-    const result = tone.check('He has a corrupt, reckless, failed record.')
+    const result = tone.check('He has a corrupt, reckless, greedy record.')
     expect(result.nearTheLine).toBe(true)
-    expect(result.sentence).not.toMatch(/corrupt|reckless|failed/i)
+    expect(result.sentence).not.toMatch(/corrupt|reckless|greedy/i)
     // The strip must not leave dangling commas or double spaces behind.
     expect(result.sentence).not.toMatch(/ {2}/)
     expect(result.sentence).not.toMatch(/(^|\s)[,;:]/)

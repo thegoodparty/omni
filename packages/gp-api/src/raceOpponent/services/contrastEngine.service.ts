@@ -31,6 +31,7 @@ const CANDIDATE_VISIBLE_STATUSES: RaceOpponentContrastStatus[] = [
 ]
 
 type CandidatePosition = {
+  id: number
   issue: string
   fact: string
 }
@@ -162,25 +163,32 @@ export class ContrastEngineService extends createPrismaBase(
     const rows = await this.client.campaignPosition.findMany({
       where: { campaignId, description: { not: null } },
       include: { position: true, topIssue: true },
+      orderBy: { id: Prisma.SortOrder.asc },
     })
     return rows.flatMap((row) => {
       const issue = row.topIssue?.name ?? row.position.name
       const fact = row.description?.trim() ?? ''
-      return fact.length > 0 ? [{ issue, fact }] : []
+      return fact.length > 0 ? [{ id: row.id, issue, fact }] : []
     })
   }
 
-  // Deterministic match: a finding pairs with the candidate position whose
-  // issue name appears (case-insensitive) in the finding's claim or category.
-  // An unmatched finding must yield no contrast, so a strict substring match is
-  // the right precision here — no fuzzy scoring.
+  // Deterministic match: among the candidate positions whose issue name appears
+  // (case-insensitive) in the finding's claim or category, pick the most
+  // specific — the longest issue name — so a finding mentioning two overlapping
+  // issues pairs with the more precise one. Ties (equal length) break by
+  // campaignPosition id asc, which `positions` is already ordered by, so the
+  // outcome is stable regardless of DB row order. No match => no contrast.
   private matchPosition(
     finding: RaceOpponentFinding,
     positions: CandidatePosition[],
   ): CandidatePosition | null {
     const haystack = `${finding.claim} ${finding.category}`.toLowerCase()
-    return (
-      positions.find((p) => haystack.includes(p.issue.toLowerCase())) ?? null
+    const matches = positions.filter((p) =>
+      haystack.includes(p.issue.toLowerCase()),
+    )
+    if (matches.length === 0) return null
+    return matches.reduce((best, p) =>
+      p.issue.length > best.issue.length ? p : best,
     )
   }
 
@@ -192,6 +200,15 @@ export class ContrastEngineService extends createPrismaBase(
   }
 }
 
+// routing is a free String column, not a DB enum, so a row could carry an
+// off-enum value (legacy data, a sibling writer, manual edit). On read we
+// safeParse and fall back to the default rather than hard-parse — one malformed
+// row must not 500 the whole list().
+const safeRouting = (routing: string): RaceOpponentContrastRouting => {
+  const parsed = RaceOpponentContrastRoutingSchema.safeParse(routing)
+  return parsed.success ? parsed.data : DEFAULT_ROUTING
+}
+
 const toDTO = (row: RaceOpponentContrastRow): RaceOpponentContrastDTO => ({
   id: row.id,
   opponentFact: row.opponentFact,
@@ -199,7 +216,7 @@ const toDTO = (row: RaceOpponentContrastRow): RaceOpponentContrastDTO => ({
   candidateFact: row.candidateFact,
   contrastSentence: row.contrastSentence,
   issueTag: row.issueTag,
-  routing: RaceOpponentContrastRoutingSchema.parse(row.routing),
+  routing: safeRouting(row.routing),
   status: row.status,
   editCount: row.editCount,
   findingId: row.findingId,
