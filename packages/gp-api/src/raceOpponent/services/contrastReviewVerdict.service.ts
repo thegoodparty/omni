@@ -13,7 +13,6 @@ import {
   RaceOpponentContrastStatus,
   User,
 } from '@/generated/prisma'
-import { ArtifactReviewService } from '@/artifactReview/services/artifactReview.service'
 
 type SetForContrastInput = {
   contrastId: number
@@ -24,18 +23,14 @@ type SetForContrastInput = {
 }
 
 // Applies a fair-line review verdict to a contrast, mirroring
-// BriefingReviewVerdictService: the verdict is persisted via the shared
-// ArtifactReviewService (resourceType race_opponent_contrast), and the
+// BriefingReviewVerdictService: the verdict is persisted as the shared
+// ArtifactReview record (resourceType race_opponent_contrast), and the
 // contrast's own status is moved out of the gate — passed -> cleared (now
 // candidate-visible), failed -> blocked (stays hidden, carrying the reason).
 @Injectable()
 export class ContrastReviewVerdictService extends createPrismaBase(
   MODELS.RaceOpponentContrast,
 ) {
-  constructor(private readonly artifactReviews: ArtifactReviewService) {
-    super()
-  }
-
   async setForContrast({
     contrastId,
     reviewerSub,
@@ -47,41 +42,64 @@ export class ContrastReviewVerdictService extends createPrismaBase(
       throw new ForbiddenException('review_requires_reviewer_identity')
     }
 
-    const contrast = await this.model.findUnique({
-      where: { id: contrastId },
-      select: { status: true },
-    })
-    if (!contrast) {
-      throw new NotFoundException('Contrast not found')
-    }
-    // Only a contrast still in the fair-line gate can take a verdict. Re-applying
-    // to an already-cleared/blocked (or never-routed) contrast would silently
-    // re-clear a blocked item or re-block a cleared one — a state conflict, 409.
-    if (contrast.status !== RaceOpponentContrastStatus.pending_review) {
-      throw new ConflictException('Contrast is not pending review')
-    }
-
     const failed = verdict === ArtifactReviewVerdict.failed
     if (failed && !failReason) {
       throw new BadRequestException('fail_requires_reason')
     }
 
-    const row = await this.artifactReviews.setVerdict({
-      resourceType: ArtifactReviewResourceType.race_opponent_contrast,
-      resourceId: String(contrastId),
+    const reviewFields = {
       verdict,
       failReason: failed ? (failReason ?? null) : null,
       reviewerClerkSub: reviewerSub,
       reviewerEmail: reviewerUser?.email ?? null,
-    })
+    }
 
-    await this.model.update({
-      where: { id: contrastId },
-      data: {
-        status: failed
-          ? RaceOpponentContrastStatus.blocked
-          : RaceOpponentContrastStatus.cleared,
-      },
+    // The pending-review re-check, the ArtifactReview upsert, and the status
+    // flip run in one transaction so two concurrent reviewers can't both pass
+    // the gate (TOCTOU) and so a fault can't leave a written verdict against a
+    // still-pending contrast. The in-tx updateMany scoped to pending_review is
+    // the atomic claim: count 0 means another reviewer already moved it.
+    const row = await this.client.$transaction(async (tx) => {
+      const contrast = await tx.raceOpponentContrast.findUnique({
+        where: { id: contrastId },
+        select: { status: true },
+      })
+      if (!contrast) {
+        throw new NotFoundException('Contrast not found')
+      }
+      if (contrast.status !== RaceOpponentContrastStatus.pending_review) {
+        throw new ConflictException('Contrast is not pending review')
+      }
+
+      const claimed = await tx.raceOpponentContrast.updateMany({
+        where: {
+          id: contrastId,
+          status: RaceOpponentContrastStatus.pending_review,
+        },
+        data: {
+          status: failed
+            ? RaceOpponentContrastStatus.blocked
+            : RaceOpponentContrastStatus.cleared,
+        },
+      })
+      if (claimed.count === 0) {
+        throw new ConflictException('Contrast is not pending review')
+      }
+
+      return tx.artifactReview.upsert({
+        where: {
+          resourceType_resourceId: {
+            resourceType: ArtifactReviewResourceType.race_opponent_contrast,
+            resourceId: String(contrastId),
+          },
+        },
+        create: {
+          resourceType: ArtifactReviewResourceType.race_opponent_contrast,
+          resourceId: String(contrastId),
+          ...reviewFields,
+        },
+        update: reviewFields,
+      })
     })
 
     return {

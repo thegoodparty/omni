@@ -36,4 +36,14 @@ describe('ContrastToneService.check', () => {
     // No double spaces left behind by the strip.
     expect(result.sentence).not.toMatch(/ {2}/)
   })
+
+  it('leaves no stranded punctuation for comma-separated inflation terms', () => {
+    const result = tone.check('He has a corrupt, reckless, failed record.')
+    expect(result.nearTheLine).toBe(true)
+    expect(result.sentence).not.toMatch(/corrupt|reckless|failed/i)
+    // The strip must not leave dangling commas or double spaces behind.
+    expect(result.sentence).not.toMatch(/ {2}/)
+    expect(result.sentence).not.toMatch(/(^|\s)[,;:]/)
+    expect(result.sentence).toBe('He has a record.')
+  })
 })

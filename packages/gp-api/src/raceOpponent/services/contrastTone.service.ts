@@ -36,15 +36,21 @@ export class ContrastToneService {
 
   // Strips inflation terms (whole-word, case-insensitive) and reports whether
   // anything was removed. A removal means the draft was inflated and is
-  // near-the-line. Collapses the double spaces a removal leaves behind.
+  // near-the-line. The term match consumes a trailing punctuation char so a
+  // comma-separated list ('corrupt, reckless record') doesn't leave stranded
+  // commas; remaining stranded punctuation and double spaces are then cleaned.
   check(sentence: string): ToneCheckResult {
     const pattern = new RegExp(
-      `\\b(?:${CONTRAST_INFLATION_TERMS.join('|')})\\b`,
+      `\\b(?:${CONTRAST_INFLATION_TERMS.join('|')})\\b[,;:.]?`,
       'gi',
     )
     const stripped = sentence.replace(pattern, '')
     const nearTheLine = stripped !== sentence
-    const cleaned = stripped.replace(/\s{2,}/g, ' ').trim()
+    const cleaned = stripped
+      .replace(/\s{2,}/g, ' ')
+      .replace(/(^|\s)[,;:]/g, '')
+      .replace(/\s+\./g, '.')
+      .trim()
     return { sentence: cleaned, nearTheLine }
   }
 }

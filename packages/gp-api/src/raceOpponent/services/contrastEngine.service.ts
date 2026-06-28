@@ -19,10 +19,12 @@ import { ContrastToneService } from './contrastTone.service'
 
 const DEFAULT_ROUTING: RaceOpponentContrastRouting = 'story'
 
-// Statuses visible to the candidate: a contrast in pending_review or blocked is
-// hidden until a reviewer verdict moves it out of the fair-line gate.
+// Statuses visible to the candidate: only contrasts that have passed the
+// fair-line gate. `draft` is excluded on purpose — it is the column default, so
+// a manually-authored contrast (findingId null, not deduped) lands as draft and
+// would otherwise be candidate-visible without ever being reviewed.
+// pending_review and blocked stay hidden until a reviewer verdict clears them.
 const CANDIDATE_VISIBLE_STATUSES: RaceOpponentContrastStatus[] = [
-  RaceOpponentContrastStatus.draft,
   RaceOpponentContrastStatus.cleared,
   RaceOpponentContrastStatus.approved,
   RaceOpponentContrastStatus.used,
