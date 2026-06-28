@@ -15,6 +15,9 @@ import { RaceOpponentResearchPersistService } from './services/raceOpponentResea
 import { OpponentResearchService } from './services/opponentResearch.service'
 import { RaceOpponentActivityService } from './services/raceOpponentActivity.service'
 import { OpponentResearchScheduleService } from './services/opponentResearchSchedule.service'
+import { ContrastToneService } from './services/contrastTone.service'
+import { ContrastEngineService } from './services/contrastEngine.service'
+import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
 
 @Module({
   imports: [
@@ -36,6 +39,9 @@ import { OpponentResearchScheduleService } from './services/opponentResearchSche
     RaceOpponentActivityService,
     OpponentResearchScheduleService,
     ElectionApiService,
+    ContrastToneService,
+    ContrastEngineService,
+    ContrastReviewVerdictService,
   ],
   exports: [
     RaceOpponentPersistService,

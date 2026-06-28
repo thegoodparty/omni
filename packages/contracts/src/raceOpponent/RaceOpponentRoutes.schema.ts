@@ -156,3 +156,24 @@ export const ContrastResponseSchema = z.object({
   contrast: RaceOpponentContrastSchema,
 })
 export type ContrastResponse = z.infer<typeof ContrastResponseSchema>
+
+// Generate pairs every eligible opponent finding with the candidate's matching
+// position and drafts a contrast for each. Clean drafts come back cleared;
+// near-the-line drafts are routed to the fair-line review gate and are NOT
+// included here (they surface only after a reviewer clears them). The two
+// counts let the page report "N drafted, M sent for review" without a second
+// fetch.
+export const GenerateContrastsResponseSchema = z.object({
+  contrasts: z.array(RaceOpponentContrastSchema),
+  routedToReviewCount: z.number(),
+})
+export type GenerateContrastsResponse = z.infer<
+  typeof GenerateContrastsResponseSchema
+>
+
+// The candidate read path: cleared/approved/used contrasts only. Anything in
+// pending_review or blocked is invisible here until a verdict clears it.
+export const ListContrastsResponseSchema = z.object({
+  contrasts: z.array(RaceOpponentContrastSchema),
+})
+export type ListContrastsResponse = z.infer<typeof ListContrastsResponseSchema>

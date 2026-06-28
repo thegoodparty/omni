@@ -2,15 +2,23 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseIntPipe,
   Post,
+  Put,
   Query,
+  Req,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
+  GenerateContrastsResponse,
+  GenerateContrastsResponseSchema,
   IdentifyOpponentsResponse,
   IdentifyOpponentsResponseSchema,
+  ListContrastsResponse,
+  ListContrastsResponseSchema,
   OpponentProfileResponse,
   OpponentProfileResponseSchema,
   RaceOpponentReportResponse,
@@ -21,6 +29,10 @@ import {
   RaceOpponentActivityResponseSchema,
   RaceOpponentResponse,
   RaceOpponentResponseSchema,
+  RaceOpponentReview,
+  RaceOpponentReviewSchema,
+  SetArtifactReviewVerdictRequest,
+  SetArtifactReviewVerdictRequestSchema,
   StartOpponentResearchRequest,
   StartOpponentResearchRequestSchema,
   StartOpponentResearchResponse,
@@ -33,11 +45,17 @@ import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { Roles } from '@/authentication/decorators/Roles.decorator'
+import { UserRole } from '@/generated/prisma'
+import { IncomingRequest } from '@/authentication/authentication.types'
+import { effectiveUser } from '@/authentication/util/effectiveUser.util'
 import { RaceOpponentService } from './services/raceOpponent.service'
 import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
 import { OpponentResearchService } from './services/opponentResearch.service'
 import { RaceOpponentActivityService } from './services/raceOpponentActivity.service'
+import { ContrastEngineService } from './services/contrastEngine.service'
+import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
 import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
@@ -53,6 +71,8 @@ export class RaceOpponentController {
     private readonly selfResearchGate: SelfResearchGateService,
     private readonly opponentResearch: OpponentResearchService,
     private readonly activity: RaceOpponentActivityService,
+    private readonly contrastEngine: ContrastEngineService,
+    private readonly contrastReviewVerdict: ContrastReviewVerdictService,
   ) {}
 
   // collect is the functional opponent trigger (it dispatches opponent
@@ -154,5 +174,56 @@ export class RaceOpponentController {
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentActivityResponse> {
     return this.activity.activity(campaign)
+  }
+
+  // Pair opponent findings with the candidate's matching positions into
+  // contrasts. Same Pro+flag+self-research gate as the rest of the module: the
+  // contrast engine only runs once the candidate's own pass is done.
+  @Post('contrasts/generate')
+  @ResponseSchema(GenerateContrastsResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async generateContrasts(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+  ): Promise<GenerateContrastsResponse> {
+    await this.raceOpponent.assertAccess(campaign)
+    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
+    return this.contrastEngine.generate(campaign.id)
+  }
+
+  // Candidate read path: cleared/approved/used contrasts only. Near-the-line
+  // (pending_review) and blocked contrasts are invisible here until a reviewer
+  // verdict clears them.
+  @Get('contrasts')
+  @ResponseSchema(ListContrastsResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async listContrasts(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+  ): Promise<ListContrastsResponse> {
+    await this.raceOpponent.assertAccess(campaign)
+    return this.contrastEngine.list(campaign.id)
+  }
+
+  // Reviewer (Campaign Success) applies the fair-line verdict. Admin-human-only
+  // (@Roles), matching the briefing review precedent which is reviewer-only —
+  // the verdict needs a reviewer identity, so a pure-M2M caller (no effective
+  // user) must not reach it. This acts on a single contrast across campaigns,
+  // not the owner's own, so it intentionally skips the @UseCampaign owner scope.
+  @Put('contrasts/:id/review-verdict')
+  @Roles(UserRole.admin)
+  @ResponseSchema(RaceOpponentReviewSchema)
+  applyContrastVerdict(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(SetArtifactReviewVerdictRequestSchema))
+    body: SetArtifactReviewVerdictRequest,
+    @Req() req: IncomingRequest,
+  ): Promise<RaceOpponentReview> {
+    const reviewer = effectiveUser(req)
+    return this.contrastReviewVerdict.setForContrast({
+      contrastId: id,
+      reviewerSub: reviewer?.clerkId ?? null,
+      reviewerUser: reviewer ?? null,
+      verdict: body.verdict,
+      failReason: body.failReason,
+    })
   }
 }
