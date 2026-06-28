@@ -46,8 +46,10 @@ const main = async () => {
   // so we cannot re-seed in place. Dropping and recreating an empty template
   // makes each refresh seed against a fresh DB exactly like a per-PR
   // gpdb_pr_<n> does today — the only seed path proven to work.
-  await terminateBackends()
-  await client.query(`DROP DATABASE IF EXISTS "${TEMPLATE_DB}"`)
+  // WITH (FORCE) terminates any lingering sessions as part of the drop, so a
+  // session that reconnects after a plain terminate (idle-in-transaction, or a
+  // concurrent CREATE DATABASE ... TEMPLATE) can't make DROP fail mid-refresh.
+  await client.query(`DROP DATABASE IF EXISTS "${TEMPLATE_DB}" WITH (FORCE)`)
   await client.query(`CREATE DATABASE "${TEMPLATE_DB}"`)
   console.log(`Recreated empty ${TEMPLATE_DB}.`)
 
