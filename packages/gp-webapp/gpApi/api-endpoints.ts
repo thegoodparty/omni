@@ -945,10 +945,40 @@ export type RaceOpponentItem = {
   collectedAt: string
 }
 
+// Display-ready summary structured by the race_opponent_summary step. Mirrors
+// RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
+// over JSON as an ISO string (the contract coerces it to Date).
+export type RaceOpponentSummarySourceRef = {
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string
+}
+
+export type RaceOpponentSummarySection = {
+  text: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummaryKeyPosition = {
+  label: string
+  detail: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummary = {
+  opponentName: string
+  overview: RaceOpponentSummarySection | null
+  background: RaceOpponentSummarySection | null
+  keyPositions: RaceOpponentSummaryKeyPosition[]
+  generatedAt: string | null
+}
+
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
     items: RaceOpponentItem[]
+    // Optional + nullable: ENG-10588 wires the producer to populate this from
+    // the race_opponent_summary step; until then gp-api omits the field.
+    summary?: RaceOpponentSummary | null
   }>
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
