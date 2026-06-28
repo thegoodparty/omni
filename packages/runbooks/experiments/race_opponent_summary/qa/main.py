@@ -100,6 +100,15 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
             "severity": "warning",
             "detail": "skipped — jsonschema not installed in the gate environment",
         })
+        if not isinstance(artifact.get("opponents"), list):
+            fragments.append({
+                "name": "opponents_present",
+                "passed": False,
+                "type": "deterministic",
+                "severity": "error",
+                "detail": "opponents field is missing or not a list — cannot grade further without schema validation",
+            })
+            return fragments
     else:
         schema_errors = validate_schema(artifact, schema)
         schema_valid = not schema_errors
