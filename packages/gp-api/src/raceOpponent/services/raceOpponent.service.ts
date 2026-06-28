@@ -49,8 +49,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   // The ownership guard (@UseCampaign) already scopes the campaign to the
   // current user, so reaching here means the caller owns it. Pro + flag are
-  // the remaining gates; both 4xx so the webapp can branch cleanly.
-  private async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
+  // the remaining gates; both 4xx so the webapp can branch cleanly. Public so
+  // the controller can apply the same Pro+flag gate to opponent routes that
+  // don't go through collect() (e.g. opponents/identify).
+  async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
     if (!campaign.isPro) {
       throw new ForbiddenException('Race opponent collection requires Pro.')
     }
