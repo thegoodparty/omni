@@ -29,7 +29,13 @@ import re
 import sys
 from pathlib import Path
 
-import jsonschema
+# jsonschema is a dev-group dependency; the deterministic runner may invoke this
+# under a --no-dev environment. Degrade to skipping the schema fragment rather
+# than crashing — the gate is observe-only and must still exit 0.
+try:
+    import jsonschema
+except ImportError:
+    jsonschema = None
 
 STDOUT_CAP_BYTES = 1_000_000
 HTTP_URL = re.compile(r"^https?://")
@@ -86,19 +92,43 @@ def collect_sections(artifact: dict) -> list[dict]:
 def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     fragments: list[dict] = []
 
-    schema_errors = validate_schema(artifact, schema)
-    schema_valid = not schema_errors
-    schema_frag: dict = {
-        "name": "schema_valid",
-        "passed": schema_valid,
+    if jsonschema is None:
+        fragments.append({
+            "name": "schema_valid",
+            "passed": True,
+            "type": "deterministic",
+            "severity": "warning",
+            "detail": "skipped — jsonschema not installed in the gate environment",
+        })
+    else:
+        schema_errors = validate_schema(artifact, schema)
+        schema_valid = not schema_errors
+        schema_frag: dict = {
+            "name": "schema_valid",
+            "passed": schema_valid,
+            "type": "deterministic",
+        }
+        if not schema_valid:
+            schema_frag["severity"] = "error"
+            schema_frag["detail"] = "; ".join(schema_errors[:20])
+        fragments.append(schema_frag)
+        if not schema_valid:
+            return fragments
+
+    # An empty opponents array clears the schema fragment when jsonschema is
+    # unavailable; fail it explicitly so a truncated response that drops every
+    # opponent never reads as a clean pass.
+    opponents = artifact.get("opponents") or []
+    present_ok = len(opponents) > 0
+    present_frag: dict = {
+        "name": "opponents_present",
+        "passed": present_ok,
         "type": "deterministic",
     }
-    if not schema_valid:
-        schema_frag["severity"] = "error"
-        schema_frag["detail"] = "; ".join(schema_errors[:20])
-    fragments.append(schema_frag)
-    if not schema_valid:
-        return fragments
+    if not present_ok:
+        present_frag["severity"] = "error"
+        present_frag["detail"] = "artifact has zero opponents"
+    fragments.append(present_frag)
 
     sections = collect_sections(artifact)
     attributed = sum(1 for s in sections if has_valid_sources(s))

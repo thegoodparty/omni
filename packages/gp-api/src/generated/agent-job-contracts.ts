@@ -6146,52 +6146,101 @@ export interface OpponentSummaryArtifact {
   generated_at: string
   /**
    * One entry per input opponent, in input order. opponent_name echoes the input verbatim. Every non-null section / position item carries at least one source_url drawn from that opponent's input sources; a section with nothing groundable in the provided text is null (overview/background) or omitted (key_positions item), never invented.
+   *
+   * @minItems 1
    */
-  opponents: {
-    /**
-     * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
-     */
-    background: {
+  opponents: [
+    {
       /**
-       * @minItems 1
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
        */
-      sources: [string, ...string[]]
-      text: string
-    } | null
-    /**
-     * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
-     */
-    key_positions: {
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
       /**
-       * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
        */
-      detail: string
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
       /**
-       * Short topic label for the position (e.g. 'Housing').
+       * Matches an input opponent's opponent_name verbatim.
        */
-      label: string
+      opponent_name: string
       /**
-       * @minItems 1
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
        */
-      sources: [string, ...string[]]
-    }[]
-    /**
-     * Matches an input opponent's opponent_name verbatim.
-     */
-    opponent_name: string
-    /**
-     * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
-     */
-    overview: {
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+    },
+    ...{
       /**
-       * One or more input source_url values this text was drawn from.
-       *
-       * @minItems 1
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
        */
-      sources: [string, ...string[]]
-      text: string
-    } | null
-  }[]
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+    }[],
+  ]
 }
 export interface SelfResearchInputParams {
   /**
