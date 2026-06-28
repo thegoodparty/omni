@@ -1,4 +1,6 @@
+export * from './RaceOpponentSourceType.schema'
 export * from './RaceOpponent.schema'
+export * from './RaceOpponentSummary.schema'
 export * from './RaceOpponentResearch.schema'
 export * from './RaceOpponentFinding.schema'
 export * from './RaceOpponentContrast.schema'

@@ -1,16 +1,6 @@
 import { z } from 'zod'
-
-export const RACE_OPPONENT_SOURCE_TYPE_VALUES = [
-  'ballotpedia',
-  'opponent_website',
-  'campaign_plan_db',
-] as const
-export const RaceOpponentSourceTypeSchema = z.enum(
-  RACE_OPPONENT_SOURCE_TYPE_VALUES,
-)
-export type RaceOpponentSourceType = z.infer<
-  typeof RaceOpponentSourceTypeSchema
->
+import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
+import { RaceOpponentSummarySchema } from './RaceOpponentSummary.schema'
 
 export const RaceOpponentSchema = z.object({
   id: z.number(),
@@ -51,6 +41,9 @@ export const RaceOpponentResponseSchema = z.object({
       party: z.string().nullable(),
       isIncumbent: z.boolean().nullable(),
       items: z.array(RaceOpponentSchema),
+      // null until the race_opponent_summary step has produced display-ready
+      // structured sections for this opponent.
+      summary: RaceOpponentSummarySchema.nullable(),
     }),
   ),
   lastCollectedAt: z.coerce.date().nullable(),
