@@ -18,15 +18,18 @@ const SLUG = 'campaign-sched'
 const OPPONENT = 'Jane Rival'
 const REACHABLE = 'https://ballotpedia.org/Jane_Rival'
 
-const seedCampaign = async ({ isPro = true }: { isPro?: boolean } = {}) => {
+const seedCampaign = async ({
+  isPro = true,
+  slug = SLUG,
+}: { isPro?: boolean; slug?: string } = {}) => {
   await service.prisma.organization.create({
-    data: { slug: SLUG, ownerId: service.user.id },
+    data: { slug, ownerId: service.user.id },
   })
   return service.prisma.campaign.create({
     data: {
       userId: service.user.id,
-      slug: `${SLUG}-campaign`,
-      organizationSlug: SLUG,
+      slug: `${slug}-campaign`,
+      organizationSlug: slug,
       isPro,
     },
   })
@@ -140,6 +143,52 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
     expect(row.runId).toBe('r2')
     expect(row.status).toBe(RaceOpponentResearchStatus.queued)
     expect(row.attempts).toBe(1)
+  })
+
+  it('spreads the tick across campaigns: two campaigns each get one dispatch', async () => {
+    const campA = await seedCampaign({ slug: 'sched-a' })
+    const campB = await seedCampaign({ slug: 'sched-b' })
+    await seedOpponentRow(campA.id, RaceOpponentResearchStatus.completed, 'a1')
+    await seedOpponentRow(campB.id, RaceOpponentResearchStatus.completed, 'b1')
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'fresh' } as never)
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    const slugs = dispatchRun.mock.calls
+      .map((c) => c[0].organizationSlug)
+      .sort()
+    expect(slugs).toEqual(['sched-a', 'sched-b'])
+  })
+
+  it('dispatches at most one row per campaign per tick', async () => {
+    const campaign = await seedCampaign()
+    // Two settled rows for the same campaign (distinct opponents). Only one may
+    // dispatch per tick so one org cannot consume the whole budget.
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'c1',
+      'Jane Rival',
+    )
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'c2',
+      'Bob Other',
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'fresh' } as never)
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
   })
 
   it('does not re-dispatch a row already moved to queued by a concurrent path', async () => {

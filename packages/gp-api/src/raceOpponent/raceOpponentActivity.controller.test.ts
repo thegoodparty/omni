@@ -149,6 +149,45 @@ describe('GET /opponents/activity', () => {
     ).toBe(true)
   })
 
+  it('advances from a null lastViewedAt: first view all new, second view none', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    // Never-viewed row (lastViewedAt null) with findings persisted before the
+    // first GET. First view treats all as new (no prior visit); the advance
+    // writes the snapshot, so the second view flags none.
+    const research = await seedOpponentResearch(campaign.id, null)
+    await seedFinding(research.id, {
+      claim: 'a',
+      occurredAt: new Date('2020-01-01'),
+      createdAt: new Date('2023-06-01T00:00:00Z'),
+    })
+    await seedFinding(research.id, {
+      claim: 'b',
+      occurredAt: new Date('2021-01-01'),
+      createdAt: new Date('2023-07-01T00:00:00Z'),
+    })
+    flagOn()
+
+    const first = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(first.status).toBe(200)
+    expect(
+      first.data.findings.every(
+        (f: { newSinceLastVisit: boolean }) => f.newSinceLastVisit === true,
+      ),
+    ).toBe(true)
+
+    const second = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(
+      second.data.findings.every(
+        (f: { newSinceLastVisit: boolean }) => f.newSinceLastVisit === false,
+      ),
+    ).toBe(true)
+  })
+
   it('merges findings across opponent rows and uses the cross-row last-view high-water mark', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedSelfComplete(campaign.id)

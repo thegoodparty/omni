@@ -79,7 +79,16 @@ export class OpponentResearchScheduleService extends createPrismaBase(
         // Pro lapsed after its rows were created must not get a paid re-dispatch.
         campaign: { isPro: true },
       },
-      orderBy: { updatedAt: Prisma.SortOrder.asc },
+      // One row per campaign per tick so a single org with many settled rows
+      // can't consume the whole budget and starve other orgs. distinct keeps
+      // the first row per campaignId in orderBy order, so campaignId leads the
+      // sort (required for distinct to be deterministic) and updatedAt asc picks
+      // the stalest row for that campaign.
+      distinct: ['campaignId'],
+      orderBy: [
+        { campaignId: Prisma.SortOrder.asc },
+        { updatedAt: Prisma.SortOrder.asc },
+      ],
       take: REDISPATCH_CAP_PER_TICK,
       include: { campaign: { include: { user: true } } },
     })

@@ -51,6 +51,13 @@ export class RaceOpponentActivityService extends createPrismaBase(
     await this.raceOpponent.assertAccess(campaign)
     await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
 
+    // Snapshot the view time BEFORE the read so it bounds both the new-since
+    // classification and the lastViewedAt we persist. Using a later new Date()
+    // for the write would skip any finding created in the gap between read and
+    // write — it would be absent from this response yet have the marker advanced
+    // past it, so it could never read as new on a later request.
+    const now = new Date()
+
     const rows = await this.model.findMany({
       where: {
         campaignId: campaign.id,
@@ -71,7 +78,6 @@ export class RaceOpponentActivityService extends createPrismaBase(
       return isAfter(row.lastViewedAt, latest) ? row.lastViewedAt : latest
     }, null)
 
-    const now = new Date()
     const findings = rows
       .flatMap((row) => row.findings)
       .sort((a, b) => this.compareFindings(a, b))
@@ -84,7 +90,7 @@ export class RaceOpponentActivityService extends createPrismaBase(
     // return, or a rapid second GET would re-flag the same items as new
     // (read-after-write race). So await it and swallow only its error.
     try {
-      await this.advanceLastViewedAt(campaign.id)
+      await this.advanceLastViewedAt(campaign.id, now)
     } catch (err) {
       this.logger.error(
         { err, campaignId: campaign.id },
@@ -184,10 +190,13 @@ export class RaceOpponentActivityService extends createPrismaBase(
     }
   }
 
-  private async advanceLastViewedAt(campaignId: number): Promise<void> {
+  private async advanceLastViewedAt(
+    campaignId: number,
+    viewedAt: Date,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { campaignId, kind: RaceOpponentFindingKind.opponent },
-      data: { lastViewedAt: new Date() },
+      data: { lastViewedAt: viewedAt },
     })
   }
 }
