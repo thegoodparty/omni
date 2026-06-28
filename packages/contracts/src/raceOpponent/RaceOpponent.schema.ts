@@ -46,6 +46,10 @@ export const RaceOpponentResponseSchema = z.object({
   opponents: z.array(
     z.object({
       opponentName: z.string(),
+      // Enriched from the campaign-strategy opponent roster by name match;
+      // null when the collected name doesn't match a roster row (don't guess).
+      party: z.string().nullable(),
+      isIncumbent: z.boolean().nullable(),
       items: z.array(RaceOpponentSchema),
     }),
   ),
