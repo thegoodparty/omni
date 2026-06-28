@@ -230,7 +230,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
   // Idempotent replace-on-persist: delete the campaign's existing rows and
   // re-insert from the artifact in one transaction, so a re-run overwrites
   // cleanly rather than accumulating duplicates. The caller guarantees a
-  // non-empty items list — the empty cases are handled upstream.
+  // non-empty items list — the empty cases are handled upstream. The campaign's
+  // structured summaries are cleared in the same transaction: they were built
+  // from the now-replaced collected text, so leaving them would let GET pair
+  // fresh items with stale summary text until the chained summary run lands.
   private async replaceForCampaign(
     campaignId: number,
     runId: string,
@@ -238,6 +241,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
         data: items.map((item) => ({
           campaignId,
@@ -281,12 +285,15 @@ export class RaceOpponentPersistService extends createPrismaBase(
     generatedAt: string,
     sourceTypeByUrl: Map<string, RaceOpponentSourceType>,
   ): RaceOpponentSummary {
+    // Sourced-or-silent: a URL the agent cites but no collected row carries
+    // was never fetched, so it can't be a real source — drop it rather than
+    // inventing a type. If dropping empties a section, the contract's
+    // .min(1) below throws, the run is marked FAILED, and nothing persists.
     const refs = (urls: string[]): SummarySourceRef[] =>
-      urls.map((url) => ({
-        sourceType:
-          sourceTypeByUrl.get(url) ?? RaceOpponentSourceType.opponent_website,
-        sourceUrl: url,
-      }))
+      urls.flatMap((url) => {
+        const sourceType = sourceTypeByUrl.get(url)
+        return sourceType ? [{ sourceType, sourceUrl: url }] : []
+      })
 
     return RaceOpponentSummarySchema.parse({
       opponentName: opponent.opponent_name,
@@ -320,10 +327,17 @@ export class RaceOpponentPersistService extends createPrismaBase(
     runId: string,
     summaries: RaceOpponentSummary[],
   ): Promise<void> {
+    // Dedup by opponentName before insert — a non-deterministic LLM can emit
+    // the same opponent twice, and createMany would otherwise hit the
+    // @@unique([campaignId, opponentName]) constraint and fail an otherwise
+    // valid run. Last entry wins.
+    const deduped = [
+      ...new Map(summaries.map((summary) => [summary.opponentName, summary])),
+    ].map(([, summary]) => summary)
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.createMany({
-        data: summaries.map((summary) => ({
+        data: deduped.map((summary) => ({
           campaignId,
           runId,
           opponentName: summary.opponentName,
