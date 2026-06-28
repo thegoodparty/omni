@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { ArtifactReviewVerdictSchema } from '../generated/enums'
-import { PaginationMetaSchema } from '../shared/Pagination.schema'
 import {
   RaceOpponentResearchSchema,
   RaceOpponentResearchStatusSchema,
@@ -87,14 +86,29 @@ export type OpponentProfileResponse = z.infer<
   typeof OpponentProfileResponseSchema
 >
 
-// --- Activity stream (response-side pagination) ---
+// --- Activity stream ("what's new") ---
 
-// The request-side PaginationSchema (offset/limit) is intentionally NOT reused
-// for responses; the activity stream returns its own meta via the shared
-// response-side PaginationMetaSchema.
+// One activity item: an opponent finding flagged with whether it landed after
+// the candidate last viewed the stream. The stream is ordered by when the
+// finding occurred (then when it was persisted), so the client renders a
+// chronological "what's new" feed.
+export const RaceOpponentActivityItemSchema = RaceOpponentFindingSchema.extend({
+  newSinceLastVisit: z.boolean(),
+})
+export type RaceOpponentActivityItem = z.infer<
+  typeof RaceOpponentActivityItemSchema
+>
+
+// Mirrors the community-issues feed envelope exactly so the gp-webapp
+// IssueFeedList (ENG-10574) can render both feeds from one component: a
+// findings array plus a `refresh` block carrying the latest scheduled-research
+// run status and the last successful completion time.
 export const RaceOpponentActivityResponseSchema = z.object({
-  findings: z.array(RaceOpponentFindingSchema),
-  meta: PaginationMetaSchema,
+  findings: z.array(RaceOpponentActivityItemSchema),
+  refresh: z.object({
+    status: z.enum(['running', 'completed', 'failed']),
+    lastCompletedAt: z.string().nullable(),
+  }),
 })
 export type RaceOpponentActivityResponse = z.infer<
   typeof RaceOpponentActivityResponseSchema

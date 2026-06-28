@@ -128,23 +128,120 @@ export class OpponentResearchService extends createPrismaBase(
       )
     }
 
-    const params = await this.buildParams(campaign, opponentName)
+    const bound = await this.claimAndDispatch(campaign, clerkUserId, {
+      existing,
+      opponentName,
+      electionCandidacyId: request.electionCandidacyId ?? null,
+    })
 
-    // Claim the row BEFORE the external dispatch (DB-claim-before-external-call):
-    // queued with runId still null and attempts incremented. If dispatch then
-    // fails, the claim is rolled back to failed (scoped to this exact row) so the
-    // user can retry — no ExperimentRun/SQS orphan with no research row to
-    // receive its result.
+    return { research: this.toResearch(bound) }
+  }
+
+  // Scheduled re-dispatch entry: force a fresh opponent_research run for an
+  // already-persisted opponent row, bypassing start()'s reuse-completed early
+  // return (a completed pass is exactly what the schedule refreshes). The
+  // attempt cap still bounds a row that keeps failing, and replace-on-persist
+  // keyed by runId means the next run's findings supersede this row's without
+  // duplicating. Returns false when nothing was dispatched (cap reached or
+  // dispatch unavailable) so the cron can count it.
+  async redispatchForRow(
+    campaign: CampaignWith<'user'>,
+    row: RaceOpponentResearchRow,
+  ): Promise<boolean> {
+    const clerkUserId = campaign.user?.clerkId
+    if (!clerkUserId) return false
+    if (!row.opponentName) return false
+    if (row.attempts >= MAX_OPPONENT_RESEARCH_ATTEMPTS) return false
+
+    // Build params before claiming so a params failure can't leave a claimed
+    // row stranded in queued (mirrors the user start() ordering).
+    const params = await this.buildParams(campaign, row.opponentName)
+
+    // Atomic settled->queued claim. The cron's hasInFlightRun check reads the
+    // ExperimentRun table, but a concurrent user start() flips the row to
+    // queued (runId still null) BEFORE its dispatchRun creates an ExperimentRun
+    // — so a read-then-write re-check would still race and double-dispatch.
+    // Making the status transition itself the guard (updateMany WHERE
+    // status IN (completed, failed)) means exactly one path can move the row out
+    // of settled; if count===0 another path already claimed it, so we skip.
+    const { count } = await this.model.updateMany({
+      where: {
+        id: row.id,
+        status: {
+          in: [
+            RaceOpponentResearchStatus.completed,
+            RaceOpponentResearchStatus.failed,
+          ],
+        },
+      },
+      data: {
+        status: RaceOpponentResearchStatus.queued,
+        runId: null,
+        attempts: { increment: 1 },
+        completedAt: null,
+      },
+    })
+    if (count === 0) return false
+
+    try {
+      await this.dispatchAndBind(campaign, clerkUserId, row.id, params)
+      return true
+    } catch (error) {
+      this.logger.error(
+        { err: error, campaignId: campaign.id, opponentRowId: row.id },
+        'scheduled opponent_research re-dispatch failed for row; continuing',
+      )
+      // dispatchAndBind already attempts rollbackClaim, but that rollback is
+      // swallowed on failure — leaving the row queued/runId:null, which the cron
+      // never re-selects (it queries only completed/failed) and hasInFlightRun
+      // can't recover (no ExperimentRun). Secondary rollback scoped to a
+      // still-queued row so it self-heals next tick; the user path is unaffected
+      // (it surfaces dispatch errors to the caller instead).
+      await this.model
+        .updateMany({
+          where: { id: row.id, status: RaceOpponentResearchStatus.queued },
+          data: {
+            status: RaceOpponentResearchStatus.failed,
+            attempts: { decrement: 1 },
+          },
+        })
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, opponentRowId: row.id },
+            'secondary rollback also failed; row may remain stuck in queued',
+          ),
+        )
+      return false
+    }
+  }
+
+  // Claim the row BEFORE the external dispatch (DB-claim-before-external-call):
+  // queued with runId still null and attempts incremented. If dispatch then
+  // fails, the claim is rolled back to failed (scoped to this exact row) so the
+  // user can retry — no ExperimentRun/SQS orphan with no research row to
+  // receive its result. Shared by the user-driven start() and the scheduled
+  // re-dispatch so the two paths can't drift on claim/dispatch/bind ordering.
+  private async claimAndDispatch(
+    campaign: CampaignWith<'user'>,
+    clerkUserId: string,
+    opts: {
+      existing: RaceOpponentResearchRow | null
+      opponentName: string
+      electionCandidacyId: string | null
+    },
+  ): Promise<RaceOpponentResearchRow> {
+    const params = await this.buildParams(campaign, opts.opponentName)
+
     let claimed: RaceOpponentResearchRow
-    if (existing) {
+    if (opts.existing) {
       claimed = await this.model.update({
-        where: { id: existing.id },
+        where: { id: opts.existing.id },
         data: {
           status: RaceOpponentResearchStatus.queued,
           runId: null,
           attempts: { increment: 1 },
           completedAt: null,
-          electionCandidacyId: request.electionCandidacyId ?? null,
+          electionCandidacyId: opts.electionCandidacyId,
         },
       })
     } else {
@@ -153,26 +250,38 @@ export class OpponentResearchService extends createPrismaBase(
           data: {
             campaignId: campaign.id,
             kind: RaceOpponentFindingKind.opponent,
-            opponentName,
-            electionCandidacyId: request.electionCandidacyId ?? null,
+            opponentName: opts.opponentName,
+            electionCandidacyId: opts.electionCandidacyId,
             status: RaceOpponentResearchStatus.queued,
             attempts: 1,
           },
         })
       } catch (error) {
         // Concurrent POST won the (campaignId, opponent, opponentName) claim.
-        // The loser trips P2002 here — return the winner's in-flight row
+        // The loser trips P2002 here — surface the winner's in-flight row
         // instead of dispatching a duplicate run.
         if (isUniqueConstraintError(error)) {
-          const winner = await this.opponentRow(campaign.id, opponentName)
-          if (winner) {
-            return { research: this.toResearch(winner) }
-          }
+          const winner = await this.opponentRow(campaign.id, opts.opponentName)
+          if (winner) return winner
         }
         throw error
       }
     }
 
+    return this.dispatchAndBind(campaign, clerkUserId, claimed.id, params)
+  }
+
+  // Dispatch the agent run for an already-claimed row, then bind its runId.
+  // Both the user start() claim and the cron's atomic settled->queued claim
+  // feed into this so the dispatch/bind/rollback ordering stays single-sourced.
+  // On any dispatch or bind failure the claim is rolled back (scoped to this
+  // row id) so it never sits queued-with-null-runId.
+  private async dispatchAndBind(
+    campaign: CampaignWith<'user'>,
+    clerkUserId: string,
+    claimedId: number,
+    params: OpponentResearchInput,
+  ): Promise<RaceOpponentResearchRow> {
     let run: Awaited<ReturnType<typeof this.experimentRuns.dispatchRun>>
     try {
       run = await this.experimentRuns.dispatchRun({
@@ -182,12 +291,12 @@ export class OpponentResearchService extends createPrismaBase(
         params,
       })
     } catch (error) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw error
     }
 
     if (!run) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw new BadRequestException(
         'Opponent research is not available in this environment.',
       )
@@ -197,18 +306,15 @@ export class OpponentResearchService extends createPrismaBase(
     // by-runId lookup resolves. Runs before any callback can arrive (QUEUED on
     // SQS). If the bind throws, roll the row to failed so the user can
     // re-trigger — the row is never left queued-with-null-runId.
-    let bound: RaceOpponentResearchRow
     try {
-      bound = await this.model.update({
-        where: { id: claimed.id },
+      return await this.model.update({
+        where: { id: claimedId },
         data: { runId: run.runId },
       })
     } catch (error) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw error
     }
-
-    return { research: this.toResearch(bound) }
   }
 
   async profile(

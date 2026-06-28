@@ -309,6 +309,11 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
         data: {
           status: RaceOpponentResearchStatus.completed,
           completedAt: new Date(),
+          // Reset the lifetime attempt counter on success so a row that the
+          // scheduled refresh re-dispatches each day can't accumulate past the
+          // attempts cap and become permanently un-dispatchable. The cap only
+          // exists to bound a row that keeps FAILING.
+          attempts: 0,
         },
       })
     })
