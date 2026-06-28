@@ -5,6 +5,7 @@ import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.modu
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
+import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { RaceOpponentController } from './raceOpponent.controller'
 import { RaceOpponentService } from './services/raceOpponent.service'
 import { RaceOpponentPersistService } from './services/raceOpponentPersist.service'
@@ -12,6 +13,9 @@ import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
 import { RaceOpponentResearchPersistService } from './services/raceOpponentResearchPersist.service'
 import { OpponentResearchService } from './services/opponentResearch.service'
+import { ContrastToneService } from './services/contrastTone.service'
+import { ContrastEngineService } from './services/contrastEngine.service'
+import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
 
 @Module({
   imports: [
@@ -20,6 +24,7 @@ import { OpponentResearchService } from './services/opponentResearch.service'
     AgentExperimentsModule,
     AwsModule,
     CampaignStrategyModule,
+    ArtifactReviewModule,
   ],
   controllers: [RaceOpponentController],
   providers: [
@@ -30,6 +35,9 @@ import { OpponentResearchService } from './services/opponentResearch.service'
     RaceOpponentResearchPersistService,
     OpponentResearchService,
     ElectionApiService,
+    ContrastToneService,
+    ContrastEngineService,
+    ContrastReviewVerdictService,
   ],
   exports: [
     RaceOpponentPersistService,
