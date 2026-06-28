@@ -67,16 +67,30 @@ const seedOpponentResearch = (
     },
   })
 
-const seedRun = (runId: string, status: ExperimentRunStatus) =>
+const seedRun = (
+  runId: string,
+  status: ExperimentRunStatus,
+  experimentType = 'opponent_research',
+) =>
   service.prisma.experimentRun.create({
     data: {
       runId,
       organizationSlug: SLUG,
-      experimentType: 'opponent_research',
+      experimentType,
       status,
       ...(status === ExperimentRunStatus.COMPLETED
         ? { artifactBucket: 'bucket', artifactKey: `${runId}.json` }
         : {}),
+    },
+  })
+
+const seedSelfRunning = (campaignId: number, runId: string) =>
+  service.prisma.raceOpponentResearch.create({
+    data: {
+      campaignId,
+      kind: RaceOpponentFindingKind.self,
+      status: RaceOpponentResearchStatus.running,
+      runId,
     },
   })
 
@@ -339,6 +353,49 @@ describe('Opponent research dispatch + persist', () => {
     })
   })
 
+  describe('the self-research + access gates on GET /opponents/profile', () => {
+    it('403s profile when no self-research pass is completed', async () => {
+      await seedCampaign({ isPro: true })
+      flagOn()
+
+      const result = await service.client.get(PROFILE_PATH, {
+        headers: { [ORG_SLUG_HEADER]: SLUG },
+        params: { opponentName: OPPONENT },
+      })
+
+      expect(result.status).toBe(403)
+    })
+
+    it('403s profile for a non-Pro campaign with a completed self pass', async () => {
+      const campaign = await seedCampaign({ isPro: false })
+      await seedSelfComplete(campaign.id)
+      flagOn()
+
+      const result = await service.client.get(PROFILE_PATH, {
+        headers: { [ORG_SLUG_HEADER]: SLUG },
+        params: { opponentName: OPPONENT },
+      })
+
+      expect(result.status).toBe(403)
+    })
+
+    it('403s profile when the flag is off with a completed self pass', async () => {
+      const campaign = await seedCampaign({ isPro: true })
+      await seedSelfComplete(campaign.id)
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+
+      const result = await service.client.get(PROFILE_PATH, {
+        headers: { [ORG_SLUG_HEADER]: SLUG },
+        params: { opponentName: OPPONENT },
+      })
+
+      expect(result.status).toBe(403)
+    })
+  })
+
   describe('POST /opponents/identify', () => {
     it('defaults opponent names from the roster, excluding the candidate', async () => {
       const campaign = await seedCampaign({ isPro: true })
@@ -431,6 +488,41 @@ describe('Opponent research dispatch + persist', () => {
       expect(findings).toHaveLength(1)
       expect(findings[0].sourceUrl).toBe(DATASET_REF)
       expect(findings[0].sourceReachableAt).not.toBeNull()
+      expect(checkReachable).not.toHaveBeenCalled()
+    })
+
+    it('drops a self-research finding whose source_url is an l2: ref (no dataset path for self)', async () => {
+      await seedSelfRunning(campaignId, 'self-l2')
+      const run = await seedRun(
+        'self-l2',
+        ExperimentRunStatus.COMPLETED,
+        'self_research',
+      )
+      // A self finding can never legitimately carry an l2: source (self-research
+      // has no L2 path) — the URL-scheme schema rejects it at parse, so it must
+      // never be persisted as grounded without the reachability check.
+      stubArtifact([
+        {
+          category: 'record',
+          claim: 'Fabricated dataset-sourced self claim',
+          drafted_response: 'A response that should never persist.',
+          source_extract: 'Registration state: SC.',
+          source_url: DATASET_REF,
+        },
+      ])
+      const checkReachable = stubReachability()
+
+      await service.app
+        .get(RaceOpponentResearchPersistService)
+        .onExperimentRunCompleted(run)
+
+      const research =
+        await service.prisma.raceOpponentResearch.findFirstOrThrow({
+          where: { campaignId, kind: RaceOpponentFindingKind.self },
+          include: { findings: true },
+        })
+      expect(research.status).toBe(RaceOpponentResearchStatus.completed)
+      expect(research.findings).toHaveLength(0)
       expect(checkReachable).not.toHaveBeenCalled()
     })
 

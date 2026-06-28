@@ -25,13 +25,22 @@ import {
 
 const REACHABILITY_TIMEOUT_MS = 10_000
 
+const HTTP_URL_PATTERN = /^https?:\/\//
+
+// Self-research has no L2/dataset path, so a self finding's source_url MUST be a
+// fetchable http(s) URL. Enforcing the scheme at parse means an l2:/non-URL self
+// finding (hallucination or injection) fails per-item validation and is dropped
+// — it can never reach isDatasetRef and be persisted as "grounded" without the
+// network check.
+const httpSourceUrl = z.string().regex(HTTP_URL_PATTERN)
+
 // Self-research findings are sourced-or-silent and carry a drafted response.
 const SelfFindingSchema = z.object({
   category: z.string().min(1),
   claim: z.string().min(1),
   drafted_response: z.string().min(1),
   source_extract: z.string().min(1),
-  source_url: z.string().min(1),
+  source_url: httpSourceUrl,
   source_title: z.string().optional(),
   occurred_at: z.string().nullable().optional(),
 })
@@ -39,7 +48,8 @@ const SelfFindingSchema = z.object({
 // Opponent-research findings are sourced-or-silent too, but carry NO drafted
 // response (the candidate drafts contrasts separately). source_url is either a
 // fetchable http(s) URL (web finding) or a dataset reference like 'l2:...'
-// (residency finding) — both are non-empty.
+// (residency finding) — both are non-empty; the dataset ref is the only case
+// that legitimately skips the network reachability check.
 const OpponentFindingSchema = z.object({
   category: z.string().min(1),
   claim: z.string().min(1),
