@@ -975,6 +975,10 @@ export type RaceOpponentSummary = {
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
+    // Enriched from the campaign-strategy opponent roster by name match; null
+    // when the collected name doesn't match a roster row (don't guess).
+    party: string | null
+    isIncumbent: boolean | null
     items: RaceOpponentItem[]
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.

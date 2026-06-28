@@ -9,7 +9,39 @@ import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponen
 import RaceOpponentList from './components/RaceOpponentList'
 import ContrastList from './components/ContrastList'
 import RegenerateContrasts from './components/RegenerateContrasts'
-import type { ContrastRecord } from 'gpApi/api-endpoints'
+import type { ContrastRecord, RaceOpponentResponse } from 'gpApi/api-endpoints'
+
+const EMPTY_RACE_OPPONENT: RaceOpponentResponse = {
+  opponents: [],
+  lastCollectedAt: null,
+  collectionStatus: 'idle',
+}
+
+const raceContextFor = (
+  office: string | undefined,
+  district: string | undefined,
+  electionDate: string | undefined,
+): string | undefined => {
+  const parts: string[] = []
+  const place = [office, district].filter(Boolean).join(', ')
+  if (place) {
+    parts.push(place)
+  }
+  if (electionDate) {
+    const date = new Date(electionDate)
+    if (!Number.isNaN(date.getTime())) {
+      parts.push(
+        `Election ${date.toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        })}`,
+      )
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : undefined
+}
 
 const meta = pageMetaData({
   title: 'Know your opponent | GoodParty.org',
@@ -27,22 +59,40 @@ export default async function Page(): Promise<React.JSX.Element> {
     redirect('/dashboard/pro-upgrade')
   }
 
-  const { data } = await serverRequest(
+  // serverRequest only returns { ok: false } on non-2xx with
+  // ignoreResponseError; without it ofetch.raw throws a FetchError on any
+  // non-2xx and the RSC render 500s instead of showing the empty state. On a
+  // non-ok response `data` is the error body, not a RaceOpponentResponse, so
+  // fall back to an empty shape rather than reading .opponents off it.
+  const raceOpponentResult = await serverRequest(
     'GET /v1/campaigns/mine/race-opponent',
     {},
+    { ignoreResponseError: true },
   )
+  const initialData: RaceOpponentResponse = raceOpponentResult.ok
+    ? raceOpponentResult.data
+    : EMPTY_RACE_OPPONENT
 
   // Contrasts are gated server-side on a completed self-research pass: the
-  // endpoint 403s until then. serverRequest returns { ok: false } on non-2xx
-  // (it does not throw), so guard on .ok — accessing .contrasts on the error
+  // endpoint 403s until then (the path for every new user). serverRequest only
+  // returns { ok: false } on non-2xx with ignoreResponseError; without it
+  // ofetch.raw throws a FetchError before .ok is read, so the [] fallback never
+  // runs and the render 500s. Guard on .ok — accessing .contrasts on the error
   // body would be undefined and crash ContrastList's filter.
   const contrastResult = await serverRequest(
     'GET /v1/campaigns/mine/race-opponent/contrasts',
     {},
+    { ignoreResponseError: true },
   )
   const contrasts: ContrastRecord[] = contrastResult.ok
     ? contrastResult.data.contrasts
     : []
+
+  const raceContext = raceContextFor(
+    campaign.details?.normalizedOffice ?? undefined,
+    campaign.details?.district,
+    campaign.details?.electionDate,
+  )
 
   return (
     <DashboardLayout
@@ -51,7 +101,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       wrapperClassName="!p-0"
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
-        <RaceOpponentList initialData={data} />
+        <RaceOpponentList initialData={initialData} raceContext={raceContext} />
         <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex flex-col gap-0.5">
