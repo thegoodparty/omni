@@ -8,6 +8,7 @@ import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import RaceOpponentList from './components/RaceOpponentList'
 import ContrastList from './components/ContrastList'
+import RegenerateContrasts from './components/RegenerateContrasts'
 import type { ContrastRecord } from 'gpApi/api-endpoints'
 
 const meta = pageMetaData({
@@ -52,15 +53,18 @@ export default async function Page(): Promise<React.JSX.Element> {
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
         <RaceOpponentList initialData={data} />
         <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-xl font-semibold text-foreground">
-              Review your contrasts
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Each contrast pairs a sourced opponent fact with your position.
-              Edit the wording, then route it to your Campaign Story or Texting
-              as a draft. Nothing sends automatically.
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="text-xl font-semibold text-foreground">
+                Review your contrasts
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Each contrast pairs a sourced opponent fact with your position.
+                Edit the wording, then route it to your Campaign Story or
+                Texting as a draft. Nothing sends automatically.
+              </p>
+            </div>
+            <RegenerateContrasts />
           </div>
           <ContrastList initialContrasts={contrasts} />
         </section>
