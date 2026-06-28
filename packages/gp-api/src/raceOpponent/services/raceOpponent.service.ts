@@ -193,13 +193,40 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
 
     return {
-      opponents: this.groupByOpponent(rows),
+      opponents: this.groupByOpponent(rows, await this.loadRoster(campaign.id)),
       lastCollectedAt: this.lastCollectedAt(rows),
       collectionStatus: await this.collectionStatus(
         campaign.id,
         campaign.organizationSlug,
       ),
     }
+  }
+
+  // The campaign-strategy opponent roster (already populated by the plan;
+  // CampaignStrategyOpponent carries party + incumbency). Read here only to
+  // enrich the grouped response — no new external call, this is the same
+  // relation collect() reads via loadOpposition. Keyed by normalized name so
+  // groupByOpponent can resolve party/incumbency per collected opponent.
+  private async loadRoster(
+    campaignId: number,
+  ): Promise<
+    Map<string, { party: string | null; isIncumbent: boolean | null }>
+  > {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      include: { opponents: true },
+    })
+    const byName = new Map<
+      string,
+      { party: string | null; isIncumbent: boolean | null }
+    >()
+    for (const opponent of plan?.opponents ?? []) {
+      byName.set(opponent.fullName.trim().toLowerCase(), {
+        party: opponent.partyAffiliation,
+        isIncumbent: opponent.incumbent ?? null,
+      })
+    }
+    return byName
   }
 
   private async buildOpponents(
@@ -261,6 +288,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   private groupByOpponent(
     rows: RaceOpponentRow[],
+    roster: Map<string, { party: string | null; isIncumbent: boolean | null }>,
   ): RaceOpponentResponse['opponents'] {
     const byName = new Map<string, RaceOpponent[]>()
     for (const row of rows) {
@@ -275,10 +303,18 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       })
       byName.set(row.opponentName, items)
     }
-    return [...byName.entries()].map(([opponentName, items]) => ({
-      opponentName,
-      items,
-    }))
+    return [...byName.entries()].map(([opponentName, items]) => {
+      // Conservative name match against the roster: trim + lowercase only
+      // (mirrors opponentResearch.matchRosterCandidate). No match => both null
+      // rather than mis-attributing a party badge.
+      const match = roster.get(opponentName.trim().toLowerCase())
+      return {
+        opponentName,
+        party: match?.party ?? null,
+        isIncumbent: match?.isIncumbent ?? null,
+        items,
+      }
+    })
   }
 
   private lastCollectedAt(rows: RaceOpponentRow[]): Date | null {

@@ -450,6 +450,64 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
     expect(jane.items).toHaveLength(2)
   })
 
+  it('enriches opponents with party + incumbency on a roster match, null otherwise', async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const plan = await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id, raceId: RACE_HASH },
+    })
+    await service.prisma.campaignStrategyOpponent.create({
+      data: {
+        campaignStrategyId: plan.id,
+        // Different case + surrounding whitespace from the collected name: the
+        // conservative trim+lowercase match must still resolve it.
+        fullName: ` ${JANE.toUpperCase()} `,
+        partyAffiliation: 'Democratic',
+        incumbent: true,
+      },
+    })
+    await service.prisma.raceOpponent.createMany({
+      data: [
+        {
+          campaignId: campaign.id,
+          runId: 'run-x',
+          opponentName: JANE,
+          sourceType: BALLOTPEDIA,
+          sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+          content: { text: 'bio' },
+        },
+        {
+          campaignId: campaign.id,
+          runId: 'run-x',
+          opponentName: 'Unknown Foe',
+          sourceType: BALLOTPEDIA,
+          sourceUrl: 'https://ballotpedia.org/Unknown_Foe',
+          content: { text: 'bio2' },
+        },
+      ],
+    })
+    flagOn()
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    const jane = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(jane.party).toBe('Democratic')
+    expect(jane.isIncumbent).toBe(true)
+    const foe = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === 'Unknown Foe',
+    )
+    expect(foe.party).toBeNull()
+    expect(foe.isIncumbent).toBeNull()
+  })
+
   it('returns a clean empty response when nothing has been collected', async () => {
     await seedCampaign({ slug: SLUG, ownerId: service.user.id, isPro: true })
     flagOn()
