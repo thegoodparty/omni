@@ -65,70 +65,80 @@ export class ContrastRoutingService extends createPrismaBase(
   // route can't leave a contrast `used` with no draft, nor a draft with the
   // contrast still routable. The updateMany scoped to the routable statuses is
   // the atomic claim: count 0 means a concurrent route already used it, which
-  // rolls back the target write too.
+  // rolls back the target write too. Serializable because this is a read-then-
+  // write on the campaign's single shared `issues` text: two routes for the
+  // same campaign with different contrasts both read the same `issues`, append,
+  // and the per-contrast claim does not serialize them — at Read Committed the
+  // second commit would clobber the first's appended sentence.
   private async routeToStory(
     campaignId: number,
     contrastId: number,
   ): Promise<RouteContrastToStoryResponse> {
-    return this.client.$transaction(async (tx) => {
-      const contrast = await this.assertRoutable(tx, campaignId, contrastId)
+    return this.client.$transaction(
+      async (tx) => {
+        const contrast = await this.assertRoutable(tx, campaignId, contrastId)
 
-      const existing = await tx.campaignStory.findUnique({
-        where: { campaignId },
-        select: { issues: true },
-      })
-      const issues = appendIssue(
-        existing?.issues ?? null,
-        contrast.contrastSentence,
-      )
-      const story = await tx.campaignStory.upsert({
-        where: { campaignId },
-        create: { campaignId, issues },
-        update: { issues },
-      })
+        const existing = await tx.campaignStory.findUnique({
+          where: { campaignId },
+          select: { issues: true },
+        })
+        const issues = appendIssue(
+          existing?.issues ?? null,
+          contrast.contrastSentence,
+        )
+        const story = await tx.campaignStory.upsert({
+          where: { campaignId },
+          create: { campaignId, issues },
+          update: { issues },
+        })
 
-      await this.claim(tx, contrastId, { routedStoryId: story.id })
+        await this.claim(tx, contrastId, { routedStoryId: story.id })
 
-      return {
-        contrast: contrastToDTO({
-          ...contrast,
+        return {
+          contrast: contrastToDTO({
+            ...contrast,
+            routedStoryId: story.id,
+            status: RaceOpponentContrastStatus.used,
+          }),
           routedStoryId: story.id,
-          status: RaceOpponentContrastStatus.used,
-        }),
-        routedStoryId: story.id,
-      }
-    })
+        }
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
   }
 
   private async routeToTexting(
     campaignId: number,
     contrastId: number,
   ): Promise<RouteContrastToTextingResponse> {
-    return this.client.$transaction(async (tx) => {
-      const contrast = await this.assertRoutable(tx, campaignId, contrastId)
+    return this.client.$transaction(
+      async (tx) => {
+        const contrast = await this.assertRoutable(tx, campaignId, contrastId)
 
-      const outreach = await tx.outreach.create({
-        data: {
-          campaignId,
-          outreachType: OutreachType.text,
-          status: OutreachStatus.pending,
-          name: `Contrast: ${contrast.issueTag}`,
-          message: contrast.contrastSentence,
-          script: contrast.contrastSentence,
-        },
-      })
+        const outreach = await tx.outreach.create({
+          data: {
+            campaignId,
+            outreachType: OutreachType.text,
+            status: OutreachStatus.pending,
+            name: `Contrast: ${contrast.issueTag}`,
+            message: contrast.contrastSentence,
+            script: contrast.contrastSentence,
+          },
+        })
 
-      await this.claim(tx, contrastId, { routedOutreachId: outreach.id })
+        await this.claim(tx, contrastId, { routedOutreachId: outreach.id })
 
-      return {
-        contrast: contrastToDTO({
-          ...contrast,
+        return {
+          contrast: contrastToDTO({
+            ...contrast,
+            routedOutreachId: outreach.id,
+            status: RaceOpponentContrastStatus.used,
+          }),
           routedOutreachId: outreach.id,
-          status: RaceOpponentContrastStatus.used,
-        }),
-        routedOutreachId: outreach.id,
-      }
-    })
+        }
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
   }
 
   private async assertRoutable(

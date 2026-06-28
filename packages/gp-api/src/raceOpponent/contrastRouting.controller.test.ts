@@ -220,4 +220,24 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
     expect(row.routedStoryId).toBeNull()
   })
+
+  it('403s route when no self-research pass is completed (the gate)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    // No completed self-research pass seeded — the gate must reject.
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(403)
+    // The gate fired before any write — nothing routed.
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
+    expect(row.routedStoryId).toBeNull()
+  })
 })
