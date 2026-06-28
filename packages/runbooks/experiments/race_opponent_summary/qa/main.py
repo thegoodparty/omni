@@ -95,7 +95,7 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     if jsonschema is None:
         fragments.append({
             "name": "schema_valid",
-            "passed": True,
+            "passed": False,
             "type": "deterministic",
             "severity": "warning",
             "detail": "skipped — jsonschema not installed in the gate environment",
