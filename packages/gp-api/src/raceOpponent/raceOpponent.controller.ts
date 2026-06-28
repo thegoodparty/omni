@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -13,6 +14,10 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
+  ContrastResponse,
+  ContrastResponseSchema,
+  EditContrastRequest,
+  EditContrastRequestSchema,
   GenerateContrastsResponse,
   GenerateContrastsResponseSchema,
   IdentifyOpponentsResponse,
@@ -61,6 +66,7 @@ import { RaceOpponentActivityService } from './services/raceOpponentActivity.ser
 import { ContrastEngineService } from './services/contrastEngine.service'
 import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
 import { ContrastRoutingService } from './services/contrastRouting.service'
+import { ContrastEditService } from './services/contrastEdit.service'
 import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
@@ -79,6 +85,7 @@ export class RaceOpponentController {
     private readonly contrastEngine: ContrastEngineService,
     private readonly contrastReviewVerdict: ContrastReviewVerdictService,
     private readonly contrastRouting: ContrastRoutingService,
+    private readonly contrastEdit: ContrastEditService,
   ) {}
 
   // collect is the functional opponent trigger (it dispatches opponent
@@ -229,6 +236,24 @@ export class RaceOpponentController {
       id,
       body.target,
     )
+  }
+
+  // Candidate edits a contrast's text before routing it. Owner-scoped and gated
+  // identically to the route path (Pro+flag+self-research). Only cleared or
+  // approved contrasts are editable; the service increments editCount and fires
+  // Win - Contrast Edited. Nothing sends — this only updates draft text.
+  @Patch('contrasts/:id')
+  @ResponseSchema(ContrastResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async editContrast(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(EditContrastRequestSchema))
+    body: EditContrastRequest,
+  ): Promise<ContrastResponse> {
+    await this.raceOpponent.assertAccess(campaign)
+    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
+    return this.contrastEdit.edit(campaign.id, campaign.userId, id, body)
   }
 
   // Reviewer (Campaign Success) applies the fair-line verdict. Admin-human-only
