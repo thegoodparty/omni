@@ -1,10 +1,24 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
+import {
+  RaceOpponentSummary,
+  RaceOpponentSummarySchema,
+  SummarySourceRef,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { ExperimentRun, ExperimentRunStatus } from '@/generated/prisma'
+import {
+  ExperimentRun,
+  ExperimentRunStatus,
+  RaceOpponentSourceType,
+} from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { RACE_OPPONENT_COLLECTION } from '../raceOpponent.constants'
+import { CampaignWith } from '@/campaigns/campaigns.types'
+import {
+  RACE_OPPONENT_COLLECTION,
+  RACE_OPPONENT_SUMMARY,
+} from '../raceOpponent.constants'
+import { RaceOpponentService } from './raceOpponent.service'
 
 // The collection agent only ever emits these two web-discovered source types;
 // campaign_plan_db (the Prisma enum's third value) is reserved for a later
@@ -25,6 +39,32 @@ const ArtifactEnvelopeSchema = z.object({
 
 type ArtifactItem = z.infer<typeof ArtifactItemSchema>
 
+// The summary artifact (race_opponent_summary output). Each section carries a
+// non-empty flat list of source URLs (the @minItems 1 in the output schema);
+// the persist below upgrades those URLs to { sourceType, sourceUrl } before
+// validating against the contract. Parsed strictly — an artifact whose section
+// has no source URL fails here and never persists a partial/unsourced summary.
+const ArtifactSummarySectionSchema = z.object({
+  text: z.string(),
+  sources: z.array(z.string().min(1)).min(1),
+})
+const ArtifactKeyPositionSchema = z.object({
+  label: z.string(),
+  detail: z.string(),
+  sources: z.array(z.string().min(1)).min(1),
+})
+const ArtifactSummaryOpponentSchema = z.object({
+  opponent_name: z.string(),
+  overview: ArtifactSummarySectionSchema.nullable(),
+  background: ArtifactSummarySectionSchema.nullable(),
+  key_positions: z.array(ArtifactKeyPositionSchema),
+})
+const ArtifactSummaryEnvelopeSchema = z.object({
+  generated_at: z.string(),
+  opponents: z.array(ArtifactSummaryOpponentSchema).min(1),
+})
+type ArtifactSummaryOpponent = z.infer<typeof ArtifactSummaryOpponentSchema>
+
 @Injectable()
 export class RaceOpponentPersistService extends createPrismaBase(
   MODELS.RaceOpponent,
@@ -32,21 +72,27 @@ export class RaceOpponentPersistService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly raceOpponent: RaceOpponentService,
   ) {
     super()
   }
 
-  // Queue-consumer hook: a race_opponent_collection run completed. Load its
-  // artifact and replace the campaign's collected rows. No-op for any other
-  // experiment type or a non-COMPLETED status.
+  // Queue-consumer hook: route a completed race_opponent run to its handler.
+  // No-op for any other experiment type or a non-COMPLETED status.
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
-    if (run.experimentType !== RACE_OPPONENT_COLLECTION) return
     if (run.status !== ExperimentRunStatus.COMPLETED) return
+    if (run.experimentType === RACE_OPPONENT_COLLECTION) {
+      await this.onCollectionCompleted(run)
+    } else if (run.experimentType === RACE_OPPONENT_SUMMARY) {
+      await this.onSummaryCompleted(run)
+    }
+  }
 
-    const campaign = await this.client.campaign.findUnique({
-      where: { organizationSlug: run.organizationSlug },
-      select: { id: true },
-    })
+  // A race_opponent_collection run completed. Load its artifact, replace the
+  // campaign's collected rows, then chain the summary structuring run so a
+  // successful collection automatically produces a fresh summary.
+  private async onCollectionCompleted(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
 
     // A COMPLETED run with no artifact can never be persisted; fail it so the
@@ -94,6 +140,65 @@ export class RaceOpponentPersistService extends createPrismaBase(
       )
       throw error
     }
+
+    // Fire-and-forget: the structuring run persists on its own completion
+    // event. dispatchSummary reads the rows just committed above and skips when
+    // none survived. A dispatch failure must not fail the collection run —
+    // the collection's rows are already persisted and the summary can be
+    // re-dispatched on the next collection — so log rather than rethrow.
+    try {
+      await this.raceOpponent.dispatchSummary(campaign)
+    } catch (error) {
+      this.logger.error(
+        { runId: run.runId, error },
+        'failed to chain race_opponent_summary dispatch after collection',
+      )
+    }
+  }
+
+  // A race_opponent_summary run completed. Load its artifact, upgrade each
+  // section's flat source URLs to { sourceType, sourceUrl } (resolved against
+  // the campaign's collected rows), validate against the contract, then
+  // idempotently replace the campaign's persisted summaries.
+  private async onSummaryCompleted(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+
+    if (!run.artifactBucket || !run.artifactKey) {
+      await this.experimentRuns.markFailed(
+        run.runId,
+        'completed run has no artifact location',
+      )
+      throw new Error(`run ${run.runId} completed without an artifact location`)
+    }
+
+    try {
+      const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
+      if (!raw) throw new Error('artifact is missing or empty')
+      const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
+
+      const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
+      const summaries = envelope.opponents.map((opponent) =>
+        this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+      )
+
+      await this.replaceSummaries(campaign.id, run.runId, summaries)
+    } catch (error) {
+      await this.experimentRuns.markFailed(
+        run.runId,
+        error instanceof Error ? error.message : String(error),
+      )
+      throw error
+    }
+  }
+
+  private loadCampaign(
+    organizationSlug: string,
+  ): Promise<CampaignWith<'user'> | null> {
+    return this.client.campaign.findUnique({
+      where: { organizationSlug },
+      include: { user: true },
+    })
   }
 
   // Sourced-or-silent (Phase 0): every kept item must carry a non-null
@@ -145,4 +250,92 @@ export class RaceOpponentPersistService extends createPrismaBase(
       })
     })
   }
+
+  // The collected rows are the authority for each URL's source type: the
+  // summary artifact carries only flat URLs, and the persisted contract shape
+  // pairs each with its type. A URL the artifact cites but no collected row
+  // carries can't be a real source (the agent is given only collected URLs), so
+  // it falls back to opponent_website rather than dropping the source — the
+  // contract requires a type and the URL is still attributable.
+  private async sourceTypeByUrl(
+    campaignId: number,
+  ): Promise<Map<string, RaceOpponentSourceType>> {
+    const rows = await this.client.raceOpponent.findMany({
+      where: { campaignId },
+      select: { sourceUrl: true, sourceType: true },
+    })
+    const byUrl = new Map<string, RaceOpponentSourceType>()
+    for (const row of rows) {
+      if (row.sourceUrl) byUrl.set(row.sourceUrl, row.sourceType)
+    }
+    return byUrl
+  }
+
+  // Map one artifact opponent (snake_case, flat string[] sources) into the
+  // contract summary shape (camelCase, { sourceType, sourceUrl } sources), then
+  // validate against the contract. A section missing a source URL fails the
+  // strict envelope parse upstream, so by here every section is sourced; the
+  // contract re-validation is the final sourced-or-silent gate before persist.
+  private mapSummary(
+    opponent: ArtifactSummaryOpponent,
+    generatedAt: string,
+    sourceTypeByUrl: Map<string, RaceOpponentSourceType>,
+  ): RaceOpponentSummary {
+    const refs = (urls: string[]): SummarySourceRef[] =>
+      urls.map((url) => ({
+        sourceType:
+          sourceTypeByUrl.get(url) ?? RaceOpponentSourceType.opponent_website,
+        sourceUrl: url,
+      }))
+
+    return RaceOpponentSummarySchema.parse({
+      opponentName: opponent.opponent_name,
+      overview: opponent.overview
+        ? {
+            text: opponent.overview.text,
+            sources: refs(opponent.overview.sources),
+          }
+        : null,
+      background: opponent.background
+        ? {
+            text: opponent.background.text,
+            sources: refs(opponent.background.sources),
+          }
+        : null,
+      keyPositions: opponent.key_positions.map((position) => ({
+        label: position.label,
+        detail: position.detail,
+        sources: refs(position.sources),
+      })),
+      generatedAt,
+    })
+  }
+
+  // Idempotent replace-on-persist for summaries: delete the campaign's existing
+  // summary rows and re-insert one per opponent in one transaction, keyed by
+  // (campaignId, opponentName), so a re-run overwrites cleanly rather than
+  // accumulating duplicates.
+  private async replaceSummaries(
+    campaignId: number,
+    runId: string,
+    summaries: RaceOpponentSummary[],
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentSummary.createMany({
+        data: summaries.map((summary) => ({
+          campaignId,
+          runId,
+          opponentName: summary.opponentName,
+          // generatedAt is a coerced Date on the validated object; the JSON
+          // column needs a serializable value, and the read path re-coerces
+          // the stored ISO string back to a Date via the same schema.
+          sections: { ...summary, generatedAt: generatedAtIso(summary) },
+        })),
+      })
+    })
+  }
 }
+
+const generatedAtIso = (summary: RaceOpponentSummary): string | null =>
+  summary.generatedAt ? summary.generatedAt.toISOString() : null

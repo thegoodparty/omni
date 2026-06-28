@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
@@ -908,5 +909,304 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { runId: 'run-bad-envelope' },
     })
     expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
+  })
+})
+
+describe('race_opponent_summary dispatch / persist / read', () => {
+  const BALLOTPEDIA_URL = 'https://ballotpedia.org/Jane_Rival'
+  const WEBSITE_URL = 'https://janerival.com'
+
+  let campaignId: number
+
+  beforeEach(async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    campaignId = campaign.id
+    flagOn()
+  })
+
+  const loadCampaign = () =>
+    service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+
+  const seedCollectedRow = (
+    opts: Partial<{
+      opponentName: string
+      sourceType: 'ballotpedia' | 'opponent_website'
+      sourceUrl: string
+      text: string
+    }> = {},
+  ) =>
+    service.prisma.raceOpponent.create({
+      data: {
+        campaignId,
+        runId: 'collect-run',
+        opponentName: opts.opponentName ?? JANE,
+        sourceType: opts.sourceType ?? 'ballotpedia',
+        sourceUrl: opts.sourceUrl ?? BALLOTPEDIA_URL,
+        content: { text: opts.text ?? 'collected bio' },
+      },
+    })
+
+  const seedSummaryRun = (runId: string) =>
+    service.prisma.experimentRun.create({
+      data: {
+        runId,
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: `${runId}.json`,
+      },
+    })
+
+  const stubSummaryArtifact = (artifact: unknown) =>
+    vi
+      .spyOn(service.app.get(S3Service), 'getFile')
+      .mockResolvedValue(JSON.stringify(artifact))
+
+  const summaryArtifact = (overrides: Record<string, unknown> = {}) => ({
+    generated_at: '2026-06-28T00:00:00.000Z',
+    opponents: [
+      {
+        opponent_name: JANE,
+        overview: { text: 'who they are', sources: [BALLOTPEDIA_URL] },
+        background: { text: 'career', sources: [WEBSITE_URL] },
+        key_positions: [
+          {
+            label: 'Housing',
+            detail: 'supports zoning',
+            sources: [WEBSITE_URL],
+          },
+        ],
+        ...overrides,
+      },
+    ],
+  })
+
+  it('dispatchSummary builds the grouped per-source input from collected rows', async () => {
+    await seedCollectedRow({
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    })
+    await seedCollectedRow({
+      sourceType: 'opponent_website',
+      sourceUrl: WEBSITE_URL,
+      text: 'platform',
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'summary-1' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchSummary(await loadCampaign())
+
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'race_opponent_summary',
+        organizationSlug: SLUG,
+        params: expect.objectContaining({
+          opponents: [
+            {
+              opponent_name: JANE,
+              sources: [
+                {
+                  source_type: 'ballotpedia',
+                  source_url: BALLOTPEDIA_URL,
+                  text: 'collected bio',
+                },
+                {
+                  source_type: 'opponent_website',
+                  source_url: WEBSITE_URL,
+                  text: 'platform',
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+  })
+
+  it('dispatchSummary is a no-op when there are no collected rows', async () => {
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchSummary(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('chains a summary dispatch when a collection run completes', async () => {
+    await seedCollectedRow()
+    const collectionRun = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-done',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'collect-done.json',
+      },
+    })
+    vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(
+      JSON.stringify({
+        items: [
+          {
+            opponent_name: JANE,
+            source_type: 'ballotpedia',
+            source_url: BALLOTPEDIA_URL,
+            content: { text: 'bio' },
+          },
+        ],
+      }),
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'chained-summary' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(collectionRun)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_summary' }),
+    )
+  })
+
+  it('persists the artifact into race_opponent_summary and exposes it on the read endpoint', async () => {
+    await seedCollectedRow({
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    })
+    await seedCollectedRow({
+      sourceType: 'opponent_website',
+      sourceUrl: WEBSITE_URL,
+    })
+    const run = await seedSummaryRun('summary-persist')
+    stubSummaryArtifact(summaryArtifact())
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const stored = await service.prisma.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    expect(stored).toHaveLength(1)
+    expect(stored[0].opponentName).toBe(JANE)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary.opponentName).toBe(JANE)
+    expect(opponent.summary.overview.sources).toEqual([
+      { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+    ])
+    expect(opponent.summary.background.sources).toEqual([
+      { sourceType: 'opponent_website', sourceUrl: WEBSITE_URL },
+    ])
+    expect(opponent.summary.keyPositions).toHaveLength(1)
+  })
+
+  it('read endpoint returns summary null when no summary row exists', async () => {
+    await seedCollectedRow()
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary).toBeNull()
+  })
+
+  it('idempotently replaces summaries on re-run (no dupes)', async () => {
+    await seedCollectedRow()
+    const first = await seedSummaryRun('summary-first')
+    stubSummaryArtifact(summaryArtifact())
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(first)
+
+    const second = await seedSummaryRun('summary-second')
+    stubSummaryArtifact(
+      summaryArtifact({
+        overview: { text: 'updated overview', sources: [BALLOTPEDIA_URL] },
+      }),
+    )
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(second)
+
+    const stored = await service.prisma.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    expect(stored).toHaveLength(1)
+    expect(stored[0].runId).toBe('summary-second')
+  })
+
+  it('rejects an artifact whose section has no source_url and persists nothing', async () => {
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-unsourced')
+    stubSummaryArtifact(
+      summaryArtifact({
+        overview: { text: 'unsourced overview', sources: [] },
+      }),
+    )
+
+    await expect(
+      service.app.get(RaceOpponentPersistService).onExperimentRunCompleted(run),
+    ).rejects.toThrow()
+
+    const stored = await service.prisma.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    expect(stored).toHaveLength(0)
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'summary-unsourced' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
+  })
+
+  it('leaves prior summaries intact when an unsourced re-run is rejected', async () => {
+    await seedCollectedRow()
+    const first = await seedSummaryRun('summary-ok')
+    stubSummaryArtifact(summaryArtifact())
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(first)
+
+    const bad = await seedSummaryRun('summary-bad')
+    stubSummaryArtifact(
+      summaryArtifact({
+        overview: { text: 'unsourced', sources: [] },
+      }),
+    )
+    await expect(
+      service.app.get(RaceOpponentPersistService).onExperimentRunCompleted(bad),
+    ).rejects.toThrow()
+
+    const stored = await service.prisma.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    expect(stored).toHaveLength(1)
+    expect(stored[0].runId).toBe('summary-ok')
   })
 })
