@@ -149,6 +149,32 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
     expect(listed.data.contrasts[0].id).toBe(contrast.id)
   })
 
+  it('is idempotent: a second generate does not duplicate contrasts', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    await seedOpponentFindings(campaign.id, [
+      { category: 'voting_record', claim: CLEAN_CLAIM },
+    ])
+    await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
+    flagOn()
+
+    const first = await generate()
+    expect(first.data.contrasts).toHaveLength(1)
+
+    // Re-generate: the finding already has a contrast, so nothing new is made.
+    const second = await generate()
+    expect(second.status).toBe(201)
+    expect(second.data.contrasts).toHaveLength(0)
+    expect(second.data.routedToReviewCount).toBe(0)
+
+    const rows = await service.prisma.raceOpponentContrast.findMany({
+      where: { campaignId: campaign.id },
+    })
+    expect(rows).toHaveLength(1)
+    const listed = await list()
+    expect(listed.data.contrasts).toHaveLength(1)
+  })
+
   it('routes a near-the-line contrast to review and hides it from the candidate read path until a passed verdict lands', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedCompletedSelfPass(campaign.id)
@@ -238,6 +264,47 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
 
     const listed = await list()
     expect(listed.data.contrasts).toHaveLength(0)
+  })
+
+  it('409s when applying a verdict to an already-cleared contrast', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    await seedOpponentFindings(campaign.id, [
+      { category: 'voting_record', claim: INFLATED_CLAIM },
+    ])
+    await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
+    flagOn()
+
+    await generate()
+    const pending = await service.prisma.raceOpponentContrast.findFirstOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    await makeReviewerAdmin()
+
+    const firstVerdict = await service.client.put(
+      verdictPath(pending.id),
+      { verdict: ArtifactReviewVerdict.passed },
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+    expect(firstVerdict.status).toBe(200)
+
+    // A second verdict on the now-cleared contrast is a state conflict.
+    const secondVerdict = await service.client.put(
+      verdictPath(pending.id),
+      {
+        verdict: ArtifactReviewVerdict.failed,
+        failReason: 'changed my mind',
+      },
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+    expect(secondVerdict.status).toBe(409)
+
+    // The contrast stayed cleared — the rejected verdict did not re-block it.
+    const unchanged =
+      await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+        where: { id: pending.id },
+      })
+    expect(unchanged.status).toBe(RaceOpponentContrastStatus.cleared)
   })
 
   it('rejects an out-of-allowlist category server-side (no contrast)', async () => {

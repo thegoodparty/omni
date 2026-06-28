@@ -8,7 +8,6 @@ import {
   Put,
   Query,
   Req,
-  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -44,7 +43,8 @@ import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { Roles } from '@/authentication/decorators/Roles.decorator'
+import { UserRole } from '@/generated/prisma'
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { effectiveUser } from '@/authentication/util/effectiveUser.util'
 import { RaceOpponentService } from './services/raceOpponent.service'
@@ -186,11 +186,13 @@ export class RaceOpponentController {
     return this.contrastEngine.list(campaign.id)
   }
 
-  // Reviewer (Campaign Success) applies the fair-line verdict. Admin/M2M-gated
-  // — this acts on a single contrast across campaigns, not the owner's own, so
-  // it sits behind AdminOrM2MGuard rather than the @UseCampaign owner scope.
+  // Reviewer (Campaign Success) applies the fair-line verdict. Admin-human-only
+  // (@Roles), matching the briefing review precedent which is reviewer-only —
+  // the verdict needs a reviewer identity, so a pure-M2M caller (no effective
+  // user) must not reach it. This acts on a single contrast across campaigns,
+  // not the owner's own, so it intentionally skips the @UseCampaign owner scope.
   @Put('contrasts/:id/review-verdict')
-  @UseGuards(AdminOrM2MGuard)
+  @Roles(UserRole.admin)
   @ResponseSchema(RaceOpponentReviewSchema)
   applyContrastVerdict(
     @Param('id', ParseIntPipe) id: number,

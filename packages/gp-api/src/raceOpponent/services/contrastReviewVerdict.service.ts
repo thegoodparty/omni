@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -48,10 +49,16 @@ export class ContrastReviewVerdictService extends createPrismaBase(
 
     const contrast = await this.model.findUnique({
       where: { id: contrastId },
-      select: { id: true },
+      select: { status: true },
     })
     if (!contrast) {
       throw new NotFoundException('Contrast not found')
+    }
+    // Only a contrast still in the fair-line gate can take a verdict. Re-applying
+    // to an already-cleared/blocked (or never-routed) contrast would silently
+    // re-clear a blocked item or re-block a cleared one — a state conflict, 409.
+    if (contrast.status !== RaceOpponentContrastStatus.pending_review) {
+      throw new ConflictException('Contrast is not pending review')
     }
 
     const failed = verdict === ArtifactReviewVerdict.failed

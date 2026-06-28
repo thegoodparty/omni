@@ -14,6 +14,7 @@ import {
   RaceOpponentFinding,
   RaceOpponentFindingKind,
 } from '@/generated/prisma'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContrastToneService } from './contrastTone.service'
 
 const DEFAULT_ROUTING: RaceOpponentContrastRouting = 'story'
@@ -45,14 +46,21 @@ export class ContrastEngineService extends createPrismaBase(
     super()
   }
 
+  // Idempotent: a contrast already exists for a (campaign, finding) pair is
+  // skipped (pre-check), and the @@unique([campaignId, findingId]) index is the
+  // race-proof backstop — a concurrent generate that slips past the pre-check
+  // hits P2002 and is treated as already-done, never a duplicate. So a second
+  // generate() never inflates the response, routedToReviewCount, or list().
   async generate(campaignId: number): Promise<GenerateContrastsResponse> {
     const findings = await this.loadOpponentFindings(campaignId)
     const positions = await this.loadCandidatePositions(campaignId)
+    const alreadyContrasted = await this.existingFindingIds(campaignId)
 
     const cleared: RaceOpponentContrastDTO[] = []
     let routedToReviewCount = 0
 
     for (const finding of findings) {
+      if (alreadyContrasted.has(finding.id)) continue
       if (!this.tone.isCategoryAllowed(finding.category)) continue
 
       const match = this.matchPosition(finding, positions)
@@ -62,7 +70,37 @@ export class ContrastEngineService extends createPrismaBase(
         this.draftSentence(finding, match),
       )
 
-      const row = await this.model.create({
+      const row = await this.createContrast(
+        campaignId,
+        finding,
+        match,
+        sentence,
+        nearTheLine,
+      )
+      if (!row) continue
+
+      if (nearTheLine) {
+        routedToReviewCount += 1
+      } else {
+        cleared.push(toDTO(row))
+      }
+    }
+
+    return { contrasts: cleared, routedToReviewCount }
+  }
+
+  // Returns null when a concurrent generate already created the contrast for
+  // this finding (P2002 on the unique index) — the row exists, which is all the
+  // idempotent caller needs. Any other Prisma error is rethrown.
+  private async createContrast(
+    campaignId: number,
+    finding: RaceOpponentFinding,
+    match: CandidatePosition,
+    sentence: string,
+    nearTheLine: boolean,
+  ): Promise<RaceOpponentContrastRow | null> {
+    try {
+      return await this.model.create({
         data: {
           campaignId,
           findingId: finding.id,
@@ -77,15 +115,20 @@ export class ContrastEngineService extends createPrismaBase(
             : RaceOpponentContrastStatus.cleared,
         },
       })
-
-      if (nearTheLine) {
-        routedToReviewCount += 1
-      } else {
-        cleared.push(toDTO(row))
-      }
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return null
+      throw error
     }
+  }
 
-    return { contrasts: cleared, routedToReviewCount }
+  private async existingFindingIds(campaignId: number): Promise<Set<number>> {
+    const rows = await this.model.findMany({
+      where: { campaignId, findingId: { not: null } },
+      select: { findingId: true },
+    })
+    return new Set(
+      rows.flatMap((r) => (r.findingId === null ? [] : [r.findingId])),
+    )
   }
 
   async list(campaignId: number): Promise<ListContrastsResponse> {

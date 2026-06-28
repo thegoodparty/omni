@@ -104,6 +104,11 @@ model RaceOpponentContrast {
   routedOutreach   Outreach?                  @relation(fields: [routedOutreachId], references: [id], onDelete: SetNull)
   routedOutreachId Int?                       @map("routed_outreach_id")
 
+  // One contrast per (campaign, finding): generate() is idempotent — a retry or
+  // re-generate must not insert a duplicate contrast for a finding it already
+  // produced. findingId is always set at generate time; manually-authored
+  // contrasts with a null findingId are not deduped (NULLS DISTINCT default).
+  @@unique([campaignId, findingId])
   @@index([campaignId, status])
   @@map("race_opponent_contrast")
 }
