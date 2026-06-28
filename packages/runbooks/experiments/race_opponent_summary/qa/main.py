@@ -1,7 +1,10 @@
 """race_opponent_summary deterministic QA gate entrypoint (PMF QA-gate contract).
 
-OBSERVE-ONLY. Always exits 0 (a nonzero exit is reserved for an actual crash)
-and prints a contract fragment array on stdout.
+OBSERVE-ONLY. Always exits 0 (a nonzero exit is reserved for an actual crash:
+a missing schema file or a non-JSON / non-dict artifact root) and prints a
+contract fragment array on stdout. Grading a successfully-loaded artifact is
+wrapped so any degenerate-but-parseable shape degrades to a gate_error fragment
+rather than crashing the gate.
 
 What it checks, mechanically and cheaply, against the artifact alone:
   1. Schema validity against the runner-written contract schema.
@@ -65,9 +68,15 @@ def load_artifact(artifact_path: Path) -> dict:
     except FileNotFoundError as e:
         raise RuntimeError(f"artifact not found at {artifact_path}") from e
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"artifact at {artifact_path} is not valid JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            f"artifact at {artifact_path} is valid JSON but not a dict "
+            f"(got {type(parsed).__name__})"
+        )
+    return parsed
 
 
 def has_valid_sources(section: dict) -> bool:
@@ -141,6 +150,8 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     if not present_ok:
         present_frag["severity"] = "error"
         present_frag["detail"] = "artifact has zero opponents"
+        fragments.append(present_frag)
+        return fragments
     fragments.append(present_frag)
 
     sections = collect_sections(artifact)
@@ -197,9 +208,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    # load_schema / load_artifact raise on a missing file or non-JSON / non-dict
+    # input — those are real crashes the engine records (nonzero exit). Grading a
+    # successfully-loaded artifact must NOT crash on any degenerate-but-parseable
+    # shape: the gate is observe-only, so wrap it and degrade to a gate_error
+    # fragment at exit 0 rather than letting an unexpected exception escape.
     schema = load_schema(Path(args.workspace))
     artifact = load_artifact(Path(args.artifact))
-    fragments = build_fragments(artifact, schema)
+    try:
+        fragments = build_fragments(artifact, schema)
+    except Exception as e:  # noqa: BLE001 — observe-only: never crash on grading
+        fragments = [{
+            "name": "gate_error",
+            "passed": False,
+            "type": "deterministic",
+            "severity": "error",
+            "detail": f"{type(e).__name__}: {e}",
+        }]
     print(cap_stdout(fragments))
     return 0
 

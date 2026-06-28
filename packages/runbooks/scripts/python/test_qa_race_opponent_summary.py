@@ -157,7 +157,7 @@ class TestSchemaAbsentPath:
         assert _by_name(fragments, "opponents_present")["passed"] is True
         assert _by_name(fragments, "attribution_shape")["passed"] is True
 
-    def test_empty_opponents_fails_present_check(self):
+    def test_empty_opponents_fails_present_check_and_short_circuits(self):
         main = _fresh_main()
         main.jsonschema = None
         fragments = main.build_fragments(
@@ -165,6 +165,10 @@ class TestSchemaAbsentPath:
             _real_schema(),
         )
         assert _by_name(fragments, "opponents_present")["passed"] is False
+        # An empty list early-returns: it must NOT fall through to a vacuous
+        # attribution_shape passed=True (0 == 0) that contradicts the failure.
+        assert "attribution_shape" not in _names(fragments)
+        assert _names(fragments) == {"schema_valid", "opponents_present"}
 
     @pytest.mark.parametrize(
         "bad_opponents", [{"a": 1}, "a string", 5, None], ids=["dict", "str", "int", "none"]
@@ -283,6 +287,44 @@ class TestStdoutContractAndCrash:
         with pytest.raises(RuntimeError) as exc:
             main.main(["--artifact", str(artifact), "--workspace", str(ws)])
         assert "not valid JSON" in str(exc.value)
+
+    @pytest.mark.parametrize(
+        "root", ["[]", "null", "42", '"a string"'], ids=["list", "null", "int", "str"]
+    )
+    def test_valid_json_non_dict_root_raises_runtime_error(self, tmp_path, root):
+        """A valid-JSON but non-dict artifact root is ungradeable — same crash
+        class as a non-JSON file (load_schema guards this too)."""
+        main = _fresh_main()
+        ws = _write_workspace(tmp_path)
+        artifact = tmp_path / "artifact.json"
+        artifact.write_text(root, encoding="utf-8")
+        with pytest.raises(RuntimeError) as exc:
+            main.main(["--artifact", str(artifact), "--workspace", str(ws)])
+        assert "not a dict" in str(exc.value)
+
+
+class TestGradingBackstop:
+    def test_unexpected_grading_exception_degrades_to_gate_error(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """A parseable artifact whose grading would otherwise raise must produce a
+        gate_error fragment at exit 0, never a nonzero crash (observe-only)."""
+        main = _fresh_main()
+        ws = _write_workspace(tmp_path)
+        artifact = tmp_path / "artifact.json"
+        artifact.write_text(json.dumps(_valid_artifact()), encoding="utf-8")
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("synthetic grading failure")
+
+        monkeypatch.setattr(main, "build_fragments", _boom)
+
+        rc = main.main(["--artifact", str(artifact), "--workspace", str(ws)])
+        assert rc == 0
+        fragments = json.loads(capsys.readouterr().out)
+        ge = _by_name(fragments, "gate_error")
+        assert ge["passed"] is False
+        assert "synthetic grading failure" in ge["detail"]
 
 
 class TestStdoutCap:
